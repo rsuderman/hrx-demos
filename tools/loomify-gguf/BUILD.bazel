@@ -1,0 +1,31 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+iree_cc_library(
+    name = "source_builder",
+    srcs = ["source_builder.cc"],
+    hdrs = ["source_builder.h"],
+    cxxopts = _CXXOPTS,
+)
+
+# The first-party binary macro applies HRX-repository-relative link policy.
+# Its underlying rule retains HRX execution metadata for an external client.
+cc_binary(
+    name = "loomify-gguf",
+    srcs = ["main.cc"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        ":source_builder",
+        "@hrx_system//runtime/src/iree/base/tooling:flags",
+    ],
+)

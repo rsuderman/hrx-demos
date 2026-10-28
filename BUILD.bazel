@@ -1,8 +1,16 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
 package(default_visibility = ["//visibility:public"])
 
 alias(
     name = "loom-serve",
     actual = "@hrx_system//loom/src/loom/tools/loom-serve",
+)
+
+alias(
+    name = "loomify-gguf",
+    actual = "//tools/loomify-gguf",
 )
 
 filegroup(
