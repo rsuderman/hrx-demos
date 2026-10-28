@@ -1,0 +1,20 @@
+--- a/ggml/src/gguf.cpp
++++ b/ggml/src/gguf.cpp
+@@ -613,2 +613,7 @@
+         const int alignment_idx = gguf_find_key(ctx, GGUF_KEY_GENERAL_ALIGNMENT);
++        if (alignment_idx != -1 && gguf_get_kv_type(ctx, alignment_idx) != GGUF_TYPE_UINT32) {
++            GGML_LOG_ERROR("%s: general.alignment must have type uint32\n", __func__);
++            gguf_free(ctx);
++            return nullptr;
++        }
+         ctx->alignment = alignment_idx == -1 ? GGUF_DEFAULT_ALIGNMENT : gguf_get_val_u32(ctx, alignment_idx);
+@@ -662,3 +667,3 @@
+             ok = ok && gr.read(n_dims);
+-            if (n_dims > GGML_MAX_DIMS) {
++            if (n_dims == 0 || n_dims > GGML_MAX_DIMS) {
+                 GGML_LOG_ERROR("%s: tensor '%s' has invalid number of dimensions: %" PRIu32 " > %" PRIu32 "\n",
+@@ -675,3 +680,3 @@
+                 // check that all ne are non-negative
+-                if (info.t.ne[j] < 0) {
++                if (info.t.ne[j] <= 0) {
+                     GGML_LOG_ERROR("%s: tensor '%s' dimension %" PRIu32 " has invalid number of elements: %" PRIi64 " < 0\n",

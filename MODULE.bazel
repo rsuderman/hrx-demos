@@ -16,3 +16,14 @@ git_override(
 # HRX's test dependencies are not inherited by downstream modules. Keep this
 # development-only dependency aligned with the pinned HRX GoogleTest version.
 bazel_dep(name = "googletest", version = "1.17.0.bcr.2", dev_dependency = True)
+
+# Metadata-only GGUF inspection. No llama inference or device backend is built.
+git_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+git_repository(
+    name = "loomify_ggml",
+    remote = "https://github.com/amd-ecosystem/llama.cpp.git",
+    commit = "dace2471abb49c118f95e6be09b4b8de2c1118b2",
+    build_file = "//third_party/ggml:BUILD.ggml.bazel",
+    patches = ["//third_party/ggml:metadata_validation.patch"],
+    patch_args = ["-p1"],
+)
