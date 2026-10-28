@@ -8,11 +8,12 @@
 #include <vector>
 
 #include "iree/base/tooling/flags.h"
-#include "tools/loomify-gguf/gguf_info.h"
+#include "tools/loomify-gguf/model_descriptor.h"
 #include "tools/loomify-gguf/source_builder.h"
 
-IREE_FLAG(string, gguf, nullptr,
-          "Inspect a GGUF model catalog without loading tensor data.");
+IREE_FLAG(
+    string, gguf, nullptr,
+    "Load and report the GGUF model architecture without loading tensor data.");
 
 int main(int argc, char **argv) {
   // HRX flags use --name=value. Also accept the documented --gguf PATH form.
@@ -36,12 +37,13 @@ int main(int argc, char **argv) {
   argv = pointers.data();
   iree_flags_set_usage(
       "loomify-gguf",
-      "Inspect GGUF model information or print an empty loomcxx model entry.\n"
+      "Report a GGUF model architecture or print an empty loomcxx model "
+      "entry.\n"
       "\n"
       "Usage: loomify-gguf > model.cxx\n"
       "       loomify-gguf --gguf=PATH\n"
       "\n"
-      "GGUF inspection validates basic structure; it does not execute or "
+      "Architecture loading validates model structure; it does not execute or "
       "qualify\n"
       "a model. With no arguments, print the original empty C++ source.\n");
   iree_flags_parse_checked(IREE_FLAGS_PARSE_MODE_DEFAULT, &argc, &argv);
@@ -65,14 +67,16 @@ int main(int argc, char **argv) {
       std::fprintf(stderr, "loomify-gguf: cannot disable input buffering\n");
       return 1;
     }
-    hrx::loomify_gguf::GgufInfo info;
     std::string error;
-    if (!hrx::loomify_gguf::ReadGgufInfo(file.get(), &info, &error)) {
+    hrx::loomify_gguf::GgufCatalog catalog;
+    hrx::loomify_gguf::ModelDescriptor model;
+    if (!hrx::loomify_gguf::ReadGgufCatalog(file.get(), &catalog, &error) ||
+        !hrx::loomify_gguf::LoadModelDescriptor(catalog, &model, &error)) {
       std::fprintf(stderr, "loomify-gguf: '%s': %s\n", FLAG_gguf,
                    error.c_str());
       return 1;
     }
-    source = hrx::loomify_gguf::FormatGgufInfo(info);
+    source = hrx::loomify_gguf::FormatArchitecture(catalog, model);
   } else {
     source = hrx::loomify_gguf::EmitEmptyProgram();
   }

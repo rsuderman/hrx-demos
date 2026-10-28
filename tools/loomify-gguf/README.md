@@ -9,37 +9,59 @@ bazel run //:loomify-gguf > /tmp/model.cxx
 bazel run //:loomify-gguf -- --help
 ```
 
-Inspect a local model without loading its tensor payloads:
+Load a local model's architecture and print every tensor, including unbound
+extras, without loading its tensor payloads:
 
 ```sh
 bazel run //:loomify-gguf -- --gguf=/path/to/model.gguf
 ```
 
-The report includes the GGUF version, optional name, architecture, counts,
-alignment/data offset, metadata values and absolute tensor byte ranges. Arrays
-are summarized by type and length, not expanded. Reports contain at most 64
-metadata entries and 32 tensors, and text fields are bounded to 160 bytes.
-Tensor shapes have four extents, with absent dimensions padded to one by ggml.
-Storage type names describe the file; they do not qualify execution support.
-
-Inspection accepts little-endian GGUF v2/v3 and requires a nonempty
+Loading accepts little-endian GGUF v2/v3 and requires a nonempty
 `general.architecture` string. It validates catalog structure and every tensor
 span against the file size. It bounds header reads to 64 MiB and catalog counts
 to 4,096 metadata entries and 16,384 tensors. Files exceeding those inspection
 limits are rejected. The pinned maintained reader owns GGUF parsing; see
 [the dependency and patch notes](../../third_party/ggml/README.md).
 No report is written until validation succeeds. Failures write diagnostics to
-stderr and exit nonzero. Inspection does not require a GPU or tokenizer.
+stderr and exit nonzero. Loading does not require a GPU or tokenizer.
+
+This mode supports dense `llama` and `qwen35`, independently of model size or
+storage datatype. It validates required typed metadata, per-layer dimensions,
+logical tensor shapes, tied output, and ordered attention/recurrent identities.
+The report retains exact tensor names using lossless byte escaping and prints
+numeric ggml storage tags, readable names, normalized extents and absolute ranges.
+Qwen SSM history/state sizes are logical element counts per layer/sequence;
+they do not specify device allocation or runtime batching.
+
+The owned `GgufCatalog` in `gguf_catalog.h` retains all admitted tensors and all
+metadata keys/scalars. Source GGUF tags distinguish scalar widths. Numeric and
+boolean architecture arrays retain typed values; string arrays and tokenizer
+arrays retain type/count with `elements_omitted=true`. Tensor extents follow
+GGML order, padded to four dimensions; original rank is unavailable. The
+bounded `GgufInfo` presentation derives from this same parser path.
+`LoadModelDescriptor` produces owned global/per-layer role bindings with full
+storage facts; neither result borrows the parser or input file. Readers and
+loaders publish output only on success. Library file callers must disable stdio
+buffering before any I/O to prevent payload prefetch, as the CLI does.
+
+The initial descriptor rejects MoE, MTP, fused **attention** QKV layouts,
+optional biases/scales, unequal key/value widths, and unsupported RoPE schemes
+explicitly. Qwen GDN's fused QKV is a supported recurrent role. Linear/none RoPE
+scaling, base/width/sections/original context, and optional Llama
+`rope_freqs.weight` are retained. Other architectures remain available through
+the catalog inspection library; the CLI reports unsupported architectures as
+errors. Structural admission does not establish numerical or kernel
+compatibility, choose capacities, construct a pipeline, or read tensor payloads.
 
 The `:source_builder` library owns source construction independently of CLI
 and file handling. Both targets use the pinned HRX shared C++ build macros; the
 CLI uses HRX flag handling. This source-only tool does not need the C++ importer
 or a GPU to run.
 
-The output has a stable Loom symbol, `model.pipeline`, and imports as an ordinary
-empty function. It is groundwork for model construction. Architecture-specific
-validation, numerical providers, and inference are future stages; inspecting
-a GGUF does not construct an executable model.
+The no-argument source output has a stable Loom symbol, `model.pipeline`, and
+imports as an ordinary empty function. It is groundwork for model construction.
+Numerical providers and inference remain future stages; loading a GGUF
+architecture does not construct an executable model.
 
 To import the output into bytecode using the optional pinned HRX frontend:
 

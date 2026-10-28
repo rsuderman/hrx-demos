@@ -15,9 +15,17 @@ _CXXOPTS = select({
 iree_cc_library(
     name = "gguf_info",
     srcs = ["gguf_info.cc"],
-    hdrs = ["gguf_info.h"],
+    hdrs = ["gguf_info.h", "gguf_catalog.h"],
     cxxopts = _CXXOPTS,
     deps = ["@loomify_ggml//:metadata"],
+)
+
+iree_cc_library(
+    name = "model_descriptor",
+    srcs = ["model_descriptor.cc"],
+    hdrs = ["model_descriptor.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":gguf_info"],
 )
 
 iree_cc_library(
@@ -35,6 +43,7 @@ cc_binary(
     cxxopts = _CXXOPTS,
     deps = [
         ":gguf_info",
+        ":model_descriptor",
         ":source_builder",
         "@hrx_system//runtime/src/iree/base/tooling:flags",
     ],

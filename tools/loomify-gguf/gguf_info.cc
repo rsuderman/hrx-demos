@@ -1,12 +1,14 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/loomify-gguf/gguf_info.h"
+#include "tools/loomify-gguf/gguf_catalog.h"
 
 #include <algorithm>
 #include <cstring>
 #include <exception>
 #include <memory>
 #include <sstream>
+#include <type_traits>
 
 #include "gguf.h"
 
@@ -86,62 +88,103 @@ bool StringField(const gguf_context *ctx, const char *key, bool required,
     *error = std::string("expected nonempty string metadata: ") + key;
     return false;
   }
-  *value = Text(gguf_get_val_str(ctx, id));
+  *value = gguf_get_val_str(ctx, id);
   return true;
 }
 
-std::string MetadataValue(const gguf_context *ctx, int64_t id) {
-  std::ostringstream out;
+template <typename T> MetadataScalar ArrayElement(const void *data, size_t i) {
+  T value;
+  std::memcpy(&value, static_cast<const unsigned char *>(data) + i * sizeof(T),
+              sizeof(T));
+  if constexpr (std::is_floating_point_v<T>)
+    return double(value);
+  else if constexpr (std::is_signed_v<T>)
+    return int64_t(value);
+  else
+    return uint64_t(value);
+}
+MetadataScalar ScalarValue(const gguf_context *ctx, int64_t id) {
   switch (gguf_get_kv_type(ctx, id)) {
   case GGUF_TYPE_UINT8:
-    out << unsigned(gguf_get_val_u8(ctx, id));
-    break;
-  case GGUF_TYPE_INT8:
-    out << int(gguf_get_val_i8(ctx, id));
-    break;
+    return uint64_t(gguf_get_val_u8(ctx, id));
   case GGUF_TYPE_UINT16:
-    out << gguf_get_val_u16(ctx, id);
-    break;
-  case GGUF_TYPE_INT16:
-    out << gguf_get_val_i16(ctx, id);
-    break;
+    return uint64_t(gguf_get_val_u16(ctx, id));
   case GGUF_TYPE_UINT32:
-    out << gguf_get_val_u32(ctx, id);
-    break;
-  case GGUF_TYPE_INT32:
-    out << gguf_get_val_i32(ctx, id);
-    break;
+    return uint64_t(gguf_get_val_u32(ctx, id));
   case GGUF_TYPE_UINT64:
-    out << gguf_get_val_u64(ctx, id);
-    break;
+    return gguf_get_val_u64(ctx, id);
+  case GGUF_TYPE_INT8:
+    return int64_t(gguf_get_val_i8(ctx, id));
+  case GGUF_TYPE_INT16:
+    return int64_t(gguf_get_val_i16(ctx, id));
+  case GGUF_TYPE_INT32:
+    return int64_t(gguf_get_val_i32(ctx, id));
   case GGUF_TYPE_INT64:
-    out << gguf_get_val_i64(ctx, id);
-    break;
+    return gguf_get_val_i64(ctx, id);
   case GGUF_TYPE_FLOAT32:
-    out << gguf_get_val_f32(ctx, id);
-    break;
+    return double(gguf_get_val_f32(ctx, id));
   case GGUF_TYPE_FLOAT64:
-    out << gguf_get_val_f64(ctx, id);
-    break;
+    return gguf_get_val_f64(ctx, id);
   case GGUF_TYPE_BOOL:
-    out << (gguf_get_val_bool(ctx, id) ? "true" : "false");
-    break;
+    return gguf_get_val_bool(ctx, id);
   case GGUF_TYPE_STRING:
-    out << '"' << Text(gguf_get_val_str(ctx, id)) << '"';
-    break;
-  case GGUF_TYPE_ARRAY:
-    out << "array<" << gguf_type_name(gguf_get_arr_type(ctx, id)) << ">["
-        << gguf_get_arr_n(ctx, id) << ']';
-    break;
+    return std::string(gguf_get_val_str(ctx, id));
   default:
-    out << "unknown";
-    break;
+    return uint64_t{0};
+  }
+}
+MetadataScalar ElementValue(uint32_t type, const void *data, size_t i) {
+  switch (type) {
+  case GGUF_TYPE_UINT8:
+    return ArrayElement<uint8_t>(data, i);
+  case GGUF_TYPE_UINT16:
+    return ArrayElement<uint16_t>(data, i);
+  case GGUF_TYPE_UINT32:
+    return ArrayElement<uint32_t>(data, i);
+  case GGUF_TYPE_UINT64:
+    return ArrayElement<uint64_t>(data, i);
+  case GGUF_TYPE_INT8:
+    return ArrayElement<int8_t>(data, i);
+  case GGUF_TYPE_INT16:
+    return ArrayElement<int16_t>(data, i);
+  case GGUF_TYPE_INT32:
+    return ArrayElement<int32_t>(data, i);
+  case GGUF_TYPE_INT64:
+    return ArrayElement<int64_t>(data, i);
+  case GGUF_TYPE_FLOAT32:
+    return ArrayElement<float>(data, i);
+  case GGUF_TYPE_FLOAT64:
+    return ArrayElement<double>(data, i);
+  case GGUF_TYPE_BOOL:
+    return bool(std::get<uint64_t>(ArrayElement<uint8_t>(data, i)));
+  default:
+    return uint64_t{0};
+  }
+}
+std::string DisplayValue(const MetadataRecord &field) {
+  std::ostringstream out;
+  if (field.source_type == GGUF_TYPE_ARRAY) {
+    out << "array<"
+        << gguf_type_name(static_cast<gguf_type>(field.element_type)) << ">["
+        << field.element_count << ']';
+  } else {
+    std::visit(
+        [&](const auto &value) {
+          using T = std::decay_t<decltype(value)>;
+          if constexpr (std::is_same_v<T, std::string>)
+            out << '\"' << Text(value.c_str()) << '\"';
+          else if constexpr (std::is_same_v<T, bool>)
+            out << (value ? "true" : "false");
+          else
+            out << value;
+        },
+        field.scalar);
   }
   return out.str();
 }
 } // namespace
 
-bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
+bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
   if (!file || !info || !error)
     return false;
   if (Seek(file, 0, SEEK_END) != 0) {
@@ -183,11 +226,9 @@ bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
                "inspection limit (see reader diagnostic)";
       return false;
     }
-    GgufInfo result;
+    GgufCatalog result;
     result.version = gguf_get_version(ctx.get());
     result.file_size = static_cast<uint64_t>(length);
-    result.metadata_count = static_cast<uint64_t>(gguf_get_n_kv(ctx.get()));
-    result.tensor_count = static_cast<uint64_t>(gguf_get_n_tensors(ctx.get()));
     result.alignment = gguf_get_alignment(ctx.get());
     result.data_offset = gguf_get_data_offset(ctx.get());
     result.bytes_read = reader.bytes + sizeof(header);
@@ -196,10 +237,24 @@ bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
         !StringField(ctx.get(), "general.name", false, &result.name, error))
       return false;
     for (int64_t i = 0; i < gguf_get_n_kv(ctx.get()); ++i) {
-      if (result.metadata.size() < kReportMetadataLimit) {
-        result.metadata.push_back(
-            {Text(gguf_get_key(ctx.get(), i)), MetadataValue(ctx.get(), i)});
-      }
+      MetadataRecord field;
+      field.key = gguf_get_key(ctx.get(), i);
+      field.source_type = gguf_get_kv_type(ctx.get(), i);
+      if (field.source_type == GGUF_TYPE_ARRAY) {
+        field.element_type = gguf_get_arr_type(ctx.get(), i);
+        field.element_count = gguf_get_arr_n(ctx.get(), i);
+        // Tokenizer arrays are not architecture inputs; retain explicit
+        // summaries.
+        field.elements_omitted = field.element_type == GGUF_TYPE_STRING ||
+                                 field.key.rfind("tokenizer.", 0) == 0;
+        if (!field.elements_omitted) {
+          const void *data = gguf_get_arr_data(ctx.get(), i);
+          for (size_t j = 0; j < field.element_count; ++j)
+            field.elements.push_back(ElementValue(field.element_type, data, j));
+        }
+      } else
+        field.scalar = ScalarValue(ctx.get(), i);
+      result.metadata.push_back(std::move(field));
     }
     for (int64_t i = 0; i < gguf_get_n_tensors(ctx.get()); ++i) {
       const uint64_t relative = gguf_get_tensor_offset(ctx.get(), i);
@@ -211,15 +266,17 @@ bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
                  Text(gguf_get_tensor_name(ctx.get(), i));
         return false;
       }
-      if (result.tensors.size() < kReportTensorLimit) {
-        TensorInfo tensor;
-        tensor.name = Text(gguf_get_tensor_name(ctx.get(), i));
+      {
+        TensorRecord tensor;
+        tensor.name = gguf_get_tensor_name(ctx.get(), i);
         const int64_t *shape = gguf_get_tensor_ne(ctx.get(), i);
-        std::copy_n(shape, tensor.shape.size(), tensor.shape.begin());
-        tensor.storage_type =
+        std::copy_n(shape, tensor.normalized_extents.size(),
+                    tensor.normalized_extents.begin());
+        tensor.storage_type = gguf_get_tensor_type(ctx.get(), i);
+        tensor.storage_name =
             ggml_type_name(gguf_get_tensor_type(ctx.get(), i));
-        tensor.offset = result.data_offset + relative;
-        tensor.size = bytes;
+        tensor.absolute_offset = result.data_offset + relative;
+        tensor.byte_size = bytes;
         result.tensors.push_back(std::move(tensor));
       }
     }
@@ -231,6 +288,51 @@ bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
   }
 }
 
+const MetadataRecord *FindMetadata(const GgufCatalog &catalog,
+                                   const std::string &key) {
+  for (const auto &field : catalog.metadata)
+    if (field.key == key)
+      return &field;
+  return nullptr;
+}
+const TensorRecord *FindTensor(const GgufCatalog &catalog,
+                               const std::string &name) {
+  for (const auto &tensor : catalog.tensors)
+    if (tensor.name == name)
+      return &tensor;
+  return nullptr;
+}
+bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
+  if (!info)
+    return false;
+  GgufCatalog catalog;
+  if (!ReadGgufCatalog(file, &catalog, error))
+    return false;
+  GgufInfo result;
+  result.version = catalog.version;
+  result.file_size = catalog.file_size;
+  result.metadata_count = catalog.metadata.size();
+  result.tensor_count = catalog.tensors.size();
+  result.alignment = catalog.alignment;
+  result.data_offset = catalog.data_offset;
+  result.bytes_read = catalog.bytes_read;
+  result.name = Text(catalog.name.c_str());
+  result.architecture = Text(catalog.architecture.c_str());
+  for (const auto &field : catalog.metadata) {
+    if (result.metadata.size() == kReportMetadataLimit)
+      break;
+    result.metadata.push_back({Text(field.key.c_str()), DisplayValue(field)});
+  }
+  for (const auto &tensor : catalog.tensors) {
+    if (result.tensors.size() == kReportTensorLimit)
+      break;
+    result.tensors.push_back({Text(tensor.name.c_str()),
+                              tensor.normalized_extents, tensor.storage_name,
+                              tensor.absolute_offset, tensor.byte_size});
+  }
+  *info = std::move(result);
+  return true;
+}
 std::string FormatGgufInfo(const GgufInfo &info) {
   std::ostringstream out;
   out << "GGUF version: " << info.version

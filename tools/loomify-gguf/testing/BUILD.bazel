@@ -23,3 +23,16 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "model_descriptor_test",
+    size = "small",
+    srcs = ["model_descriptor_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//tools/loomify-gguf:model_descriptor",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
