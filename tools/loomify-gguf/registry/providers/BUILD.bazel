@@ -1,0 +1,35 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+iree_cc_library(
+    name = "provider_registry",
+    srcs = ["provider_registry.cc"],
+    hdrs = ["provider_registry.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["@hrx_system//loom/binding/c:loomc"],
+)
+
+cc_test(
+    name = "provider_registry_test",
+    size = "small",
+    srcs = ["provider_registry_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        ":provider_registry",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+    ],
+)

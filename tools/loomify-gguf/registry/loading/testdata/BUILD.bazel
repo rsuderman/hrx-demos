@@ -1,0 +1,16 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+
+package(default_visibility = ["//tools/loomify-gguf/registry:__subpackages__"])
+
+loom_library(
+    name = "decode_control_provider",
+    srcs = ["//loom-pipeline:llm/qwen/kernels/qwen38/decode_control.loom"],
+)
+
+loom_library(
+    name = "qk_common_provider",
+    srcs = ["//loom-pipeline:llm/motifs/ggml/linear_qk_common.loom"],
+)
