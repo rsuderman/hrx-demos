@@ -12,3 +12,7 @@ git_override(
     remote = "https://github.com/ROCm/hrx-system.git",
     commit = "61417137f334cfa828b38d6e9b0f2d7190503f16",
 )
+
+# HRX's test dependencies are not inherited by downstream modules. Keep this
+# development-only dependency aligned with the pinned HRX GoogleTest version.
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2", dev_dependency = True)

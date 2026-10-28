@@ -1,0 +1,25 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+# Use the execution-aware rule directly: the first-party wrapper's link policy
+# contains repository-relative configuration labels at the pinned HRX version.
+cc_test(
+    name = "framework_test",
+    size = "small",
+    srcs = ["framework_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//tools/loomify-gguf:source_builder",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
