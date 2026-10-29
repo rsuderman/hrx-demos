@@ -119,8 +119,9 @@ loomc_status_t Apply(CommandProgramBuilder &program, std::string_view name,
 
 class Recipe {
 public:
-  Recipe(ModuleBuilder &module, CommandProgramBuilder &program)
-      : module(module), program(program), values(program) {}
+  Recipe(ModuleBuilder &module, CommandProgramBuilder &program,
+         KernelRef rms_norm)
+      : module(module), program(program), values(program), rms_norm(rms_norm) {}
   loomc_status_t Index(uint64_t number, Value *out) {
     return values.Constant(static_cast<int64_t>(number), LOOM_SCALAR_TYPE_INDEX,
                            out);
@@ -166,27 +167,33 @@ public:
                       Value output) {
     Value weight;
     RETURN_IF_ERROR(Weight(tensor, &weight));
-    return Launch("llama32_rmsnorm_f32", {one}, {one, input, weight, output});
+    return program.Invoke(rms_norm, {one}, {one, input, weight, output});
   }
   ModuleBuilder &module;
   CommandProgramBuilder &program;
   CommandValues values;
+  KernelRef rms_norm;
   Value one, zero, origin, count32, yes, no, hidden, ffn, kv, kind;
 };
 } // namespace
 
 loomc_status_t DefineLlamaStep(const model::ModelDescriptor &model,
-                               ModuleBuilder &module, LlamaStepKind kind,
-                               std::string_view name, ProgramRef *out) {
+                               ModuleBuilder &module, KernelRef rms_norm,
+                               LlamaStepKind kind, std::string_view name,
+                               ProgramRef *out) {
   if (!out || name.empty())
     return Invalid("missing Llama step name/output");
   *out = {};
   if (kind != LlamaStepKind::kPrefill && kind != LlamaStepKind::kDecode)
     return Invalid("invalid Llama step kind");
   RETURN_IF_ERROR(Validate(model));
+  auto index = module.Scalar(LOOM_SCALAR_TYPE_INDEX);
+  auto buffer = module.Buffer();
+  RETURN_IF_ERROR(module.CheckKernelInterface(rms_norm, {index},
+                                              {index, buffer, buffer, buffer}));
   std::unique_ptr<CommandProgramBuilder> program;
   RETURN_IF_ERROR(module.DefineProgram(name, {}, 7, &program));
-  Recipe r(module, *program);
+  Recipe r(module, *program, rms_norm);
   RETURN_IF_ERROR(r.Index(1, &r.one));
   RETURN_IF_ERROR(r.Index(0, &r.zero));
   RETURN_IF_ERROR(r.Index(kind == LlamaStepKind::kDecode ? 1 : 0, &r.kind));

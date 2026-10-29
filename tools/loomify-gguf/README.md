@@ -56,3 +56,10 @@ it does not exercise a complete serving-session weight-gather lifecycle.
 Generated artifacts belong outside the checkout. This developer target is not
 included in the serving wheel. Architecture/tensor reports remain available in
 [loom-model-inspect](../loom-model-inspect/README.md).
+
+A separate [full-model C++ authoring example](authoring/model-full/README.md)
+constructs the supported Llama 3.2 3B Q4_K_M single-token prefill/decode recipe.
+Its emitter can demonstrate caller-selected native RMSNorm kernel authoring with
+`--authored-rmsnorm`. This is a separate developer tool; the embedding CLI above
+continues to generate only its documented bounded stage. Full-model trajectory
+checks and remaining tensor/logit qualification are distinguished in that example.

@@ -28,9 +28,26 @@ enum class LlamaStepKind { kPrefill, kDecode };
 // control/progress via the existing numerical finish adapter. This is a
 // computational root, not a serving adapter or a qualification claim for the
 // preexisting numerical providers.
+// rms_norm is chosen by the caller in this same module. It must accept one
+// index workload and (index, buffer, buffer, buffer) launch arguments,
+// implementing weighted F32 RMSNorm for this qualified profile. The recipe
+// invokes it directly for both per-layer normalizations and the final output
+// normalization.
 loomc_status_t DefineLlamaStep(const model::ModelDescriptor &model,
-                               ModuleBuilder &module, LlamaStepKind kind,
-                               std::string_view name, ProgramRef *out);
+                               ModuleBuilder &module, KernelRef rms_norm,
+                               LlamaStepKind kind, std::string_view name,
+                               ProgramRef *out);
+
+// Author a distinct numerical kernel through native Loom builders, reusing the
+// existing llm.rmsnorm.row template motif rather than duplicating its
+// arithmetic. The supported profile is width3072, epsilon1e-5, F32
+// input/gamma/output and disjoint buffers, with one workgroup per row and 256
+// invocations per workgroup. Workload and launch row counts must agree and lie
+// in [1,2048], matching the existing numerical adapter contract.
+// The motif declaration/providers must already be
+// available to the module.
+loomc_status_t DefineLlamaRmsNorm(ModuleBuilder &module, std::string_view name,
+                                  KernelRef *out);
 
 } // namespace hrx::loomify_gguf
 

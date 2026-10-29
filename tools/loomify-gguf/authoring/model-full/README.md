@@ -16,9 +16,11 @@ independent tensor/logit fidelity of the numerical providers.
 
 ```cpp
 ProgramRef prefill, decode;
-DefineLlamaStep(descriptor, module, LlamaStepKind::kPrefill,
+KernelRef rms_norm;
+module.Kernel("llama32_rmsnorm_f32", &rms_norm);
+DefineLlamaStep(descriptor, module, rms_norm, LlamaStepKind::kPrefill,
                 "model.prefill", &prefill);
-DefineLlamaStep(descriptor, module, LlamaStepKind::kDecode,
+DefineLlamaStep(descriptor, module, rms_norm, LlamaStepKind::kDecode,
                 "model.decode", &decode);
 module.LinkAndVerify({prefill, decode}, &output, &result);
 ```
@@ -51,6 +53,44 @@ configured IR context admits their target operations. Its strict output roots ar
 `generated.llama_prefill` and `generated.llama_decode`; unreferenced original model
 commands are excluded even when the input numerical module came from mixed source
 files. Weights are external and are never embedded in the output.
+
+## Authoring and selecting a numerical kernel
+
+The RMSNorm interface is supplied by the caller as a `KernelRef`, reused across
+all 57 normalization launches per step. The recipe checks its owner and declared
+workload/argument types before creating a command body; incompatible or foreign
+references are rejected without leaving an unfinished definition behind.
+
+For a concrete authored replacement:
+
+```cpp
+KernelRef rms_norm;
+DefineLlamaRmsNorm(module, "my.rmsnorm", &rms_norm);
+DefineLlamaStep(descriptor, module, rms_norm, LlamaStepKind::kPrefill,
+                "model.prefill", &prefill);
+```
+
+`DefineLlamaRmsNorm` authors a distinct kernel using native Loom builders. Its
+256-invocation workgroup handles one row, and its body applies the existing
+`llm.rmsnorm.row` numerical motif with width3072 and epsilon1e-5. It reuses that
+motif's arithmetic/reduction implementation and preserves the disjoint-buffer
+contract. Workload and launch row counts agree and use the existing [1,2048]
+range and row-index bounds. This example is native Loom kernel authoring; the separate
+[computation example](../computation/README.md) demonstrates loomcxx import.
+
+The emitter's `--authored-rmsnorm` option constructs that replacement and passes
+its reference to both full-model roots. Omitting the option selects the existing
+RMSNorm kernel. Neither path changes the model command recipe or its oracle:
+
+```sh
+bazel-bin/tools/loomify-gguf/authoring/model-full/emit_llama_step \
+  MODEL.gguf NUMERICAL_DEFINITIONS.loombc OUTPUT.loombc --authored-rmsnorm
+```
+
+Inspect the emitted module for `kernel.launch @authored.llama_rmsnorm` in all114
+normalization sites across both roots, and its `template.apply<@llm.rmsnorm.row>`
+body. No launch should select `@llama32_rmsnorm_f32` in this variant. Recompute
+parameter reflection for the selected execution root before numerical validation.
 
 ## Invocation ABI
 
@@ -87,7 +127,8 @@ interpreting a numerical result.
 
 `llama_step_test` checks supported profile admission, all-layer construction,
 explicit prefill/decode template paths, strict source linking and text/bytecode
-reload. Its no-op numerical contracts isolate host construction; open template
+reload, both existing and authored RMSNorm selection, and recoverable rejection
+of incompatible/foreign references. Its no-op numerical contracts isolate host construction; open template
 applicability is subsequently resolved by the real numerical providers.
 
 Real checkpoint execution requires external assets and target support. Validate

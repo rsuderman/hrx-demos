@@ -226,6 +226,46 @@ loomc_status_t ModuleBuilder::Kernel(std::string_view name,
   out->symbol_ = id;
   return loomc_ok_status();
 }
+loomc_status_t
+ModuleBuilder::CheckKernelInterface(KernelRef kernel,
+                                    const std::vector<Type> &workloads,
+                                    const std::vector<Type> &arguments) const {
+  auto status = state_->Mutable();
+  if (!loomc_status_is_ok(status))
+    return status;
+  if (kernel.owner_ != state_->identity ||
+      kernel.symbol_ >= state_->native->symbols.count)
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                 "foreign or invalid kernel reference");
+  const auto *op = state_->native->symbols.entries[kernel.symbol_].defining_op;
+  std::vector<loom_value_id_t> signature[2];
+  if (op && loom_kernel_def_isa(op)) {
+    signature[0] = BlockArguments(loom_kernel_def_config(op));
+    signature[1] = BlockArguments(loom_kernel_def_body(op));
+  } else if (op && loom_kernel_decl_isa(op)) {
+    signature[0] = Copy(loom_kernel_decl_workloads(op));
+    signature[1] = Copy(loom_kernel_decl_args(op));
+  } else {
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT, "reference is not a kernel");
+  }
+  for (int group = 0; group < 2; ++group) {
+    const auto &expected = group ? arguments : workloads;
+    if (signature[group].size() != expected.size())
+      return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                   "kernel declared operand group count mismatch");
+    for (size_t i = 0; i < expected.size(); ++i) {
+      if (expected[i].owner_ != state_->identity ||
+          !loom_type_equal(
+              expected[i].type_,
+              loom_module_value_type(state_->native, signature[group][i])))
+        return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                     "kernel declared operand type mismatch in " +
+                         std::string(group ? "arguments" : "workloads") +
+                         " at " + std::to_string(i));
+    }
+  }
+  return loomc_ok_status();
+}
 loomc_status_t ModuleBuilder::KernelPipeline(std::string_view name,
                                              KernelPipelineRef *out) const {
   if (!out)

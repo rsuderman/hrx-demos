@@ -108,6 +108,12 @@ public:
   Type Scalar(loom_scalar_type_t type) const;
   Type Buffer() const;
   loomc_status_t Kernel(std::string_view name, KernelRef *out) const;
+  // Read-only preflight for a recipe's declared static interface, before
+  // creating any bodies. Exact type equality; invocation separately checks
+  // value-dependent operands and supported buffer materialization.
+  loomc_status_t CheckKernelInterface(KernelRef kernel,
+                                      const std::vector<Type> &workloads,
+                                      const std::vector<Type> &arguments) const;
   loomc_status_t KernelPipeline(std::string_view name,
                                 KernelPipelineRef *out) const;
   loomc_status_t Program(std::string_view name, ProgramRef *out) const;

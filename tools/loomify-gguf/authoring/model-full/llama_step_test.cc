@@ -78,6 +78,8 @@ std::string Definitions() {
     text +=
         "template.decl @" + std::string(name) + "(" + Arguments(args) + ")\n";
   };
+  family("llm.rmsnorm.row", {"index", "f32", "index", "index", "offset", "i1",
+                             "f32", "buffer", "buffer", "buffer"});
   family("llm.ffn.gate_up_decode",
          {"index", "index", "i1", "i1", "i1", "i1", "index", "index",
           "view<[%a6]xi8>", "view<[%a6]xi8>", "buffer", "buffer"});
@@ -207,7 +209,7 @@ protected:
     loomc_result_t *r = nullptr;
     ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
         c, w, s, nullptr, loomc_allocator_system(), &d, &r)));
-    Owner<loomc_module_t, loomc_module_release> definitions(d);
+    definitions.reset(d);
     Owner<loomc_result_t, loomc_result_release> result(r);
     if (!loomc_result_succeeded(r))
       for (size_t i = 0; i < loomc_result_diagnostic_count(r); ++i) {
@@ -217,50 +219,82 @@ protected:
       }
     ASSERT_TRUE(loomc_result_succeeded(r));
     ASSERT_TRUE(Ok(ModuleBuilder::Create(c, w, d, &module)));
+    ASSERT_TRUE(Ok(module->Kernel("llama32_rmsnorm_f32", &rms_norm)));
   }
   Owner<loomc_context_t, loomc_context_release> context;
   Owner<loomc_workspace_t, loomc_workspace_release> workspace;
+  Owner<loomc_module_t, loomc_module_release> definitions;
   std::unique_ptr<ModuleBuilder> module;
+  KernelRef rms_norm;
 };
 TEST_F(LlamaStepTest,
        ConstructsEveryLayerAndReloadsBytecodeWithoutOldCommands) {
   auto model = Descriptor();
-  ProgramRef prefill, decode;
-  ASSERT_TRUE(Ok(DefineLlamaStep(model, *module, LlamaStepKind::kPrefill,
-                                 "authored.prefill", &prefill)));
-  ASSERT_TRUE(Ok(DefineLlamaStep(model, *module, LlamaStepKind::kDecode,
-                                 "authored.decode", &decode)));
-  loomc_module_t *output = nullptr;
-  loomc_result_t *result = nullptr;
-  ASSERT_TRUE(Ok(module->LinkAndVerify({prefill, decode}, &output, &result)));
-  Owner<loomc_module_t, loomc_module_release> artifact(output);
-  Owner<loomc_result_t, loomc_result_release> linked(result);
-  ASSERT_TRUE(loomc_result_succeeded(result));
-  for (auto format : {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
-    loomc_module_serialize_options_t options = {};
-    options.format = format;
-    loomc_source_t *source = nullptr;
-    ASSERT_TRUE(Ok(loomc_module_serialize_to_source(
-        output, &options, loomc_allocator_system(), &source)));
-    Owner<loomc_source_t, loomc_source_release> serialized(source);
-    if (format == LOOMC_SOURCE_FORMAT_TEXT) {
-      auto b = loomc_source_contents(source);
-      std::string text(reinterpret_cast<const char *>(b.data), b.data_length);
-      EXPECT_EQ(text.find("command.program.launch"), std::string::npos);
-      for (uint32_t i = 0; i < 28; ++i)
-        EXPECT_NE(text.find("blk." + std::to_string(i) + ".attn_q.weight"),
-                  std::string::npos);
-      EXPECT_NE(text.find("llm.ffn.gate_up_prefill"), std::string::npos);
-      EXPECT_NE(text.find("llm.ffn.gate_up_decode"), std::string::npos);
+  for (bool authored : {false, true}) {
+    SCOPED_TRACE(authored);
+    ASSERT_TRUE(Ok(ModuleBuilder::Create(context.get(), workspace.get(),
+                                         definitions.get(), &module)));
+    if (authored)
+      ASSERT_TRUE(
+          Ok(DefineLlamaRmsNorm(*module, "authored.rmsnorm", &rms_norm)));
+    else
+      ASSERT_TRUE(Ok(module->Kernel("llama32_rmsnorm_f32", &rms_norm)));
+    ProgramRef prefill, decode;
+    ASSERT_TRUE(
+        Ok(DefineLlamaStep(model, *module, rms_norm, LlamaStepKind::kPrefill,
+                           "authored.prefill", &prefill)));
+    ASSERT_TRUE(
+        Ok(DefineLlamaStep(model, *module, rms_norm, LlamaStepKind::kDecode,
+                           "authored.decode", &decode)));
+    loomc_module_t *output = nullptr;
+    loomc_result_t *result = nullptr;
+    ASSERT_TRUE(Ok(module->LinkAndVerify({prefill, decode}, &output, &result)));
+    Owner<loomc_module_t, loomc_module_release> artifact(output);
+    Owner<loomc_result_t, loomc_result_release> linked(result);
+    ASSERT_TRUE(loomc_result_succeeded(result));
+    for (auto format :
+         {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
+      loomc_module_serialize_options_t options = {};
+      options.format = format;
+      loomc_source_t *source = nullptr;
+      ASSERT_TRUE(Ok(loomc_module_serialize_to_source(
+          output, &options, loomc_allocator_system(), &source)));
+      Owner<loomc_source_t, loomc_source_release> serialized(source);
+      if (format == LOOMC_SOURCE_FORMAT_TEXT) {
+        auto b = loomc_source_contents(source);
+        std::string text(reinterpret_cast<const char *>(b.data), b.data_length);
+        EXPECT_EQ(text.find("command.program.launch"), std::string::npos);
+        for (uint32_t i = 0; i < 28; ++i)
+          EXPECT_NE(text.find("blk." + std::to_string(i) + ".attn_q.weight"),
+                    std::string::npos);
+        EXPECT_NE(text.find("llm.ffn.gate_up_prefill"), std::string::npos);
+        EXPECT_NE(text.find("llm.ffn.gate_up_decode"), std::string::npos);
+        const std::string launch = authored
+                                       ? "kernel.launch @authored.rmsnorm"
+                                       : "kernel.launch @llama32_rmsnorm_f32";
+        size_t count = 0;
+        for (size_t position = 0;
+             (position = text.find(launch, position)) != std::string::npos;
+             position += launch.size())
+          ++count;
+        EXPECT_EQ(count,
+                  114u); // two per layer plus output, for prefill and decode.
+        if (authored) {
+          EXPECT_EQ(text.find("kernel.launch @llama32_rmsnorm_f32"),
+                    std::string::npos);
+          EXPECT_NE(text.find("template.apply<@llm.rmsnorm.row>"),
+                    std::string::npos);
+        }
+      }
+      loomc_module_t *reloaded = nullptr;
+      loomc_result_t *reload_result = nullptr;
+      ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
+          context.get(), workspace.get(), source, nullptr,
+          loomc_allocator_system(), &reloaded, &reload_result)));
+      Owner<loomc_module_t, loomc_module_release> reload(reloaded);
+      Owner<loomc_result_t, loomc_result_release> reload_status(reload_result);
+      ASSERT_TRUE(loomc_result_succeeded(reload_result));
     }
-    loomc_module_t *reloaded = nullptr;
-    loomc_result_t *reload_result = nullptr;
-    ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
-        context.get(), workspace.get(), source, nullptr,
-        loomc_allocator_system(), &reloaded, &reload_result)));
-    Owner<loomc_module_t, loomc_module_release> reload(reloaded);
-    Owner<loomc_result_t, loomc_result_release> reload_status(reload_result);
-    ASSERT_TRUE(loomc_result_succeeded(reload_result));
   }
 }
 TEST_F(LlamaStepTest, RejectsUnsupportedRoleStorageAndExtentBeforeMutation) {
@@ -275,13 +309,46 @@ TEST_F(LlamaStepTest, RejectsUnsupportedRoleStorageAndExtentBeforeMutation) {
     if (mutation == 3)
       model.layers[0].tensors.push_back(model.layers[0].tensors.front());
     ProgramRef bad;
-    auto status =
-        DefineLlamaStep(model, *module, LlamaStepKind::kPrefill, "bad", &bad);
+    auto status = DefineLlamaStep(model, *module, rms_norm,
+                                  LlamaStepKind::kPrefill, "bad", &bad);
     EXPECT_EQ(loomc_status_consume_code(status), LOOMC_STATUS_INVALID_ARGUMENT);
   }
   ProgramRef valid;
-  EXPECT_TRUE(Ok(DefineLlamaStep(Descriptor(), *module, LlamaStepKind::kPrefill,
-                                 "valid", &valid)));
+  EXPECT_TRUE(Ok(DefineLlamaStep(Descriptor(), *module, rms_norm,
+                                 LlamaStepKind::kPrefill, "valid", &valid)));
+}
+TEST_F(LlamaStepTest, RejectsInvalidNormBeforeCreatingRecipeBody) {
+  KernelRef wrong_count, wrong_type, foreign;
+  ASSERT_TRUE(Ok(module->Kernel("llama32_finish_isolated", &wrong_count)));
+  const auto index = module->Scalar(LOOM_SCALAR_TYPE_INDEX);
+  const auto buffer = module->Buffer();
+  ASSERT_TRUE(Ok(module->DeclareKernel(
+      "wrong_type", {index},
+      {index, buffer, buffer, module->Scalar(LOOM_SCALAR_TYPE_F32)},
+      &wrong_type)));
+  std::unique_ptr<ModuleBuilder> other;
+  ASSERT_TRUE(Ok(ModuleBuilder::Create(context.get(), workspace.get(),
+                                       definitions.get(), &other)));
+  ASSERT_TRUE(Ok(other->Kernel("llama32_rmsnorm_f32", &foreign)));
+  for (auto invalid : {KernelRef{}, wrong_count, wrong_type, foreign}) {
+    ProgramRef bad;
+    EXPECT_EQ(loomc_status_consume_code(
+                  DefineLlamaStep(Descriptor(), *module, invalid,
+                                  LlamaStepKind::kPrefill, "same_name", &bad)),
+              LOOMC_STATUS_INVALID_ARGUMENT);
+  }
+  // Reuse the attempted name and finalize the same module: rejected refs left
+  // neither a reserved symbol nor an unfinished body behind.
+  ProgramRef valid;
+  ASSERT_TRUE(
+      Ok(DefineLlamaStep(Descriptor(), *module, rms_norm,
+                         LlamaStepKind::kPrefill, "same_name", &valid)));
+  loomc_module_t *output = nullptr;
+  loomc_result_t *result = nullptr;
+  ASSERT_TRUE(Ok(module->LinkAndVerify({valid}, &output, &result)));
+  Owner<loomc_module_t, loomc_module_release> artifact(output);
+  Owner<loomc_result_t, loomc_result_release> linked(result);
+  ASSERT_TRUE(loomc_result_succeeded(result));
 }
 } // namespace
 } // namespace hrx::loomify_gguf

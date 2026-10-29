@@ -39,9 +39,12 @@ bool Succeeded(loomc_result_t *result) {
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 4) {
+  const bool authored_norm =
+      argc == 5 && std::string(argv[4]) == "--authored-rmsnorm";
+  if (argc != 4 && !authored_norm) {
     std::fprintf(stderr, "usage: emit_llama_step MODEL.gguf "
-                         "NUMERICAL_DEFINITIONS.loombc OUTPUT.loombc\n");
+                         "NUMERICAL_DEFINITIONS.loombc OUTPUT.loombc "
+                         "[--authored-rmsnorm]\n");
     return 1;
   }
   for (int input : {1, 2}) {
@@ -107,13 +110,23 @@ int main(int argc, char **argv) {
                                                    definitions, &module)))
     return 1;
   hrx::loomify_gguf::ProgramRef prefill, decode;
+  hrx::loomify_gguf::KernelRef rms_norm;
+  if (authored_norm) {
+    if (!Ok(hrx::loomify_gguf::DefineLlamaRmsNorm(
+            *module, "authored.llama_rmsnorm", &rms_norm)))
+      return 1;
+  } else if (!Ok(module->Kernel("llama32_rmsnorm_f32", &rms_norm))) {
+    return 1;
+  }
   if (!Ok(hrx::loomify_gguf::DefineLlamaStep(
-          descriptor, *module, hrx::loomify_gguf::LlamaStepKind::kPrefill,
-          "generated.llama_prefill", &prefill)))
+          descriptor, *module, rms_norm,
+          hrx::loomify_gguf::LlamaStepKind::kPrefill, "generated.llama_prefill",
+          &prefill)))
     return 1;
   if (!Ok(hrx::loomify_gguf::DefineLlamaStep(
-          descriptor, *module, hrx::loomify_gguf::LlamaStepKind::kDecode,
-          "generated.llama_decode", &decode)))
+          descriptor, *module, rms_norm,
+          hrx::loomify_gguf::LlamaStepKind::kDecode, "generated.llama_decode",
+          &decode)))
     return 1;
   loomc_module_t *output = nullptr;
   result = nullptr;

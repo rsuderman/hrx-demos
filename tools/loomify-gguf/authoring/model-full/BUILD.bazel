@@ -14,7 +14,7 @@ _CXXOPTS = select({
 
 iree_cc_library(
     name = "llama_step",
-    srcs = ["llama_step.cc"],
+    srcs = ["llama_step.cc", "rmsnorm.cc"],
     hdrs = ["llama_step.h"],
     cxxopts = _CXXOPTS,
     deps = [
@@ -22,6 +22,9 @@ iree_cc_library(
         "//tools/loomify-gguf/authoring/command:command_program_builder",
         "//tools/loomify-gguf/authoring/commands:command_values",
         "@hrx_system//loom/src/loom/ops/template",
+        "@hrx_system//loom/src/loom/ops/index",
+        "@hrx_system//loom/src/loom/ops/kernel",
+        "@hrx_system//loom/src/loom/ops/scalar",
     ],
 )
 
