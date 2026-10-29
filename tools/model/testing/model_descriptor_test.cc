@@ -1,11 +1,11 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/model_descriptor.h"
+#include "tools/model/model_descriptor.h"
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <limits>
 #include <memory>
-namespace hrx::loomify_gguf {
+namespace hrx::model {
 namespace {
 void Scalar(GgufCatalog &c, const std::string &key, MetadataScalar value,
             uint32_t type = 4) {
@@ -140,9 +140,6 @@ TEST(ModelDescriptor, QwenHybridStateAndExplicitMapPrecedence) {
   EXPECT_EQ(m.layers[1].attention_ordinal, 0);
   EXPECT_EQ(m.ssm->convolution_history_elements, 48);
   EXPECT_EQ(m.ssm->recurrent_state_elements, 32);
-  auto report = FormatArchitecture(c, m);
-  EXPECT_NE(report.find("ssm_a"), std::string::npos);
-  EXPECT_NE(report.find("qwen35"), std::string::npos);
 }
 TEST(ModelDescriptor, FallbackAndMalformedRecurrentMap) {
   auto c = Model(true);
@@ -400,4 +397,4 @@ TEST(GgufCatalog, CompleteTypedSparseHeaderAndNoPayloadRead) {
   EXPECT_FALSE(LoadModelDescriptor(c, &model, &e));
 }
 } // namespace
-} // namespace hrx::loomify_gguf
+} // namespace hrx::model

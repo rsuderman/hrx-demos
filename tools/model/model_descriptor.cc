@@ -1,14 +1,11 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/model_descriptor.h"
+#include "tools/model/model_descriptor.h"
 #include <algorithm>
 #include <cmath>
-#include <iomanip>
 #include <limits>
-#include <set>
-#include <sstream>
 #include <stdexcept>
-namespace hrx::loomify_gguf {
+namespace hrx::model {
 namespace {
 // Rules mirror llama.cpp dace2471 src/llama-model.cpp1086-1209 and
 // src/models/{llama,qwen35}.cpp. These limits bound structural arithmetic;
@@ -148,22 +145,6 @@ uint64_t Product(uint64_t a, uint64_t b) {
   if (b && a > uint64_t(INT64_MAX) / b)
     throw std::runtime_error("architecture dimension product overflow");
   return a * b;
-}
-// Lossless escaping prevents exact tensor names from injecting report lines.
-std::string Quote(const std::string &s) {
-  std::ostringstream out;
-  out << '"';
-  for (unsigned char c : s) {
-    if (c == '"' || c == '\\')
-      out << '\\' << c;
-    else if (c < 32 || c >= 127)
-      out << "\\x" << std::hex << std::setw(2) << std::setfill('0')
-          << unsigned(c) << std::dec;
-    else
-      out << c;
-  }
-  out << '"';
-  return out.str();
 }
 } // namespace
 bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
@@ -368,62 +349,4 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     return false;
   }
 }
-std::string FormatArchitecture(const GgufCatalog &c, const ModelDescriptor &m) {
-  std::ostringstream out;
-  out << std::setprecision(17);
-  out << "Architecture: " << m.family << "\nModel name: " << Quote(m.name)
-      << "\nEmbedding width: " << m.embedding_width
-      << "\nVocabulary: " << m.vocabulary_size
-      << "\nTraining context: " << m.training_context
-      << "\nKey/value head width: " << m.key_head_width << '/'
-      << m.value_head_width << "\nRMS epsilon: " << m.rms_epsilon
-      << "\nRoPE: width=" << m.rope.width << " base=" << m.rope.base
-      << " scaling=" << m.rope.scaling_kind
-      << " factor=" << m.rope.scaling_factor
-      << " original_context=" << m.rope.original_context << " sections=[";
-  for (size_t i = 0; i < 4; ++i)
-    out << (i ? "," : "") << m.rope.sections[i];
-  out << "]\nOutput tied to embedding: "
-      << (m.output_tied_to_embedding ? "yes" : "no")
-      << "\nLayers: " << m.layers.size() << '\n';
-  if (m.ssm) {
-    const auto &s = *m.ssm;
-    out << "SSM: conv=" << s.convolution_kernel << " inner=" << s.inner_width
-        << " state=" << s.state_width << " key_heads=" << s.key_heads
-        << " value_heads=" << s.value_heads
-        << " history_elements=" << s.convolution_history_elements
-        << " recurrent_elements=" << s.recurrent_state_elements << '\n';
-  }
-  std::set<std::string> bound;
-  auto bindings = [&](const auto &values) {
-    for (const auto &b : values) {
-      out << "  " << b.role << " -> " << Quote(b.tensor.name) << '\n';
-      bound.insert(b.tensor.name);
-    }
-  };
-  out << "Global roles:\n";
-  bindings(m.globals);
-  for (const auto &d : m.layers) {
-    out << "Layer " << d.index << ' '
-        << (d.kind == LayerKind::kAttention ? "attention" : "gated_delta_net")
-        << " ordinal="
-        << (d.attention_ordinal ? *d.attention_ordinal : *d.recurrent_ordinal)
-        << " FFN=" << d.feed_forward_width << " Q=" << d.query_heads
-        << " KV=" << d.kv_heads << '\n';
-    bindings(d.tensors);
-  }
-  out << "Complete tensor catalog: " << c.tensors.size()
-      << " (GGML extents padded to four dimensions)\n";
-  for (const auto &t : c.tensors) {
-    out << "  " << Quote(t.name) << " [";
-    for (size_t i = 0; i < 4; ++i)
-      out << (i ? "," : "") << t.normalized_extents[i];
-    out << "] " << t.storage_name << "(" << t.storage_type << ") bytes=["
-        << t.absolute_offset << ',' << t.absolute_offset + t.byte_size << ") "
-        << (bound.count(t.name) ? "bound" : "unbound") << '\n';
-  }
-  out << "Metadata bytes read: " << c.bytes_read
-      << " (includes header validation; no tensor payload)\n";
-  return out.str();
-}
-} // namespace hrx::loomify_gguf
+} // namespace hrx::model

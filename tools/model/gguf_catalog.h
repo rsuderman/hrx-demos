@@ -1,8 +1,8 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 
-#ifndef HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_GGUF_CATALOG_H_
-#define HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_GGUF_CATALOG_H_
+#ifndef HRX_SOLUTIONS_TOOLS_MODEL_GGUF_CATALOG_H_
+#define HRX_SOLUTIONS_TOOLS_MODEL_GGUF_CATALOG_H_
 
 #include <array>
 #include <cstdint>
@@ -11,7 +11,7 @@
 #include <variant>
 #include <vector>
 
-namespace hrx::loomify_gguf {
+namespace hrx::model {
 
 // Numeric tags are the GGUF/ggml on-disk enum values, independent of headers.
 using MetadataScalar =
@@ -51,7 +51,8 @@ struct GgufCatalog {
 };
 
 // Borrows an unbuffered, seekable file; no payload reads. Owns all returned
-// data. On failure leaves output unchanged. Same bounds as ReadGgufInfo.
+// data. On failure leaves output unchanged. Admission is limited to a 64 MiB
+// header, 4,096 metadata entries and 16,384 tensors.
 bool ReadGgufCatalog(FILE *file, GgufCatalog *catalog, std::string *error);
 
 const MetadataRecord *FindMetadata(const GgufCatalog &catalog,
@@ -59,6 +60,6 @@ const MetadataRecord *FindMetadata(const GgufCatalog &catalog,
 const TensorRecord *FindTensor(const GgufCatalog &catalog,
                                const std::string &name);
 
-} // namespace hrx::loomify_gguf
+} // namespace hrx::model
 
-#endif // HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_GGUF_CATALOG_H_
+#endif // HRX_SOLUTIONS_TOOLS_MODEL_GGUF_CATALOG_H_

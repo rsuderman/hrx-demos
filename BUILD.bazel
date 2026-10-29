@@ -13,6 +13,11 @@ alias(
     actual = "//tools/loomify-gguf",
 )
 
+alias(
+    name = "loom-model-inspect",
+    actual = "//tools/loom-model-inspect",
+)
+
 filegroup(
     name = "native",
     srcs = [":loom-serve"],

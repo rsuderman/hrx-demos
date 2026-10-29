@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 
 load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
-load("@hrx_system//build_tools/bazel:executable.bzl", "iree_executable_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,22 +10,6 @@ _CXXOPTS = select({
     "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
     "//conditions:default": ["-std=c++17"],
 })
-
-iree_cc_library(
-    name = "gguf_info",
-    srcs = ["gguf_info.cc"],
-    hdrs = ["gguf_info.h", "gguf_catalog.h"],
-    cxxopts = _CXXOPTS,
-    deps = ["@loomify_ggml//:metadata"],
-)
-
-iree_cc_library(
-    name = "model_descriptor",
-    srcs = ["model_descriptor.cc"],
-    hdrs = ["model_descriptor.h"],
-    cxxopts = _CXXOPTS,
-    deps = [":gguf_info"],
-)
 
 iree_cc_library(
     name = "source_builder",
@@ -42,22 +25,7 @@ cc_binary(
     srcs = ["main.cc"],
     cxxopts = _CXXOPTS,
     deps = [
-        ":gguf_info",
-        ":model_descriptor",
         ":source_builder",
         "@hrx_system//runtime/src/iree/base/tooling:flags",
     ],
-)
-
-cc_binary(
-    name = "gguf_info_test_bin",
-    testonly = True,
-    srcs = ["gguf_info_test.cc"],
-    cxxopts = _CXXOPTS,
-    deps = [":gguf_info"],
-)
-
-iree_executable_test(
-    name = "gguf_info_test",
-    src = ":gguf_info_test_bin",
 )

@@ -1,8 +1,8 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 
-#ifndef HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_MODEL_DESCRIPTOR_H_
-#define HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_MODEL_DESCRIPTOR_H_
+#ifndef HRX_SOLUTIONS_TOOLS_MODEL_MODEL_DESCRIPTOR_H_
+#define HRX_SOLUTIONS_TOOLS_MODEL_MODEL_DESCRIPTOR_H_
 
 #include <array>
 #include <cstdint>
@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "tools/loomify-gguf/gguf_catalog.h"
+#include "tools/model/gguf_catalog.h"
 
-namespace hrx::loomify_gguf {
+namespace hrx::model {
 
 enum class LayerKind { kAttention, kGatedDeltaNet };
 
@@ -76,10 +76,6 @@ struct ModelDescriptor {
 bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *model,
                          std::string *error);
 
-// Complete, deterministic report, including unbound catalog tensors.
-std::string FormatArchitecture(const GgufCatalog &catalog,
-                               const ModelDescriptor &model);
+} // namespace hrx::model
 
-} // namespace hrx::loomify_gguf
-
-#endif // HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_MODEL_DESCRIPTOR_H_
+#endif // HRX_SOLUTIONS_TOOLS_MODEL_MODEL_DESCRIPTOR_H_

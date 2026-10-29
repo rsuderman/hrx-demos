@@ -1,0 +1,31 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+iree_cc_library(
+    name = "architecture_report",
+    srcs = ["architecture_report.cc"],
+    hdrs = ["architecture_report.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/model:model_descriptor"],
+)
+
+cc_binary(
+    name = "loom-model-inspect",
+    srcs = ["main.cc"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        ":architecture_report",
+        "//tools/model:model_descriptor",
+        "@hrx_system//runtime/src/iree/base/tooling:flags",
+    ],
+)

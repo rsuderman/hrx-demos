@@ -1,24 +1,20 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/gguf_info.h"
-#include "tools/loomify-gguf/gguf_catalog.h"
+#include "tools/model/gguf_catalog.h"
 
 #include <algorithm>
 #include <cstring>
 #include <exception>
 #include <memory>
-#include <sstream>
 #include <type_traits>
 
 #include "gguf.h"
 
-namespace hrx::loomify_gguf {
+namespace hrx::model {
 namespace {
 constexpr uint64_t kHeaderLimit = 64 * 1024 * 1024;
 constexpr uint64_t kTensorLimit = 16384;
 constexpr uint64_t kMetadataLimit = 4096;
-constexpr size_t kReportMetadataLimit = 64;
-constexpr size_t kReportTensorLimit = 32;
 constexpr size_t kTextLimit = 160;
 
 #ifdef _WIN32
@@ -161,27 +157,6 @@ MetadataScalar ElementValue(uint32_t type, const void *data, size_t i) {
     return uint64_t{0};
   }
 }
-std::string DisplayValue(const MetadataRecord &field) {
-  std::ostringstream out;
-  if (field.source_type == GGUF_TYPE_ARRAY) {
-    out << "array<"
-        << gguf_type_name(static_cast<gguf_type>(field.element_type)) << ">["
-        << field.element_count << ']';
-  } else {
-    std::visit(
-        [&](const auto &value) {
-          using T = std::decay_t<decltype(value)>;
-          if constexpr (std::is_same_v<T, std::string>)
-            out << '\"' << Text(value.c_str()) << '\"';
-          else if constexpr (std::is_same_v<T, bool>)
-            out << (value ? "true" : "false");
-          else
-            out << value;
-        },
-        field.scalar);
-  }
-  return out.str();
-}
 } // namespace
 
 bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
@@ -302,64 +277,4 @@ const TensorRecord *FindTensor(const GgufCatalog &catalog,
       return &tensor;
   return nullptr;
 }
-bool ReadGgufInfo(FILE *file, GgufInfo *info, std::string *error) {
-  if (!info)
-    return false;
-  GgufCatalog catalog;
-  if (!ReadGgufCatalog(file, &catalog, error))
-    return false;
-  GgufInfo result;
-  result.version = catalog.version;
-  result.file_size = catalog.file_size;
-  result.metadata_count = catalog.metadata.size();
-  result.tensor_count = catalog.tensors.size();
-  result.alignment = catalog.alignment;
-  result.data_offset = catalog.data_offset;
-  result.bytes_read = catalog.bytes_read;
-  result.name = Text(catalog.name.c_str());
-  result.architecture = Text(catalog.architecture.c_str());
-  for (const auto &field : catalog.metadata) {
-    if (result.metadata.size() == kReportMetadataLimit)
-      break;
-    result.metadata.push_back({Text(field.key.c_str()), DisplayValue(field)});
-  }
-  for (const auto &tensor : catalog.tensors) {
-    if (result.tensors.size() == kReportTensorLimit)
-      break;
-    result.tensors.push_back({Text(tensor.name.c_str()),
-                              tensor.normalized_extents, tensor.storage_name,
-                              tensor.absolute_offset, tensor.byte_size});
-  }
-  *info = std::move(result);
-  return true;
-}
-std::string FormatGgufInfo(const GgufInfo &info) {
-  std::ostringstream out;
-  out << "GGUF version: " << info.version
-      << "\nModel name: " << (info.name.empty() ? "(not provided)" : info.name)
-      << "\nArchitecture: " << info.architecture
-      << "\nMetadata entries: " << info.metadata_count
-      << "\nTensors: " << info.tensor_count
-      << "\nFile bytes: " << info.file_size << "\nAlignment: " << info.alignment
-      << "\nData offset: " << info.data_offset
-      << "\nMetadata bytes read: " << info.bytes_read
-      << " (includes header validation; no tensor payload)\n";
-  for (const auto &field : info.metadata)
-    out << "  " << field.key << " = " << field.value << '\n';
-  if (info.metadata_count > info.metadata.size())
-    out << "  ... " << info.metadata_count - info.metadata.size()
-        << " more metadata entries\n";
-  out << "Tensor ranges (absolute file bytes; shapes padded to four "
-         "dimensions):\n";
-  for (const auto &tensor : info.tensors) {
-    out << "  " << tensor.name << " [" << tensor.shape[0] << ','
-        << tensor.shape[1] << ',' << tensor.shape[2] << ',' << tensor.shape[3]
-        << "] " << tensor.storage_type << " bytes=[" << tensor.offset << ','
-        << tensor.offset + tensor.size << ")\n";
-  }
-  if (info.tensor_count > info.tensors.size())
-    out << "  ... " << info.tensor_count - info.tensors.size()
-        << " more tensors\n";
-  return out.str();
-}
-} // namespace hrx::loomify_gguf
+} // namespace hrx::model
