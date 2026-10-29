@@ -1,0 +1,20 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+cc_binary(
+    name = "connected_ffn",
+    srcs = ["connected_ffn.cc"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//lib/operations:ffn_operations",
+        "//lib/operations:operation_graph",
+    ],
+)
