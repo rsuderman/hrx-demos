@@ -16,6 +16,12 @@ iree_cc_library(
     srcs = ["source_builder.cc"],
     hdrs = ["source_builder.h"],
     cxxopts = _CXXOPTS,
+    deps = [
+        "//tools/loomify-gguf/authoring/command:command_program_builder",
+        "//tools/loomify-gguf/authoring/commands:command_values",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c:loomc",
+    ],
 )
 
 # The first-party binary macro applies HRX-repository-relative link policy.
@@ -26,6 +32,7 @@ cc_binary(
     cxxopts = _CXXOPTS,
     deps = [
         ":source_builder",
+        "//tools/model:model_descriptor",
         "@hrx_system//runtime/src/iree/base/tooling:flags",
     ],
 )

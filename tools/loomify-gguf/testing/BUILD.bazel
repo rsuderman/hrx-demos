@@ -19,6 +19,9 @@ cc_test(
     linkstatic = True,
     deps = [
         "//tools/loomify-gguf:source_builder",
+        "//tools/loomify-gguf/authoring/model:embedding_fixture",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c:loomc",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
     ],

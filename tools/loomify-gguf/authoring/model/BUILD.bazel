@@ -1,0 +1,53 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+package(default_visibility = ["//visibility:public"])
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+iree_cc_library(
+    name = "embedding_fixture",
+    testonly = True,
+    srcs = ["embedding_fixture.cc"],
+    hdrs = ["embedding_fixture.h"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//tools/model:model_descriptor",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/io:file_handle",
+        "@hrx_system//runtime/src/iree/io:parameter_index",
+        "@hrx_system//runtime/src/iree/io/formats/gguf:gguf",
+    ],
+)
+cc_binary(
+    name = "emit_embedding_fixture",
+    testonly = True,
+    srcs = ["emit_embedding_fixture.cc"],
+    cxxopts = _CXXOPTS,
+    deps = [":embedding_fixture"],
+)
+genrule(
+    name = "embedding_inputs",
+    testonly = True,
+    outs = ["embedding_fixture.gguf", "embedding_checks.loom"],
+    cmd = "$(location :emit_embedding_fixture) $(location embedding_fixture.gguf) $(location embedding_checks.loom)",
+    tools = [":emit_embedding_fixture"],
+)
+genrule(
+    name = "embedding_program",
+    testonly = True,
+    srcs = ["embedding_fixture.gguf"],
+    outs = ["embedding_program.loombc"],
+    cmd = "$(location //tools/loomify-gguf:loomify-gguf) --gguf=$(location embedding_fixture.gguf) --output=$@ --format=bc --stage=embedding",
+    tools = ["//tools/loomify-gguf:loomify-gguf"],
+)
+loom_test(
+    name = "embedding_execution_test",
+    srcs = ["embedding_program.loombc", "embedding_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
