@@ -1,0 +1,38 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+
+command.program.decl @example.authored_affine() launch(%input: buffer, %output: buffer)
+
+// Independent scalar oracle. It does not call the imported kernel or helper.
+func.def @expected_affine(%input: buffer, %output: buffer) {
+  %n = index.constant 7 : index
+  %start = index.constant 0 : index
+  %step = index.constant 1 : index
+  %guard = index.constant 2 : index
+  %base = index.constant 0 : offset
+  %src = buffer.view %input[%base] : buffer -> view<11xi32>
+  %dst = buffer.view %output[%base] : buffer -> view<11xi32>
+  %factor = scalar.constant 3 : i32
+  %bias = scalar.constant 2 : i32
+  scf.for %j = [%start to %n step %step] {
+    %i = index.add %j, %guard : index
+    %x = view.load %src[%i] : view<11xi32> -> i32
+    %scaled = scalar.muli %x, %factor : i32
+    %result = scalar.addi %scaled, %bias : i32
+    view.store %result, %dst[%i] : i32, view<11xi32>
+    scf.yield
+  }
+  func.return
+}
+
+check.scenario @cpp_kernel_and_host_command {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-9) step(3) : tensor<11xi32>
+    %output = check.generate.fill value(-903) : tensor<11xi32>
+    check.compare<@example.authored_affine, @expected_affine>(%input, %output) : (tensor<11xi32>, tensor<11xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<11xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<11xi32>
+    }
+  }
+  check.return
+}
