@@ -24,7 +24,11 @@ namespace hrx::loomify_gguf {
 namespace {
 std::atomic<uint64_t> next_identity{1};
 loomc_status_t Error(loomc_status_code_t code, const std::string &message) {
-  return loomc_make_status(code, message.c_str());
+  // The pinned loomc_make_status path borrows its message as static data.
+  // Formatted allocation owns the bytes, including temporary concatenations.
+  return loomc_status_from_iree(
+      iree_status_allocate_f(static_cast<iree_status_code_t>(code), __FILE__,
+                             __LINE__, "%s", message.c_str()));
 }
 std::vector<loom_value_id_t> BlockArguments(const loom_region_t *region) {
   const auto *block = loom_region_const_entry_block(region);
@@ -648,6 +652,26 @@ CommandProgramBuilder::Call(ProgramRef program,
                       {args.begin() + count, args.end()}, specializations,
                       bindings, true, true);
 }
+loomc_status_t CommandProgramBuilder::InspectNative(
+    const std::vector<Value> &operands,
+    const std::function<iree_status_t(const loom_module_t *,
+                                      const std::vector<loom_value_id_t> &)>
+        &inspect) const {
+  auto status = impl_->Mutable();
+  if (!loomc_status_is_ok(status))
+    return status;
+  if (!inspect)
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT, "inspection callback required");
+  std::vector<loom_value_id_t> ids;
+  for (auto value : operands) {
+    if (!impl_->Valid(value))
+      return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                   "foreign or out-of-scope inspection operand");
+    ids.push_back(value.id_);
+  }
+  return loomc_status_from_iree(inspect(impl_->state->native, ids));
+}
+
 loomc_status_t CommandProgramBuilder::BuildNative(
     const std::vector<Value> &operands,
     const std::function<iree_status_t(loom_module_t *, loom_builder_t *,

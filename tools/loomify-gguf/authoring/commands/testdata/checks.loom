@@ -1,0 +1,53 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+
+command.program.decl @body.example(%kind: index) launch(%parameters: buffer, %source: buffer, %target: buffer)
+func.def @initialize_parameters(%kind: index, %parameters: buffer) {
+  %zero = index.constant 0 : offset
+  %view = buffer.view %parameters[%zero] : buffer -> view<64xi32>
+  %bias = scalar.constant 5 : i32
+  %kind32 = index.cast %kind : index to i32
+  %two = scalar.constant 2 : i32
+  %factor = scalar.addi %kind32, %two : i32
+  view.store %bias, %view[0] : i32, view<64xi32>
+  view.store %factor, %view[1] : i32, view<64xi32>
+  func.return
+}
+
+// One loop computes the complete formula without dispatches/scratch/branches.
+func.def @body_oracle(%parameters: buffer, %source: buffer, %target: buffer) {
+  %zero = index.constant 0 : offset
+  %parameters_view = buffer.view %parameters[%zero] : buffer -> view<64xi32>
+  %source_view = buffer.view %source[%zero] : buffer -> view<16xi32>
+  %target_view = buffer.view %target[%zero] : buffer -> view<16xi32>
+  %bias = view.load %parameters_view[0] : view<64xi32> -> i32
+  %factor = view.load %parameters_view[1] : view<64xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source_view[%i] : view<16xi32> -> i32
+    %sum = scalar.addi %value, %bias : i32
+    %result = scalar.muli %sum, %factor : i32
+    view.store %result, %target_view[%i] : i32, view<16xi32>
+  }
+  func.return
+}
+
+check.scenario @constructed_command_body configure[2](%kind: index, %configuration_entropy: check.entropy) {
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %parameter_owner = check.generate.fill value(-1) : tensor<144xi32>
+    %parameters = check.tensor.view %parameter_owner offset(256) : tensor<144xi32> -> tensor<64xi32>
+    check.generate<@initialize_parameters>(%kind, %parameters) : (index, tensor<64xi32>) -> ()
+    %source_owner = check.generate.iota offset(-21) step(3) : tensor<20xi32>
+    %source = check.tensor.view %source_owner offset(8) : tensor<20xi32> -> tensor<16xi32>
+    %target_owner = check.generate.fill value(-12345) : tensor<24xi32>
+    %target = check.tensor.view %target_owner offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@body.example, @body_oracle>[%kind](%parameters, %source, %target) : [index](tensor<64xi32>, tensor<16xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameter_owner) expected(%parameter_owner) : tensor<144xi32>
+      check.expect.bitwise actual(%source_owner) expected(%source_owner) : tensor<20xi32>
+      check.expect.bitwise actual(%target_owner) expected(%target_owner) : tensor<24xi32>
+    }
+  }
+  check.return
+}

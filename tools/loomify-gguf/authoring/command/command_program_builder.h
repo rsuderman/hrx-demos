@@ -167,6 +167,14 @@ public:
   loomc_status_t Call(ProgramRef program,
                       const std::vector<Value> &specializations,
                       const std::vector<Value> &bindings);
+  // Read-only preflight seam for native extensions. Inputs are lifecycle and
+  // scope checked before the callback. Validation failures remain recoverable;
+  // the callback must not retain native IDs or mutate the module.
+  loomc_status_t InspectNative(
+      const std::vector<Value> &operands,
+      const std::function<iree_status_t(const loom_module_t *,
+                                        const std::vector<loom_value_id_t> &)>
+          &inspect) const;
   // Internal extension seam: input handles are scope checked, result IDs must
   // be defined in this schedule's block. Callbacks must not retain native IDs.
   // A native error or invalid result terminally fails the whole module.

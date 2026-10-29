@@ -504,5 +504,70 @@ TEST_F(CommandBuilderTest,
   EXPECT_NE(Finish(*owner, {body->Ref()}), nullptr);
 }
 
+TEST_F(CommandBuilderTest,
+       DynamicDiagnosticsOwnTheirMessageUntilStatusRelease) {
+  auto owner = Builder();
+  KernelRef missing;
+  const std::string name(256, 'x');
+  const std::string expected = "symbol not found: " + name;
+  auto status = owner->Kernel(name, &missing);
+  ASSERT_EQ(loomc_status_code(status), LOOMC_STATUS_NOT_FOUND);
+  // The helper's temporary concatenation has been destroyed. Reuse its heap
+  // size class before reading the diagnostic; retaining a borrowed c_str is
+  // invalid even though a short immediate diagnostic read may appear to work.
+  std::vector<std::string> pressure(512, std::string(expected.size(), '!'));
+  auto message = loomc_status_message(status);
+  EXPECT_EQ(std::string(message.data, message.size), expected);
+  EXPECT_EQ(pressure.back().front(), '!');
+  loomc_status_free(status);
+}
+
+TEST_F(CommandBuilderTest, NativeInspectionFailuresRemainRecoverable) {
+  auto owner = Builder();
+  auto body = Program(*owner);
+  auto sibling = Program(*owner, "sibling");
+  bool inspected = false;
+  auto expect_index = [&](const loom_module_t *module,
+                          const std::vector<loom_value_id_t> &operands) {
+    inspected = true;
+    if (!loom_type_equal(loom_module_value_type(module, operands[0]),
+                         loom_type_scalar(LOOM_SCALAR_TYPE_INDEX))) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "index operand required");
+    }
+    return iree_ok_status();
+  };
+  EXPECT_EQ(loomc_status_consume_code(
+                body->InspectNative({body->Binding(0)}, expect_index)),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_TRUE(inspected);
+  inspected = false;
+  EXPECT_EQ(loomc_status_consume_code(body->InspectNative(
+                {sibling->Specialization(0)}, expect_index)),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_FALSE(inspected);
+  Value escaped;
+  ASSERT_TRUE(Ok(body->Serial([&](CommandProgramBuilder &nested) {
+    return nested.IndexConstant(7, &escaped);
+  })));
+  EXPECT_EQ(
+      loomc_status_consume_code(body->InspectNative({escaped}, expect_index)),
+      LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_FALSE(inspected);
+  ASSERT_TRUE(Ok(body->InspectNative({body->Specialization(0)}, expect_index)));
+  EXPECT_TRUE(inspected);
+  Pair(*owner, *body);
+  ASSERT_TRUE(Ok(body->Finish()));
+  ASSERT_TRUE(Ok(sibling->Finish()));
+  inspected = false;
+  EXPECT_EQ(
+      loomc_status_consume_code(body->InspectNative({escaped}, expect_index)),
+      LOOMC_STATUS_FAILED_PRECONDITION);
+  EXPECT_FALSE(inspected);
+  auto output = Finish(*owner, {body->Ref()});
+  ASSERT_NE(output, nullptr);
+  EXPECT_EQ(Calls(Symbol(Native(output.get()), "authored")).size(), 2u);
+}
+
 } // namespace
 } // namespace hrx::loomify_gguf

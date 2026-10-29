@@ -1,0 +1,48 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+
+config.def @example.width = 16 : index
+
+kernel.def @add_bias(%count: index) {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%count: index, %bias: buffer, %source: buffer, %scratch: buffer) {
+  %zero = index.constant 0 : offset
+  %bias_view = buffer.view %bias[%zero] : buffer -> view<1xi32>
+  %source_view = buffer.view %source[%zero] : buffer -> view<16xi32>
+  %scratch_view = buffer.view %scratch[%zero] : buffer -> view<16xi32>
+  %bias_value = view.load %bias_view[0] : view<1xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %count step %step] {
+    %valid = index.cmp ult, %i, %end : index
+    scf.if %valid {
+      %value = view.load %source_view[%i] : view<16xi32> -> i32
+      %sum = scalar.addi %value, %bias_value : i32
+      view.store %sum, %scratch_view[%i] : i32, view<16xi32>
+    }
+  }
+  kernel.return
+}
+
+kernel.def @scale_result(%count: index) {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%count: index, %factor: i32, %scratch: buffer, %target: buffer) {
+  %zero = index.constant 0 : offset
+  %scratch_view = buffer.view %scratch[%zero] : buffer -> view<16xi32>
+  %target_view = buffer.view %target[%zero] : buffer -> view<16xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %count step %step] {
+    %valid = index.cmp ult, %i, %end : index
+    scf.if %valid {
+      %value = view.load %scratch_view[%i] : view<16xi32> -> i32
+      %scaled = scalar.muli %value, %factor : i32
+      view.store %scaled, %target_view[%i] : i32, view<16xi32>
+    }
+  }
+  kernel.return
+}

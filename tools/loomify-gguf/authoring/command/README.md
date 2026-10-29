@@ -45,7 +45,9 @@ types. Calls remain distinct and append to a serial completion schedule.
 program. `Invoke(KernelPipelineRef, specializations, run_arguments)` emits the
 existing kernel-scoped pipeline launch boundary. `Serial`, `Concurrent` and `If`
 provide scoped region callbacks; outer values may be captured, nested values
-cannot escape. `BuildNative` is a low-level synchronous extension seam for native
+cannot escape. Native extensions use the read-only `InspectNative` seam to check
+operand types and configuration before mutation; its validation failures remain
+recoverable. `BuildNative` is a low-level synchronous extension seam for native
 operation builders, with scope checks and terminal mutation-error handling.
 
 ## Explicit dependencies and complete artifacts
