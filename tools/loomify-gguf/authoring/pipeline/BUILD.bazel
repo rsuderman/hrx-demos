@@ -1,0 +1,53 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+iree_cc_library(
+    name = "pipeline_builder",
+    srcs = ["pipeline_builder.cc"],
+    hdrs = ["pipeline_builder.h"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "@hrx_system//loom/src/loom/ir",
+        "@hrx_system//loom/src/loom/ops:op_defs",
+        "@hrx_system//loom/src/loom/ops:type_registry",
+        "@hrx_system//loom/src/loom/ops/buffer",
+        "@hrx_system//loom/src/loom/ops/channel",
+        "@hrx_system//loom/src/loom/ops/index",
+        "@hrx_system//loom/src/loom/ops/pipeline",
+    ],
+)
+
+cc_test(
+    name = "pipeline_builder_test",
+    size = "small",
+    srcs = ["pipeline_builder_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        ":pipeline_builder",
+        "//tools/loomify-gguf/authoring/command:command_program_builder",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/src/loom/ops/channel",
+        "@hrx_system//loom/src/loom/ops/buffer",
+        "@hrx_system//loom/src/loom/ops/command",
+        "@hrx_system//loom/src/loom/ops/index",
+        "@hrx_system//loom/src/loom/ops/kernel",
+        "@hrx_system//loom/src/loom/ops/pipeline",
+        "@hrx_system//loom/src/loom/ops/scalar",
+        "@hrx_system//loom/src/loom/ops/view",
+    ],
+)
