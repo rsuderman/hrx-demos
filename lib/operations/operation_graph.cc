@@ -21,9 +21,15 @@ Find(const std::vector<OperationDefinition> &definitions, OpCode opcode) {
   return found == definitions.end() ? nullptr : &*found;
 }
 bool ValidTensor(const TensorType &type, std::string *error) {
-  if (type.rank() != 2 || !type.dimension(0) || !type.dimension(1)) {
-    *error = "tensor requires two positive dimensions";
+  if (!type.rank() || type.rank() > 3) {
+    *error = "tensor requires one to three positive dimensions";
     return false;
+  }
+  for (size_t axis = 0; axis < type.rank(); ++axis) {
+    if (!type.dimension(axis)) {
+      *error = "tensor requires positive dimensions";
+      return false;
+    }
   }
   if (!InRange(type.elementType(), ElementType::F32, ElementType::I64) ||
       !InRange(type.encoding(), Encoding::Dense, Encoding::Q8_1X4) ||
@@ -34,12 +40,12 @@ bool ValidTensor(const TensorType &type, std::string *error) {
   bool valid;
   if (type.encoding() == Encoding::Dense)
     valid = type.layout() == Layout::RowMajor ||
-            type.layout() == Layout::GgmlWeightRows;
+            (type.rank() == 2 && type.layout() == Layout::GgmlWeightRows);
   else if (type.encoding() == Encoding::Q8_1X4)
-    valid = type.elementType() == ElementType::F32 &&
+    valid = type.rank() == 2 && type.elementType() == ElementType::F32 &&
             type.layout() == Layout::PackedQ8_1X4Rows;
   else
-    valid = type.elementType() == ElementType::F32 &&
+    valid = type.rank() == 2 && type.elementType() == ElementType::F32 &&
             type.layout() == Layout::GgmlWeightRows;
   if (!valid)
     *error = "incompatible tensor element type, encoding and layout";
@@ -53,14 +59,21 @@ ValueId::ValueId(std::shared_ptr<const detail::GraphIdentity> identity,
 bool ValueId::operator==(const ValueId &other) const {
   return identity_ == other.identity_ && slot_ == other.slot_;
 }
-TensorType::TensorType() { dimensions_.fill(0); }
-TensorType TensorType::matrix(uint64_t d0, uint64_t d1, ElementType element) {
+TensorType::TensorType() = default;
+TensorType TensorType::vector(uint64_t d0, ElementType element) {
   TensorType type;
-  type.rank_ = 2;
-  type.dimensions_[0] = d0;
-  type.dimensions_[1] = d1;
+  type.dimensions_.push_back(d0);
   type.element_ = element;
   return type;
+}
+TensorType TensorType::matrix(uint64_t d0, uint64_t d1, ElementType element) {
+  TensorType type = vector(d0, element);
+  type.addDimension(d1);
+  return type;
+}
+TensorType &TensorType::addDimension(uint64_t dimension) {
+  dimensions_.push_back(dimension);
+  return *this;
 }
 TensorType &TensorType::setEncoding(Encoding encoding) {
   encoding_ = encoding;
@@ -71,7 +84,7 @@ TensorType &TensorType::setLayout(Layout layout) {
   return *this;
 }
 uint64_t TensorType::dimension(size_t axis) const {
-  return axis < rank_ ? dimensions_[axis] : 0;
+  return axis < dimensions_.size() ? dimensions_[axis] : 0;
 }
 ValueDescription::ValueDescription(
     ValueId id, std::variant<TensorType, ScalarType, StateKind> type)
@@ -92,8 +105,9 @@ const ScalarType *ValueDescription::scalarType() const {
 const StateKind *ValueDescription::stateKind() const {
   return std::get_if<StateKind>(&type_);
 }
-PortDefinition::PortDefinition(Port port, ValueKind kind, Access access)
-    : port_(port), kind_(kind), access_(access) {}
+PortDefinition::PortDefinition(Port port, ValueKind kind, Access access,
+                               bool required)
+    : port_(port), kind_(kind), access_(access), required_(required) {}
 const PortDefinition *OperationDefinition::port(Port port) const {
   const auto found =
       std::find_if(ports_.begin(), ports_.end(),
@@ -140,9 +154,17 @@ bool DefinitionBuilder::ready() {
 }
 DefinitionBuilder &DefinitionBuilder::port(Port port, ValueKind kind,
                                            Access access) {
+  return addPort(port, kind, access, true);
+}
+DefinitionBuilder &DefinitionBuilder::optionalPort(Port port, ValueKind kind,
+                                                   Access access) {
+  return addPort(port, kind, access, false);
+}
+DefinitionBuilder &DefinitionBuilder::addPort(Port port, ValueKind kind,
+                                              Access access, bool required) {
   if (!ready())
     return *this;
-  if (!InRange(port, Port::Input, Port::Output))
+  if (!InRange(port, Port::Input, Port::Progress))
     fail("invalid port");
   else if (!InRange(kind, ValueKind::Tensor, ValueKind::State))
     fail("invalid value kind");
@@ -151,7 +173,7 @@ DefinitionBuilder &DefinitionBuilder::port(Port port, ValueKind kind,
   else if (staged_.port(port))
     fail("port is already defined");
   else
-    staged_.ports_.push_back(PortDefinition(port, kind, access));
+    staged_.ports_.push_back(PortDefinition(port, kind, access, required));
   return *this;
 }
 void DefinitionBuilder::setAttributes(size_t index) {
@@ -266,7 +288,7 @@ InvocationBuilder &InvocationBuilder::bind(Port port, ValueId value) {
     return *this;
   const auto *definition = graph_->definition(staged_.opcode_)->port(port);
   const auto *description = graph_->value(value);
-  if (!InRange(port, Port::Input, Port::Output))
+  if (!InRange(port, Port::Input, Port::Progress))
     fail("invalid port");
   else if (!definition)
     fail("port is not declared by operation");
@@ -315,6 +337,8 @@ bool InvocationBuilder::append(std::string *error) {
   ordered.reserve(definition->ports().size());
   for (const auto &port : definition->ports()) {
     const auto *binding = staged_.binding(port.port());
+    if (!binding && !port.required())
+      continue;
     if (!binding) {
       *error = std::string("missing operation port: ") + PortName(port.port());
       return false;
@@ -324,16 +348,13 @@ bool InvocationBuilder::append(std::string *error) {
   staged_.bindings_ = std::move(ordered);
   BoundOperands operands(*graph_, staged_);
   std::string diagnostic;
-  bool accepted;
-  if (const auto *fn = std::get_if<detail::Verifier<GatedMatmulAttrs>>(
-          &definition->verifier_))
-    accepted = (*fn)(operands, std::get<GatedMatmulAttrs>(staged_.attributes_),
-                     &diagnostic);
-  else
-    accepted =
-        std::get<detail::Verifier<LinearResidualAttrs>>(definition->verifier_)(
-            operands, std::get<LinearResidualAttrs>(staged_.attributes_),
-            &diagnostic);
+  const bool accepted = std::visit(
+      [&](const auto &attrs) {
+        using T = std::decay_t<decltype(attrs)>;
+        return std::get<detail::Verifier<T>>(definition->verifier_)(
+            operands, attrs, &diagnostic);
+      },
+      staged_.attributes_);
   if (!accepted) {
     *error = diagnostic.empty() ? "operation verifier rejected invocation"
                                 : diagnostic;
@@ -433,6 +454,36 @@ const char *PortName(Port port) {
     return "residual";
   case Port::Output:
     return "output";
+  case Port::TokenIds:
+    return "token_ids";
+  case Port::Gamma:
+    return "gamma";
+  case Port::RowBegin:
+    return "row_begin";
+  case Port::RowCount:
+    return "row_count";
+  case Port::Positions:
+    return "positions";
+  case Port::Factors:
+    return "factors";
+  case Port::Query:
+    return "query";
+  case Port::Key:
+    return "key";
+  case Port::Value:
+    return "value";
+  case Port::KeyCache:
+    return "key_cache";
+  case Port::ValueCache:
+    return "value_cache";
+  case Port::Token:
+    return "token";
+  case Port::Control:
+    return "control";
+  case Port::History:
+    return "history";
+  case Port::Progress:
+    return "progress";
   }
   return "invalid_port";
 }

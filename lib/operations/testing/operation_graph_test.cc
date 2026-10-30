@@ -369,7 +369,7 @@ TEST(OperationGraph, RepresentationCompatibilityIsExplicitWithoutConversions) {
 TEST(OperationEnums, DisplayCoversEveryDeclaredIdentityAndInvalidValues) {
   for (int i = int(OpCode::Embedding); i <= int(OpCode::PublishToken); ++i)
     EXPECT_STRNE(OpCodeName(static_cast<OpCode>(i)), "invalid_opcode");
-  for (int i = int(Port::Input); i <= int(Port::Output); ++i)
+  for (int i = int(Port::Input); i <= int(Port::Progress); ++i)
     EXPECT_STRNE(PortName(static_cast<Port>(i)), "invalid_port");
   for (int i = int(Access::Read); i <= int(Access::ReadWrite); ++i)
     EXPECT_STRNE(AccessName(static_cast<Access>(i)), "invalid_access");
@@ -722,6 +722,117 @@ TEST(OperationInvocations, SnapshotVerifierAndHandlesRemainUsableAfterGrowth) {
   graph.reset();
   EXPECT_EQ(copy->binding(Port::Input)->value(), input);
   EXPECT_EQ(std::get<GatedMatmulAttrs>(copy->attributes()).ffn_width, 8);
+}
+TEST(OperationGraph, VectorAndHeadShapesRequirePositiveRankOneToThree) {
+  OperationRegistry registry;
+  OperationGraph graph(registry);
+  std::string error;
+  auto ids = graph.tensor(TensorType::vector(7, ElementType::I32), &error);
+  ASSERT_TRUE(ids.valid()) << error;
+  EXPECT_EQ(graph.value(ids)->tensorType()->rank(), 1);
+  auto heads = TensorType::vector(7, ElementType::F32);
+  heads.addDimension(3).addDimension(16);
+  auto value = graph.tensor(heads, &error);
+  ASSERT_TRUE(value.valid()) << error;
+  EXPECT_EQ(graph.value(value)->tensorType()->rank(), 3);
+  EXPECT_EQ(graph.value(value)->tensorType()->dimension(2), 16);
+  heads.addDimension(1);
+  EXPECT_FALSE(graph.tensor(heads, &error).valid());
+  EXPECT_EQ(heads.dimension(99), 0);
+  auto zero = TensorType::vector(7, ElementType::F32);
+  zero.addDimension(0);
+  EXPECT_FALSE(graph.tensor(zero, &error).valid());
+  auto encoded = TensorType::vector(128, ElementType::F32);
+  encoded.setEncoding(Encoding::Q8_0).setLayout(Layout::GgmlWeightRows);
+  EXPECT_FALSE(graph.tensor(encoded, &error).valid());
+  encoded.addDimension(4).addDimension(8);
+  EXPECT_FALSE(graph.tensor(encoded, &error).valid());
+  encoded.setEncoding(Encoding::Dense);
+  EXPECT_FALSE(graph.tensor(encoded, &error).valid());
+  encoded.setEncoding(Encoding::Q8_1X4).setLayout(Layout::PackedQ8_1X4Rows);
+  EXPECT_FALSE(graph.tensor(encoded, &error).valid());
+  EXPECT_EQ(graph.values().size(), 2);
+}
+bool VerifyOptional(const BoundOperands &operands,
+                    const GatedMatmulAttrs &attrs, std::string *error) {
+  if (attrs.input_width == 1 && !operands.tensor(Port::Weight)) {
+    *error = "optional value required by attrs";
+    return false;
+  }
+  if (attrs.input_width == 2 && operands.value(Port::Weight)) {
+    *error = "optional value rejected by attrs";
+    return false;
+  }
+  return true;
+}
+TEST(OperationInvocations,
+     OptionalPortsRetainValidationAndAttributeRequirements) {
+  OperationRegistry registry;
+  std::string error;
+  ASSERT_TRUE(registry.define(OpCode::Rope)
+                  .port(Port::Input, ValueKind::Tensor, Access::Read)
+                  .optionalPort(Port::Weight, ValueKind::Tensor, Access::Read)
+                  .attributes<GatedMatmulAttrs>()
+                  .verify(VerifyOptional)
+                  .finish(&error));
+  OperationGraph graph(registry);
+  OperationGraph other(registry);
+  EXPECT_TRUE(graph.definition(OpCode::Rope)->port(Port::Input)->required());
+  EXPECT_FALSE(graph.definition(OpCode::Rope)->port(Port::Weight)->required());
+  auto type = TensorType::vector(4, ElementType::F32);
+  auto value = graph.tensor(type, &error);
+  auto scalar = graph.scalar(ScalarType::I64, &error);
+  auto foreign = other.tensor(type, &error);
+  GatedMatmulAttrs attrs;
+  ASSERT_TRUE(graph.operation(OpCode::Rope)
+                  .bind(Port::Input, value)
+                  .attributes(attrs)
+                  .append(&error));
+  EXPECT_EQ(graph.invocations()[0].bindings().size(), 1);
+  attrs.input_width = 1;
+  EXPECT_FALSE(graph.operation(OpCode::Rope)
+                   .bind(Port::Input, value)
+                   .attributes(attrs)
+                   .append(&error));
+  EXPECT_EQ(error, "optional value required by attrs");
+  ASSERT_TRUE(graph.operation(OpCode::Rope)
+                  .bind(Port::Weight, value)
+                  .bind(Port::Input, value)
+                  .attributes(attrs)
+                  .append(&error));
+  EXPECT_EQ(graph.invocations()[1].bindings()[0].port(), Port::Input);
+  EXPECT_EQ(graph.invocations()[1].bindings()[1].port(), Port::Weight);
+  attrs.input_width = 2;
+  EXPECT_FALSE(graph.operation(OpCode::Rope)
+                   .bind(Port::Input, value)
+                   .bind(Port::Weight, value)
+                   .attributes(attrs)
+                   .append(&error));
+  EXPECT_EQ(error, "optional value rejected by attrs");
+  EXPECT_FALSE(graph.operation(OpCode::Rope)
+                   .bind(Port::Input, value)
+                   .bind(Port::Weight, foreign)
+                   .attributes(attrs)
+                   .append(&error));
+  EXPECT_FALSE(graph.operation(OpCode::Rope)
+                   .bind(Port::Input, value)
+                   .bind(Port::Weight, scalar)
+                   .attributes(attrs)
+                   .append(&error));
+  EXPECT_FALSE(graph.operation(OpCode::Rope)
+                   .bind(Port::Input, value)
+                   .bind(Port::Weight, value)
+                   .bind(Port::Weight, value)
+                   .attributes(attrs)
+                   .append(&error));
+  EXPECT_EQ(graph.invocations().size(), 2);
+  EXPECT_EQ(graph.values().size(), 2);
+  EXPECT_FALSE(registry.define(OpCode::RmsNorm)
+                   .port(Port::Input, ValueKind::Tensor, Access::Read)
+                   .optionalPort(Port::Input, ValueKind::Tensor, Access::Read)
+                   .attributes<GatedMatmulAttrs>()
+                   .verify(VerifyOptional)
+                   .finish(&error));
 }
 } // namespace
 } // namespace hrx::operations

@@ -102,6 +102,8 @@ behind each solution. Start here when modifying an implementation:
   CLI, state, preparation, serving, integrations, native execution, and builds.
 * [LLM pipelines](loom-pipeline/llm/README.md): model import and validation,
   source JIT, request flow, state ownership, kernels, and extension points.
+* [Library documentation](lib/docs/README.md): typed operation authoring,
+  examples, and native tests.
 
 ## HRX design principles
 

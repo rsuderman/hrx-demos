@@ -35,3 +35,72 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "tensor_operations_test",
+    size = "small",
+    srcs = [
+        "tensor_operations_test.cc",
+        "operation_test_util.h",
+    ],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//lib/operations:tensor_operations",
+        "//lib/operations:operation_graph",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "row_operations_test",
+    size = "small",
+    srcs = [
+        "row_operations_test.cc",
+        "operation_test_util.h",
+    ],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//lib/operations:row_operations",
+        "//lib/operations:operation_graph",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "attention_operations_test",
+    size = "small",
+    srcs = [
+        "attention_operations_test.cc",
+        "operation_test_util.h",
+    ],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//lib/operations:attention_operations",
+        "//lib/operations:operation_graph",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "control_operations_test",
+    size = "small",
+    srcs = [
+        "control_operations_test.cc",
+        "operation_test_util.h",
+    ],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//lib/operations:control_operations",
+        "//lib/operations:row_operations",
+        "//lib/operations:operation_graph",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)

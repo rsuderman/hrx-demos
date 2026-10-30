@@ -6,13 +6,15 @@
 #include <string>
 
 #include "lib/operations/ffn_operations.h"
+#include "lib/operations/tensor_operations.h"
 
 namespace {
 using namespace hrx::operations;
 
 bool BuildExample(std::string *error) {
   OperationRegistry registry;
-  if (!DefineGatedMatmul(&registry, error) ||
+  if (!DefineRmsNorm(&registry, error) ||
+      !DefineGatedMatmul(&registry, error) ||
       !DefineLinearResidual(&registry, error))
     return false;
 
@@ -52,6 +54,18 @@ bool BuildExample(std::string *error) {
   if (!residual.valid())
     return false;
 
+  auto gamma =
+      graph.tensor(TensorType::vector(hidden_width, ElementType::F32), error);
+  RmsNormAttrs norm_attrs;
+  norm_attrs.width = hidden_width;
+  if (!graph.operation(OpCode::RmsNorm)
+           .bind(Port::Input, residual)
+           .bind(Port::Gamma, gamma)
+           .bind(Port::Output, normalized)
+           .attributes(norm_attrs)
+           .append(error))
+    return false;
+
   GatedMatmulAttrs gate_attrs;
   gate_attrs.input_width = hidden_width;
   gate_attrs.ffn_width = ffn_width;
@@ -77,10 +91,14 @@ bool BuildExample(std::string *error) {
     return false;
 
   const auto &calls = graph.invocations();
-  if (graph.values().size() != 6 || calls.size() != 2 ||
+  if (graph.values().size() != 7 || calls.size() != 3 ||
       calls[0].binding(Port::Output)->value() !=
           calls[1].binding(Port::Input)->value() ||
-      graph.definition(calls[1].opcode())->port(Port::Residual)->access() !=
+      calls[0].binding(Port::Input)->value() !=
+          calls[2].binding(Port::Residual)->value() ||
+      calls[1].binding(Port::Output)->value() !=
+          calls[2].binding(Port::Input)->value() ||
+      graph.definition(calls[2].opcode())->port(Port::Residual)->access() !=
           Access::ReadWrite) {
     *error = "example graph is not connected as expected";
     return false;

@@ -15,6 +15,61 @@ cc_binary(
     cxxopts = _CXXOPTS,
     deps = [
         "//lib/operations:ffn_operations",
+        "//lib/operations:tensor_operations",
+        "//lib/operations:operation_graph",
+    ],
+)
+
+cc_binary(
+    name = "tensor_chain",
+    srcs = [
+        "tensor_chain.cc",
+        "example_utils.h",
+    ],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//lib/operations:tensor_operations",
+        "//lib/operations:operation_graph",
+    ],
+)
+
+cc_binary(
+    name = "head_selection",
+    srcs = [
+        "head_selection.cc",
+        "example_utils.h",
+    ],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//lib/operations:row_operations",
+        "//lib/operations:tensor_operations",
+        "//lib/operations:operation_graph",
+    ],
+)
+
+cc_binary(
+    name = "attention_graph",
+    srcs = [
+        "attention_graph.cc",
+        "example_utils.h",
+    ],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//lib/operations:attention_operations",
+        "//lib/operations:operation_graph",
+    ],
+)
+
+cc_binary(
+    name = "token_publication",
+    srcs = [
+        "token_publication.cc",
+        "example_utils.h",
+    ],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//lib/operations:control_operations",
+        "//lib/operations:row_operations",
         "//lib/operations:operation_graph",
     ],
 )

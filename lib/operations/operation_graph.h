@@ -4,7 +4,6 @@
 #ifndef HRX_SOLUTIONS_LIB_OPERATIONS_OPERATION_GRAPH_H_
 #define HRX_SOLUTIONS_LIB_OPERATIONS_OPERATION_GRAPH_H_
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -30,7 +29,29 @@ enum class OpCode {
   ArgMax,
   PublishToken
 };
-enum class Port { Input, Weight, GateWeight, UpWeight, Residual, Output };
+enum class Port {
+  Input,
+  Weight,
+  GateWeight,
+  UpWeight,
+  Residual,
+  Output,
+  TokenIds,
+  Gamma,
+  RowBegin,
+  RowCount,
+  Positions,
+  Factors,
+  Query,
+  Key,
+  Value,
+  KeyCache,
+  ValueCache,
+  Token,
+  Control,
+  History,
+  Progress
+};
 enum class ValueKind { Tensor, Scalar, State };
 enum class Access { Read, Write, ReadWrite };
 enum class ElementType { F32, F16, I8, I32, I64 };
@@ -49,7 +70,80 @@ struct LinearResidualAttrs {
   uint64_t input_width = 0;
   uint64_t output_width = 0;
 };
-using OperationAttrs = std::variant<GatedMatmulAttrs, LinearResidualAttrs>;
+enum class PackingPolicy { Canonical, QkCompat };
+enum class NumericalPolicy { F32Accumulate };
+struct EmbeddingAttrs {
+  uint64_t vocabulary_size = 0;
+  uint64_t embedding_width = 0;
+};
+struct RmsNormAttrs {
+  uint64_t width = 0;
+  double epsilon = 1e-5;
+};
+struct QuantizeAttrs {
+  uint64_t width = 0;
+  PackingPolicy policy = PackingPolicy::Canonical;
+};
+struct LinearAttrs {
+  uint64_t input_width = 0;
+  uint64_t output_width = 0;
+  NumericalPolicy numerical_policy = NumericalPolicy::F32Accumulate;
+};
+enum class RowSelection { Range, LastActive };
+enum class TieBreak { LowestIndex };
+struct CopyRowsAttrs {
+  uint64_t width = 0;
+  RowSelection selection = RowSelection::Range;
+};
+struct ArgMaxAttrs {
+  uint64_t width = 0;
+  uint32_t axis = 1;
+  TieBreak tie_break = TieBreak::LowestIndex;
+};
+enum class RopeScaling { None, Linear };
+enum class FactorMode { None, PerPair };
+struct RopeAttrs {
+  uint64_t head_count = 0;
+  uint64_t head_width = 0;
+  uint64_t rotary_width = 0;
+  double base = 10000;
+  RopeScaling scaling = RopeScaling::Linear;
+  double scaling_factor = 1;
+  FactorMode factor_mode = FactorMode::None;
+};
+struct RotatePublishKVAttrs {
+  uint64_t kv_heads = 0;
+  uint64_t key_width = 0;
+  uint64_t value_width = 0;
+  uint64_t cache_capacity = 0;
+  uint64_t rotary_width = 0;
+  double base = 10000;
+  RopeScaling scaling = RopeScaling::Linear;
+  double scaling_factor = 1;
+  FactorMode factor_mode = FactorMode::None;
+};
+struct CausalAttentionAttrs {
+  uint64_t query_heads = 0;
+  uint64_t kv_heads = 0;
+  uint64_t key_width = 0;
+  uint64_t value_width = 0;
+  uint64_t cache_capacity = 0;
+  double scale = 1;
+  NumericalPolicy numerical_policy = NumericalPolicy::F32Accumulate;
+};
+enum class Phase { Prefill, Decode };
+enum class TerminalPolicy { None, StopOnTokenIds };
+struct PublishTokenAttrs {
+  Phase phase = Phase::Prefill;
+  uint64_t history_capacity = 0;
+  TerminalPolicy terminal_policy = TerminalPolicy::None;
+  std::vector<int32_t> terminal_ids;
+};
+using OperationAttrs =
+    std::variant<GatedMatmulAttrs, LinearResidualAttrs, EmbeddingAttrs,
+                 RmsNormAttrs, QuantizeAttrs, LinearAttrs, CopyRowsAttrs,
+                 ArgMaxAttrs, RopeAttrs, RotatePublishKVAttrs,
+                 CausalAttentionAttrs, PublishTokenAttrs>;
 
 class BoundOperands;
 class DefinitionBuilder;
@@ -58,19 +152,23 @@ class OperationGraph;
 
 namespace detail {
 struct GraphIdentity;
-template <typename T> constexpr size_t AttributeIndex() {
-  static_assert(std::is_same_v<T, GatedMatmulAttrs> ||
-                    std::is_same_v<T, LinearResidualAttrs>,
-                "unsupported operation attributes");
-  if constexpr (std::is_same_v<T, GatedMatmulAttrs>)
-    return 0;
+template <typename T, size_t I = 0> constexpr size_t AttributeIndex() {
+  if constexpr (I == std::variant_size_v<OperationAttrs>) {
+    static_assert(!std::is_same_v<T, T>, "unsupported operation attributes");
+    return I;
+  } else if constexpr (std::is_same_v<
+                           T, std::variant_alternative_t<I, OperationAttrs>>)
+    return I;
   else
-    return 1;
+    return AttributeIndex<T, I + 1>();
 }
 template <typename T>
 using Verifier = bool (*)(const BoundOperands &, const T &, std::string *);
-using VerifierVariant =
-    std::variant<Verifier<GatedMatmulAttrs>, Verifier<LinearResidualAttrs>>;
+template <typename Variant> struct VerifierTypes;
+template <typename... T> struct VerifierTypes<std::variant<T...>> {
+  using Type = std::variant<Verifier<T>...>;
+};
+using VerifierVariant = typename VerifierTypes<OperationAttrs>::Type;
 } // namespace detail
 
 // Non-default handles retain owner identity, not graph data. They remain stable
@@ -89,23 +187,24 @@ private:
   size_t slot_ = 0;
 };
 
-// Concrete two-axis metadata only; no allocation or byte-size inference.
+// Positive concrete rank 1-3 metadata; no allocation or byte-size inference.
 // RowMajor means rows/width, GgmlWeightRows means input/output GGML axes.
 class TensorType {
 public:
   TensorType();
+  static TensorType vector(uint64_t d0, ElementType element);
   static TensorType matrix(uint64_t d0, uint64_t d1, ElementType element);
+  TensorType &addDimension(uint64_t dimension);
   TensorType &setEncoding(Encoding encoding);
   TensorType &setLayout(Layout layout);
-  size_t rank() const { return rank_; }
+  size_t rank() const { return dimensions_.size(); }
   uint64_t dimension(size_t axis) const;
   ElementType elementType() const { return element_; }
   Encoding encoding() const { return encoding_; }
   Layout layout() const { return layout_; }
 
 private:
-  std::array<uint64_t, 2> dimensions_;
-  size_t rank_ = 0;
+  std::vector<uint64_t> dimensions_;
   ElementType element_ = ElementType::F32;
   Encoding encoding_ = Encoding::Dense;
   Layout layout_ = Layout::RowMajor;
@@ -132,13 +231,15 @@ public:
   Port port() const { return port_; }
   ValueKind kind() const { return kind_; }
   Access access() const { return access_; }
+  bool required() const { return required_; }
 
 private:
   friend class DefinitionBuilder;
-  PortDefinition(Port port, ValueKind kind, Access access);
+  PortDefinition(Port port, ValueKind kind, Access access, bool required);
   Port port_;
   ValueKind kind_;
   Access access_;
+  bool required_;
 };
 
 class OperationDefinition {
@@ -188,6 +289,7 @@ public:
   DefinitionBuilder(DefinitionBuilder &&other) noexcept;
   DefinitionBuilder &operator=(DefinitionBuilder &&other) noexcept;
   DefinitionBuilder &port(Port port, ValueKind kind, Access access);
+  DefinitionBuilder &optionalPort(Port port, ValueKind kind, Access access);
   template <typename T> DefinitionBuilder &attributes() {
     setAttributes(detail::AttributeIndex<T>());
     return *this;
@@ -206,6 +308,8 @@ private:
   DefinitionBuilder(OperationRegistry &registry, OpCode opcode);
   bool ready();
   void fail(const std::string &error);
+  DefinitionBuilder &addPort(Port port, ValueKind kind, Access access,
+                             bool required);
   void setAttributes(size_t index);
   void setVerifier(detail::VerifierVariant verifier);
   OperationRegistry *registry_ = nullptr;

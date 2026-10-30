@@ -14,7 +14,10 @@ _CXXOPTS = select({
 iree_cc_library(
     name = "operation_graph",
     srcs = ["operation_graph.cc"],
-    hdrs = ["operation_graph.h"],
+    hdrs = [
+        "operation_graph.h",
+        "detail/checks.h",
+    ],
     cxxopts = _CXXOPTS,
 )
 
@@ -22,6 +25,38 @@ iree_cc_library(
     name = "ffn_operations",
     srcs = ["ffn_operations.cc"],
     hdrs = ["ffn_operations.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":operation_graph"],
+)
+
+iree_cc_library(
+    name = "tensor_operations",
+    srcs = ["tensor_operations.cc"],
+    hdrs = ["tensor_operations.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":operation_graph"],
+)
+
+iree_cc_library(
+    name = "row_operations",
+    srcs = ["row_operations.cc"],
+    hdrs = ["row_operations.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":operation_graph"],
+)
+
+iree_cc_library(
+    name = "attention_operations",
+    srcs = ["attention_operations.cc"],
+    hdrs = ["attention_operations.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":operation_graph"],
+)
+
+iree_cc_library(
+    name = "control_operations",
+    srcs = ["control_operations.cc"],
+    hdrs = ["control_operations.h"],
     cxxopts = _CXXOPTS,
     deps = [":operation_graph"],
 )
