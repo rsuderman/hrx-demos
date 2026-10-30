@@ -1,0 +1,15 @@
+// Test-only distinguishing provider: only decode selects the public Qwen
+// family. Other callers must continue to select the shared numerical family.
+config.decl @qwen.model.hidden_size : index
+template.decl @qwen38.rmsnorm_f32.row(%rows: index, %row: index, %origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+template.def<@qwen38.rmsnorm_f32.row> device priority(100) @pilot.qwen_override(%rows: index, %row: index, %origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
+  %width = config.get @qwen.model.hidden_size : index
+  %lane = kernel.workitem.id<x> : index
+  %step = index.constant 256 : index
+  %value = scalar.constant 41.0 : f32
+  %view = buffer.view %output[%origin] : buffer -> view<[%width]xf32>
+  scf.for %column = [%lane to %width step %step] {
+    view.store %value, %view[%column] : f32, view<[%width]xf32>
+  }
+  template.return
+}

@@ -1,0 +1,27 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "assemble",
+    srcs = ["assemble.cc", "mapping.h"],
+    cxxopts = ["-std=c++17"],
+    deps = [
+        "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@hrx_system//loom/src/loom/ir",
+        "@hrx_system//loom/src/loom/ops/index",
+        "@hrx_system//loom/src/loom/ops/kernel",
+        "@hrx_system//loom/src/loom/ops/template",
+    ],
+)
+
+cc_test(
+    name = "mapping_test",
+    size = "small",
+    srcs = ["mapping_test.cc", "mapping.h"],
+    copts = ["-std=c++17"],
+    deps = ["@googletest//:gtest_main"],
+)

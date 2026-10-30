@@ -1,0 +1,106 @@
+load("//loomcxx-pipeline/build:loomcxx.bzl", "loomcxx_module")
+load("//loomcxx-pipeline/build:testing.bzl", "loom_gpu_test", "loom_test_matrix")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_library")
+
+package(default_visibility = ["//visibility:public"])
+
+loomcxx_module(
+    name = "normalization",
+    src = "normalization.cxx",
+    bridges = [
+        ("llm.rmsnorm.row", "llm_rmsnorm_row", "cxx.llm.rmsnorm.row", "zero-origins",
+         ["index", "f32", "index", "index", "offset", "i1", "f32", "buffer", "buffer", "buffer"]),
+        ("qwen38.rmsnorm_f32.row", "qwen38_rmsnorm_f32_row", "cxx.qwen38.rmsnorm_f32.row", "raw",
+         ["index", "index", "offset", "f32", "buffer", "buffer", "buffer"]),
+    ],
+)
+
+genrule(
+    name = "existing_caller",
+    srcs = ["//loom-pipeline:llm/llama/llama_3b/bindings.loom"],
+    outs = ["existing_caller.loombc"],
+    cmd = "$(location @hrx_system//loom/src/loom/tools/loom-link) " +
+          "--mode=link --root=llama32_output_norm --allow-unresolved " +
+          "--to=bc --output=$@ $<",
+    tools = ["@hrx_system//loom/src/loom/tools/loom-link"],
+)
+
+loom_library(
+    name = "original_definitions",
+    srcs = [
+        "//loom-pipeline:llm/qwen/kernels/qwen38/layer_decode.loom",
+        "//loom-pipeline:llm/qwen/kernels/qwen38/layer_prefill.loom",
+        ":existing_caller",
+    ],
+)
+
+loom_library(
+    name = "alternative_definitions",
+    srcs = [
+        ":normalization_callers",
+        ":normalization_providers",
+        ":existing_caller",
+    ],
+)
+
+
+# Numerical cases/configuration stay explicit; import/fixture/matrix mechanics do not.
+loom_test_matrix(
+    name = "normalization",
+    fixture = "normalization_test.loom.in",
+    definitions = {
+        "original": [":original_definitions"],
+        "alternative": [":alternative_definitions"],
+    },
+    cases = [
+        {
+            "name": "w" + str(width) + "r" + str(rows),
+            "substitutions": {
+                "@WIDTH@": width,
+                "@COUNT@": width * rows,
+                "@CAPACITY@": width * rows + 32,
+                "@DECODE_CAPACITY@": width + 32,
+                "@DECODE_SUFFIX@": (width + 16) * 4,
+                "@F32_SUFFIX@": (width * rows + 16) * 4,
+                "@F16_SUFFIX@": (width * rows + 16) * 2,
+            },
+            "configs": {
+                "pilot.rows": str(rows),
+                "qwen.model.hidden_size": str(width),
+                "qwen.model.hidden_divisor": divisor,
+                "pilot.selection": "0",
+                "qwen.model.rms_epsilon": epsilon,
+                "llama.model.hidden_size": str(width),
+                "llama.model.norm_weight_bytes": str(width * 4),
+                "llama.model.rms_epsilon": epsilon,
+            },
+        }
+        for width, rows, epsilon, divisor in [
+            (1, 1, "0.00001", "1.0"),
+            (257, 3, "0.125", "128.5"),
+            (1024, 3, "0.00001", "1024.0"),
+            (3072, 2, "0.00001", "3072.0"),
+            (5120, 1, "0.001", "5120.0"),
+        ]
+    ],
+)
+
+# Distinct public provider modules make private dispatch bypass observable.
+[
+    loom_gpu_test(
+        name = family + "_selection_test",
+        srcs = [":normalization_checks_w257r3", "normalization_" + family + "_selection.loom"],
+        deps = [":alternative_definitions"],
+        configs = {
+            "pilot.rows": "3",
+            "pilot.selection": mode,
+            "qwen.model.hidden_size": "257",
+            "qwen.model.hidden_divisor": "128.5",
+            "qwen.model.rms_epsilon": "0.125",
+            "llama.model.hidden_size": "257",
+            "llama.model.norm_weight_bytes": "1028",
+            "llama.model.rms_epsilon": "0.125",
+        },
+    )
+    for family, mode in [("shared", "1"), ("qwen", "2")]
+]

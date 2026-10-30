@@ -1,0 +1,215 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent serial RMSNorm oracle; it does not call the C++ motif.
+config.decl @pilot.rows : index
+config.decl @pilot.selection : index
+config.decl @qwen.model.hidden_divisor : f32
+config.decl @qwen.model.hidden_size : index
+config.decl @qwen.model.rms_epsilon : f32
+
+kernel.decl @qwen38_rmsnorm_f32_decode() launch(%epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @qwen38_rmsnorm_f32_prefill(%tokens: index) launch(%tokens: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @qwen38_rmsnorm_f16_prefill(%tokens: index) launch(%tokens: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+command.program.decl @llama32_output_norm(%rows: index) launch(%parameters: buffer, %input: buffer, %output: buffer)
+
+func.def @pilot.oracle(%rows: index, %half: i1, %divisor: f32, %replace: i1, %selected_value: f32, %weight: buffer, %input: buffer, %output: buffer) {
+  %width = config.get @qwen.model.hidden_size : index
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %zero_f = scalar.constant 0.0 : f32
+  %one_f = scalar.constant 1.0 : f32
+  %src = buffer.view %input[%base] : buffer -> view<[%rows]x[%width]xf32>
+  %gamma = buffer.view %weight[%base] : buffer -> view<[%width]xf32>
+  scf.for %row = [%zero to %rows step %one] {
+    %sum = scf.for %column = [%zero to %width step %one](%acc = %zero_f : f32) -> (f32) {
+      %x = view.load %src[%row, %column] : view<[%rows]x[%width]xf32> -> f32
+      %square = scalar.mulf %x, %x : f32
+      %next = scalar.addf %acc, %square : f32
+      scf.yield %next : f32
+    }
+    %mean = scalar.divf %sum, %divisor : f32
+    %biased = scalar.addf %mean, %epsilon : f32
+    %root = scalar.sqrtf %biased : f32
+    %inverse = scalar.divf %one_f, %root : f32
+    scf.for %column = [%zero to %width step %one] {
+      %x = view.load %src[%row, %column] : view<[%rows]x[%width]xf32> -> f32
+      %w = view.load %gamma[%column] : view<[%width]xf32> -> f32
+      %normalized = scalar.mulf %x, %inverse : f32
+      %weighted = scalar.mulf %normalized, %w : f32
+      %result = scf.select %replace, %selected_value, %weighted : f32
+      scf.if %half {
+        %dst = buffer.view %output[%base] : buffer -> view<[%rows]x[%width]xf16>
+        %value = scalar.fptrunc %result : f32 to f16
+        view.store %value, %dst[%row, %column] : f16, view<[%rows]x[%width]xf16>
+      } else {
+        %dst = buffer.view %output[%base] : buffer -> view<[%rows]x[%width]xf32>
+        view.store %result, %dst[%row, %column] : f32, view<[%rows]x[%width]xf32>
+      }
+    }
+  }
+  func.return
+}
+
+command.program.def public @pilot.decode() launch(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  kernel.launch @qwen38_rmsnorm_f32_decode(%epsilon, %input, %weight, %output) : (f32, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @pilot.expected_decode(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %half = scalar.constant false : i1
+  %divisor = config.get @qwen.model.hidden_divisor : f32
+  %mode = config.get @pilot.selection : index
+  %one = index.constant 1 : index
+  %shared_selected = index.cmp eq, %mode, %one : index
+  %shared_value = scalar.constant 23.0 : f32
+  %two = index.constant 2 : index
+  %qwen_selected = index.cmp eq, %mode, %two : index
+  %replace = scalar.ori %shared_selected, %qwen_selected : i1
+  %qwen_value = scalar.constant 41.0 : f32
+  %selected_value = scf.select %qwen_selected, %qwen_value, %shared_value : f32
+  func.call @pilot.oracle(%rows, %half, %divisor, %replace, %selected_value, %weight, %input, %output) : (index, i1, f32, i1, f32, buffer, buffer, buffer) -> ()
+  func.return
+}
+
+check.scenario @pilot.decode_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1.0) step(0.125) period(31) : tensor<@WIDTH@xf32>
+    %weight = check.generate.iota offset(0.25) step(0.125) period(7) : tensor<@WIDTH@xf32>
+    %storage = check.generate.fill value(-17.0) : tensor<@DECODE_CAPACITY@xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<@DECODE_CAPACITY@xf32> -> tensor<16xf32>
+    %suffix = check.tensor.view %storage offset(@DECODE_SUFFIX@) : tensor<@DECODE_CAPACITY@xf32> -> tensor<16xf32>
+    %output = check.tensor.view %storage offset(64) : tensor<@DECODE_CAPACITY@xf32> -> tensor<@WIDTH@xf32>
+    check.compare<@pilot.decode, @pilot.expected_decode>(%weight, %input, %output) : (tensor<@WIDTH@xf32>, tensor<@WIDTH@xf32>, tensor<@WIDTH@xf32>) -> () {
+      check.expect.close actual(%storage) expected(%storage) atol(0.00002) rtol(0.00002) nan(same) : tensor<@DECODE_CAPACITY@xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<@WIDTH@xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<@WIDTH@xf32>
+    }
+  }
+  check.return
+}
+
+command.program.def public @pilot.f32() launch(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = config.get @pilot.rows : index
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, f32, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @pilot.expected_f32(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = config.get @pilot.rows : index
+  %half = scalar.constant false : i1
+  %divisor = config.get @qwen.model.hidden_divisor : f32
+  %mode = config.get @pilot.selection : index
+  %one = index.constant 1 : index
+  %shared_selected = index.cmp eq, %mode, %one : index
+  %shared_value = scalar.constant 23.0 : f32
+
+  func.call @pilot.oracle(%rows, %half, %divisor, %shared_selected, %shared_value, %weight, %input, %output) : (index, i1, f32, i1, f32, buffer, buffer, buffer) -> ()
+  func.return
+}
+
+check.scenario @pilot.f32_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1.0) step(0.125) period(31) : tensor<@COUNT@xf32>
+    %weight = check.generate.iota offset(0.25) step(0.125) period(7) : tensor<@WIDTH@xf32>
+    %storage = check.generate.fill value(-17.0) : tensor<@CAPACITY@xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<@CAPACITY@xf32> -> tensor<16xf32>
+    %suffix = check.tensor.view %storage offset(@F32_SUFFIX@) : tensor<@CAPACITY@xf32> -> tensor<16xf32>
+    %output = check.tensor.view %storage offset(64) : tensor<@CAPACITY@xf32> -> tensor<@COUNT@xf32>
+    check.compare<@pilot.f32, @pilot.expected_f32>(%weight, %input, %output) : (tensor<@WIDTH@xf32>, tensor<@COUNT@xf32>, tensor<@COUNT@xf32>) -> () {
+      check.expect.close actual(%storage) expected(%storage) atol(0.00002) rtol(0.00002) nan(same) : tensor<@CAPACITY@xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<@COUNT@xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<@WIDTH@xf32>
+    }
+  }
+  check.return
+}
+
+command.program.def public @pilot.f16() launch(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = config.get @pilot.rows : index
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  kernel.launch @qwen38_rmsnorm_f16_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, f32, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @pilot.expected_f16(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = config.get @pilot.rows : index
+  %half = scalar.constant true : i1
+  %divisor = config.get @qwen.model.hidden_divisor : f32
+  %mode = config.get @pilot.selection : index
+  %one = index.constant 1 : index
+  %shared_selected = index.cmp eq, %mode, %one : index
+  %shared_value = scalar.constant 23.0 : f32
+
+  func.call @pilot.oracle(%rows, %half, %divisor, %shared_selected, %shared_value, %weight, %input, %output) : (index, i1, f32, i1, f32, buffer, buffer, buffer) -> ()
+  func.return
+}
+
+check.scenario @pilot.f16_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1.0) step(0.125) period(31) : tensor<@COUNT@xf32>
+    %weight = check.generate.iota offset(0.25) step(0.125) period(7) : tensor<@WIDTH@xf32>
+    %storage = check.generate.fill value(-17.0) : tensor<@CAPACITY@xf16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<@CAPACITY@xf16> -> tensor<16xf16>
+    %suffix = check.tensor.view %storage offset(@F16_SUFFIX@) : tensor<@CAPACITY@xf16> -> tensor<16xf16>
+    %output = check.tensor.view %storage offset(32) : tensor<@CAPACITY@xf16> -> tensor<@COUNT@xf16>
+    check.compare<@pilot.f16, @pilot.expected_f16>(%weight, %input, %output) : (tensor<@WIDTH@xf32>, tensor<@COUNT@xf32>, tensor<@COUNT@xf16>) -> () {
+      check.expect.close actual(%storage) expected(%storage) atol(0.002) rtol(0.002) nan(same) : tensor<@CAPACITY@xf16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xf16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xf16>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<@COUNT@xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<@WIDTH@xf32>
+    }
+  }
+  check.return
+}
+
+command.program.def public @pilot.existing() launch(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = config.get @pilot.rows : index
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  command.program.launch @llama32_output_norm[%rows](%weight, %input, %output) : [index](buffer, buffer, buffer)
+  command.return
+}
+
+func.def @pilot.expected_existing(%weight: buffer, %input: buffer, %output: buffer) {
+  %rows = config.get @pilot.rows : index
+  %half = scalar.constant false : i1
+  %width = config.get @qwen.model.hidden_size : index
+  %width32 = index.cast %width : index to i32
+  %divisor = scalar.uitofp %width32 : i32 to f32
+  %mode = config.get @pilot.selection : index
+  %one = index.constant 1 : index
+  %shared_selected = index.cmp eq, %mode, %one : index
+  %shared_value = scalar.constant 23.0 : f32
+
+  func.call @pilot.oracle(%rows, %half, %divisor, %shared_selected, %shared_value, %weight, %input, %output) : (index, i1, f32, i1, f32, buffer, buffer, buffer) -> ()
+  func.return
+}
+
+check.scenario @pilot.existing_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1.0) step(0.125) period(31) : tensor<@COUNT@xf32>
+    %weight = check.generate.iota offset(0.25) step(0.125) period(7) : tensor<@WIDTH@xf32>
+    %storage = check.generate.fill value(-17.0) : tensor<@CAPACITY@xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<@CAPACITY@xf32> -> tensor<16xf32>
+    %suffix = check.tensor.view %storage offset(@F32_SUFFIX@) : tensor<@CAPACITY@xf32> -> tensor<16xf32>
+    %output = check.tensor.view %storage offset(64) : tensor<@CAPACITY@xf32> -> tensor<@COUNT@xf32>
+    check.compare<@pilot.existing, @pilot.expected_existing>(%weight, %input, %output) : (tensor<@WIDTH@xf32>, tensor<@COUNT@xf32>, tensor<@COUNT@xf32>) -> () {
+      check.expect.close actual(%storage) expected(%storage) atol(0.00002) rtol(0.00002) nan(same) : tensor<@CAPACITY@xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<@COUNT@xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<@WIDTH@xf32>
+    }
+  }
+  check.return
+}

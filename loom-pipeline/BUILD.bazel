@@ -9,4 +9,13 @@ exports_files(
     visibility = ["//tools/loomify-gguf/registry/loading/testdata:__pkg__"],
 )
 
+exports_files(
+    [
+        "llm/qwen/kernels/qwen38/layer_decode.loom",
+        "llm/qwen/kernels/qwen38/layer_prefill.loom",
+        "llm/llama/llama_3b/bindings.loom",
+    ],
+    visibility = ["//loomcxx-pipeline/llm:__pkg__"],
+)
+
 bytecode_catalogs(name = "bytecode_catalogs", catalogs = CATALOG_BUILDS)
