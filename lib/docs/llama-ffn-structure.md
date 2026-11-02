@@ -38,7 +38,12 @@ layer/tensor vector indices in the existing descriptor; tensor names, encoded by
 sizes and file offsets stay in that descriptor. The helper does not infer physical
 bytes from logical tensor types or require a native provider's fixed geometry.
 
-The future complete model builder calls this same helper while retaining immutable
+The standalone helper allocates weights and delegates to the same implementation
+as `AppendNormalizedFfnResolved`. The latter takes owner-resolved weights in
+post_norm/gate/up/down order and checks their graph types against the descriptor.
+Consistent aliases retain one `ValueId`; optional paired I64 row begin/count
+controls propagate to all three operations. Absent controls preserve full-row
+behavior. The complete model builder will use this path while retaining immutable
 descriptor and graph ownership. It must publish its completed owner only after all
 required regions succeed. The helper publishes its region only on success, but
 native graph append does not provide multi-operation rollback: discard the private

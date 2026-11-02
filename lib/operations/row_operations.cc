@@ -35,8 +35,10 @@ bool ArgMax(const BoundOperands &o, const ArgMaxAttrs &a, std::string *e) {
 bool DefineCopyRows(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::CopyRows)
-             .port(Port::Input, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::ReadWrite)
+             .port(Port::Input, ValueKind::Tensor, Access::Read,
+                   AccessDomain::CopyRowsSource)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::CopyRowsDestination)
              .port(Port::RowBegin, ValueKind::Scalar, Access::Read)
              .port(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<CopyRowsAttrs>()

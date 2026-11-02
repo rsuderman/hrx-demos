@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "lib/llama/detail/ffn_structure.h"
+#include "lib/llama/detail/structure_construction.h"
 
 #include <array>
 #include <cmath>
@@ -18,23 +19,6 @@ bool Fail(std::string *error, const std::string &message) {
   return false;
 }
 
-bool EncodingForStorage(uint32_t storage, Encoding *encoding) {
-  // GGUF numeric storage tags; no ggml implementation/header dependency.
-  switch (storage) {
-  case 8:
-    *encoding = Encoding::Q8_0;
-    return true;
-  case 12:
-    *encoding = Encoding::Q4_K;
-    return true;
-  case 14:
-    *encoding = Encoding::Q6_K;
-    return true;
-  default:
-    return false;
-  }
-}
-
 bool Extents(const model::TensorRecord &tensor, uint64_t input,
              uint64_t output) {
   return tensor.normalized_extents ==
@@ -43,10 +27,11 @@ bool Extents(const model::TensorRecord &tensor, uint64_t input,
 }
 } // namespace
 
-bool AppendNormalizedFfn(OperationGraph *graph,
-                         const model::ModelDescriptor &facts, size_t layer_slot,
-                         ValueId residual, NormalizedFfnRegion *region,
-                         std::string *error) {
+static bool AppendImpl(OperationGraph *graph,
+                       const model::ModelDescriptor &facts, size_t layer_slot,
+                       ValueId residual, const std::array<ValueId, 4> *resolved,
+                       ValueId row_begin, ValueId row_count,
+                       NormalizedFfnRegion *region, std::string *error) {
   if (!graph || !region || !error)
     return Fail(error,
                 "normalized FFN requires graph, region and error outputs");
@@ -103,13 +88,22 @@ bool AppendNormalizedFfn(OperationGraph *graph,
       if (tensor.storage_type != 0)
         return Fail(error, prefix + "post_norm requires F32 storage");
       encodings[role] = Encoding::Dense;
-    } else if (!EncodingForStorage(tensor.storage_type, &encodings[role])) {
+    } else if (!MatrixEncoding(tensor.storage_type, &encodings[role])) {
       return Fail(error, prefix + roles[role] +
                              " requires Q4_K, Q6_K or Q8_0 storage (tag " +
                              std::to_string(tensor.storage_type) + ")");
     }
   }
 
+  if (row_begin.valid() != row_count.valid())
+    return Fail(error, prefix + "row begin/count must be paired");
+  for (auto control : {row_begin, row_count})
+    if (control.valid()) {
+      const auto *value = graph->value(control);
+      if (!value || !value->scalarType() ||
+          *value->scalarType() != ScalarType::I64)
+        return Fail(error, prefix + "row controls must be owned I64 scalars");
+    }
   NormalizedFfnRegion staged;
   staged.layer_slot = layer_slot;
   staged.operation_begin = graph->invocations().size();
@@ -122,7 +116,22 @@ bool AppendNormalizedFfn(OperationGraph *graph,
                                                ElementType::F32)
                                 .setEncoding(encodings[role])
                                 .setLayout(Layout::GgmlWeightRows);
-    weights[role] = graph->tensor(type, error);
+    if (resolved) {
+      weights[role] = (*resolved)[role];
+      const auto *value = graph->value(weights[role]);
+      const auto *actual = value ? value->tensorType() : nullptr;
+      bool same = actual && actual->rank() == type.rank() &&
+                  actual->elementType() == type.elementType() &&
+                  actual->encoding() == type.encoding() &&
+                  actual->layout() == type.layout();
+      if (same)
+        for (size_t axis = 0; axis < type.rank(); ++axis)
+          same &= actual->dimension(axis) == type.dimension(axis);
+      if (!same)
+        return Fail(error,
+                    prefix + "resolved weight disagrees with descriptor");
+    } else
+      weights[role] = graph->tensor(type, error);
     if (!weights[role].valid())
       return false;
     staged.parameters.push_back({weights[role], layer_slot, slots[role]});
@@ -133,21 +142,24 @@ bool AppendNormalizedFfn(OperationGraph *graph,
       TensorType::matrix(rows, ffn_width, ElementType::F32), error);
   if (!staged.normalized.valid() || !staged.activation.valid())
     return false;
-  if (!graph->operation(OpCode::RmsNorm)
-           .bind(Port::Input, residual)
+  auto norm = graph->operation(OpCode::RmsNorm);
+  auto gate = graph->operation(OpCode::GatedMatmul);
+  auto down = graph->operation(OpCode::LinearResidual);
+  if (row_begin.valid())
+    for (auto *op : {&norm, &gate, &down})
+      op->bind(Port::RowBegin, row_begin).bind(Port::RowCount, row_count);
+  if (!norm.bind(Port::Input, residual)
            .bind(Port::Gamma, weights[0])
            .bind(Port::Output, staged.normalized)
            .attributes(RmsNormAttrs{width, facts.rms_epsilon})
            .append(error) ||
-      !graph->operation(OpCode::GatedMatmul)
-           .bind(Port::Input, staged.normalized)
+      !gate.bind(Port::Input, staged.normalized)
            .bind(Port::GateWeight, weights[1])
            .bind(Port::UpWeight, weights[2])
            .bind(Port::Output, staged.activation)
            .attributes(GatedMatmulAttrs{width, ffn_width, Activation::SiLU})
            .append(error) ||
-      !graph->operation(OpCode::LinearResidual)
-           .bind(Port::Input, staged.activation)
+      !down.bind(Port::Input, staged.activation)
            .bind(Port::Weight, weights[3])
            .bind(Port::Residual, residual)
            .attributes(LinearResidualAttrs{ffn_width, width})
@@ -158,6 +170,24 @@ bool AppendNormalizedFfn(OperationGraph *graph,
   staged.operation_end = graph->invocations().size();
   *region = std::move(staged);
   return true;
+}
+
+bool AppendNormalizedFfn(OperationGraph *graph,
+                         const model::ModelDescriptor &facts, size_t layer_slot,
+                         ValueId residual, NormalizedFfnRegion *region,
+                         std::string *error) {
+  return AppendImpl(graph, facts, layer_slot, residual, nullptr, {}, {}, region,
+                    error);
+}
+bool AppendNormalizedFfnResolved(OperationGraph *graph,
+                                 const model::ModelDescriptor &facts,
+                                 size_t layer_slot, ValueId residual,
+                                 const std::array<ValueId, 4> &weights,
+                                 ValueId row_begin, ValueId row_count,
+                                 NormalizedFfnRegion *region,
+                                 std::string *error) {
+  return AppendImpl(graph, facts, layer_slot, residual, &weights, row_begin,
+                    row_count, region, error);
 }
 
 } // namespace hrx::llama::detail

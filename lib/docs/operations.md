@@ -125,7 +125,9 @@ requires Q divisible by KV and checks Q*value_width arithmetic. This does not
 specify a native cache layout or allocate/cache-version resources.
 
 CopyRows handles contiguous Range or one-row LastActive output and records its
-destination as ReadWrite. It accepts dense matrices of matching width/type with
+destination as Write: it reads no prior destination contents and defines only the
+selected destination domain; inactive destination elements are undefined. It accepts
+dense matrices of matching width/type with
 distinct source/destination handles. Range destination capacity can differ from
 source capacity; runtime row counts must fit both. ArgMax reduces width-axis 1
 with LowestIndex tie policy from F32 matrices to I32 token vectors.

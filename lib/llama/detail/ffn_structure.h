@@ -4,6 +4,7 @@
 #ifndef HRX_SOLUTIONS_LIB_LLAMA_DETAIL_FFN_STRUCTURE_H_
 #define HRX_SOLUTIONS_LIB_LLAMA_DETAIL_FFN_STRUCTURE_H_
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -43,6 +44,16 @@ bool AppendNormalizedFfn(operations::OperationGraph *graph,
                          const model::ModelDescriptor &facts, size_t layer_slot,
                          operations::ValueId residual,
                          NormalizedFfnRegion *region, std::string *error);
+
+// Owner-resolved weights in post_norm/gate/up/down order. Each value must match
+// the descriptor binding; aliases intentionally retain the same ValueId. Paired
+// row controls are propagated unchanged to all three logical operations.
+bool AppendNormalizedFfnResolved(
+    operations::OperationGraph *graph, const model::ModelDescriptor &facts,
+    size_t layer_slot, operations::ValueId residual,
+    const std::array<operations::ValueId, 4> &weights,
+    operations::ValueId row_begin, operations::ValueId row_count,
+    NormalizedFfnRegion *region, std::string *error);
 
 } // namespace hrx::llama::detail
 

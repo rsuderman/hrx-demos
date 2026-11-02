@@ -54,6 +54,23 @@ enum class Port {
 };
 enum class ValueKind { Tensor, Scalar, State };
 enum class Access { Read, Write, ReadWrite };
+// Element domains, independent of access mode. Whole covers the entire value.
+// ActiveRows covers tensor axis zero [RowBegin, RowBegin+RowCount), or all
+// rows when the optional pair is absent. Runtime requires 0 <= begin < R and
+// 1 <= count <= R-begin; scalar declarations do not prove these bounds.
+// CopyRowsSource covers that range for Range, or begin+count-1 for LastActive.
+// CopyRowsDestination covers [0,count) for Range, or row zero for LastActive.
+// This destination is Write: copying reads no previous destination contents.
+// All remaining axes are included. ReadWrite preserves elements outside its
+// domain; Write defines only its domain, leaving inactive elements undefined.
+// A downstream read must stay inside initialized elements; graph type checking
+// does not prove initialization, runtime bounds or native adapter behavior.
+enum class AccessDomain {
+  Whole,
+  ActiveRows,
+  CopyRowsSource,
+  CopyRowsDestination
+};
 enum class ElementType { F32, F16, I8, I32, I64 };
 enum class ScalarType { F32, I32, I64 };
 enum class Encoding { Dense, Q4_0, Q4_K, Q5_K, Q6_K, Q8_0, Q8_1X4 };
@@ -231,14 +248,17 @@ public:
   Port port() const { return port_; }
   ValueKind kind() const { return kind_; }
   Access access() const { return access_; }
+  AccessDomain domain() const { return domain_; }
   bool required() const { return required_; }
 
 private:
   friend class DefinitionBuilder;
-  PortDefinition(Port port, ValueKind kind, Access access, bool required);
+  PortDefinition(Port port, ValueKind kind, Access access, bool required,
+                 AccessDomain domain);
   Port port_;
   ValueKind kind_;
   Access access_;
+  AccessDomain domain_;
   bool required_;
 };
 
@@ -288,8 +308,10 @@ public:
   DefinitionBuilder &operator=(const DefinitionBuilder &) = delete;
   DefinitionBuilder(DefinitionBuilder &&other) noexcept;
   DefinitionBuilder &operator=(DefinitionBuilder &&other) noexcept;
-  DefinitionBuilder &port(Port port, ValueKind kind, Access access);
-  DefinitionBuilder &optionalPort(Port port, ValueKind kind, Access access);
+  DefinitionBuilder &port(Port port, ValueKind kind, Access access,
+                          AccessDomain domain = AccessDomain::Whole);
+  DefinitionBuilder &optionalPort(Port port, ValueKind kind, Access access,
+                                  AccessDomain domain = AccessDomain::Whole);
   template <typename T> DefinitionBuilder &attributes() {
     setAttributes(detail::AttributeIndex<T>());
     return *this;
@@ -309,7 +331,7 @@ private:
   bool ready();
   void fail(const std::string &error);
   DefinitionBuilder &addPort(Port port, ValueKind kind, Access access,
-                             bool required);
+                             bool required, AccessDomain domain);
   void setAttributes(size_t index);
   void setVerifier(detail::VerifierVariant verifier);
   OperationRegistry *registry_ = nullptr;

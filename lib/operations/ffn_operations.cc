@@ -100,10 +100,14 @@ bool DefineGatedMatmul(OperationRegistry *registry, std::string *error) {
   if (!registry || !error)
     return Fail(error, "registry is null or error output is missing");
   return registry->define(OpCode::GatedMatmul)
-      .port(Port::Input, ValueKind::Tensor, Access::Read)
+      .port(Port::Input, ValueKind::Tensor, Access::Read,
+            AccessDomain::ActiveRows)
       .port(Port::GateWeight, ValueKind::Tensor, Access::Read)
       .port(Port::UpWeight, ValueKind::Tensor, Access::Read)
-      .port(Port::Output, ValueKind::Tensor, Access::Write)
+      .port(Port::Output, ValueKind::Tensor, Access::Write,
+            AccessDomain::ActiveRows)
+      .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+      .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
       .attributes<GatedMatmulAttrs>()
       .verify(VerifyGatedMatmul)
       .finish(error);
@@ -113,9 +117,13 @@ bool DefineLinearResidual(OperationRegistry *registry, std::string *error) {
   if (!registry || !error)
     return Fail(error, "registry is null or error output is missing");
   return registry->define(OpCode::LinearResidual)
-      .port(Port::Input, ValueKind::Tensor, Access::Read)
+      .port(Port::Input, ValueKind::Tensor, Access::Read,
+            AccessDomain::ActiveRows)
       .port(Port::Weight, ValueKind::Tensor, Access::Read)
-      .port(Port::Residual, ValueKind::Tensor, Access::ReadWrite)
+      .port(Port::Residual, ValueKind::Tensor, Access::ReadWrite,
+            AccessDomain::ActiveRows)
+      .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+      .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
       .attributes<LinearResidualAttrs>()
       .verify(VerifyLinearResidual)
       .finish(error);

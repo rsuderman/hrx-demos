@@ -106,8 +106,9 @@ const StateKind *ValueDescription::stateKind() const {
   return std::get_if<StateKind>(&type_);
 }
 PortDefinition::PortDefinition(Port port, ValueKind kind, Access access,
-                               bool required)
-    : port_(port), kind_(kind), access_(access), required_(required) {}
+                               bool required, AccessDomain domain)
+    : port_(port), kind_(kind), access_(access), domain_(domain),
+      required_(required) {}
 const PortDefinition *OperationDefinition::port(Port port) const {
   const auto found =
       std::find_if(ports_.begin(), ports_.end(),
@@ -153,15 +154,17 @@ bool DefinitionBuilder::ready() {
   return error_.empty();
 }
 DefinitionBuilder &DefinitionBuilder::port(Port port, ValueKind kind,
-                                           Access access) {
-  return addPort(port, kind, access, true);
+                                           Access access, AccessDomain domain) {
+  return addPort(port, kind, access, true, domain);
 }
 DefinitionBuilder &DefinitionBuilder::optionalPort(Port port, ValueKind kind,
-                                                   Access access) {
-  return addPort(port, kind, access, false);
+                                                   Access access,
+                                                   AccessDomain domain) {
+  return addPort(port, kind, access, false, domain);
 }
 DefinitionBuilder &DefinitionBuilder::addPort(Port port, ValueKind kind,
-                                              Access access, bool required) {
+                                              Access access, bool required,
+                                              AccessDomain domain) {
   if (!ready())
     return *this;
   if (!InRange(port, Port::Input, Port::Progress))
@@ -170,10 +173,16 @@ DefinitionBuilder &DefinitionBuilder::addPort(Port port, ValueKind kind,
     fail("invalid value kind");
   else if (!InRange(access, Access::Read, Access::ReadWrite))
     fail("invalid port access");
+  else if (!InRange(domain, AccessDomain::Whole,
+                    AccessDomain::CopyRowsDestination))
+    fail("invalid access domain");
+  else if (domain != AccessDomain::Whole && kind != ValueKind::Tensor)
+    fail("row access domain requires a tensor port");
   else if (staged_.port(port))
     fail("port is already defined");
   else
-    staged_.ports_.push_back(PortDefinition(port, kind, access, required));
+    staged_.ports_.push_back(
+        PortDefinition(port, kind, access, required, domain));
   return *this;
 }
 void DefinitionBuilder::setAttributes(size_t index) {
@@ -218,6 +227,32 @@ bool DefinitionBuilder::finish(std::string *error) {
       fail("verifier attribute type does not match declared attributes");
     else if (registry_->find(staged_.opcode_))
       fail("operation code is already registered");
+  }
+  if (error_.empty()) {
+    for (const auto &port : staged_.ports_) {
+      if (port.domain() == AccessDomain::Whole)
+        continue;
+      const auto *begin = staged_.port(Port::RowBegin);
+      const auto *count = staged_.port(Port::RowCount);
+      if (!begin || !count || begin->kind() != ValueKind::Scalar ||
+          count->kind() != ValueKind::Scalar ||
+          begin->access() != Access::Read || count->access() != Access::Read ||
+          begin->required() != count->required()) {
+        fail("row access domain requires paired scalar read controls");
+        break;
+      }
+      if (port.domain() != AccessDomain::ActiveRows &&
+          (staged_.opcode_ != OpCode::CopyRows ||
+           !staged_.expectsAttributes<CopyRowsAttrs>() || !begin->required() ||
+           (port.domain() == AccessDomain::CopyRowsSource &&
+            (port.port() != Port::Input || port.access() != Access::Read)) ||
+           (port.domain() == AccessDomain::CopyRowsDestination &&
+            (port.port() != Port::Output || port.access() != Access::Write)))) {
+        fail("copy_rows domain requires matching operation, attributes and "
+             "port");
+        break;
+      }
+    }
   }
   if (!error_.empty()) {
     *error = error_;
@@ -346,6 +381,25 @@ bool InvocationBuilder::append(std::string *error) {
     ordered.push_back(*binding);
   }
   staged_.bindings_ = std::move(ordered);
+  const bool has_row_domain = std::any_of(
+      definition->ports().begin(), definition->ports().end(),
+      [](const auto &port) { return port.domain() != AccessDomain::Whole; });
+  if (has_row_domain) {
+    const auto *begin = staged_.binding(Port::RowBegin);
+    const auto *count = staged_.binding(Port::RowCount);
+    if (bool(begin) != bool(count)) {
+      *error = "row controls must be both present or absent";
+      return false;
+    }
+    if (begin) {
+      const auto *b = graph_->value(begin->value())->scalarType();
+      const auto *c = graph_->value(count->value())->scalarType();
+      if (!b || !c || *b != ScalarType::I64 || *c != ScalarType::I64) {
+        *error = "row controls must be I64 scalars";
+        return false;
+      }
+    }
+  }
   BoundOperands operands(*graph_, staged_);
   std::string diagnostic;
   const bool accepted = std::visit(

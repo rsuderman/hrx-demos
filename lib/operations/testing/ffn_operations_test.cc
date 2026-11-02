@@ -97,7 +97,7 @@ TEST(FfnRegistration, PublicHelpersRegisterExactContractsAndRejectNullOwners) {
   const auto *down = registry.find(OpCode::LinearResidual);
   ASSERT_NE(gate, nullptr);
   ASSERT_NE(down, nullptr);
-  ASSERT_EQ(gate->ports().size(), 4);
+  ASSERT_EQ(gate->ports().size(), 6);
   EXPECT_EQ(gate->ports()[0].port(), Port::Input);
   EXPECT_EQ(gate->ports()[1].port(), Port::GateWeight);
   EXPECT_EQ(gate->ports()[2].port(), Port::UpWeight);
@@ -107,7 +107,7 @@ TEST(FfnRegistration, PublicHelpersRegisterExactContractsAndRejectNullOwners) {
   EXPECT_EQ(gate->port(Port::UpWeight)->access(), Access::Read);
   EXPECT_EQ(gate->port(Port::Output)->access(), Access::Write);
   EXPECT_TRUE(gate->expectsAttributes<GatedMatmulAttrs>());
-  ASSERT_EQ(down->ports().size(), 3);
+  ASSERT_EQ(down->ports().size(), 5);
   EXPECT_EQ(down->ports()[0].port(), Port::Input);
   EXPECT_EQ(down->ports()[1].port(), Port::Weight);
   EXPECT_EQ(down->ports()[2].port(), Port::Residual);

@@ -69,9 +69,13 @@ bool Linear(const BoundOperands &o, const LinearAttrs &a, std::string *error) {
 bool DefineEmbedding(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::Embedding)
-             .port(Port::TokenIds, ValueKind::Tensor, Access::Read)
+             .port(Port::TokenIds, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
              .port(Port::Weight, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::ActiveRows)
+             .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+             .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<EmbeddingAttrs>()
              .verify(Embedding)
              .finish(e);
@@ -79,9 +83,13 @@ bool DefineEmbedding(OperationRegistry *r, std::string *e) {
 bool DefineRmsNorm(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::RmsNorm)
-             .port(Port::Input, ValueKind::Tensor, Access::Read)
+             .port(Port::Input, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
              .port(Port::Gamma, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::ActiveRows)
+             .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+             .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<RmsNormAttrs>()
              .verify(Norm)
              .finish(e);
@@ -89,8 +97,10 @@ bool DefineRmsNorm(OperationRegistry *r, std::string *e) {
 bool DefineQuantize(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::Quantize)
-             .port(Port::Input, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .port(Port::Input, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::ActiveRows)
              .port(Port::RowBegin, ValueKind::Scalar, Access::Read)
              .port(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<QuantizeAttrs>()
@@ -100,9 +110,13 @@ bool DefineQuantize(OperationRegistry *r, std::string *e) {
 bool DefineLinear(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::Linear)
-             .port(Port::Input, ValueKind::Tensor, Access::Read)
+             .port(Port::Input, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
              .port(Port::Weight, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::ActiveRows)
+             .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+             .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<LinearAttrs>()
              .verify(Linear)
              .finish(e);

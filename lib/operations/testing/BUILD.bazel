@@ -104,3 +104,19 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "access_domains_test",
+    size = "small",
+    srcs = ["access_domains_test.cc", "operation_test_util.h"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//lib/operations:ffn_operations",
+        "//lib/operations:operation_graph",
+        "//lib/operations:row_operations",
+        "//lib/operations:tensor_operations",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)

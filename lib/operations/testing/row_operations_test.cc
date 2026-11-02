@@ -6,7 +6,8 @@
 namespace hrx::operations {
 namespace {
 using namespace test;
-TEST(RowOperations, RangeAndLastActivePreserveExplicitReadWrite) {
+TEST(RowOperations,
+     RangeAndLastActiveWriteSelectedDestinationWithoutReadingIt) {
   OperationRegistry r;
   std::string e;
   ASSERT_TRUE(DefineCopyRows(&r, &e));
@@ -36,8 +37,13 @@ TEST(RowOperations, RangeAndLastActivePreserveExplicitReadWrite) {
   a.selection = static_cast<RowSelection>(99);
   EXPECT_FALSE(append(one, count));
   EXPECT_EQ(g.invocations().size(), 2);
-  EXPECT_EQ(r.find(OpCode::CopyRows)->port(Port::Output)->access(),
-            Access::ReadWrite);
+  const auto *definition = g.definition(OpCode::CopyRows);
+  EXPECT_EQ(definition->port(Port::Input)->access(), Access::Read);
+  EXPECT_EQ(definition->port(Port::Input)->domain(),
+            AccessDomain::CopyRowsSource);
+  EXPECT_EQ(definition->port(Port::Output)->access(), Access::Write);
+  EXPECT_EQ(definition->port(Port::Output)->domain(),
+            AccessDomain::CopyRowsDestination);
 }
 TEST(RowOperations, ArgMaxWidthAxisTieAndVectorOutput) {
   OperationRegistry r;

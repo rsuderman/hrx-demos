@@ -8,3 +8,6 @@ under `examples/`, and Python tests under `tests/`.
 - [Examples](examples.md): runnable graphs and native test commands.
 - [Llama FFN structure](llama-ffn-structure.md): descriptor-backed normalized FFN
   region construction, ownership and bounded structural tests.
+
+- [Llama structure](llama-structure.md): immutable ownership, parameter identity,
+  runtime inputs and known region cuts.
