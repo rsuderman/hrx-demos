@@ -1,0 +1,21 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+iree_cc_library(
+    name = "ffn_structure",
+    srcs = ["detail/ffn_structure.cc"],
+    hdrs = ["detail/ffn_structure.h"],
+    cxxopts = select({
+        "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+        "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+        "//conditions:default": ["-std=c++17"],
+    }),
+    deps = [
+        "//lib/operations:operation_graph",
+        "//tools/model:model_types",
+    ],
+)

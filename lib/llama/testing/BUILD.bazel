@@ -1,0 +1,23 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+cc_test(
+    name = "ffn_structure_test",
+    size = "small",
+    srcs = ["ffn_structure_test.cc"],
+    copts = select({
+        "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+        "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+        "//conditions:default": ["-std=c++17"],
+    }),
+    linkstatic = True,
+    deps = [
+        "//lib/llama:ffn_structure",
+        "//lib/operations:ffn_operations",
+        "//lib/operations:tensor_operations",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)

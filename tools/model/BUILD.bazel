@@ -12,17 +12,27 @@ _CXXOPTS = select({
 })
 
 iree_cc_library(
+    name = "model_types",
+    hdrs = [
+        "gguf_catalog.h",
+        "model_descriptor.h",
+    ],
+    cxxopts = _CXXOPTS,
+)
+
+iree_cc_library(
     name = "gguf_catalog",
     srcs = ["gguf_catalog.cc"],
-    hdrs = ["gguf_catalog.h"],
     cxxopts = _CXXOPTS,
-    deps = ["@loomify_ggml//:metadata"],
+    deps = [
+        ":model_types",
+        "@loomify_ggml//:metadata",
+    ],
 )
 
 iree_cc_library(
     name = "model_descriptor",
     srcs = ["model_descriptor.cc"],
-    hdrs = ["model_descriptor.h"],
     cxxopts = _CXXOPTS,
     deps = [":gguf_catalog"],
 )

@@ -6,3 +6,5 @@ under `examples/`, and Python tests under `tests/`.
 
 - [Operations](operations.md): typed operation definitions and graph authoring.
 - [Examples](examples.md): runnable graphs and native test commands.
+- [Llama FFN structure](llama-ffn-structure.md): descriptor-backed normalized FFN
+  region construction, ownership and bounded structural tests.

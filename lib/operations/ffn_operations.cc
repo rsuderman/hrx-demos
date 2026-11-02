@@ -26,6 +26,19 @@ bool CheckTensor(const BoundOperands &operands, Port port, uint64_t rows,
   return true;
 }
 
+bool CheckFfnWeight(const BoundOperands &operands, Port port, uint64_t input,
+                    uint64_t output, std::string *error) {
+  const auto *type = operands.tensor(port);
+  if (!type || (type->encoding() != Encoding::Q4_K &&
+                type->encoding() != Encoding::Q6_K &&
+                type->encoding() != Encoding::Q8_0))
+    return Fail(error, std::string(PortName(port)) +
+                           " requires Q4_K, Q6_K or Q8_0 weights");
+  // Logical F32 axes describe decoded weights; encoded storage is external.
+  return CheckTensor(operands, port, input, output, type->encoding(),
+                     Layout::GgmlWeightRows, error);
+}
+
 bool VerifyGatedMatmul(const BoundOperands &operands,
                        const GatedMatmulAttrs &attrs, std::string *error) {
   if (!error)
@@ -40,11 +53,10 @@ bool VerifyGatedMatmul(const BoundOperands &operands,
   const auto rows = input->dimension(0);
   if (!CheckTensor(operands, Port::Input, rows, attrs.input_width,
                    Encoding::Dense, Layout::RowMajor, error) ||
-      !CheckTensor(operands, Port::GateWeight, attrs.input_width,
-                   attrs.ffn_width, Encoding::Q8_0, Layout::GgmlWeightRows,
-                   error) ||
-      !CheckTensor(operands, Port::UpWeight, attrs.input_width, attrs.ffn_width,
-                   Encoding::Q8_0, Layout::GgmlWeightRows, error) ||
+      !CheckFfnWeight(operands, Port::GateWeight, attrs.input_width,
+                      attrs.ffn_width, error) ||
+      !CheckFfnWeight(operands, Port::UpWeight, attrs.input_width,
+                      attrs.ffn_width, error) ||
       !CheckTensor(operands, Port::Output, rows, attrs.ffn_width,
                    Encoding::Dense, Layout::RowMajor, error))
     return false;
@@ -69,9 +81,8 @@ bool VerifyLinearResidual(const BoundOperands &operands,
   const auto rows = input->dimension(0);
   if (!CheckTensor(operands, Port::Input, rows, attrs.input_width,
                    Encoding::Dense, Layout::RowMajor, error) ||
-      !CheckTensor(operands, Port::Weight, attrs.input_width,
-                   attrs.output_width, Encoding::Q8_0, Layout::GgmlWeightRows,
-                   error) ||
+      !CheckFfnWeight(operands, Port::Weight, attrs.input_width,
+                      attrs.output_width, error) ||
       !CheckTensor(operands, Port::Residual, rows, attrs.output_width,
                    Encoding::Dense, Layout::RowMajor, error))
     return false;

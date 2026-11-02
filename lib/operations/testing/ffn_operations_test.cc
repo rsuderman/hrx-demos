@@ -11,9 +11,10 @@
 namespace hrx::operations {
 namespace {
 
-TensorType Weight(uint64_t input, uint64_t output) {
+TensorType Weight(uint64_t input, uint64_t output,
+                  Encoding encoding = Encoding::Q8_0) {
   auto type = TensorType::matrix(input, output, ElementType::F32);
-  type.setEncoding(Encoding::Q8_0);
+  type.setEncoding(encoding);
   type.setLayout(Layout::GgmlWeightRows);
   return type;
 }
@@ -147,6 +148,77 @@ TEST_F(FfnOperationsTest, ConnectedCallsShareHiddenAndDeclareExactlySixValues) {
   }
 }
 
+TEST_F(FfnOperationsTest, QuantizedWeightFormatsComposeForEveryMixture) {
+  for (const auto gate_encoding :
+       {Encoding::Q4_K, Encoding::Q6_K, Encoding::Q8_0}) {
+    for (const auto up_encoding :
+         {Encoding::Q4_K, Encoding::Q6_K, Encoding::Q8_0}) {
+      for (const auto down_encoding :
+           {Encoding::Q4_K, Encoding::Q6_K, Encoding::Q8_0}) {
+        Reset(8, 3072, 8192);
+        gate = Declare(Weight(3072, 8192, gate_encoding));
+        up = Declare(Weight(3072, 8192, up_encoding));
+        down = Declare(Weight(8192, 3072, down_encoding));
+        ASSERT_TRUE(AppendGate()) << error;
+        ASSERT_TRUE(AppendDown()) << error;
+        const auto &calls = graph->invocations();
+        ASSERT_EQ(calls.size(), 2);
+        EXPECT_EQ(calls[0].binding(Port::GateWeight)->value(), gate);
+        EXPECT_EQ(calls[0].binding(Port::UpWeight)->value(), up);
+        EXPECT_EQ(calls[1].binding(Port::Weight)->value(), down);
+        EXPECT_EQ(calls[0].binding(Port::Output)->value(),
+                  calls[1].binding(Port::Input)->value());
+        EXPECT_EQ(calls[1].binding(Port::Residual)->value(), residual);
+      }
+    }
+  }
+}
+
+TEST_F(FfnOperationsTest, RejectsOtherWeightEncodingsAtEveryWeightPort) {
+  for (const auto encoding :
+       {Encoding::Dense, Encoding::Q4_0, Encoding::Q5_K, Encoding::Q8_1X4}) {
+    for (int port = 0; port < 3; ++port) {
+      Reset(3, 5, 7);
+      auto type = Weight(port == 2 ? 7 : 5, port == 2 ? 5 : 7, encoding);
+      if (encoding == Encoding::Q8_1X4)
+        type.setLayout(Layout::PackedQ8_1X4Rows);
+      auto rejected = Declare(type);
+      if (port == 0)
+        gate = rejected;
+      else if (port == 1)
+        up = rejected;
+      else
+        down = rejected;
+      EXPECT_FALSE(port == 2 ? AppendDown() : AppendGate());
+      EXPECT_NE(error.find("requires Q4_K, Q6_K or Q8_0"), std::string::npos);
+      EXPECT_TRUE(graph->invocations().empty());
+    }
+  }
+}
+
+TEST_F(FfnOperationsTest, NewWeightEncodingsRetainBothAxisChecksAtEveryPort) {
+  for (const auto encoding : {Encoding::Q4_K, Encoding::Q6_K}) {
+    for (int port = 0; port < 3; ++port) {
+      for (int axis = 0; axis < 2; ++axis) {
+        Reset(3, 5, 7);
+        const uint64_t input_width = port == 2 ? 7 : 5;
+        const uint64_t output_width = port == 2 ? 5 : 7;
+        auto wrong = Declare(Weight(input_width + (axis == 0),
+                                    output_width + (axis == 1), encoding));
+        if (port == 0)
+          gate = wrong;
+        else if (port == 1)
+          up = wrong;
+        else
+          down = wrong;
+        EXPECT_FALSE(port == 2 ? AppendDown() : AppendGate());
+        EXPECT_NE(error.find("matrix shape"), std::string::npos);
+        EXPECT_TRUE(graph->invocations().empty());
+      }
+    }
+  }
+}
+
 TEST_F(FfnOperationsTest, GatedMatmulRejectsEveryWrongMatrixAxis) {
   for (int axis = 0; axis < 8; ++axis) {
     Reset(3, 5, 7);
@@ -210,7 +282,7 @@ TEST_F(FfnOperationsTest, RejectsIncorrectDecodedTypesEncodingsAndLayouts) {
       gate = Declare(TensorType::matrix(5, 7, ElementType::F32));
     else if (variant == 3) {
       auto type = Weight(5, 7);
-      type.setEncoding(Encoding::Q6_K);
+      type.setEncoding(Encoding::Q5_K);
       up = Declare(type);
     } else if (variant == 4)
       hidden = Declare(TensorType::matrix(3, 7, ElementType::I32));
