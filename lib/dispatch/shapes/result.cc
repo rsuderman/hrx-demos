@@ -3,6 +3,8 @@
 #include "lib/dispatch/shapes/result.h"
 
 #include "lib/operations/ffn_operations.h"
+#include "lib/operations/attention_operations.h"
+#include "lib/operations/control_operations.h"
 #include "lib/operations/tensor_operations.h"
 #include <limits>
 
@@ -47,6 +49,18 @@ bool CheckSize(const TensorType &type, std::string *error) {
 }
 bool Define(OpCode opcode, OperationRegistry *registry, std::string *error) {
   switch (opcode) {
+  case OpCode::OutputHead:
+    return DefineOutputHead(registry, error);
+  case OpCode::Embedding:
+    return DefineEmbedding(registry, error);
+  case OpCode::Rope:
+    return DefineRope(registry, error);
+  case OpCode::CausalAttention:
+    return DefineCausalAttention(registry, error);
+  case OpCode::RotatePublishKV:
+    return DefineRotatePublishKV(registry, error);
+  case OpCode::PublishToken:
+    return DefinePublishToken(registry, error);
   case OpCode::RmsNorm:
     return DefineRmsNorm(registry, error);
   case OpCode::Linear:
@@ -78,7 +92,10 @@ bool InferResult(const operations::OperationGraph &graph,
   Result staged;
   if (opcode == OpCode::LinearResidual)
     staged.port = Port::Residual;
-  staged.access = definition->port(staged.port)->access();
+  staged.has_result = opcode != OpCode::RotatePublishKV &&
+                      opcode != OpCode::PublishToken;
+  if (staged.has_result)
+    staged.access = definition->port(staged.port)->access();
   std::vector<std::pair<ValueId, ValueId>> copied;
   for (const auto &operand : inputs) {
     const auto *port = definition->port(operand.port);
@@ -102,9 +119,10 @@ bool InferResult(const operations::OperationGraph &graph,
       }
       if (!clone.valid())
         clone = checked.tensor(*type, error);
-      if (operand.port == Port::Input)
+      if (operand.port == Port::Input || operand.port == Port::TokenIds ||
+          operand.port == Port::Query)
         input = type;
-      if (operand.port == Port::Residual) {
+      if (staged.has_result && operand.port == Port::Residual) {
         staged.type = *type;
         staged.alias = operand.value;
       }
@@ -119,10 +137,34 @@ bool InferResult(const operations::OperationGraph &graph,
     copied.emplace_back(operand.value, clone);
     invocation.bind(operand.port, clone);
   }
+  if (!staged.has_result) {
+    std::visit([&](const auto &a) { invocation.attributes(a); }, attributes);
+    if (!invocation.append(error))
+      return false;
+    *out = std::move(staged);
+    error->clear();
+    return true;
+  }
   if (!input)
     return Fail(error, "dispatch shape inference requires a tensor input");
   uint64_t width = 0;
-  if (const auto *a = std::get_if<RmsNormAttrs>(&attributes)) {
+  TensorType result_type;
+  if (std::holds_alternative<OutputHeadAttrs>(attributes) &&
+      opcode == OpCode::OutputHead) {
+    result_type = TensorType::vector(1, ElementType::I32);
+    width = 1;
+  } else if (const auto *a = std::get_if<EmbeddingAttrs>(&attributes)) {
+    if (opcode == OpCode::Embedding)
+      width = a->embedding_width;
+  } else if (std::holds_alternative<RopeAttrs>(attributes) &&
+             opcode == OpCode::Rope) {
+    result_type = *input;
+    width = input->dimension(1);
+  } else if (const auto *a = std::get_if<CausalAttentionAttrs>(&attributes)) {
+    if (opcode == OpCode::CausalAttention && a->value_width &&
+        a->query_heads <= std::numeric_limits<uint64_t>::max() / a->value_width)
+      width = a->query_heads * a->value_width;
+  } else if (const auto *a = std::get_if<RmsNormAttrs>(&attributes)) {
     if (opcode == OpCode::RmsNorm)
       width = a->width;
   } else if (const auto *a = std::get_if<LinearAttrs>(&attributes)) {
@@ -138,7 +180,7 @@ bool InferResult(const operations::OperationGraph &graph,
   if (!width)
     return Fail(error, "missing result width or incompatible attributes");
   if (staged.access == Access::Write) {
-    staged.type =
+    staged.type = result_type.rank() ? result_type :
         TensorType::matrix(input->dimension(0), width, ElementType::F32);
     if (!CheckSize(staged.type, error))
       return false;

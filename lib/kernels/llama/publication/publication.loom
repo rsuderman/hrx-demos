@@ -1,0 +1,71 @@
+// Curated from loom-pipeline/llm/llama/llama_3b; maintained by Loomify.
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Source-owned terminal policy for this exact Llama checkpoint. Preserve raw
+// logits/argmax for reference; only native publication canonicalizes the three
+// primary EOG IDs to the one declared native terminal. This helper is shared
+// by host publication and the isolated/packed model-root output adapters.
+func.def public inline @llama32_native_token(%token: i32, %eos: i32) -> (i32) {
+  %end_text = scalar.constant 128001 : i32
+  %end_message = scalar.constant 128008 : i32
+  %end_turn = scalar.constant 128009 : i32
+  %a = scalar.cmpi eq, %token, %end_text : i32
+  %b = scalar.cmpi eq, %token, %end_message : i32
+  %c = scalar.cmpi eq, %token, %end_turn : i32
+  %ab = scalar.ori %a, %b : i1
+  %stop = scalar.ori %ab, %c : i1
+  %native = scf.select %stop, %eos, %token : i32
+  func.return %native : i32
+}
+kernel.def @llama32_finish_isolated() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%kind: index, %raw_token: buffer, %control: buffer, %tokens: buffer, %progress: buffer) {
+  %origin = index.constant 0 : offset
+  %one = index.constant 1 : index
+  %decode = index.cmp eq, %kind, %one : index
+  %words = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %ids = buffer.view %tokens[%origin] : buffer -> view<129xi32>
+  %feedback = buffer.view %progress[%origin] : buffer -> view<8xi32>
+  %raw = buffer.view %raw_token[%origin] : buffer -> view<1xi32>
+  %winner = view.load %raw[0] : view<1xi32> -> i32
+  %eos = view.load %words[2] : view<3xi32> -> i32
+  %token = func.call @llama32_native_token(%winner, %eos) : (i32, i32) -> (i32)
+  %first = view.load %words[0] : view<3xi32> -> i32
+  %second = view.load %words[1] : view<3xi32> -> i32
+  %one32 = scalar.constant 1 : i32
+  %zero32 = scalar.constant 0 : i32
+  %next_position = scf.if %decode -> (i32) {
+    %v = scalar.addi %first, %one32 : i32
+    scf.yield %v : i32
+  } else {
+    %v = scalar.addi %first, %second : i32
+    scf.yield %v : i32
+  }
+  %generated = scf.if %decode -> (i32) {
+    %v = scalar.addi %second, %one32 : i32
+    scf.yield %v : i32
+  } else { scf.yield %one32 : i32 }
+  %history = scf.if %decode -> (index) {
+    %prior0 = index.cast %second : i32 to index
+    %prior = index.assume %prior0 [range(%prior0, 1, 262144)] : index
+    %ring = index.constant 128 : index
+    %slot0 = index.rem %prior, %ring : index
+    %slot = index.add %slot0, %one : index
+    scf.yield %slot : index
+  } else { scf.yield %one : index }
+  %terminal = scalar.cmpi eq, %token, %eos : i32
+  %done = scf.select %terminal, %one32, %zero32 : i32
+  view.store %token, %ids[0] : i32, view<129xi32>
+  view.store %token, %ids[%history] : i32, view<129xi32>
+  view.store %next_position, %words[0] : i32, view<3xi32>
+  view.store %generated, %words[1] : i32, view<3xi32>
+  view.store %generated, %feedback[0] : i32, view<8xi32>
+  view.store %done, %feedback[7] : i32, view<8xi32>
+  kernel.return
+}
+

@@ -10,7 +10,9 @@
 #include <vector>
 namespace hrx::dispatch {
 enum class Kind { Kernel, CommandFamily };
-enum class Id { RmsNorm, GateUpPrefill, GateUpDecode, DownPrefill, DownDecode };
+enum class Id { RmsNorm, GateUpPrefill, GateUpDecode, DownPrefill, DownDecode,
+                Embedding, Projection, Rope, RotatePublishKV, CausalAttention,
+                OutputHead, PublishPrefill, PublishDecode };
 struct OperandContract {
   operations::Port port;
   operations::Access access;
@@ -59,6 +61,7 @@ struct OperationBuilder {
   std::vector<std::string> required_definitions;
 };
 OperationBuilder NormBuilder();
+OperationBuilder EmbeddingBuilder();
 OperationBuilder FfnBuilder(operations::OpCode operation);
 // Semantic facts supplement native declarations; they never redefine the ABI.
 // Entries sharing an id/name are ordered named implementations of one
@@ -96,6 +99,22 @@ public:
 private:
   std::vector<Registration> entries_;
 };
+// Native source closure for an actual known sequence whose ABI is not a typed
+// graph operation. Declaration authority and strict native linking are shared
+// with registered-operation loading; no logical semantics are invented.
+struct NativeSource {
+  std::string symbol;
+  Kind kind = Kind::Kernel;
+  std::string interface_file;
+  std::vector<std::string> provider_files;
+  std::vector<std::string> required_config;
+  std::string interface_symbol;
+  std::vector<std::string> required_definitions;
+};
+loomc_status_t LoadNative(loomc_context_t *context, loomc_workspace_t *workspace,
+                         const std::vector<NativeSource> &sources,
+                         const std::string &source_root, loomc_module_t **out,
+                         loomc_result_t **result);
 // Normal authoring loads operation IDs; registered implementations and their
 // source closure are collected internally, so models do not enumerate variants.
 loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,

@@ -3,24 +3,48 @@
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
 load("@hrx_system//loom/build_tools/bazel:loom_binary.bzl", "loom_kernel_binary")
 package(default_visibility = ["//visibility:public"])
-exports_files(glob(["*.loom"]))
-loom_library(name = "norm_interface", srcs = ["norm_interface.loom"])
-loom_library(name = "ffn_interface", srcs = ["ffn_interface.loom"])
-loom_library(name = "norm", srcs = ["norm.loom", "rows.loom", "config.loom"])
+exports_files(glob(["**/*.loom"]))
+loom_library(name = "norm_interface", srcs = ["norm/norm_interface.loom"])
+loom_library(name = "ffn_interface", srcs = ["ffn/ffn_interface.loom"])
+loom_library(name = "norm", srcs = ["norm/norm.loom", "rows.loom", "config.loom"])
 loom_library(
     name = "ffn",
     srcs = [
-        "ffn.loom", "rows.loom", "config.loom",
-        "linear_q4k_q8_1_x4.loom", "linear_q4k_q8_1_x4_compat.loom",
-        "linear_q6k_q8_1_x4.loom", "linear_q6k_q8_1_x4_compat.loom",
-        "linear_qk_common.loom", "linear_qk_mmvq_compat.loom",
-        "quantize_q8_1_x4.loom", "quantize_q8_1_x4_mmvq_compat.loom",
+        "ffn/ffn.loom", "rows.loom", "config.loom",
+        "projection/linear_q4k_q8_1_x4.loom", "projection/linear_q4k_q8_1_x4_compat.loom",
+        "projection/linear_q6k_q8_1_x4.loom", "projection/linear_q6k_q8_1_x4_compat.loom",
+        "projection/linear_qk_common.loom", "projection/linear_qk_mmvq_compat.loom",
+        "projection/quantize_q8_1_x4.loom", "projection/quantize_q8_1_x4_mmvq_compat.loom",
     ],
 )
-filegroup(name = "all_sources", srcs = glob(["*.loom"]))
+filegroup(name = "all_sources", srcs = glob(["**/*.loom"]))
 
 loom_kernel_binary(
     name = "norm_gfx1100",
     deps = [":norm"], roots = ["llama32_rmsnorm_f32"],
     target = "@hrx_system//loom/target/amdgpu:gfx1100",
+)
+
+loom_library(
+    name = "output",
+    srcs = ["projection/linear_q6k_q8_1_x4.loom", "projection/quantize_q8_1_x4.loom", "output/output.loom", "output/output_interface.loom", "output/output_norm_last.loom", "rows.loom", "config.loom", "output/output_config.loom", "output/greedy_argmax.loom", "projection/quantize_q8_1_x4_mmvq_compat.loom", "projection/linear_q6k_q8_1_x4_compat.loom", "projection/linear_qk_mmvq_compat.loom", "projection/linear_qk_common.loom"],
+)
+loom_library(name = "publication", srcs = ["publication/publication.loom", "publication/publication_interface.loom"])
+
+loom_library(
+    name = "attention_dispatch",
+    srcs = ["attention/attention_dispatch.loom", "attention/rotary.loom", "attention/attention_core.loom", "attention/attention_map.loom"],
+)
+loom_kernel_binary(
+    name = "attention_dispatch_gfx1100",
+    deps = [":attention_dispatch"],
+    roots = ["llama_dispatch_rope", "llama_dispatch_publish_kv", "llama_dispatch_causal_attention"],
+    target = "@hrx_system//loom/target/amdgpu:gfx1100",
+)
+
+loom_library(
+    name = "attention_native",
+    srcs = ["attention/attention_prepare.loom", "attention/attention_native.loom", "attention/rotary.loom",
+            "attention/attention_core.loom", "attention/attention_map.loom", "attention/attention_materialized.loom",
+            "rows.loom", "config.loom", "attention/attention_config.loom"],
 )

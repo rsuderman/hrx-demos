@@ -12,6 +12,9 @@ struct Operand {
 };
 struct Result {
   operations::TensorType type;
+  // State-effect operations have no producer result; their explicit operands
+  // retain all logical identities and native buffers.
+  bool has_result = true;
   operations::Port port = operations::Port::Output;
   operations::Access access = operations::Access::Write;
   // Invalid for a fresh Write output. ReadWrite returns exactly the source
@@ -19,7 +22,8 @@ struct Result {
   operations::ValueId alias;
 };
 
-// Supports RmsNorm, Linear, GatedMatmul and LinearResidual. Inputs bind
+// Supports registered producer families and the explicit RotatePublishKV/
+// PublishToken effects. A state effect returns has_result=false. Inputs bind
 // existing graph values and omit fresh outputs. Attributes and types retain
 // their existing operation meanings. Checks use the built-in operation
 // definitions, including operand identity and optional active-row controls. No

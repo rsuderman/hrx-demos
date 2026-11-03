@@ -1,0 +1,4 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+config.def @llama.attention.cache_capacity = 4 : index
+config.def @llama.attention.pool_capacity = 128 : index

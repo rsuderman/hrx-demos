@@ -1,0 +1,5 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows: index, %input_size: index) launch(%rows: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows: index, %input_size: index, %output_size: index) launch(%rows: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows: index, %input_size: index, %output_size: index) launch(%rows: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)

@@ -1,0 +1,2 @@
+// SPDX-License-Identifier: MIT
+kernel.decl @llama32_finish_isolated() launch(%kind: index, %raw_token: buffer, %control: buffer, %tokens: buffer, %progress: buffer)

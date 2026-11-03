@@ -1,0 +1,5 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+kernel.decl @llama_dispatch_rope(%rows0: index, %heads0: index, %capacity0: index) launch(%capacity0: index, %positions: buffer, %factors: buffer, %input: buffer, %output: buffer)
+kernel.decl @llama_dispatch_publish_kv(%rows0: index, %heads0: index, %capacity0: index) launch(%capacity0: index, %positions: buffer, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer)
+kernel.decl @llama_dispatch_causal_attention(%rows0: index, %qheads0: index, %kvheads0: index, %capacity0: index) launch(%capacity0: index, %kvheads0: index, %positions: buffer, %query: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)

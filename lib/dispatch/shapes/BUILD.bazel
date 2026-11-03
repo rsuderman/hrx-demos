@@ -16,6 +16,8 @@ iree_cc_library(
     deps = [
         "//lib/operations:operation_graph",
         "//lib/operations:ffn_operations",
+        "//lib/operations:attention_operations",
+        "//lib/operations:control_operations",
         "//lib/operations:tensor_operations",
     ],
 )

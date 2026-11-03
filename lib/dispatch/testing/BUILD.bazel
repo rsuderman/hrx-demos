@@ -83,3 +83,100 @@ loom_test(
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
+
+cc_test(
+    name = "embedding_test", size = "small", srcs = ["embedding_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources", "testdata/incompatible_family.loom"],
+    deps = ["//tools/loomify-gguf/authoring/model-full:llama_step", "//lib/dispatch:invocation", "//lib/llama:ffn_structure", "//lib/llama:structure", "//lib/operations:ffn_operations", "//lib/operations:tensor_operations", "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/config", "@hrx_system//loom/src/loom/ops/kernel", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+loom_test(
+    name = "embedding_execution_test",
+    srcs = ["testdata/embedding_checks.loom",
+            "//lib/kernels/llama:embedding/embedding.loom",
+            "//lib/kernels/llama:embedding/embedding_rows.loom",
+            "//lib/kernels/llama:embedding/embedding_config.loom",
+            "//lib/kernels/llama:config.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+cc_test(
+    name = "projection_test", size = "small", srcs = ["projection_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"],
+    deps = ["//lib/dispatch:invocation", "//lib/operations:tensor_operations",
+            "@hrx_system//loom/binding/c:interop",
+            "@hrx_system//loom/src/loom/ops/command",
+            "@hrx_system//loom/src/loom/ops/config",
+            "@hrx_system//loom/src/loom/ops/kernel",
+            "@hrx_system//loom/binding/c/target/amdgpu",
+            "@hrx_system//loom/binding/c/target/cmd",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+loom_test(
+    name = "projection_execution_test",
+    srcs = ["testdata/projection_checks.loom"] + [
+        "//lib/kernels/llama:" + name for name in [
+            "config.loom", "projection/linear_q4k_q8_1_x4.loom", "projection/linear_q4k_q8_1_x4_compat.loom",
+            "projection/linear_q6k_q8_1_x4.loom", "projection/linear_q6k_q8_1_x4_compat.loom",
+            "projection/linear_qk_common.loom", "projection/linear_qk_mmvq_compat.loom",
+            "projection/quantize_q8_1_x4.loom", "projection/quantize_q8_1_x4_mmvq_compat.loom",
+        ]
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+cc_test(
+    name = "combined_chain_test", size = "small", srcs = ["combined_chain_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"],
+    deps = ["//lib/dispatch:invocation", "//lib/operations:tensor_operations",
+            "@hrx_system//loom/binding/c:interop",
+            "@hrx_system//loom/src/loom/ops/command",
+            "@hrx_system//loom/src/loom/ops/config",
+            "@hrx_system//loom/src/loom/ops/kernel",
+            "@hrx_system//loom/binding/c/target/amdgpu",
+            "@hrx_system//loom/binding/c/target/cmd",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+loom_test(
+    name = "output_execution_test",
+    srcs = ["testdata/output_checks.loom"],
+    deps = ["//lib/kernels/llama:output", "//lib/kernels/llama:publication"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+cc_test(
+    name = "output_test", size = "small", srcs = ["output_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"],
+    deps = ["//lib/dispatch:invocation", "//lib/operations:control_operations", "//lib/operations:tensor_operations", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_binary(
+    name = "emit_attention_sequence", testonly = True,
+    srcs = ["emit_attention_sequence.cc"], cxxopts = ["-std=c++17"],
+    deps = ["//lib/dispatch:registry", "@hrx_system//loom/binding/c/target/amdgpu"],
+)
+genrule(
+    name = "attention_sequence_module", testonly = True,
+    srcs = ["//lib/kernels/llama:all_sources", "testdata/attention_capacity.loom"],
+    outs = ["attention_sequence.loombc"],
+    cmd = "$(location :emit_attention_sequence) . $@",
+    tools = [":emit_attention_sequence"],
+)
+loom_test(
+    name = "attention_sequence_execution_test",
+    srcs = ["testdata/attention_sequence_checks.loom", ":attention_sequence_module"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+cc_test(
+    name = "attention_dispatch_test", size = "small",
+    srcs = ["attention_dispatch_test.cc"], copts = ["-std=c++17"], linkstatic = True,
+    deps = ["//lib/dispatch:registry", "//lib/operations:attention_operations", "@googletest//:gtest", "@googletest//:gtest_main"],
+)

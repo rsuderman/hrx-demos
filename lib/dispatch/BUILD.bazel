@@ -4,7 +4,7 @@ load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:public"])
 iree_cc_library(
     name = "registry",
-    srcs = ["registry.cc", "builders.cc"], hdrs = ["registry.h"],
+    srcs = ["registry.cc", "builders.cc", "embedding.cc", "projection.cc", "output.cc", "attention_builders.cc", "attention_sequence.cc"], hdrs = ["registry.h", "projection.h", "output.h", "attention_builders.h", "attention_sequence.h"],
     cxxopts = ["-std=c++17"],
     deps = [
         "//lib/operations:operation_graph",

@@ -27,6 +27,7 @@ enum class OpCode {
   CausalAttention,
   CopyRows,
   ArgMax,
+  OutputHead,
   PublishToken
 };
 enum class Port {
@@ -116,6 +117,15 @@ struct CopyRowsAttrs {
   uint64_t width = 0;
   RowSelection selection = RowSelection::Range;
 };
+// Fused last-active norm/projection/argmax. Explicit I32 Control[3] holds
+// native active count at word zero; valid count is 1..Input rows and begin is
+// zero. Optional logical row controls require matching native specialization.
+struct OutputHeadAttrs {
+  uint64_t width = 0;
+  uint64_t vocabulary_size = 0;
+  double epsilon = 1e-5;
+  RowSelection row_selection = RowSelection::LastActive;
+};
 struct ArgMaxAttrs {
   uint64_t width = 0;
   uint32_t axis = 1;
@@ -164,7 +174,7 @@ using OperationAttrs =
     std::variant<GatedMatmulAttrs, LinearResidualAttrs, EmbeddingAttrs,
                  RmsNormAttrs, QuantizeAttrs, LinearAttrs, CopyRowsAttrs,
                  ArgMaxAttrs, RopeAttrs, RotatePublishKVAttrs,
-                 CausalAttentionAttrs, PublishTokenAttrs>;
+                 CausalAttentionAttrs, OutputHeadAttrs, PublishTokenAttrs>;
 
 class BoundOperands;
 class DefinitionBuilder;

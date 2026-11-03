@@ -52,7 +52,7 @@ private:
                       operations::ValueId existing_result,
                       shapes::Result *out_result,
                       loomify_gguf::Value *out_native,
-                      const std::string &variant);
+                      const std::string &variant, bool expect_result = true);
   struct Binding {
     operations::ValueId logical;
     loomify_gguf::Value native;
@@ -99,6 +99,12 @@ public:
                         loomify_gguf::Value *out) const {
     return session_.Native(logical, out);
   }
+  // Emit a genuine state effect with explicit ReadWrite operands. No logical
+  // producer value or temporary output buffer is introduced.
+  loomc_status_t InvokeEffect(Id dispatch,
+                              const operations::OperationAttrs &attributes,
+                              const std::vector<shapes::Operand> &inputs,
+                              const std::string &variant = {});
   loomc_status_t Invoke(Id dispatch,
                         const operations::OperationAttrs &attributes,
                         const std::vector<shapes::Operand> &inputs,

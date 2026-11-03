@@ -1,0 +1,34 @@
+// Curated from loom-pipeline/llm/llama/llama_3b; maintained by Loomify.
+config.decl @llama.model.hidden_size : index
+config.decl @llama.model.rms_epsilon : f32
+template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
+// Native invocation guarantees1<=active_count<=capacity-token_begin. Empty or
+// retired spans do not issue this command. The normalized output is one F32 row
+// at0; input, immutable gamma and normalized output are disjoint.
+kernel.def @llama32_output_norm_last_f32(%token_capacity: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%token_capacity0: index, %token_begin0: index, %control_origin: offset, %control: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %capacity = index.assume %token_capacity0 [range(%token_capacity0, 1, 512)] : index
+  %begin = index.assume %token_begin0 [range(%token_begin0, 0, 511), lt(%token_begin0, %capacity)] : index
+  %remaining = index.sub %capacity, %begin : index
+  %words = buffer.view %control[%control_origin] : buffer -> view<3xi32>
+  %count_i32 = view.load %words[0] : view<3xi32> -> i32
+  %count0 = index.cast %count_i32 : i32 to index
+  %count = index.assume %count0 [range(%count0, 1, 512), le(%count0, %remaining)] : index
+  %one = index.constant 1 : index
+  %last_local = index.sub %count, %one : index
+  %last0 = index.add %begin, %last_local : index
+  %last = index.assume %last0 [range(%last0, 0, 511), lt(%last0, %capacity)] : index
+  %hidden_size = config.get @llama.model.hidden_size : index
+  %width32 = index.cast %hidden_size : index to i32
+  %divisor = scalar.uitofp %width32 : i32 to f32
+  %epsilon = config.get @llama.model.rms_epsilon : f32
+  %origin = index.constant 0 : offset
+  %half_output = scalar.constant false : i1
+  template.apply<@llm.rmsnorm.row>(%hidden_size, %divisor, %capacity, %last, %origin, %half_output, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
+  kernel.return
+}
+

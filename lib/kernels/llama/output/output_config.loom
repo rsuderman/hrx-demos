@@ -1,0 +1,2 @@
+// SPDX-License-Identifier: MIT
+config.def @qwen38.greedy_argmax.output_capacity = 128256 : index

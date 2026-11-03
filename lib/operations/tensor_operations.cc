@@ -3,6 +3,7 @@
 #include "lib/operations/tensor_operations.h"
 #include "lib/operations/detail/checks.h"
 #include <cmath>
+#include <limits>
 namespace hrx::operations {
 namespace {
 using namespace detail;
@@ -27,6 +28,24 @@ bool Norm(const BoundOperands &o, const RmsNormAttrs &a, std::string *error) {
          Matrix(o, Port::Output, n, a.width, ElementType::F32, Encoding::Dense,
                 Layout::RowMajor, error) &&
          Distinct(o, error, Port::Output, Port::Input, Port::Gamma);
+}
+bool OutputHead(const BoundOperands &o, const OutputHeadAttrs &a,
+                std::string *error) {
+  if (!a.width || !a.vocabulary_size ||
+      a.vocabulary_size > uint64_t(std::numeric_limits<int32_t>::max()) + 1 ||
+      !std::isfinite(a.epsilon) ||
+      a.epsilon <= 0 || a.row_selection != RowSelection::LastActive)
+    return Fail(error, "output head requires positive dimensions/epsilon and last-active selection");
+  auto rows = o.tensor(Port::Input)->dimension(0);
+  return Matrix(o, Port::Input, rows, a.width, ElementType::F32,
+                Encoding::Dense, Layout::RowMajor, error) &&
+         Vector(o, Port::Gamma, a.width, ElementType::F32, error) &&
+         Vector(o, Port::Control, 3, ElementType::I32, error) &&
+         Weight(o, Port::Weight, a.width, a.vocabulary_size, error) &&
+         Vector(o, Port::Output, 1, ElementType::I32, error) &&
+         ((!o.value(Port::RowBegin) && !o.value(Port::RowCount)) ||
+          RowControls(o, error)) &&
+         Distinct(o, error, Port::Output, Port::Input, Port::Gamma, Port::Weight, Port::Control);
 }
 bool Quantize(const BoundOperands &o, const QuantizeAttrs &a,
               std::string *error) {
@@ -92,6 +111,21 @@ bool DefineRmsNorm(OperationRegistry *r, std::string *e) {
              .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<RmsNormAttrs>()
              .verify(Norm)
+             .finish(e);
+}
+bool DefineOutputHead(OperationRegistry *r, std::string *e) {
+  return Ready(r, e) &&
+         r->define(OpCode::OutputHead)
+             .port(Port::Input, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::Control, ValueKind::Tensor, Access::Read)
+             .port(Port::Gamma, ValueKind::Tensor, Access::Read)
+             .port(Port::Weight, ValueKind::Tensor, Access::Read)
+             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+             .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
+             .attributes<OutputHeadAttrs>()
+             .verify(OutputHead)
              .finish(e);
 }
 bool DefineQuantize(OperationRegistry *r, std::string *e) {

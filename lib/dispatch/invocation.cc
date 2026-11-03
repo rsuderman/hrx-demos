@@ -104,7 +104,8 @@ loomc_status_t
 NativeEmissionSession::Emit(Id id, const OperationAttrs &attrs,
                             const std::vector<shapes::Operand> &inputs,
                             ValueId existing_result, shapes::Result *out_result,
-                            Value *out_native, const std::string &variant) {
+                            Value *out_native, const std::string &variant,
+                            bool expect_result) {
   if (!out_result || !out_native || failed_)
     return Error("missing result or failed invocation owner");
   const auto *entry = registry_.Find(id);
@@ -118,6 +119,9 @@ NativeEmissionSession::Emit(Id id, const OperationAttrs &attrs,
   if (!shapes::InferResult(graph_, entry->operation, attrs, inputs, &inferred,
                            &error))
     return Error(error);
+  if (inferred.has_result != expect_result)
+    return Error(expect_result ? "operation has no producer result; use InvokeEffect"
+                              : "producer operation requires Invoke");
   if (!graph_.definition(entry->operation))
     return Error("graph lacks operation definition");
   if (existing_result.valid()) {
@@ -185,7 +189,7 @@ NativeEmissionSession::Emit(Id id, const OperationAttrs &attrs,
   }
   Value existing;
   bool has_output = false;
-  if (inferred.access == Access::ReadWrite) {
+  if (inferred.has_result && inferred.access == Access::ReadWrite) {
     existing = Find(inferred.alias)->native;
     has_output = true;
   } else if (existing_result.valid() && Find(existing_result)) {
@@ -202,7 +206,7 @@ NativeEmissionSession::Emit(Id id, const OperationAttrs &attrs,
   if (!loomc_status_is_ok(status))
     return context.staged ? FailMutation(status) : status;
 
-  status = CheckBuffer(native_output);
+  status = inferred.has_result ? CheckBuffer(native_output) : loomc_ok_status();
   if (!loomc_status_is_ok(status))
     return context.staged ? FailMutation(status) : status;
   *out_result = inferred;
@@ -246,6 +250,8 @@ loomc_status_t NativeEmissionSession::EmitExisting(Id id,
   if (!definition)
     return Error("missing existing operation definition");
   std::vector<shapes::Operand> inputs;
+  const bool has_result = invocation.opcode() != OpCode::RotatePublishKV &&
+                          invocation.opcode() != OpCode::PublishToken;
   ValueId output;
   for (const auto &binding : invocation.bindings()) {
     const auto *port = definition->port(binding.port());
@@ -257,22 +263,41 @@ loomc_status_t NativeEmissionSession::EmitExisting(Id id,
       output = binding.value();
     } else {
       inputs.push_back({binding.port(), binding.value()});
-      if (port->access() == Access::ReadWrite)
+      if (has_result && port->access() == Access::ReadWrite)
         output = binding.value();
     }
   }
-  if (!output.valid())
+  if (has_result && !output.valid())
     return Error("missing existing output identity");
   shapes::Result inferred;
   Value native;
   auto status = Emit(id, invocation.attributes(), inputs, output, &inferred,
-                     &native, variant);
+                     &native, variant, has_result);
   if (!loomc_status_is_ok(status))
     return status;
-  if (inferred.access == Access::Write && !Find(output))
+  if (inferred.has_result && inferred.access == Access::Write && !Find(output))
     bindings_.push_back({output, native, {}});
   last_existing_ = index;
   has_emitted_existing_ = true;
+  return loomc_ok_status();
+}
+
+loomc_status_t InvocationProgram::InvokeEffect(
+    Id id, const OperationAttrs &attrs,
+    const std::vector<shapes::Operand> &inputs, const std::string &variant) {
+  shapes::Result inferred;
+  Value native;
+  auto status = session_.Emit(id, attrs, inputs, {}, &inferred, &native, variant,
+                              false);
+  if (!loomc_status_is_ok(status))
+    return status;
+  auto invocation = graph_.operation(session_.registry_.Find(id)->operation);
+  std::visit([&](const auto &a) { invocation.attributes(a); }, attrs);
+  for (const auto &input : inputs)
+    invocation.bind(input.port, input.value);
+  std::string error;
+  if (!invocation.append(&error))
+    return session_.FailMutation(Error(error));
   return loomc_ok_status();
 }
 

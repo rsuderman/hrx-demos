@@ -1,6 +1,9 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "lib/dispatch/registry.h"
+#include "lib/dispatch/projection.h"
+#include "lib/dispatch/output.h"
+#include "lib/dispatch/attention_builders.h"
 #include "loom/ops/config/ops.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/template/ops.h"
@@ -12,6 +15,7 @@
 #include <memory>
 #include <utility>
 namespace hrx::dispatch {
+Registration EmbeddingRegistration();
 namespace {
 using namespace operations;
 constexpr const char *kRoot = "lib/kernels/llama/";
@@ -52,27 +56,32 @@ const loom_op_t *Symbol(loomc_module_t *module, const std::string &name) {
 } // namespace
 Registry Registry::Llama3B() {
   Registry registry;
-  Registration norm{Id::RmsNorm,
-                    OpCode::RmsNorm,
-                    Kind::Kernel,
-                    "llama.rmsnorm",
-                    "llama32_rmsnorm_f32",
-                    File("norm_interface.loom"),
-                    {File("norm.loom"), File("rows.loom"), File("config.loom")},
-                    {{Port::Input, Access::Read},
-                     {Port::Gamma, Access::Read},
-                     {Port::Output, Access::Write}},
-                    {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
+  registry.entries_.push_back(EmbeddingRegistration());
+  Registration norm{
+      Id::RmsNorm,
+      OpCode::RmsNorm,
+      Kind::Kernel,
+      "llama.rmsnorm",
+      "llama32_rmsnorm_f32",
+      File("norm/norm_interface.loom"),
+      {File("norm/norm.loom"), File("rows.loom"), File("config.loom")},
+      {{Port::Input, Access::Read},
+       {Port::Gamma, Access::Read},
+       {Port::Output, Access::Write}},
+      {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
   norm.interface_symbol = norm.symbol;
   norm.builder = NormBuilder();
   registry.entries_.push_back(std::move(norm));
   std::vector<std::string> files;
-  for (const char *file :
-       {"ffn.loom", "rows.loom", "config.loom", "linear_q4k_q8_1_x4.loom",
-        "linear_q4k_q8_1_x4_compat.loom", "linear_q6k_q8_1_x4.loom",
-        "linear_q6k_q8_1_x4_compat.loom", "linear_qk_common.loom",
-        "linear_qk_mmvq_compat.loom", "quantize_q8_1_x4.loom",
-        "quantize_q8_1_x4_mmvq_compat.loom"})
+  for (const char *file : {"ffn/ffn.loom", "rows.loom", "config.loom",
+                           "projection/linear_q4k_q8_1_x4.loom",
+                           "projection/linear_q4k_q8_1_x4_compat.loom",
+                           "projection/linear_q6k_q8_1_x4.loom",
+                           "projection/linear_q6k_q8_1_x4_compat.loom",
+                           "projection/linear_qk_common.loom",
+                           "projection/linear_qk_mmvq_compat.loom",
+                           "projection/quantize_q8_1_x4.loom",
+                           "projection/quantize_q8_1_x4_mmvq_compat.loom"})
     files.push_back(File(file));
   for (Id id :
        {Id::GateUpPrefill, Id::GateUpDecode, Id::DownPrefill, Id::DownDecode}) {
@@ -86,7 +95,7 @@ Registry Registry::Llama3B() {
                        Kind::CommandFamily,
                        std::string("llama.ffn.") + suffix,
                        std::string("llm.ffn.") + suffix,
-                       File("ffn_interface.loom"),
+                       File("ffn/ffn_interface.loom"),
                        files,
                        {},
                        {"ggml.linear_q4k_q8_1_x4.token_capacity",
@@ -110,6 +119,11 @@ Registry Registry::Llama3B() {
     entry.builder = FfnBuilder(entry.operation);
     registry.entries_.push_back(std::move(entry));
   }
+  RegisterProjections(&registry);
+  for (auto entry : OutputRegistrations())
+    registry.entries_.push_back(std::move(entry));
+  for (auto entry : AttentionRegistrations())
+    registry.entries_.push_back(std::move(entry));
   return registry;
 }
 const Registration *Registry::Find(Id id) const {
@@ -229,10 +243,29 @@ loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
     return Error("load requires context, workspace, registrations and outputs");
   Registry validation;
   std::string error;
-  std::vector<std::string> files;
+  std::vector<NativeSource> sources;
   for (const auto &entry : entries) {
     if (!validation.Add(entry, &error))
       return Error(error.c_str());
+    sources.push_back({entry.symbol, entry.kind, entry.interface_file,
+                       entry.provider_files, entry.required_config,
+                       entry.interface_symbol, entry.builder.required_definitions});
+  }
+  return LoadNative(context, workspace, sources, source_root, out, result);
+}
+loomc_status_t LoadNative(loomc_context_t *context, loomc_workspace_t *workspace,
+                         const std::vector<NativeSource> &entries,
+                         const std::string &source_root, loomc_module_t **out,
+                         loomc_result_t **result) {
+  if (out) *out = nullptr;
+  if (result) *result = nullptr;
+  if (!context || !workspace || !out || !result || entries.empty())
+    return Error("native load requires context, workspace, sources and outputs");
+  std::vector<std::string> files;
+  for (const auto &entry : entries) {
+    if (entry.symbol.empty() || entry.interface_symbol.empty() ||
+        entry.interface_file.empty() || entry.provider_files.empty())
+      return Error("native source requires callable and interface/provider closure");
     auto add = [&](const std::string &file) {
       if (std::find(files.begin(), files.end(), file) == files.end())
         files.push_back(file);
@@ -302,7 +335,7 @@ loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
         }
       }
     for (const auto &entry : entries)
-      for (const auto &name : entry.builder.required_definitions) {
+      for (const auto &name : entry.required_definitions) {
         const auto *definition = Symbol(*out, name);
         if (!definition || loom_kernel_decl_isa(definition) ||
             loom_template_decl_isa(definition)) {

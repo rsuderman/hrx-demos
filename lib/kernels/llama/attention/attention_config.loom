@@ -1,0 +1,7 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+config.def @llama.model.layer_count = 28 : index
+config.def @llama.model.query_heads = 24 : index
+config.def @llama.model.kv_heads = 8 : index
+config.def @llama.model.head_size = 128 : index
+config.def @llama.model.kv_size = 1024 : index

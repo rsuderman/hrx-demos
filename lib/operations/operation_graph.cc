@@ -512,6 +512,8 @@ const char *OpCodeName(OpCode opcode) {
     return "copy_rows";
   case OpCode::ArgMax:
     return "arg_max";
+  case OpCode::OutputHead:
+    return "output_head";
   case OpCode::PublishToken:
     return "publish_token";
   }

@@ -43,6 +43,88 @@ protected:
     EXPECT_EQ(result.type.layout(), Layout::RowMajor);
   }
 };
+TEST_F(ResultTest, PublicationHasNoResultAndPreservesSourceIdentities) {
+  auto vector = [&](uint64_t size) {
+    return graph.tensor(TensorType::vector(size, ElementType::I32), &error);
+  };
+  auto token = vector(1), control = vector(3), history = vector(129), progress = vector(8);
+  PublishTokenAttrs attrs;
+  attrs.history_capacity = 128;
+  const auto values = graph.values().size();
+  ASSERT_TRUE(InferResult(graph, OpCode::PublishToken, attrs,
+      {{Port::Token, token}, {Port::Control, control}, {Port::History, history},
+       {Port::Progress, progress}}, &result, &error)) << error;
+  EXPECT_FALSE(result.has_result);
+  EXPECT_FALSE(result.alias.valid());
+  EXPECT_EQ(graph.values().size(), values);
+  EXPECT_TRUE(graph.invocations().empty());
+  EXPECT_FALSE(InferResult(graph, OpCode::PublishToken, attrs,
+      {{Port::Token, token}, {Port::Control, control}, {Port::History, history},
+       {Port::Progress, control}}, &result, &error));
+  EXPECT_FALSE(result.has_result);
+}
+TEST_F(ResultTest, FusedOutputHeadReturnsOneTokenAndChecksInputContract) {
+  auto input = Matrix(7, 3072);
+  auto gamma = graph.tensor(TensorType::vector(3072, ElementType::F32), &error);
+  auto weight = Weight(3072, 128256, Encoding::Q6_K);
+  auto control = graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  OutputHeadAttrs attrs{3072, 128256};
+  auto infer = [&] { return InferResult(graph, OpCode::OutputHead, attrs,
+       {{Port::Input, input}, {Port::Gamma, gamma}, {Port::Weight, weight},
+        {Port::Control, control}}, &result, &error); };
+  ASSERT_TRUE(infer()) << error;
+  EXPECT_TRUE(result.has_result);
+  EXPECT_EQ(result.type.rank(), 1u);
+  EXPECT_EQ(result.type.dimension(0), 1u);
+  EXPECT_EQ(result.type.elementType(), ElementType::I32);
+  attrs.vocabulary_size = uint64_t(std::numeric_limits<int32_t>::max()) + 1;
+  weight = Weight(3072, attrs.vocabulary_size, Encoding::Q6_K);
+  EXPECT_TRUE(infer()) << error;
+  attrs.vocabulary_size += 1;
+  weight = Weight(3072, attrs.vocabulary_size, Encoding::Q6_K);
+  EXPECT_FALSE(infer());
+  attrs.vocabulary_size = 128256;
+  weight = Weight(3072, attrs.vocabulary_size, Encoding::Q6_K);
+  attrs.row_selection = RowSelection::Range;
+  EXPECT_FALSE(infer());
+  attrs.row_selection = RowSelection::LastActive;
+  attrs.epsilon = 0;
+  EXPECT_FALSE(infer());
+  EXPECT_TRUE(graph.invocations().empty());
+}
+TEST_F(ResultTest, EmbeddingAndAttentionDeriveFreshShapesFromCorrectPorts) {
+  auto tokens = graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  auto weight = Weight(128, 256, Encoding::Q6_K);
+  ASSERT_TRUE(InferResult(graph, OpCode::Embedding, EmbeddingAttrs{256, 128},
+      {{Port::TokenIds, tokens}, {Port::Weight, weight}}, &result, &error)) << error;
+  Shape(3, 128);
+  auto query = Matrix(3, 4 * 128);
+  auto positions = graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  RopeAttrs rope{4, 128, 128};
+  ASSERT_TRUE(InferResult(graph, OpCode::Rope, rope,
+      {{Port::Input, query}, {Port::Positions, positions}}, &result, &error)) << error;
+  Shape(3, 512);
+  auto cache = TensorType::vector(16, ElementType::F16);
+  cache.addDimension(2).addDimension(128);
+  auto keys = graph.tensor(cache, &error), values = graph.tensor(cache, &error);
+  auto begin = graph.scalar(ScalarType::I64, &error);
+  auto count = graph.scalar(ScalarType::I64, &error);
+  CausalAttentionAttrs attention{4, 2, 128, 128, 16};
+  ASSERT_TRUE(InferResult(graph, OpCode::CausalAttention, attention,
+      {{Port::Query, query}, {Port::Positions, positions}, {Port::KeyCache, keys},
+       {Port::ValueCache, values}, {Port::RowBegin, begin}, {Port::RowCount, count}},
+      &result, &error)) << error;
+  Shape(3, 512);
+  RotatePublishKVAttrs publication{2, 128, 128, 16, 128};
+  auto key = Matrix(3, 256), value = Matrix(3, 256);
+  const auto value_count = graph.values().size();
+  ASSERT_TRUE(InferResult(graph, OpCode::RotatePublishKV, publication,
+      {{Port::Key, key}, {Port::Value, value}, {Port::Positions, positions},
+       {Port::KeyCache, keys}, {Port::ValueCache, values}}, &result, &error)) << error;
+  EXPECT_FALSE(result.has_result);
+  EXPECT_EQ(graph.values().size(), value_count);
+  EXPECT_TRUE(graph.invocations().empty());
+}
 TEST_F(ResultTest, NormPreservesCapacityAndFreshResultForBothPhases) {
   for (auto phase : {Phase::Prefill, Phase::Decode}) {
     for (uint64_t rows : {1, 7}) {
