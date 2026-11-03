@@ -1,6 +1,9 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 cc_test(
     name = "registry_test", size = "small", srcs = ["registry_test.cc"],
     copts = ["-std=c++17"], linkstatic = True,
@@ -11,7 +14,7 @@ cc_test(
     name = "invocation_test", size = "small", srcs = ["invocation_test.cc"],
     copts = ["-std=c++17"], linkstatic = True,
     data = ["//lib/kernels/llama:all_sources", "testdata/incompatible_family.loom"],
-    deps = ["//lib/dispatch:invocation", "//lib/llama:ffn_structure", "//lib/llama:structure", "//lib/operations:ffn_operations", "//lib/operations:tensor_operations", "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/config", "@hrx_system//loom/src/loom/ops/kernel", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+    deps = ["//tools/loomify-gguf/authoring/model-full:llama_step", "//lib/dispatch:invocation", "//lib/llama:ffn_structure", "//lib/llama:structure", "//lib/operations:ffn_operations", "//lib/operations:tensor_operations", "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/config", "@hrx_system//loom/src/loom/ops/kernel", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
 cc_test(
@@ -56,4 +59,27 @@ cc_test(
             "@hrx_system//loom/binding/c/target/amdgpu",
             "@hrx_system//loom/binding/c/target/cmd",
             "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+# Actual registered producer -> internally allocated result -> observable buffer.
+# The observer is the existing owned residual-add kernel, not synthetic math.
+cc_binary(
+    name = "emit_registered_norm", testonly = True,
+    srcs = ["emit_registered_norm.cc"], cxxopts = ["-std=c++17"],
+    deps = ["//lib/dispatch:invocation", "//lib/operations:tensor_operations",
+            "@hrx_system//loom/binding/c/target/amdgpu",
+            "@hrx_system//loom/binding/c:interop"],
+)
+genrule(
+    name = "registered_norm_module", testonly = True,
+    srcs = ["//lib/kernels/llama:all_sources"],
+    outs = ["registered_norm.loombc"],
+    cmd = "$(location :emit_registered_norm) . $@",
+    tools = [":emit_registered_norm"],
+)
+loom_test(
+    name = "registered_norm_execution_test",
+    srcs = ["testdata/registered_norm_checks.loom", ":registered_norm_module"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )

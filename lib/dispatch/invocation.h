@@ -39,7 +39,8 @@ public:
   // Emit the actual invocation owned by graph(), in forward append order.
   // Outputs/scratch are native-only: no logical values or operations are added.
   loomc_status_t EmitExisting(Id dispatch,
-                              const operations::Invocation &invocation);
+                              const operations::Invocation &invocation,
+                              const std::string &variant = {});
   // Returns precisely the scoped native buffer used by the emitted call.
   loomc_status_t Native(operations::ValueId logical,
                         loomify_gguf::Value *out) const;
@@ -50,7 +51,8 @@ private:
                       const std::vector<shapes::Operand> &inputs,
                       operations::ValueId existing_result,
                       shapes::Result *out_result,
-                      loomify_gguf::Value *out_native);
+                      loomify_gguf::Value *out_native,
+                      const std::string &variant);
   struct Binding {
     operations::ValueId logical;
     loomify_gguf::Value native;
@@ -100,7 +102,8 @@ public:
   loomc_status_t Invoke(Id dispatch,
                         const operations::OperationAttrs &attributes,
                         const std::vector<shapes::Operand> &inputs,
-                        operations::ValueId *out);
+                        operations::ValueId *out,
+                        const std::string &variant = {});
 
 private:
   operations::OperationGraph &graph_;

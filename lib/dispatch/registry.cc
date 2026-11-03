@@ -63,6 +63,8 @@ Registry Registry::Llama3B() {
                      {Port::Gamma, Access::Read},
                      {Port::Output, Access::Write}},
                     {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
+  norm.interface_symbol = norm.symbol;
+  norm.builder = NormBuilder();
   registry.entries_.push_back(std::move(norm));
   std::vector<std::string> files;
   for (const char *file :
@@ -101,6 +103,11 @@ Registry Registry::Llama3B() {
             : std::vector<OperandContract>{{Port::Input, Access::Read},
                                            {Port::Weight, Access::Read},
                                            {Port::Residual, Access::ReadWrite}};
+    entry.interface_symbol = entry.symbol;
+    entry.phase = (id == Id::GateUpDecode || id == Id::DownDecode)
+                      ? operations::Phase::Decode
+                      : operations::Phase::Prefill;
+    entry.builder = FfnBuilder(entry.operation);
     registry.entries_.push_back(std::move(entry));
   }
   return registry;
@@ -117,53 +124,86 @@ const Registration *Registry::Find(const std::string &name) const {
       return &entry;
   return nullptr;
 }
+std::vector<Registration> Registry::Implementations(Id id) const {
+  std::vector<Registration> result;
+  for (const auto &entry : entries_)
+    if (entry.id == id)
+      result.push_back(entry);
+  return result;
+}
 bool Registry::Add(Registration entry, std::string *error) {
   if (error)
     error->clear();
-  if (Find(entry.id) || Find(entry.name))
-    return Fail(error, "duplicate dispatch registration");
-  auto known = Llama3B();
-  const auto *contract = known.Find(entry.id);
-  if (!contract || entry.operation != contract->operation ||
-      entry.kind != contract->kind || entry.symbol.empty() ||
-      entry.name.empty() || entry.interface_file.empty() ||
-      entry.provider_files.empty())
+  if (entry.name.empty() || entry.symbol.empty() ||
+      entry.interface_file.empty() || entry.provider_files.empty() ||
+      entry.variant.empty() || entry.interface_symbol.empty() ||
+      !entry.builder.supports || !entry.builder.build ||
+      entry.builder.operation != entry.operation ||
+      entry.builder.kind != entry.kind ||
+      entry.operands.size() != entry.builder.operands.size())
     return Fail(error, "incompatible dispatch registration");
-  for (const auto &required : contract->provider_files)
-    if (std::find(entry.provider_files.begin(), entry.provider_files.end(),
-                  required) == entry.provider_files.end())
-      return Fail(error, "missing required provider file");
-  if (entry.operands.size() != contract->operands.size())
-    return Fail(error, "incompatible operand contract");
   for (size_t i = 0; i < entry.operands.size(); ++i)
-    if (entry.operands[i].port != contract->operands[i].port ||
-        entry.operands[i].access != contract->operands[i].access)
+    if (entry.operands[i].port != entry.builder.operands[i].port ||
+        entry.operands[i].access != entry.builder.operands[i].access)
       return Fail(error, "incompatible operand contract");
-  if (entry.required_config != contract->required_config)
-    return Fail(error, "incompatible configuration contract");
+  for (const auto &old : entries_) {
+    if (old.id != entry.id && old.name != entry.name)
+      continue;
+    if (old.id != entry.id || old.name != entry.name ||
+        old.operation != entry.operation || old.phase != entry.phase ||
+        old.operands.size() != entry.operands.size())
+      return Fail(error, "incompatible operation variants");
+    if (old.variant == entry.variant)
+      return Fail(error, "duplicate dispatch variant");
+    for (size_t i = 0; i < old.operands.size(); ++i)
+      if (old.operands[i].port != entry.operands[i].port ||
+          old.operands[i].access != entry.operands[i].access)
+        return Fail(error, "incompatible operation variants");
+  }
   entries_.push_back(std::move(entry));
   return true;
 }
-bool CheckProfile(const Registration &entry, uint64_t hidden, uint64_t ffn,
-                  uint64_t rows, Encoding weight, PackingPolicy packing,
-                  std::string *error) {
+const Registration *Registry::Resolve(Id id, const InvocationRequest &request,
+                                      const std::string &variant,
+                                      std::string *error) const {
   if (error)
     error->clear();
-  if (hidden != 3072 || ffn != 8192 || !rows || rows > 512)
-    return Fail(error, "unsupported Llama 3B geometry");
-  if ((entry.id == Id::GateUpDecode || entry.id == Id::DownDecode) && rows != 1)
-    return Fail(error, "decode requires one row");
-  if (entry.id == Id::RmsNorm) {
-    if (weight != Encoding::Dense)
-      return Fail(error, "norm requires dense F32 gamma");
-  } else {
-    if (packing != PackingPolicy::QkCompat)
-      return Fail(error, "FFN requires QkCompat packing");
-    bool gate = entry.operation == OpCode::GatedMatmul;
-    if (weight != Encoding::Q4_K && (gate || weight != Encoding::Q6_K))
-      return Fail(error, "unsupported FFN weight encoding");
+  std::string reason = "missing dispatch or variant";
+  for (const auto &entry : entries_) {
+    if (entry.id != id || (!variant.empty() && entry.variant != variant))
+      continue;
+    std::string rejected;
+    if (entry.builder.supports(entry, request, &rejected))
+      return &entry;
+    reason = entry.name + "/" + entry.variant + ": " + rejected;
+    if (!variant.empty())
+      break;
   }
-  return true;
+  if (error)
+    *error = reason;
+  return nullptr;
+}
+loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
+                    const Registry &registry, const std::vector<Id> &operations,
+                    const std::string &source_root, loomc_module_t **out,
+                    loomc_result_t **result) {
+  if (out)
+    *out = nullptr;
+  if (result)
+    *result = nullptr;
+  std::vector<Registration> entries;
+  std::vector<Id> seen;
+  for (auto id : operations) {
+    if (std::find(seen.begin(), seen.end(), id) != seen.end())
+      continue;
+    seen.push_back(id);
+    auto implementations = registry.Implementations(id);
+    if (implementations.empty())
+      return Error("missing dispatch registration");
+    entries.insert(entries.end(), implementations.begin(),
+                   implementations.end());
+  }
+  return Load(context, workspace, entries, source_root, out, result);
 }
 loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
                     const Registration &entry, const std::string &source_root,
@@ -221,7 +261,7 @@ loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
   for (const auto &entry : entries) {
     auto i = std::find(files.begin(), files.end(), entry.interface_file) -
              files.begin();
-    const auto *declaration = Symbol(modules[i].get(), entry.symbol);
+    const auto *declaration = Symbol(modules[i].get(), entry.interface_symbol);
     if (!declaration ||
         (entry.kind == Kind::Kernel ? !loom_kernel_decl_isa(declaration)
                                     : !loom_template_decl_isa(declaration)))
@@ -259,6 +299,17 @@ loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
           *out = nullptr;
           loomc_linker_release(linker);
           return Error("missing required configuration definition");
+        }
+      }
+    for (const auto &entry : entries)
+      for (const auto &name : entry.builder.required_definitions) {
+        const auto *definition = Symbol(*out, name);
+        if (!definition || loom_kernel_decl_isa(definition) ||
+            loom_template_decl_isa(definition)) {
+          loomc_module_release(*out);
+          *out = nullptr;
+          loomc_linker_release(linker);
+          return Error("missing dispatch implementation dependency");
         }
       }
     std::vector<loomc_string_view_t> roots;

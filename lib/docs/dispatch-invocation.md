@@ -142,3 +142,16 @@ reader is currently internal to HRX's allowed consumers; the downstream native
 parameter test proves declarations, actual norm argument wiring and FFN artifact
 compilation. The task-owned external allowed-package fixture provides reflected
 byte/provider evidence without exporting a supported downstream reflection API.
+
+## Operation-owned implementations
+
+Pass an optional final variant name to `Invoke` or `EmitExisting` to select an
+explicit registered implementation. With no name, the registry tries implementations
+in registration order and uses the first whose operation-owned support check accepts
+the request. The same input/configuration interface is used for all variants.
+
+Register the numerical implementation and its `OperationBuilder`; the shared session
+handles logical bindings/ownership and delegates native arguments, output allocation
+and private scratch to that builder. Load required operation IDs with the registry
+before defining the command body so all registered alternatives are available.
+See [dispatch registration](dispatch-registry.md) for the callback and linking contract.

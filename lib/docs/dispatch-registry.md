@@ -2,8 +2,8 @@
 
 `//lib/dispatch:registry` maps five known semantic dispatches to independently
 owned files in `lib/kernels/llama`. `Registry::Llama3B()` provides the initial
-profile. `Find(Id)` or `Find(name)` returns the registration; there is no discovery
-or automatic provider selector. `OpCode`, `Port` and `Access` are the existing
+profile. `Find(Id)` or `Find(name)` inspects the first registered implementation.
+`Resolve` selects a supporting named implementation in registration order. `OpCode`, `Port` and `Access` are the existing
 operation graph types. Native declarations define the callable ABI, including
 dependent weight views.
 
@@ -18,7 +18,8 @@ dependent weight views.
 Norm reads input and gamma and writes a fresh F32 output. Gate/up reads input and
 two weight matrices and writes a fresh F32 activation. Down reads activation and
 weights and updates the residual in place. Shape inference and logical output
-creation belong to their own APIs; this registry does not allocate outputs.
+creation use the existing shape and invocation APIs. Each registration supplies an
+operation builder that allocates its native output/scratch and emits the call.
 Norm's input, gamma and output must be disjoint. The down residual may alias its
 output as declared by ReadWrite. FFN temporaries and packing remain inside the
 whole family bodies. Decode gate/up consumes Q8_1X4 packed input; prefill gate/up
@@ -27,9 +28,11 @@ responsibility, not a change to the logical GatedMatmul operation.
 
 ## Loading and construction
 
-`Load(context, workspace, registration, source_root, &module, &result)` reads the
-explicit interface and provider file list through the normal native module
-loader. It checks the actual declaration kind, merges compatible declarations and
+`Load(context, workspace, registry, {Id::RmsNorm, ...}, source_root, &module,
+&result)` collects all registered implementations for the requested operation IDs
+and deduplicates their files through the normal native loader. Model code does not
+enumerate internal variants. Explicit registration/file-list overloads remain useful
+for package-level inspection. It checks the actual declaration kind, merges compatible declarations and
 definitions, checks required config definitions, and performs strict native LINK
 on the public symbol. On success it returns the merged authoring module, retaining
 the original public family declarations for subsequent applications and overrides.
@@ -39,19 +42,50 @@ The module owns its source snapshots. `ModuleBuilder::Create` can use it directl
 The caller supplies a context with AMDGPU support for target-bearing sources,
 a workspace, and a source root such as the Bazel runfiles workspace. Release both
 returned module and result. Native diagnosed failure can return OK API status with
-a failed result, so check both. `Add` rejects duplicate identities/names and
-incompatible semantic contracts or incomplete known file lists. Native loading,
+a failed result, so check both. `Add` rejects duplicate `(id, variant)` keys,
+conflicting operation names/contracts, missing builders and incompatible operands.
+It checks the registered operation builder rather than a fixed Llama catalog. Native loading,
 merge, link, and concrete specialization reject missing files/symbols, ABI
 mismatches and incompatible family applications. An unspecialized template LINK
 is not a proof that every possible future application has a viable provider.
+
+## Named implementations and builders
+
+`Registration::variant` names an implementation (default `"default"`). Entries
+sharing a semantic ID/name retain identical logical operands/results/effects but
+may reference different linked symbols and builders. An `OperationBuilder` holds
+plain support/build callbacks and its semantic contract; no native owner-bound
+handles are kept in the registry. Provider files supply configuration defaults;
+operation attributes retain their existing C++ defaults. Explicit caller attributes
+are validated, never silently replaced with a different mathematical policy.
+
+A support callback examines a type-checked `InvocationRequest` without mutation.
+Empty variant selection chooses the first supporting implementation; an explicit
+variant must itself support the request and never silently falls back. Existing
+native command-template family selection can still route internal implementations.
+Additional vector/WMMA implementations fit this interface without model changes.
+
+The build callback receives scoped native bindings, the existing inferred result,
+and an optional existing output/ReadWrite alias through `BuildContext`. It allocates
+fresh output and scratch using `Allocate`, resolves checked native refs and emits
+ordinary calls through `CommandProgramBuilder`. A callback must set `staged` before
+its first native mutation (`Allocate` does so automatically). Late failures dispose
+the native owner, preserving the existing invocation failure contract. Immutable
+`EmitExisting` and mutable `Invoke` share these exact operation builders.
+
+`registered_norm_execution_test` executes the registered norm producer, then consumes
+its internally allocated output through the existing residual-add kernel for an
+observable independent numerical comparison. The variant invocation test uses the
+existing C++-authored RMSNorm definition to exercise real default/fallback/override
+calls and operation-ID loading, not synthetic numerical implementations.
 
 ## Admitted first profile
 
 The initial registration profile is Llama 3.2 3B: hidden width 3072, FFN width 8192,
 F32 activations/gamma, 1..512 prefill rows, and one decode row. Gate/up weights are
 Q4_K; down weights are Q4_K or Q6_K. Use QkCompat packing, generic projections,
-and the existing F32 arithmetic/reduction policy. `CheckProfile` validates these
-geometry, encoding, phase and packing choices. The graph/shape layer validates
+and the existing F32 arithmetic/reduction policy. `NormBuilder`/`FfnBuilder` own
+support checks and native argument construction for these actual providers. The graph/shape layer validates
 logical element types, tensor layouts and weight dimensions.
 
 The four family declarations preserve their original operands and dependent ABI.

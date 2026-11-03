@@ -364,14 +364,29 @@ TEST(RegistryContracts, DuplicateAndProfileAdmission) {
   std::string error;
   EXPECT_FALSE(registry.Add(*registry.Find(Id::RmsNorm), &error));
   const auto &gate = *registry.Find(Id::GateUpPrefill);
-  EXPECT_TRUE(CheckProfile(gate, 3072, 8192, 512, operations::Encoding::Q4_K,
-                           operations::PackingPolicy::QkCompat, &error));
-  EXPECT_FALSE(CheckProfile(gate, 3072, 8192, 1, operations::Encoding::Q6_K,
-                            operations::PackingPolicy::QkCompat, &error));
-  EXPECT_FALSE(CheckProfile(gate, 4096, 8192, 1, operations::Encoding::Q4_K,
-                            operations::PackingPolicy::QkCompat, &error));
-  EXPECT_FALSE(CheckProfile(gate, 3072, 8192, 1, operations::Encoding::Q4_K,
-                            operations::PackingPolicy::Canonical, &error));
+  operations::OperationRegistry ops;
+  operations::OperationGraph graph(ops);
+  auto test = [&](uint64_t hidden, operations::Encoding encoding) {
+    auto x = graph.tensor(
+        operations::TensorType::matrix(1, hidden, operations::ElementType::F32),
+        &error);
+    auto wt = operations::TensorType::matrix(hidden, 8192,
+                                             operations::ElementType::F32);
+    wt.setLayout(operations::Layout::GgmlWeightRows).setEncoding(encoding);
+    auto w = graph.tensor(wt, &error);
+    std::vector<shapes::Operand> inputs{{operations::Port::Input, x},
+                                        {operations::Port::GateWeight, w},
+                                        {operations::Port::UpWeight, w}};
+    shapes::Result result{
+        operations::TensorType::matrix(1, 8192, operations::ElementType::F32)};
+    operations::OperationAttrs attrs =
+        operations::GatedMatmulAttrs{hidden, 8192};
+    return gate.builder.supports(
+        gate, InvocationRequest{graph, attrs, inputs, result}, &error);
+  };
+  EXPECT_TRUE(test(3072, operations::Encoding::Q4_K));
+  EXPECT_FALSE(test(3072, operations::Encoding::Q6_K));
+  EXPECT_FALSE(test(4096, operations::Encoding::Q4_K));
 }
 } // namespace
 } // namespace hrx::dispatch

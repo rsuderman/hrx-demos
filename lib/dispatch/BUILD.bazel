@@ -4,10 +4,12 @@ load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:public"])
 iree_cc_library(
     name = "registry",
-    srcs = ["registry.cc"], hdrs = ["registry.h"],
+    srcs = ["registry.cc", "builders.cc"], hdrs = ["registry.h"],
     cxxopts = ["-std=c++17"],
     deps = [
         "//lib/operations:operation_graph",
+        "//lib/dispatch/shapes:result",
+        "//tools/loomify-gguf/authoring/commands:command_values",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c:interop",
         "@hrx_system//loom/src/loom/ir",

@@ -75,25 +75,23 @@ bool FfnRegion::Select(std::shared_ptr<const llama::LlamaStructure> owner,
     Registry validation;
     if (!validation.Add(*entry, error))
       return false;
-    const auto &layer = owner->facts().layers[selection.layer_begin];
-    if (!CheckProfile(*entry, owner->facts().embedding_width,
-                      layer.feed_forward_width, 1, weight->encoding(),
-                      PackingPolicy::QkCompat, error))
+    std::vector<shapes::Operand> inputs;
+    const auto *definition = graph.definition(op.opcode());
+    for (const auto &binding : op.bindings())
+      if (definition->port(binding.port())->access() != Access::Write)
+        inputs.push_back({binding.port(), binding.value()});
+    shapes::Result result;
+    if (!shapes::InferResult(graph, op.opcode(), op.attributes(), inputs,
+                             &result, error) ||
+        !registry.Resolve(
+            id, InvocationRequest{graph, op.attributes(), inputs, result}, {},
+            error))
       return false;
-    if (op.opcode() == OpCode::RmsNorm &&
-        static_cast<float>(std::get<RmsNormAttrs>(op.attributes()).epsilon) !=
-            1e-5f)
-      return Fail(error, "norm epsilon differs from selected provider");
-    if (op.opcode() == OpCode::GatedMatmul) {
-      auto *up = Type(graph, op, Port::UpWeight);
-      if (!up || up->encoding() != Encoding::Q4_K)
-        return Fail(error, "gate/up provider requires Q4_K up weight");
-    }
     ids.push_back(id);
   }
-  const std::vector<Id> expected{
-      Id::RmsNorm, decode ? Id::GateUpDecode : Id::GateUpPrefill,
-      decode ? Id::DownDecode : Id::DownPrefill};
+  const std::vector<Id> expected{Id::RmsNorm,
+                                 decode ? Id::GateUpDecode : Id::GateUpPrefill,
+                                 decode ? Id::DownDecode : Id::DownPrefill};
   if (ids != expected)
     return Fail(error, "normalized FFN operation order differs");
   const auto &ops = graph.invocations();
@@ -129,8 +127,8 @@ bool FfnRegion::Select(std::shared_ptr<const llama::LlamaStructure> owner,
   return true;
 }
 bool FfnRegion::EmitOneRow(NativeEmissionSession &session,
-                            loomify_gguf::Value parameters,
-                            std::string *error) const {
+                           loomify_gguf::Value parameters,
+                           std::string *error) const {
   if (&session.graph() != &owner_->graph())
     return Fail(error, "FFN emission session belongs to another owner");
   auto check = [&](loomc_status_t status) {

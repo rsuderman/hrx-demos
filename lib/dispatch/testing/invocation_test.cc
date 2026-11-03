@@ -14,8 +14,11 @@
 #include "loomc/target/amdgpu.h"
 #include "loomc/target/cmd/program.h"
 #include "tools/loomify-gguf/authoring/command/command_program_builder.h"
+#include "tools/loomify-gguf/authoring/model-full/llama_step.h"
 #include "gtest/gtest.h"
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 namespace hrx::dispatch {
 namespace {
@@ -179,6 +182,124 @@ void Save(loomc_module_t *module, const std::string &name) {
   EXPECT_TRUE(Ok(loomc_module_serialize_to_path(
       module, &options, loomc_make_cstring_view(path.c_str()),
       loomc_allocator_system())));
+}
+
+bool SupportsSingleRow(const Registration &entry,
+                       const InvocationRequest &request, std::string *error) {
+  if (request.Type(Port::Input)->dimension(0) != 1) {
+    if (error)
+      *error = "single-row implementation";
+    return false;
+  }
+  return NormBuilder().supports(entry, request, error);
+}
+TEST_F(InvocationTest, RegisteredVariantsLoadAndRouteWithoutModelEnumeration) {
+  auto builtins = Registry::Llama3B();
+  auto base = *builtins.Find(Id::RmsNorm);
+  auto *definitions = LoadEntry(base);
+  ASSERT_NE(definitions, nullptr);
+  std::unique_ptr<ModuleBuilder> authored;
+  ASSERT_TRUE(
+      Ok(ModuleBuilder::Create(context, workspace, definitions, &authored)));
+  loomc_module_release(definitions);
+  KernelRef original, alternate;
+  ASSERT_TRUE(Ok(authored->Kernel(base.symbol, &original)));
+  ASSERT_TRUE(Ok(
+      DefineLlamaRmsNorm(*authored, "registered.authored_norm", &alternate)));
+  loomc_module_t *provider = nullptr;
+  loomc_result_t *result = nullptr;
+  ASSERT_TRUE(
+      Ok(authored->LinkAndVerify({original, alternate}, &provider, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+  loomc_result_release(result);
+  const auto directory =
+      std::string(std::getenv("TEST_TMPDIR")) + "/registered-variants";
+  std::filesystem::create_directories(directory);
+  std::filesystem::copy_file(root + "/" + base.interface_file,
+                             directory + "/interface.loom",
+                             std::filesystem::copy_options::overwrite_existing);
+  loomc_module_serialize_options_t options{};
+  options.format = LOOMC_SOURCE_FORMAT_BYTECODE;
+  ASSERT_TRUE(Ok(loomc_module_serialize_to_path(
+      provider, &options,
+      loomc_make_cstring_view((directory + "/implementations.loombc").c_str()),
+      loomc_allocator_system())));
+  loomc_module_release(provider);
+  // Both real implementations are registered by the numerical package. The
+  // model requests only RmsNorm; normal loading gathers the alternative
+  // internally.
+  base.interface_file = "interface.loom";
+  base.provider_files = {"implementations.loombc"};
+  base.variant = "single-row";
+  base.builder.supports = SupportsSingleRow;
+  auto other = base;
+  other.variant = "authored";
+  other.symbol = "registered.authored_norm";
+  other.builder = NormBuilder();
+  Registry registry;
+  std::string error;
+  ASSERT_TRUE(registry.Add(base, &error)) << error;
+  ASSERT_TRUE(registry.Add(other, &error)) << error;
+  EXPECT_FALSE(registry.Add(other, &error));
+  for (uint64_t rows : {1u, 2u}) {
+    loomc_module_t *loaded = nullptr;
+    result = nullptr;
+    ASSERT_TRUE(
+        Ok(Load(context, workspace, registry, {Id::RmsNorm, Id::RmsNorm},
+                directory, &loaded, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
+    loomc_result_release(result);
+    std::unique_ptr<ModuleBuilder> module;
+    ASSERT_TRUE(Ok(ModuleBuilder::Create(context, workspace, loaded, &module)));
+    loomc_module_release(loaded);
+    std::unique_ptr<CommandProgramBuilder> program;
+    ASSERT_TRUE(Ok(module->DefineProgram("variants", {}, 2, &program)));
+    OperationRegistry ops;
+    ASSERT_TRUE(DefineRmsNorm(&ops, &error));
+    OperationGraph graph(ops);
+    auto x =
+        graph.tensor(TensorType::matrix(rows, 3072, ElementType::F32), &error);
+    auto gamma =
+        graph.tensor(TensorType::vector(3072, ElementType::F32), &error);
+    InvocationProgram author(registry, graph, *module, *program);
+    ASSERT_TRUE(Ok(author.Bind(x, program->Binding(0))));
+    ASSERT_TRUE(Ok(author.Bind(gamma, program->Binding(1))));
+    ValueId y;
+    const auto before = graph.invocations().size();
+    EXPECT_FALSE(Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072},
+                                  {{Port::Input, x}, {Port::Gamma, gamma}}, &y,
+                                  "missing")));
+    if (rows == 2)
+      EXPECT_FALSE(Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072},
+                                    {{Port::Input, x}, {Port::Gamma, gamma}},
+                                    &y, "single-row")));
+    EXPECT_EQ(graph.invocations().size(), before);
+    ASSERT_TRUE(
+        Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072},
+                         {{Port::Input, x}, {Port::Gamma, gamma}}, &y)));
+    ValueId override_result;
+    ASSERT_TRUE(Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072},
+                                 {{Port::Input, y}, {Port::Gamma, gamma}},
+                                 &override_result, "authored")));
+    EXPECT_NE(y, override_result);
+    ASSERT_TRUE(Ok(program->Finish()));
+    loomc_module_t *linked = nullptr;
+    ASSERT_TRUE(Ok(module->LinkAndVerify({program->Ref()}, &linked, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
+    loomc_result_release(result);
+    std::string text;
+    ASSERT_TRUE(Ok(Dump(linked, &text)));
+    EXPECT_NE(text.find("kernel.launch @registered.authored_norm"),
+              std::string::npos);
+    EXPECT_EQ(text.find("kernel.launch @llama32_rmsnorm_f32") !=
+                  std::string::npos,
+              rows == 1);
+    Save(linked, rows == 1 ? "variant_default" : "variant_fallback");
+    Compile(context, workspace, environment, linked, "variants");
+    loomc_module_release(linked);
+  }
 }
 
 TEST_F(InvocationTest, NormCreatesActualDisjointNativeOutputAndCompiles) {
