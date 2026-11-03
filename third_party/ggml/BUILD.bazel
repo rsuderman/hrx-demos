@@ -1,3 +1,0 @@
-# Copyright 2026 AMD ROCm™ Software
-# SPDX-License-Identifier: MIT
-exports_files(["BUILD.ggml.bazel", "metadata_validation.patch"])

@@ -1,0 +1,23 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+cc_test(
+    name = "result_test",
+    size = "small",
+    srcs = ["result_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//lib/dispatch/shapes:result",
+        "//lib/llama:structure",
+        "//tools/model:model_types",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)

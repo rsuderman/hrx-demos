@@ -165,5 +165,78 @@ TEST(AttentionOperations, SharedCachesFlowFromPublicationToAttention) {
                 .value_width,
             6);
 }
+TEST(AttentionOperations, FlattenedProjectionsAndPairedSpanValidation) {
+  OperationRegistry r;
+  std::string e;
+  ASSERT_TRUE(DefineRope(&r, &e));
+  ASSERT_TRUE(DefineRotatePublishKV(&r, &e));
+  ASSERT_TRUE(DefineCausalAttention(&r, &e));
+  OperationGraph g(r), foreign(r);
+  const auto x = M(g, 4, 32), y = M(g, 4, 32), p = V(g, 4, ElementType::I32);
+  const auto begin = S(g), count = S(g);
+  RopeAttrs a{4, 8, 8};
+  auto append = [&](ValueId output, ValueId b, ValueId n) {
+    auto op = g.operation(OpCode::Rope);
+    op.bind(Port::Input, x)
+        .bind(Port::Output, output)
+        .bind(Port::Positions, p)
+        .attributes(a);
+    if (b.valid())
+      op.bind(Port::RowBegin, b);
+    if (n.valid())
+      op.bind(Port::RowCount, n);
+    return op.append(&e);
+  };
+  ASSERT_TRUE(append(y, begin, count)) << e;
+  ASSERT_TRUE(append(y, {}, {})) << e;
+  EXPECT_FALSE(append(y, begin, {}));
+  EXPECT_FALSE(append(y, {}, count));
+  EXPECT_FALSE(append(y, begin, S(g, ScalarType::I32)));
+  EXPECT_FALSE(append(y, S(foreign), count));
+  EXPECT_FALSE(append(H(g, 4, 4, 8), begin, count));
+  EXPECT_FALSE(append(M(g, 4, 31), begin, count));
+  a.head_count = std::numeric_limits<uint64_t>::max();
+  EXPECT_FALSE(append(y, begin, count));
+  a.head_count = 4;
+  const auto k = M(g, 4, 16), v = H(g, 4, 2, 8),
+             kc = H(g, 32, 2, 8, ElementType::F16),
+             vc = H(g, 32, 2, 8, ElementType::F16);
+  auto publish = [&](ValueId cache, ValueId b, ValueId n) {
+    auto op = g.operation(OpCode::RotatePublishKV);
+    op.bind(Port::Key, k)
+        .bind(Port::Value, v)
+        .bind(Port::KeyCache, cache)
+        .bind(Port::ValueCache, vc)
+        .bind(Port::Positions, p)
+        .attributes(RotatePublishKVAttrs{2, 8, 8, 32, 8});
+    if (b.valid())
+      op.bind(Port::RowBegin, b);
+    if (n.valid())
+      op.bind(Port::RowCount, n);
+    return op.append(&e);
+  };
+  ASSERT_TRUE(publish(kc, begin, count)) << e;
+  EXPECT_FALSE(publish(M(g, 32, 16, ElementType::F16), begin, count));
+  EXPECT_FALSE(publish(kc, begin, {}));
+  ASSERT_TRUE(g.operation(OpCode::CausalAttention)
+                  .bind(Port::Query, y)
+                  .bind(Port::KeyCache, kc)
+                  .bind(Port::ValueCache, vc)
+                  .bind(Port::Positions, p)
+                  .bind(Port::RowBegin, begin)
+                  .bind(Port::RowCount, count)
+                  .bind(Port::Output, M(g, 4, 32))
+                  .attributes(CausalAttentionAttrs{4, 2, 8, 8, 32, 0.353553})
+                  .append(&e))
+      << e;
+  EXPECT_EQ(r.find(OpCode::Rope)->port(Port::Input)->domain(),
+            AccessDomain::ActiveRows);
+  EXPECT_EQ(r.find(OpCode::Rope)->port(Port::Positions)->domain(),
+            AccessDomain::ActiveRows);
+  EXPECT_EQ(r.find(OpCode::RotatePublishKV)->port(Port::KeyCache)->domain(),
+            AccessDomain::ActiveTokenPositions);
+  EXPECT_EQ(r.find(OpCode::CausalAttention)->port(Port::ValueCache)->domain(),
+            AccessDomain::CausalPrefix);
+}
 } // namespace
 } // namespace hrx::operations

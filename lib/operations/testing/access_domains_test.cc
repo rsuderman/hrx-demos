@@ -230,5 +230,30 @@ TEST(AccessDomainDefinitions,
   EXPECT_EQ(r.find(OpCode::CopyRows)->port(Port::Output)->access(),
             Access::Write);
 }
+bool AcceptPublish(const BoundOperands &, const RotatePublishKVAttrs &,
+                   std::string *) {
+  return true;
+}
+TEST(AccessDomainDefinitions,
+     CacheDomainsRejectWrongOpcodePortAccessAndPositions) {
+  for (int variant = 0; variant < 6; ++variant) {
+    OperationRegistry r;
+    std::string error;
+    auto d = r.define(variant == 0 ? OpCode::Rope : OpCode::RotatePublishKV);
+    d.port(variant == 1 ? Port::Input : Port::KeyCache, ValueKind::Tensor,
+           variant == 2 ? Access::Write : Access::ReadWrite,
+           variant == 3 ? AccessDomain::CausalPrefix
+                        : AccessDomain::ActiveTokenPositions)
+        .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+        .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read);
+    if (variant != 4)
+      d.port(Port::Positions, ValueKind::Tensor, Access::Read,
+             variant == 5 ? AccessDomain::Whole : AccessDomain::ActiveRows);
+    EXPECT_FALSE(d.attributes<RotatePublishKVAttrs>()
+                     .verify(AcceptPublish)
+                     .finish(&error));
+    EXPECT_TRUE(r.definitions().empty());
+  }
+}
 } // namespace
 } // namespace hrx::operations

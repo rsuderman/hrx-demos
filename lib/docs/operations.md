@@ -151,3 +151,26 @@ bazel run //examples/operations:head_selection
 bazel run //examples/operations:attention_graph
 bazel run //examples/operations:token_publication
 ```
+
+### Attention spans and logical caches
+
+`Rope` and `RotatePublishKV` accept optional paired I64 `RowBegin`/`RowCount`;
+absence selects all query-buffer rows. `CausalAttention` requires that pair.
+Projection operands accept dense F32 `[rows, heads*width]` or `[rows,heads,width]`;
+Rope preserves the input representation. Persistent caches remain dense F16
+`[capacity,kv_heads,width]`.
+
+Positions are absolute logical cache coordinates for selected query-buffer rows.
+`ActiveRows` applies to query projections, positions and temporary results.
+`ActiveTokenPositions` applies to publication's ReadWrite cache ports, preserving
+other cache rows. `CausalPrefix` applies to attention's cache reads: the union of
+`[0,Positions[row]+1)` for active queries. Active publication does not prove a
+whole prefix initialized. The owner conservatively retains these incoming cache
+requirements; existing serving inputs supply valid initialized state. Physical
+cache maps and native rotary factor conventions belong to separately qualified
+providers/binding, not logical graph verification.
+
+The internal `AppendNormalizedAttention` helper resolves model roles through the
+shared structure owner and records eight operations: norm, Q/K/V projections,
+query RoPE, rotated KV publication, causal attention and residual projection.
+It records a known Attention region; composition chooses semantic exports.

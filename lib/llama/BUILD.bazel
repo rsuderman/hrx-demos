@@ -30,3 +30,19 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = ["//lib/operations:operation_graph", "//tools/model:model_types"],
 )
+
+iree_cc_library(
+    name = "embedding_structure",
+    srcs = ["detail/embedding_structure.cc"],
+    hdrs = ["detail/embedding_structure.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":structure", "//lib/operations:operation_graph", "//tools/model:model_types"],
+)
+
+iree_cc_library(
+    name = "attention_structure",
+    srcs = ["detail/attention_structure.cc"],
+    hdrs = ["detail/attention_structure.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":structure", "//lib/operations:operation_graph", "//tools/model:model_types"],
+)

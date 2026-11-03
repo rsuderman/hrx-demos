@@ -40,6 +40,7 @@ iree_cc_library(
         "@hrx_system//loom/src/loom/ops/kernel",
         "@hrx_system//loom/src/loom/ops/pipeline",
         "@hrx_system//loom/src/loom/ops/scf",
+        "@hrx_system//loom/src/loom/ops/template",
     ],
 )
 

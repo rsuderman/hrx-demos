@@ -1,0 +1,26 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+load("@hrx_system//loom/build_tools/bazel:loom_binary.bzl", "loom_kernel_binary")
+package(default_visibility = ["//visibility:public"])
+exports_files(glob(["*.loom"]))
+loom_library(name = "norm_interface", srcs = ["norm_interface.loom"])
+loom_library(name = "ffn_interface", srcs = ["ffn_interface.loom"])
+loom_library(name = "norm", srcs = ["norm.loom", "rows.loom", "config.loom"])
+loom_library(
+    name = "ffn",
+    srcs = [
+        "ffn.loom", "rows.loom", "config.loom",
+        "linear_q4k_q8_1_x4.loom", "linear_q4k_q8_1_x4_compat.loom",
+        "linear_q6k_q8_1_x4.loom", "linear_q6k_q8_1_x4_compat.loom",
+        "linear_qk_common.loom", "linear_qk_mmvq_compat.loom",
+        "quantize_q8_1_x4.loom", "quantize_q8_1_x4_mmvq_compat.loom",
+    ],
+)
+filegroup(name = "all_sources", srcs = glob(["*.loom"]))
+
+loom_kernel_binary(
+    name = "norm_gfx1100",
+    deps = [":norm"], roots = ["llama32_rmsnorm_f32"],
+    target = "@hrx_system//loom/target/amdgpu:gfx1100",
+)

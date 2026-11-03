@@ -1,0 +1,59 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+cc_test(
+    name = "registry_test", size = "small", srcs = ["registry_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"] + glob(["testdata/*.loom"]),
+    deps = ["//lib/dispatch:registry", "//tools/loomify-gguf/authoring/command:command_program_builder", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+cc_test(
+    name = "invocation_test", size = "small", srcs = ["invocation_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources", "testdata/incompatible_family.loom"],
+    deps = ["//lib/dispatch:invocation", "//lib/llama:ffn_structure", "//lib/llama:structure", "//lib/operations:ffn_operations", "//lib/operations:tensor_operations", "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/config", "@hrx_system//loom/src/loom/ops/kernel", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "parameters_test", size = "small", srcs = ["parameters_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"],
+    deps = [
+        "//lib/dispatch:parameters", "//lib/llama:structure", "//lib/llama:ffn_structure",
+        "//lib/operations:ffn_operations", "//lib/operations:tensor_operations",
+        "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/config",
+        "@hrx_system//loom/src/loom/ops/kernel",
+        "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd",
+        "@googletest//:gtest", "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "llama_region_test", size = "small",
+    srcs = ["llama_region_test.cc", "ffn_fixture.h"],
+    copts = ["-std=c++17"], linkstatic = True,
+    deps = ["//lib/dispatch:llama_region", "//lib/llama:ffn_structure",
+            "//lib/operations:ffn_operations", "//lib/operations:tensor_operations",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+# Explicit external GGUF gate: run with --test_env=LOOMIFY_TEST_GGUF=/path/to/file.
+# No assets are downloaded or committed by this target.
+cc_test(
+    name = "llama_region_gguf_test", size = "small", tags = ["manual"],
+    srcs = ["llama_region_gguf_test.cc", "ffn_fixture.h"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"],
+    deps = ["//lib/dispatch:llama_region", "//lib/llama:ffn_structure",
+            "//lib/operations:ffn_operations", "//lib/operations:tensor_operations",
+            "//tools/model:gguf_catalog", "//tools/model:model_descriptor",
+            "@hrx_system//loom/binding/c:interop",
+            "@hrx_system//loom/src/loom/ops/command",
+            "@hrx_system//loom/src/loom/ops/kernel",
+            "@hrx_system//loom/src/loom/ops/template",
+            "@hrx_system//loom/src/loom/ops/index",
+            "@hrx_system//loom/src/loom/ops/scalar",
+            "@hrx_system//loom/binding/c/target/amdgpu",
+            "@hrx_system//loom/binding/c/target/cmd",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
+)

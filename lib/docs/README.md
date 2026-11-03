@@ -11,3 +11,8 @@ under `examples/`, and Python tests under `tests/`.
 
 - [Llama structure](llama-structure.md): immutable ownership, parameter identity,
   runtime inputs and known region cuts.
+- [Dispatch registry](dispatch-registry.md): known typed dispatches and owned native providers.
+- [Dispatch shapes](dispatch-shapes.md): model-derived logical result inference.
+- [Dispatch invocation](dispatch-invocation.md): output-producing native norm and whole FFN authoring.
+- [Selected FFN compilation](llama-ffn-region.md): retained GGUF owner, static
+  one-row region emission and source/bytecode proof boundaries.

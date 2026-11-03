@@ -1,0 +1,142 @@
+// Copyright 2026 The HRX Authors
+// SPDX-License-Identifier: MIT
+// Curated from loom-pipeline/llm/motifs/ggml/linear_q4k_q8_1_x4.loom; independently maintained by Loomify.
+
+template.decl @ggml.qk.scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32)
+
+template.decl @ggml.qk.unsigned_q8_1_dot(%quantized_values: vector<16xi8>, %d_scale: f32, %dmin_scale: f32, %q8_values: vector<16xi8>, %q8_d: f32, %q8_s: f32) -> (f32)
+
+// Contracts canonical GGML Q4_K weight rows directly with Q8_1 x4
+// activations. One 144-byte Q4_K block represents 256 unsigned four-bit
+// codes with eight six-bit scale/minimum pairs:
+//
+//   f16 d;
+//   f16 dmin;
+//   i8 scales[12];
+//   i8 qs[128];
+//
+// Sixteen lanes own one complete block. Paired lanes split each 32-value
+// scale group into two 16-value dot products. Wave32 therefore contracts two
+// blocks per iteration and wave64 contracts four without changing the row ABI.
+
+func.def public inline @ggml_q4k_chunk(%weight: buffer, %row_byte_base: offset, %q4_block: index, %q4_group: index, %q4_half: index) -> (vector<16xi8>, f32, f32) {
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %block_bytes = index.constant 144 : offset
+  %code_byte_add = index.constant 16 : offset
+  %nibble_mask = vector.constant 252645135 : vector<4xi32>
+  %c4_i32v = vector.constant 4 : vector<4xi32>
+  %bounded_group = index.assume %q4_group [range(%q4_group, 0, 7)] : index
+  %bounded_half = index.assume %q4_half [range(%q4_half, 0, 1)] : index
+  %block_byte_add = index.scale %q4_block, %block_bytes : index, offset -> offset
+  %block_byte_base = index.add %row_byte_base, %block_byte_add : offset
+  %code_byte_base = index.add %block_byte_base, %code_byte_add : offset
+  %code_view = buffer.view %weight[%code_byte_base] : buffer -> view<32xi32>
+  %iqs_group = index.mul %bounded_group, %c8 : index
+  %iqs_half = index.mul %bounded_half, %c4 : index
+  %iqs = index.add %iqs_group, %iqs_half : index
+  %code_page0 = index.div %iqs, %c16 : index
+  %code_page = index.mul %code_page0, %c8 : index
+  %code_lane = index.rem %iqs, %c8 : index
+  %code_index0 = index.add %code_page, %code_lane : index
+  %code_index = index.assume %code_index0 [range(%code_index0, 0, 28)] : index
+  %iqs_mod16 = index.rem %iqs, %c16 : index
+  %nibble_page = index.div %iqs_mod16, %c8 : index
+  %nibble_shift_index = index.mul %nibble_page, %c4 : index
+  %nibble_shift_i32 = index.cast %nibble_shift_index : index to i32
+  %nibble_shift = vector.splat %nibble_shift_i32 : vector<4xi32>
+  %packed_codes = vector.load %code_view[%code_index] : view<32xi32> -> vector<4xi32>
+  %shifted_codes = vector.shrui %packed_codes, %nibble_shift : vector<4xi32>
+  %q4_words = vector.andi %shifted_codes, %nibble_mask : vector<4xi32>
+  %q4_values = vector.bitcast %q4_words : vector<4xi32> to vector<16xi8>
+  %d_scale, %dmin_scale = template.apply<@ggml.qk.scale_min>(%weight, %block_byte_base, %bounded_group) : (buffer, offset, index) -> (f32, f32)
+  func.return %q4_values, %d_scale, %dmin_scale : vector<16xi8>, f32, f32
+}
+
+// Computes one lane's partial for a complete Q4_K row. The active target's
+// subgroup size controls whether each loop iteration covers two or four
+// consecutive 256-value blocks.
+
+func.def public inline @ggml_q4k_q8_1_x4_row_lane_policy(%round_weight_scales: i1, %input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane: index) -> (f32) {
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 32768), multiple_of(%input_size, 256)] : index
+  %subgroup_size = target.subgroup.size : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c128 = index.constant 128 : index
+  %c256 = index.constant 256 : index
+  %q8_group_bytes = index.constant 144 : offset
+  %q8_payload_byte_add = index.constant 16 : offset
+  %c0_f32 = scalar.constant 0.0 : f32
+  %q4_block_count = index.div %bounded_input_size, %c256 : index
+  %q8_group_count = index.div %bounded_input_size, %c128 : index
+  %blocks_per_iteration = index.div %subgroup_size, %c16 : index
+  %q8_groups_per_iteration = index.div %subgroup_size, %c8 : index
+  %values_per_iteration = index.mul %subgroup_size, %c16 : index
+  %iteration_padding = index.sub %values_per_iteration, %c1 : index
+  %padded_input_size = index.add %bounded_input_size, %iteration_padding : index
+  %iteration_count = index.div %padded_input_size, %values_per_iteration : index
+  %q4_group0 = index.div %lane, %c2 : index
+  %q4_group1 = index.rem %q4_group0, %c8 : index
+  %q4_group = index.assume %q4_group1 [range(%q4_group1, 0, 7)] : index
+  %q4_half0 = index.rem %lane, %c2 : index
+  %q4_half = index.assume %q4_half0 [range(%q4_half0, 0, 1)] : index
+  %lane_q4_block = index.div %lane, %c16 : index
+  %lane_q8_group = index.div %lane, %c8 : index
+  %q8_inner_block0 = index.div %lane, %c2 : index
+  %q8_inner_block1 = index.rem %q8_inner_block0, %c4 : index
+  %q8_inner_block = index.assume %q8_inner_block1 [range(%q8_inner_block1, 0, 3)] : index
+  %q8_inner_word_base = index.mul %q8_inner_block, %c8 : index
+  %q8_half_word_add = index.mul %q4_half, %c4 : index
+  %q8_word_index0 = index.add %q8_inner_word_base, %q8_half_word_add : index
+  %q8_word_index = index.assume %q8_word_index0 [range(%q8_word_index0, 0, 28)] : index
+  %q8_ds_index = index.mul %q8_inner_block, %c2 : index
+  %q8_s_index = index.add %q8_ds_index, %c1 : index
+  %sum = scf.for %iteration = [%c0 to %iteration_count step %c1](%iteration_acc = %c0_f32 : f32) -> (f32) {
+    %iteration_q4_block = index.mul %iteration, %blocks_per_iteration : index
+    %q4_block0 = index.add %iteration_q4_block, %lane_q4_block : index
+    %valid_q4_block = index.cmp ult, %q4_block0, %q4_block_count : index
+    %contribution = scf.if %valid_q4_block -> (f32) {
+      %q4_block = index.assume %q4_block0 [lt(%q4_block0, %q4_block_count)] : index
+      %iteration_q8_group = index.mul %iteration, %q8_groups_per_iteration : index
+      %q8_group0 = index.add %iteration_q8_group, %lane_q8_group : index
+      %q8_group = index.assume %q8_group0 [lt(%q8_group0, %q8_group_count)] : index
+      %q8_group_byte_add = index.scale %q8_group, %q8_group_bytes : index, offset -> offset
+      %q8_group_byte_base = index.add %q8_row_byte_base, %q8_group_byte_add : offset
+      %q8_payload_byte_base = index.add %q8_group_byte_base, %q8_payload_byte_add : offset
+      %q8_ds_view = buffer.view %q8_input[%q8_group_byte_base] : buffer -> view<8xf16>
+      %q8_words_view = buffer.view %q8_input[%q8_payload_byte_base] : buffer -> view<32xi32>
+      %q8_d_f16 = view.load %q8_ds_view[%q8_ds_index] : view<8xf16> -> f16
+      %q8_s_f16 = view.load %q8_ds_view[%q8_s_index] : view<8xf16> -> f16
+      %q8_d = scalar.extf %q8_d_f16 : f16 to f32
+      %q8_s = scalar.extf %q8_s_f16 : f16 to f32
+      %q8_words = vector.load %q8_words_view[%q8_word_index] : view<32xi32> -> vector<4xi32>
+      %q8_values = vector.bitcast %q8_words : vector<4xi32> to vector<16xi8>
+      %q4_values, %d_scale_f32, %dmin_scale_f32 = func.call @ggml_q4k_chunk(%weight, %weight_row_byte_base, %q4_block, %q4_group, %q4_half) : (buffer, offset, index, index, index) -> (vector<16xi8>, f32, f32)
+      %d_scale, %dmin_scale = scf.if %round_weight_scales -> (f32, f32) {
+        // DS4 MMQ folds the F16 block scales and six-bit integers into F16
+        // combined weight metadata before widening for the dot/minimum terms.
+        %d_half = scalar.fptrunc %d_scale_f32 : f32 to f16
+        %dmin_half = scalar.fptrunc %dmin_scale_f32 : f32 to f16
+        %d_folded = scalar.extf %d_half : f16 to f32
+        %dmin_folded = scalar.extf %dmin_half : f16 to f32
+        scf.yield %d_folded, %dmin_folded : f32, f32
+      } else {
+        scf.yield %d_scale_f32, %dmin_scale_f32 : f32, f32
+      }
+      %dot = template.apply<@ggml.qk.unsigned_q8_1_dot>(%q4_values, %d_scale, %dmin_scale, %q8_values, %q8_d, %q8_s) : (vector<16xi8>, f32, f32, vector<16xi8>, f32, f32) -> (f32)
+      scf.yield %dot : f32
+    } else {
+      scf.yield %c0_f32 : f32
+    }
+    %next = scalar.addf<reassoc|nnan|ninf|nsz> %iteration_acc, %contribution : f32
+    scf.yield %next : f32
+  }
+  func.return %sum : f32
+}
+
+// Canonical callers keep the existing public ABI and F32 combined scales.

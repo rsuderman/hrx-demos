@@ -173,8 +173,7 @@ DefinitionBuilder &DefinitionBuilder::addPort(Port port, ValueKind kind,
     fail("invalid value kind");
   else if (!InRange(access, Access::Read, Access::ReadWrite))
     fail("invalid port access");
-  else if (!InRange(domain, AccessDomain::Whole,
-                    AccessDomain::CopyRowsDestination))
+  else if (!InRange(domain, AccessDomain::Whole, AccessDomain::CausalPrefix))
     fail("invalid access domain");
   else if (domain != AccessDomain::Whole && kind != ValueKind::Tensor)
     fail("row access domain requires a tensor port");
@@ -241,13 +240,37 @@ bool DefinitionBuilder::finish(std::string *error) {
         fail("row access domain requires paired scalar read controls");
         break;
       }
-      if (port.domain() != AccessDomain::ActiveRows &&
-          (staged_.opcode_ != OpCode::CopyRows ||
-           !staged_.expectsAttributes<CopyRowsAttrs>() || !begin->required() ||
-           (port.domain() == AccessDomain::CopyRowsSource &&
-            (port.port() != Port::Input || port.access() != Access::Read)) ||
-           (port.domain() == AccessDomain::CopyRowsDestination &&
-            (port.port() != Port::Output || port.access() != Access::Write)))) {
+      if (port.domain() == AccessDomain::ActiveTokenPositions ||
+          port.domain() == AccessDomain::CausalPrefix) {
+        const bool publish =
+            port.domain() == AccessDomain::ActiveTokenPositions;
+        const auto *positions = staged_.port(Port::Positions);
+        if ((publish ? (staged_.opcode_ != OpCode::RotatePublishKV ||
+                        !staged_.expectsAttributes<RotatePublishKVAttrs>() ||
+                        port.access() != Access::ReadWrite)
+                     : (staged_.opcode_ != OpCode::CausalAttention ||
+                        !staged_.expectsAttributes<CausalAttentionAttrs>() ||
+                        port.access() != Access::Read || !begin->required())) ||
+            (port.port() != Port::KeyCache &&
+             port.port() != Port::ValueCache) ||
+            !positions || !positions->required() ||
+            positions->kind() != ValueKind::Tensor ||
+            positions->access() != Access::Read ||
+            positions->domain() != AccessDomain::ActiveRows) {
+          fail("cache domain requires matching operation, cache port and "
+               "positions");
+          break;
+        }
+      } else if (port.domain() != AccessDomain::ActiveRows &&
+                 (staged_.opcode_ != OpCode::CopyRows ||
+                  !staged_.expectsAttributes<CopyRowsAttrs>() ||
+                  !begin->required() ||
+                  (port.domain() == AccessDomain::CopyRowsSource &&
+                   (port.port() != Port::Input ||
+                    port.access() != Access::Read)) ||
+                  (port.domain() == AccessDomain::CopyRowsDestination &&
+                   (port.port() != Port::Output ||
+                    port.access() != Access::Write)))) {
         fail("copy_rows domain requires matching operation, attributes and "
              "port");
         break;

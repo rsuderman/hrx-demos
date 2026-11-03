@@ -1,0 +1,288 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+#include "lib/dispatch/registry.h"
+#include "loom/ops/config/ops.h"
+#include "loom/ops/kernel/ops.h"
+#include "loom/ops/template/ops.h"
+#include "loomc/interop.h"
+#include "loomc/iree.h"
+#include "loomc/link.h"
+#include <algorithm>
+#include <cstring>
+#include <memory>
+#include <utility>
+namespace hrx::dispatch {
+namespace {
+using namespace operations;
+constexpr const char *kRoot = "lib/kernels/llama/";
+std::string File(const char *name) { return std::string(kRoot) + name; }
+bool Fail(std::string *error, const char *text) {
+  if (error)
+    *error = text;
+  return false;
+}
+loomc_status_t Error(const char *text) {
+  return loomc_status_from_iree(
+      iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "%s", text));
+}
+const loom_op_t *Symbol(loomc_module_t *module, const std::string &name) {
+  loomc_module_interop_view_t view{};
+  loomc_result_t *result = nullptr;
+  auto status = loomc_module_get_interop_view(module, loomc_allocator_system(),
+                                              &view, &result);
+  bool ok =
+      loomc_status_is_ok(status) && result && loomc_result_succeeded(result);
+  loomc_status_free(status);
+  if (result)
+    loomc_result_release(result);
+  if (!ok)
+    return nullptr;
+  const auto *native = view.module;
+  for (size_t i = 0; i < native->symbols.count; ++i) {
+    auto id = native->symbols.entries[i].name_id;
+    if (id == LOOM_STRING_ID_INVALID || id >= native->strings.count)
+      continue;
+    auto actual = loom_string_table_get(&native->strings, id);
+    if (name.size() == actual.size &&
+        !std::memcmp(name.data(), actual.data, actual.size))
+      return native->symbols.entries[i].defining_op;
+  }
+  return nullptr;
+}
+} // namespace
+Registry Registry::Llama3B() {
+  Registry registry;
+  Registration norm{Id::RmsNorm,
+                    OpCode::RmsNorm,
+                    Kind::Kernel,
+                    "llama.rmsnorm",
+                    "llama32_rmsnorm_f32",
+                    File("norm_interface.loom"),
+                    {File("norm.loom"), File("rows.loom"), File("config.loom")},
+                    {{Port::Input, Access::Read},
+                     {Port::Gamma, Access::Read},
+                     {Port::Output, Access::Write}},
+                    {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
+  registry.entries_.push_back(std::move(norm));
+  std::vector<std::string> files;
+  for (const char *file :
+       {"ffn.loom", "rows.loom", "config.loom", "linear_q4k_q8_1_x4.loom",
+        "linear_q4k_q8_1_x4_compat.loom", "linear_q6k_q8_1_x4.loom",
+        "linear_q6k_q8_1_x4_compat.loom", "linear_qk_common.loom",
+        "linear_qk_mmvq_compat.loom", "quantize_q8_1_x4.loom",
+        "quantize_q8_1_x4_mmvq_compat.loom"})
+    files.push_back(File(file));
+  for (Id id :
+       {Id::GateUpPrefill, Id::GateUpDecode, Id::DownPrefill, Id::DownDecode}) {
+    bool gate = id == Id::GateUpPrefill || id == Id::GateUpDecode;
+    const char *suffix = id == Id::GateUpPrefill  ? "gate_up_prefill"
+                         : id == Id::GateUpDecode ? "gate_up_decode"
+                         : id == Id::DownPrefill  ? "down_prefill"
+                                                  : "down_decode";
+    Registration entry{id,
+                       gate ? OpCode::GatedMatmul : OpCode::LinearResidual,
+                       Kind::CommandFamily,
+                       std::string("llama.ffn.") + suffix,
+                       std::string("llm.ffn.") + suffix,
+                       File("ffn_interface.loom"),
+                       files,
+                       {},
+                       {"ggml.linear_q4k_q8_1_x4.token_capacity",
+                        "ggml.linear_q4k_q8_1_x4.output_capacity",
+                        "ggml.linear_q6k_q8_1_x4.token_capacity",
+                        "ggml.linear_q6k_q8_1_x4.output_capacity",
+                        "ggml.quantize_q8_1_x4.group_capacity"}};
+    entry.operands =
+        gate
+            ? std::vector<OperandContract>{{Port::Input, Access::Read},
+                                           {Port::GateWeight, Access::Read},
+                                           {Port::UpWeight, Access::Read},
+                                           {Port::Output, Access::Write}}
+            : std::vector<OperandContract>{{Port::Input, Access::Read},
+                                           {Port::Weight, Access::Read},
+                                           {Port::Residual, Access::ReadWrite}};
+    registry.entries_.push_back(std::move(entry));
+  }
+  return registry;
+}
+const Registration *Registry::Find(Id id) const {
+  for (const auto &entry : entries_)
+    if (entry.id == id)
+      return &entry;
+  return nullptr;
+}
+const Registration *Registry::Find(const std::string &name) const {
+  for (const auto &entry : entries_)
+    if (entry.name == name)
+      return &entry;
+  return nullptr;
+}
+bool Registry::Add(Registration entry, std::string *error) {
+  if (error)
+    error->clear();
+  if (Find(entry.id) || Find(entry.name))
+    return Fail(error, "duplicate dispatch registration");
+  auto known = Llama3B();
+  const auto *contract = known.Find(entry.id);
+  if (!contract || entry.operation != contract->operation ||
+      entry.kind != contract->kind || entry.symbol.empty() ||
+      entry.name.empty() || entry.interface_file.empty() ||
+      entry.provider_files.empty())
+    return Fail(error, "incompatible dispatch registration");
+  for (const auto &required : contract->provider_files)
+    if (std::find(entry.provider_files.begin(), entry.provider_files.end(),
+                  required) == entry.provider_files.end())
+      return Fail(error, "missing required provider file");
+  if (entry.operands.size() != contract->operands.size())
+    return Fail(error, "incompatible operand contract");
+  for (size_t i = 0; i < entry.operands.size(); ++i)
+    if (entry.operands[i].port != contract->operands[i].port ||
+        entry.operands[i].access != contract->operands[i].access)
+      return Fail(error, "incompatible operand contract");
+  if (entry.required_config != contract->required_config)
+    return Fail(error, "incompatible configuration contract");
+  entries_.push_back(std::move(entry));
+  return true;
+}
+bool CheckProfile(const Registration &entry, uint64_t hidden, uint64_t ffn,
+                  uint64_t rows, Encoding weight, PackingPolicy packing,
+                  std::string *error) {
+  if (error)
+    error->clear();
+  if (hidden != 3072 || ffn != 8192 || !rows || rows > 512)
+    return Fail(error, "unsupported Llama 3B geometry");
+  if ((entry.id == Id::GateUpDecode || entry.id == Id::DownDecode) && rows != 1)
+    return Fail(error, "decode requires one row");
+  if (entry.id == Id::RmsNorm) {
+    if (weight != Encoding::Dense)
+      return Fail(error, "norm requires dense F32 gamma");
+  } else {
+    if (packing != PackingPolicy::QkCompat)
+      return Fail(error, "FFN requires QkCompat packing");
+    bool gate = entry.operation == OpCode::GatedMatmul;
+    if (weight != Encoding::Q4_K && (gate || weight != Encoding::Q6_K))
+      return Fail(error, "unsupported FFN weight encoding");
+  }
+  return true;
+}
+loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
+                    const Registration &entry, const std::string &source_root,
+                    loomc_module_t **out, loomc_result_t **result) {
+  if (out)
+    *out = nullptr;
+  if (result)
+    *result = nullptr;
+  if (!context || !workspace || !out || !result)
+    return Error("load requires context, workspace and outputs");
+  return Load(context, workspace, std::vector<Registration>{entry}, source_root,
+              out, result);
+}
+loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,
+                    const std::vector<Registration> &entries,
+                    const std::string &source_root, loomc_module_t **out,
+                    loomc_result_t **result) {
+  if (out)
+    *out = nullptr;
+  if (result)
+    *result = nullptr;
+  if (!context || !workspace || !out || !result || entries.empty())
+    return Error("load requires context, workspace, registrations and outputs");
+  Registry validation;
+  std::string error;
+  std::vector<std::string> files;
+  for (const auto &entry : entries) {
+    if (!validation.Add(entry, &error))
+      return Error(error.c_str());
+    auto add = [&](const std::string &file) {
+      if (std::find(files.begin(), files.end(), file) == files.end())
+        files.push_back(file);
+    };
+    add(entry.interface_file);
+    for (const auto &file : entry.provider_files)
+      add(file);
+  }
+  using Module =
+      std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)>;
+  std::vector<Module> modules;
+  for (const auto &file : files) {
+    loomc_module_t *module = nullptr;
+    std::string path = source_root + "/" + file;
+    auto status = loomc_module_deserialize_from_path(
+        context, workspace, loomc_make_cstring_view(path.c_str()), nullptr,
+        loomc_allocator_system(), &module, result);
+    Module owned(module, loomc_module_release);
+    if (!loomc_status_is_ok(status) || !*result ||
+        !loomc_result_succeeded(*result))
+      return status;
+    loomc_result_release(*result);
+    *result = nullptr;
+    modules.push_back(std::move(owned));
+  }
+  for (const auto &entry : entries) {
+    auto i = std::find(files.begin(), files.end(), entry.interface_file) -
+             files.begin();
+    const auto *declaration = Symbol(modules[i].get(), entry.symbol);
+    if (!declaration ||
+        (entry.kind == Kind::Kernel ? !loom_kernel_decl_isa(declaration)
+                                    : !loom_template_decl_isa(declaration)))
+      return Error("missing symbol or wrong native callable kind");
+  }
+  std::vector<loomc_link_module_provider_t> providers;
+  for (size_t i = 0; i < modules.size(); ++i) {
+    loomc_link_module_provider_t provider{};
+    provider.module = modules[i].get();
+    provider.provider_name = loomc_make_cstring_view(files[i].c_str());
+    provider.role = LOOMC_LINK_PROVIDER_ROLE_INPUT;
+    providers.push_back(provider);
+  }
+  loomc_linker_t *linker = nullptr;
+  auto status =
+      loomc_linker_create(context, nullptr, loomc_allocator_system(), &linker);
+  if (!loomc_status_is_ok(status))
+    return status;
+  loomc_link_options_t options{};
+  options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
+  options.structure_size = sizeof(options);
+  options.mode = LOOMC_LINK_MODE_MERGE;
+  options.module_providers = providers.data();
+  options.module_provider_count = providers.size();
+  status = loomc_link_module(linker, workspace, &options, out, result);
+  if (loomc_status_is_ok(status) && *result &&
+      loomc_result_succeeded(*result)) {
+    loomc_result_release(*result);
+    *result = nullptr;
+    for (const auto &entry : entries)
+      for (const auto &name : entry.required_config) {
+        const auto *config = Symbol(*out, name);
+        if (!config || !loom_config_def_isa(config)) {
+          loomc_module_release(*out);
+          *out = nullptr;
+          loomc_linker_release(linker);
+          return Error("missing required configuration definition");
+        }
+      }
+    std::vector<loomc_string_view_t> roots;
+    for (const auto &entry : entries)
+      roots.push_back(loomc_make_cstring_view(entry.symbol.c_str()));
+    loomc_link_module_provider_t merged{};
+    merged.module = *out;
+    merged.role = LOOMC_LINK_PROVIDER_ROLE_INPUT;
+    options.mode = LOOMC_LINK_MODE_LINK;
+    options.module_providers = &merged;
+    options.module_provider_count = 1;
+    options.root_symbols = roots.data();
+    options.root_symbol_count = roots.size();
+    loomc_module_t *checked = nullptr;
+    status = loomc_link_module(linker, workspace, &options, &checked, result);
+    if (checked)
+      loomc_module_release(checked);
+    if (!loomc_status_is_ok(status) || !*result ||
+        !loomc_result_succeeded(*result)) {
+      loomc_module_release(*out);
+      *out = nullptr;
+    }
+  }
+  loomc_linker_release(linker);
+  return status;
+}
+} // namespace hrx::dispatch

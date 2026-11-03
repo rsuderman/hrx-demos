@@ -74,6 +74,178 @@ bool Inspect(const std::string &bytes, GgufCatalog *catalog,
   return ReadGgufCatalog(file.get(), catalog, error);
 }
 
+// Header-only fixture with caller-selected wire fields. Payload is sparse so
+// range validation can cover large offsets without allocating model bytes.
+std::string TensorHeader(uint32_t type, const std::vector<uint64_t> &shape,
+                         uint64_t relative = 0, uint32_t alignment = 32) {
+  std::string s = "GGUF";
+  Number(s, 3, 4);
+  Number(s, 1, 8);
+  Number(s, 2, 8);
+  String(s, "general.architecture");
+  Number(s, 8, 4);
+  String(s, "llama");
+  String(s, "general.alignment");
+  Number(s, 4, 4);
+  Number(s, alignment, 4);
+  String(s, "blk.0.ffn_down.weight");
+  Number(s, shape.size(), 4);
+  for (auto d : shape)
+    Number(s, d, 8);
+  Number(s, type, 4);
+  Number(s, relative, 8);
+  return s;
+}
+bool InspectSparse(const std::string &header, uint64_t size,
+                   GgufCatalog *catalog, std::string *error) {
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::tmpfile(),
+                                                     std::fclose);
+  if (!file || std::setvbuf(file.get(), nullptr, _IONBF, 0) != 0 ||
+      std::fwrite(header.data(), 1, header.size(), file.get()) !=
+          header.size() ||
+      fseeko(file.get(), static_cast<int64_t>(size - 1), SEEK_SET) != 0 ||
+      fputc(0, file.get()) == EOF) {
+    *error = "unable to prepare sparse fixture";
+    return false;
+  }
+  return ReadGgufCatalog(file.get(), catalog, error);
+}
+
+TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
+  struct Case {
+    uint32_t type;
+    const char *name;
+    uint64_t bytes;
+  };
+  const Case cases[] = {{0, "f32", 2048},
+                        {1, "f16", 1024},
+                        {8, "q8_0", 544},
+                        {12, "q4_K", 288},
+                        {14, "q6_K", 420}};
+  for (const auto &test : cases) {
+    SCOPED_TRACE(test.name);
+    const uint64_t relative = uint64_t{1} << 32;
+    const auto header = TensorHeader(test.type, {256, 2, 1}, relative);
+    const auto data = (header.size() + 31) / 32 * 32;
+    GgufCatalog catalog;
+    std::string error;
+    ASSERT_TRUE(
+        InspectSparse(header, data + relative + test.bytes, &catalog, &error))
+        << error;
+    ASSERT_EQ(catalog.tensors.size(), 1);
+    const auto &tensor = catalog.tensors[0];
+    EXPECT_EQ(tensor.name, "blk.0.ffn_down.weight");
+    EXPECT_EQ(tensor.rank, 3);
+    EXPECT_EQ(tensor.normalized_extents,
+              (std::array<int64_t, 4>{256, 2, 1, 1}));
+    EXPECT_EQ(tensor.storage_type, test.type);
+    EXPECT_EQ(tensor.storage_name, test.name);
+    EXPECT_EQ(tensor.absolute_offset, data + relative);
+    EXPECT_EQ(tensor.byte_size, test.bytes);
+    EXPECT_EQ(catalog.bytes_read, header.size());
+  }
+}
+
+TEST(GgufCatalog, RejectsBadStorageGeometryAndTruncationTransactionally) {
+  std::vector<std::string> cases = {
+      TensorHeader(99, {256, 2}),        TensorHeader(12, {255, 2}),
+      TensorHeader(14, {128, 2}),        TensorHeader(0, {INT64_MAX, 4}),
+      TensorHeader(0, {INT64_MAX}), // encoded byte multiplication overflow
+      TensorHeader(0, {256, 2}, 1),      TensorHeader(0, {256}, 0, 0),
+      TensorHeader(0, {256}, 0, 3),      TensorHeader(0, {256, 0}),
+      TensorHeader(0, {256, UINT64_MAX})};
+  const auto good = TensorHeader(12, {256, 2});
+  // Every prefix includes truncated strings, dimensions, type and offset.
+  for (size_t i = 0; i < good.size(); ++i)
+    cases.push_back(good.substr(0, i));
+  for (const auto &bytes : cases) {
+    GgufCatalog catalog;
+    catalog.name = "unchanged";
+    TensorRecord sentinel;
+    sentinel.name = "existing";
+    catalog.tensors.push_back(sentinel);
+    std::string error;
+    EXPECT_FALSE(Inspect(bytes, &catalog, &error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(catalog.name, "unchanged");
+    ASSERT_EQ(catalog.tensors.size(), 1);
+    EXPECT_EQ(catalog.tensors[0].name, "existing");
+  }
+}
+
+TEST(GgufCatalog, RejectsOverlappingInBoundsSpansWithoutPublishing) {
+  // Each F32 [8,2] tensor occupies 64 bytes but starts only 32 bytes apart.
+  const auto bytes = Fixture(2, 8);
+  GgufCatalog catalog;
+  catalog.name = "unchanged";
+  std::string error;
+  ASSERT_FALSE(InspectSparse(bytes, bytes.size() + 64, &catalog, &error));
+  EXPECT_NE(error.find("overlapping"), std::string::npos) << error;
+  EXPECT_EQ(catalog.name, "unchanged");
+  EXPECT_TRUE(catalog.tensors.empty());
+}
+
+TEST(GgufCatalog, ReportsArithmeticOverflowBeforeFileRangeFailure) {
+  for (const auto &shape :
+       std::vector<std::vector<uint64_t>>{{INT64_MAX, 4}, {INT64_MAX}}) {
+    GgufCatalog catalog;
+    std::string error;
+    EXPECT_FALSE(Inspect(TensorHeader(0, shape), &catalog, &error));
+    EXPECT_NE(error.find("tensor size overflow"), std::string::npos) << error;
+  }
+}
+
+TEST(GgufCatalog, EnforcesHeaderLimitBeforeAllocatingOversizedStrings) {
+  std::string bytes = "GGUF";
+  Number(bytes, 3, 4);
+  Number(bytes, 0, 8);
+  Number(bytes, 1, 8);
+  Number(bytes, 64 * 1024 * 1024, 8);
+  GgufCatalog catalog;
+  catalog.name = "unchanged";
+  std::string error;
+  EXPECT_FALSE(InspectSparse(bytes, 128 * 1024 * 1024, &catalog, &error));
+  EXPECT_NE(error.find("64 MiB"), std::string::npos);
+  EXPECT_EQ(catalog.name, "unchanged");
+}
+
+TEST(GgufCatalog, RejectsInvalidMetadataLengthsCountsAndTypes) {
+  std::string base = "GGUF";
+  Number(base, 3, 4);
+  Number(base, 0, 8);
+  Number(base, 1, 8);
+  std::vector<std::string> cases;
+  auto s = base;
+  Number(s, UINT64_MAX, 8); // key length
+  cases.push_back(s);
+  for (auto type : {9u, 99u}) {
+    s = base;
+    String(s, "array");
+    Number(s, 9, 4);
+    Number(s, type, 4); // nested array or unknown scalar
+    Number(s, 1, 8);
+    cases.push_back(s);
+  }
+  s = base;
+  String(s, "array");
+  Number(s, 9, 4);
+  Number(s, 4, 4);
+  Number(s, UINT64_MAX, 8);
+  cases.push_back(s);
+  s = base;
+  s[16] = 1;
+  s[17] = 16; // 4097 metadata entries
+  cases.push_back(s);
+  for (const auto &bytes : cases) {
+    GgufCatalog catalog;
+    catalog.architecture = "unchanged";
+    std::string error;
+    EXPECT_FALSE(Inspect(bytes, &catalog, &error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(catalog.architecture, "unchanged");
+  }
+}
+
 TEST(GgufCatalog, RetainsCompleteCatalogAfterFileCloses) {
   GgufCatalog catalog;
   std::string error;
@@ -82,6 +254,7 @@ TEST(GgufCatalog, RetainsCompleteCatalogAfterFileCloses) {
   EXPECT_EQ(catalog.architecture, "llama");
   ASSERT_EQ(catalog.tensors.size(), 40);
   EXPECT_EQ(catalog.tensors[39].name, "test.weight.39");
+  EXPECT_EQ(catalog.tensors[0].rank, 2);
   EXPECT_EQ(catalog.tensors[0].normalized_extents,
             (std::array<int64_t, 4>{4, 2, 1, 1}));
   EXPECT_EQ(catalog.tensors[0].absolute_offset, catalog.data_offset);

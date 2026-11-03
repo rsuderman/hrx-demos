@@ -69,7 +69,11 @@ enum class AccessDomain {
   Whole,
   ActiveRows,
   CopyRowsSource,
-  CopyRowsDestination
+  CopyRowsDestination,
+  // Cache rows indexed by Positions over active query rows; all head axes.
+  ActiveTokenPositions,
+  // Union of initialized logical [0, Positions[row]+1) cache prefixes.
+  CausalPrefix
 };
 enum class ElementType { F32, F16, I8, I32, I64 };
 enum class ScalarType { F32, I32, I64 };

@@ -29,12 +29,13 @@ struct MetadataRecord {
 
 struct TensorRecord {
   std::string name;
-  // GGML ne[] order; absent dimensions are padded with one. Not original rank.
+  // GGUF dimension order; absent dimensions are padded with one.
   std::array<int64_t, 4> normalized_extents{1, 1, 1, 1};
   uint32_t storage_type = 0;
   std::string storage_name;
   uint64_t absolute_offset = 0;
   uint64_t byte_size = 0;
+  uint32_t rank = 0;
 };
 
 struct GgufCatalog {

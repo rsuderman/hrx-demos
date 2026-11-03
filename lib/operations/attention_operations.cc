@@ -7,6 +7,17 @@
 namespace hrx::operations {
 namespace {
 using namespace detail;
+// Projection outputs may be flattened; persistent caches keep explicit heads.
+bool Projection(const BoundOperands &o, Port p, uint64_t rows, uint64_t heads,
+                uint64_t width, std::string *e) {
+  if (!heads || !width || heads > std::numeric_limits<uint64_t>::max() / width)
+    return Fail(e, "head projection width overflows uint64");
+  const auto *t = o.tensor(p);
+  if (t && t->rank() == 2)
+    return Matrix(o, p, rows, heads * width, ElementType::F32, Encoding::Dense,
+                  Layout::RowMajor, e);
+  return Heads(o, p, rows, heads, width, ElementType::F32, e);
+}
 bool Rotary(const BoundOperands &o, uint64_t width, uint64_t head_width,
             double base, RopeScaling scaling, double factor, FactorMode mode,
             std::string *e) {
@@ -27,10 +38,10 @@ bool Rope(const BoundOperands &o, const RopeAttrs &a, std::string *e) {
   auto n = o.tensor(Port::Input)->dimension(0);
   return Rotary(o, a.rotary_width, a.head_width, a.base, a.scaling,
                 a.scaling_factor, a.factor_mode, e) &&
-         Heads(o, Port::Input, n, a.head_count, a.head_width, ElementType::F32,
-               e) &&
-         Heads(o, Port::Output, n, a.head_count, a.head_width, ElementType::F32,
-               e) &&
+         Projection(o, Port::Input, n, a.head_count, a.head_width, e) &&
+         Projection(o, Port::Output, n, a.head_count, a.head_width, e) &&
+         (o.tensor(Port::Input)->rank() == o.tensor(Port::Output)->rank() ||
+          Fail(e, "rope output representation must match input")) &&
          Vector(o, Port::Positions, n, ElementType::I32, e) &&
          Distinct(o, e, Port::Input, Port::Output);
 }
@@ -41,9 +52,8 @@ bool Publish(const BoundOperands &o, const RotatePublishKVAttrs &a,
   auto n = o.tensor(Port::Key)->dimension(0);
   return Rotary(o, a.rotary_width, a.key_width, a.base, a.scaling,
                 a.scaling_factor, a.factor_mode, e) &&
-         Heads(o, Port::Key, n, a.kv_heads, a.key_width, ElementType::F32, e) &&
-         Heads(o, Port::Value, n, a.kv_heads, a.value_width, ElementType::F32,
-               e) &&
+         Projection(o, Port::Key, n, a.kv_heads, a.key_width, e) &&
+         Projection(o, Port::Value, n, a.kv_heads, a.value_width, e) &&
          Heads(o, Port::KeyCache, a.cache_capacity, a.kv_heads, a.key_width,
                ElementType::F16, e) &&
          Heads(o, Port::ValueCache, a.cache_capacity, a.kv_heads, a.value_width,
@@ -61,8 +71,7 @@ bool Attention(const BoundOperands &o, const CausalAttentionAttrs &a,
   if (a.query_heads > std::numeric_limits<uint64_t>::max() / a.value_width)
     return Fail(e, "attention output width overflows uint64");
   auto n = o.tensor(Port::Query)->dimension(0);
-  return Heads(o, Port::Query, n, a.query_heads, a.key_width, ElementType::F32,
-               e) &&
+  return Projection(o, Port::Query, n, a.query_heads, a.key_width, e) &&
          Heads(o, Port::KeyCache, a.cache_capacity, a.kv_heads, a.key_width,
                ElementType::F16, e) &&
          Heads(o, Port::ValueCache, a.cache_capacity, a.kv_heads, a.value_width,
@@ -76,10 +85,15 @@ bool Attention(const BoundOperands &o, const CausalAttentionAttrs &a,
 bool DefineRope(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::Rope)
-             .port(Port::Input, ValueKind::Tensor, Access::Read)
-             .port(Port::Positions, ValueKind::Tensor, Access::Read)
+             .port(Port::Input, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::Positions, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
              .optionalPort(Port::Factors, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::ActiveRows)
+             .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+             .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<RopeAttrs>()
              .verify(Rope)
              .finish(e);
@@ -87,12 +101,19 @@ bool DefineRope(OperationRegistry *r, std::string *e) {
 bool DefineRotatePublishKV(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::RotatePublishKV)
-             .port(Port::Key, ValueKind::Tensor, Access::Read)
-             .port(Port::Value, ValueKind::Tensor, Access::Read)
-             .port(Port::Positions, ValueKind::Tensor, Access::Read)
+             .port(Port::Key, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::Value, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::Positions, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
              .optionalPort(Port::Factors, ValueKind::Tensor, Access::Read)
-             .port(Port::KeyCache, ValueKind::Tensor, Access::ReadWrite)
-             .port(Port::ValueCache, ValueKind::Tensor, Access::ReadWrite)
+             .port(Port::KeyCache, ValueKind::Tensor, Access::ReadWrite,
+                   AccessDomain::ActiveTokenPositions)
+             .port(Port::ValueCache, ValueKind::Tensor, Access::ReadWrite,
+                   AccessDomain::ActiveTokenPositions)
+             .optionalPort(Port::RowBegin, ValueKind::Scalar, Access::Read)
+             .optionalPort(Port::RowCount, ValueKind::Scalar, Access::Read)
              .attributes<RotatePublishKVAttrs>()
              .verify(Publish)
              .finish(e);
@@ -100,13 +121,18 @@ bool DefineRotatePublishKV(OperationRegistry *r, std::string *e) {
 bool DefineCausalAttention(OperationRegistry *r, std::string *e) {
   return Ready(r, e) &&
          r->define(OpCode::CausalAttention)
-             .port(Port::Query, ValueKind::Tensor, Access::Read)
-             .port(Port::KeyCache, ValueKind::Tensor, Access::Read)
-             .port(Port::ValueCache, ValueKind::Tensor, Access::Read)
+             .port(Port::Query, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::KeyCache, ValueKind::Tensor, Access::Read,
+                   AccessDomain::CausalPrefix)
+             .port(Port::ValueCache, ValueKind::Tensor, Access::Read,
+                   AccessDomain::CausalPrefix)
              .port(Port::RowBegin, ValueKind::Scalar, Access::Read)
              .port(Port::RowCount, ValueKind::Scalar, Access::Read)
-             .port(Port::Positions, ValueKind::Tensor, Access::Read)
-             .port(Port::Output, ValueKind::Tensor, Access::Write)
+             .port(Port::Positions, ValueKind::Tensor, Access::Read,
+                   AccessDomain::ActiveRows)
+             .port(Port::Output, ValueKind::Tensor, Access::Write,
+                   AccessDomain::ActiveRows)
              .attributes<CausalAttentionAttrs>()
              .verify(Attention)
              .finish(e);

@@ -71,11 +71,19 @@ bool LlamaStructure::select(LlamaRegion s, LlamaRegionView *out,
   // defines this mutable identity for subsequent ordered invocations.
   // These are the existing operations' bounded row shapes, not symbolic
   // intervals. Runtime scalar equality/bounds are never inferred.
-  enum class Rows { Whole, Active, LastActive, LeadingCount, RowZero };
+  enum class Rows {
+    Whole,
+    Active,
+    LastActive,
+    LeadingCount,
+    RowZero,
+    CachePositions,
+    CachePrefix
+  };
   struct Definition {
     ValueId value;
     Rows rows;
-    ValueId begin, count;
+    ValueId begin, count, positions;
   };
   auto control = [](const Invocation &op, Port port) {
     auto *binding = op.binding(port);
@@ -83,13 +91,20 @@ bool LlamaStructure::select(LlamaRegion s, LlamaRegionView *out,
   };
   auto domain = [&](const Invocation &op, const PortBinding &binding) {
     Definition result{binding.value(), Rows::Whole, control(op, Port::RowBegin),
-                      control(op, Port::RowCount)};
+                      control(op, Port::RowCount),
+                      control(op, Port::Positions)};
     switch (graph_.definition(op.opcode())->port(binding.port())->domain()) {
     case AccessDomain::Whole:
       break;
     case AccessDomain::ActiveRows:
       if (result.begin.valid())
         result.rows = Rows::Active;
+      break;
+    case AccessDomain::ActiveTokenPositions:
+      result.rows = Rows::CachePositions;
+      break;
+    case AccessDomain::CausalPrefix:
+      result.rows = Rows::CachePrefix;
       break;
     case AccessDomain::CopyRowsSource:
       result.rows = std::get<CopyRowsAttrs>(op.attributes()).selection ==
@@ -121,6 +136,12 @@ bool LlamaStructure::select(LlamaRegion s, LlamaRegionView *out,
       return defined.begin == read.begin && defined.count == read.count;
     if (defined.rows != read.rows)
       return false;
+    // Publication never proves a causal prefix initialized. Cache coverage
+    // requires the identical coordinate source and query selection.
+    if (defined.rows == Rows::CachePositions ||
+        defined.rows == Rows::CachePrefix)
+      return defined.positions == read.positions &&
+             defined.begin == read.begin && defined.count == read.count;
     if (defined.rows == Rows::LastActive)
       return defined.begin == read.begin && defined.count == read.count;
     if (defined.rows == Rows::LeadingCount)

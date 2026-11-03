@@ -37,6 +37,16 @@ private:
   uint64_t owner_ = 0;
   loom_symbol_id_t symbol_ = LOOM_SYMBOL_ID_INVALID;
 };
+class CommandFamilyRef {
+public:
+  CommandFamilyRef() = default;
+
+private:
+  friend class ModuleBuilder;
+  friend class CommandProgramBuilder;
+  uint64_t owner_ = 0;
+  loom_symbol_id_t symbol_ = LOOM_SYMBOL_ID_INVALID;
+};
 class KernelPipelineRef {
 public:
   KernelPipelineRef() = default;
@@ -114,6 +124,12 @@ public:
   loomc_status_t CheckKernelInterface(KernelRef kernel,
                                       const std::vector<Type> &workloads,
                                       const std::vector<Type> &arguments) const;
+  loomc_status_t CommandFamily(std::string_view name,
+                               CommandFamilyRef *out) const;
+  // Compare native family declarations before any body staging. Dependent
+  // argument types are compared with their declaration SSA identities remapped.
+  loomc_status_t CheckCommandFamilyInterface(CommandFamilyRef family,
+                                             CommandFamilyRef expected) const;
   loomc_status_t KernelPipeline(std::string_view name,
                                 KernelPipelineRef *out) const;
   loomc_status_t Program(std::string_view name, ProgramRef *out) const;
@@ -170,6 +186,9 @@ public:
   loomc_status_t Invoke(KernelPipelineRef pipeline,
                         const std::vector<Value> &specializations,
                         const std::vector<Value> &run_arguments);
+  // Checked native command family application, including dependent view types.
+  loomc_status_t Apply(CommandFamilyRef family,
+                       const std::vector<Value> &arguments);
   loomc_status_t Call(ProgramRef program,
                       const std::vector<Value> &specializations,
                       const std::vector<Value> &bindings);

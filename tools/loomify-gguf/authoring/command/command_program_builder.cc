@@ -16,6 +16,7 @@
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/pipeline/ops.h"
 #include "loom/ops/scf/ops.h"
+#include "loom/ops/template/ops.h"
 #include "loomc/interop.h"
 #include "loomc/iree.h"
 #include "loomc/link.h"
@@ -224,6 +225,64 @@ loomc_status_t ModuleBuilder::Kernel(std::string_view name,
                  "symbol is not a configured kernel: " + std::string(name));
   out->owner_ = state_->identity;
   out->symbol_ = id;
+  return loomc_ok_status();
+}
+loomc_status_t ModuleBuilder::CommandFamily(std::string_view name,
+                                            CommandFamilyRef *out) const {
+  if (!out)
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT, "missing family output");
+  *out = {};
+  loom_symbol_id_t id;
+  auto status = state_->Find(name, &id);
+  if (!loomc_status_is_ok(status))
+    return status;
+  const auto *op = state_->native->symbols.entries[id].defining_op;
+  if (!op || !loom_template_decl_isa(op) ||
+      loom_template_decl_results(op).count ||
+      (loom_template_decl_cc(op) != 0 &&
+       loom_template_decl_cc(op) != LOOM_TEMPLATE_CC_HOST))
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                 "symbol is not a void command family");
+  out->owner_ = state_->identity;
+  out->symbol_ = id;
+  return loomc_ok_status();
+}
+loomc_status_t
+ModuleBuilder::CheckCommandFamilyInterface(CommandFamilyRef family,
+                                           CommandFamilyRef expected) const {
+  auto status = state_->Mutable();
+  if (!loomc_status_is_ok(status))
+    return status;
+  if (family.owner_ != state_->identity ||
+      expected.owner_ != state_->identity ||
+      family.symbol_ >= state_->native->symbols.count ||
+      expected.symbol_ >= state_->native->symbols.count)
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                 "foreign or invalid command family interface");
+  auto actual_args = Copy(loom_template_decl_args(
+      state_->native->symbols.entries[family.symbol_].defining_op));
+  auto expected_args = Copy(loom_template_decl_args(
+      state_->native->symbols.entries[expected.symbol_].defining_op));
+  if (actual_args.size() != expected_args.size())
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                 "command family declared argument count mismatch");
+  loom_type_value_remap_t remap{};
+  remap.source_values = expected_args.data();
+  remap.target_values = actual_args.data();
+  remap.count = expected_args.size();
+  for (size_t i = 0; i < actual_args.size(); ++i) {
+    bool matches = false;
+    auto checked = loom_function_call_argument_type_matches(
+        state_->native, loom_module_value_type(state_->native, actual_args[i]),
+        loom_module_value_type(state_->native, expected_args[i]), &remap, 0,
+        &matches);
+    if (!iree_status_is_ok(checked))
+      return loomc_status_from_iree(checked);
+    if (!matches)
+      return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                   "command family declared argument type mismatch at " +
+                       std::to_string(i));
+  }
   return loomc_ok_status();
 }
 loomc_status_t
@@ -555,6 +614,52 @@ loomc_status_t CommandProgramBuilder::IndexConstant(int64_t value, Value *out) {
   if (loomc_status_is_ok(status))
     *out = impl_->Wrap(loom_index_constant_result(op));
   return status;
+}
+loomc_status_t
+CommandProgramBuilder::Apply(CommandFamilyRef family,
+                             const std::vector<Value> &arguments) {
+  auto status = impl_->Mutable();
+  if (!loomc_status_is_ok(status))
+    return status;
+  if (family.owner_ != impl_->state->identity ||
+      family.symbol_ >= impl_->state->native->symbols.count)
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                 "foreign or invalid command family");
+  const auto *declaration =
+      impl_->state->native->symbols.entries[family.symbol_].defining_op;
+  auto expected = Copy(loom_template_decl_args(declaration));
+  if (expected.size() != arguments.size())
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                 "command family argument count mismatch");
+  std::vector<loom_value_id_t> actual;
+  for (auto value : arguments) {
+    if (!impl_->Valid(value))
+      return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                   "foreign or out-of-scope family operand");
+    actual.push_back(value.id_);
+  }
+  loom_type_value_remap_t remap{};
+  remap.source_values = expected.data();
+  remap.target_values = actual.data();
+  remap.count = actual.size();
+  for (size_t i = 0; i < actual.size(); ++i) {
+    bool matches = false;
+    auto checked = loom_function_call_argument_type_matches(
+        impl_->state->native,
+        loom_module_value_type(impl_->state->native, actual[i]),
+        loom_module_value_type(impl_->state->native, expected[i]), &remap,
+        LOOM_FUNCTION_CALL_ARGUMENT_MATCH_FLAG_ALLOW_BUFFER_MATERIALIZATION,
+        &matches);
+    if (!iree_status_is_ok(checked))
+      return loomc_status_from_iree(checked);
+    if (!matches)
+      return Error(LOOMC_STATUS_INVALID_ARGUMENT,
+                   "command family argument type mismatch");
+  }
+  loom_op_t *op = nullptr;
+  return impl_->state->Mutation(loom_template_apply_build(
+      &impl_->schedule, 0, {0, family.symbol_}, actual.data(), actual.size(), 0,
+      0, nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN, &op));
 }
 loomc_status_t CommandProgramBuilder::InvokeSymbol(
     loom_symbol_id_t symbol, const std::vector<loom_value_id_t> &expected_first,

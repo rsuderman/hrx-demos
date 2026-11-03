@@ -26,7 +26,6 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [
         ":model_types",
-        "@loomify_ggml//:metadata",
     ],
 )
 
