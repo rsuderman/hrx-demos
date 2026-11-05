@@ -1,7 +1,9 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
+#include "tools/model/llama_configuration.h"
 #include "tools/model/model_descriptor.h"
 #include <algorithm>
+#include <cstring>
 #include <gtest/gtest.h>
 #include <limits>
 #include <memory>
@@ -397,4 +399,94 @@ TEST(GgufCatalog, CompleteTypedSparseHeaderAndNoPayloadRead) {
   EXPECT_FALSE(LoadModelDescriptor(c, &model, &e));
 }
 } // namespace
+
+TEST(LlamaConfiguration, RejectsExactUnsupportedNormsWithoutChangingOutput) {
+  for (const auto &name :
+       {"blk.0.attn_q_norm.weight", "blk.123.attn_k_norm.weight"}) {
+    auto catalog = Model();
+    Tensor(catalog, name, {4});
+    ModelDescriptor output;
+    output.name = "sentinel";
+    std::string error;
+    EXPECT_FALSE(LoadModelDescriptor(catalog, &output, &error));
+    EXPECT_EQ(output.name, "sentinel");
+    EXPECT_NE(error.find("Q/K normalization"), std::string::npos);
+  }
+  auto catalog = Model();
+  Tensor(catalog, "blk.x.attn_q_norm.weight", {4});
+  ModelDescriptor output;
+  std::string error;
+  EXPECT_TRUE(LoadModelDescriptor(catalog, &output, &error)) << error;
+}
+TEST(LlamaConfiguration,
+     ExtractedFactsOutliveBorrowedFileAndPreserveTiedWeights) {
+  auto catalog = Model(false, true);
+  std::string bytes = "GGUF";
+  auto number = [&](uint64_t n, unsigned width) {
+    for (unsigned i = 0; i < width; ++i)
+      bytes.push_back(char(n >> (i * 8)));
+  };
+  auto text = [&](const std::string &s) {
+    number(s.size(), 8);
+    bytes += s;
+  };
+  number(3, 4);
+  number(catalog.tensors.size(), 8);
+  number(catalog.metadata.size() + 1, 8);
+  text("general.architecture");
+  number(8, 4);
+  text("llama");
+  for (const auto &field : catalog.metadata) {
+    text(field.key);
+    number(field.source_type, 4);
+    if (const auto *v = std::get_if<uint64_t>(&field.scalar))
+      number(*v, 4);
+    else if (const auto *v = std::get_if<double>(&field.scalar)) {
+      float value = *v;
+      uint32_t bits;
+      std::memcpy(&bits, &value, 4);
+      number(bits, 4);
+    } else
+      FAIL() << "unexpected fixture metadata";
+  }
+  uint64_t relative = 0;
+  for (const auto &tensor : catalog.tensors) {
+    text(tensor.name);
+    auto rank = tensor.normalized_extents[1] == 1 ? 1u : 2u;
+    number(rank, 4);
+    for (unsigned i = 0; i < rank; ++i)
+      number(tensor.normalized_extents[i], 8);
+    number(0, 4);
+    number(relative, 8);
+    relative += (tensor.byte_size + 31) / 32 * 32;
+  }
+  while (bytes.size() % 32)
+    bytes.push_back(0);
+  bytes.append(relative, 0);
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::tmpfile(),
+                                                     &std::fclose);
+  ASSERT_TRUE(file);
+  ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
+  ASSERT_EQ(std::fwrite(bytes.data(), 1, bytes.size(), file.get()),
+            bytes.size());
+  ModelDescriptor extracted;
+  std::string error;
+  ASSERT_TRUE(ExtractLlamaConfiguration(file.get(), &extracted, &error))
+      << error;
+  EXPECT_EQ(std::fseek(file.get(), 0, SEEK_SET),
+            0); // Extractor does not close it.
+  file.reset();
+  catalog = {};
+  EXPECT_EQ(extracted.family, "llama");
+  EXPECT_EQ(extracted.layers.size(), 2u);
+  EXPECT_TRUE(extracted.output_tied_to_embedding);
+  auto saved = extracted;
+  std::unique_ptr<FILE, decltype(&std::fclose)> bad(std::tmpfile(),
+                                                    &std::fclose);
+  ASSERT_TRUE(bad);
+  ASSERT_EQ(std::setvbuf(bad.get(), nullptr, _IONBF, 0), 0);
+  EXPECT_FALSE(ExtractLlamaConfiguration(bad.get(), &extracted, &error));
+  EXPECT_EQ(extracted.globals.size(), saved.globals.size());
+  EXPECT_EQ(extracted.globals[0].tensor.name, saved.globals[0].tensor.name);
+}
 } // namespace hrx::model

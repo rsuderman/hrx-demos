@@ -35,3 +35,10 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [":gguf_catalog"],
 )
+
+iree_cc_library(
+    name = "llama_configuration",
+    srcs = ["llama_configuration.cc"], hdrs = ["llama_configuration.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":model_descriptor", ":gguf_catalog"],
+)

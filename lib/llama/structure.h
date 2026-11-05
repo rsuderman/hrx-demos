@@ -38,6 +38,7 @@ struct LlamaInputs {
   operations::ValueId row_begin; // I64 offset within row_capacity.
   operations::ValueId
       row_count; // I64 active count; runtime bounds are external.
+  operations::ValueId count_control, control, history, progress, token;
   operations::ValueId residual; // Mutable F32 [row_capacity, hidden].
   struct LayerState {
     operations::ValueId key_cache, value_cache;
@@ -92,8 +93,7 @@ private:
   std::vector<operations::ValueId> exports_;
 };
 
-// Reserved complete-model API. Implementation arrives with all component
-// helpers; this checkpoint deliberately provides no successful partial factory.
+// Constructs the complete model transactionally; all identities belong to out.
 bool BuildLlamaStructure(model::ModelDescriptor facts,
                          const LlamaBuildOptions &options,
                          std::shared_ptr<const LlamaStructure> *out,

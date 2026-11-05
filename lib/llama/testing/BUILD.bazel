@@ -70,3 +70,18 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+cc_test(
+    name = "model_structure_test", size = "small",
+    srcs = ["model_structure_test.cc", "model_fixture.h"],
+    copts = _CXXOPTS, linkstatic = True,
+    deps = ["//lib/llama:model_structure", "//lib/llama:structure", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+cc_test(
+    name = "program_test", size = "large",
+    srcs = ["program_test.cc", "model_fixture.h"],
+    copts = _CXXOPTS, linkstatic = True,
+    data = ["//lib/kernels/llama:all_sources"],
+    deps = ["//lib/llama:program", "//tools/model:llama_configuration",
+        "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd",
+        "@googletest//:gtest", "@googletest//:gtest_main"],
+)

@@ -308,6 +308,18 @@ bool StructureConstruction::createInputs(std::string *error) {
       return false;
     inputs.layers.push_back({k, v});
   }
+  auto words = [&](uint64_t n) {
+    return g.tensor(TensorType::vector(n, ElementType::I32), error);
+  };
+  inputs.count_control = words(3);
+  inputs.control = words(3);
+  inputs.history = words(o.history_capacity + 1);
+  inputs.progress = words(8);
+  inputs.token = words(1);
+  if (!inputs.count_control.valid() || !inputs.control.valid() ||
+      !inputs.history.valid() || !inputs.progress.valid() ||
+      !inputs.token.valid())
+    return false;
   owner_->inputs_ = std::move(inputs);
   return true;
 }

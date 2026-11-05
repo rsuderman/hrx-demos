@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/dispatch/output.h"
+#include "loom/ops/buffer/ops.h"
 #include "loom/ops/config/ops.h"
 #include "loomc/iree.h"
 #include <algorithm>
@@ -144,6 +145,26 @@ loomc_status_t BuildHead(const Registration &r, BuildContext &c, Value *out) {
   if (!g->parameter.empty())
     TRY(c.values.Parameter(g->native, g->parameter, {}, LOOM_SCALAR_TYPE_F32,
                            {hidden}, &gamma));
+  if (g->parameter.empty()) {
+    Value zero;
+    TRY(constant(0, LOOM_SCALAR_TYPE_OFFSET, &zero));
+    std::vector<Value> views;
+    TRY(c.program.BuildNative(
+        {gamma, zero, hidden},
+        [](loom_module_t *, loom_builder_t *builder,
+           const std::vector<loom_value_id_t> &ids,
+           std::vector<loom_value_id_t> *results) {
+          auto type = loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_F32,
+                                          loom_dim_pack_dynamic(ids[2]), 0);
+          loom_op_t *view = nullptr;
+          IREE_RETURN_IF_ERROR(loom_buffer_view_build(
+              builder, ids[0], ids[1], type, LOOM_LOCATION_UNKNOWN, &view));
+          results->push_back(loom_buffer_view_result(view));
+          return iree_ok_status();
+        },
+        &views));
+    gamma = views[0];
+  }
   TRY(c.Allocate(3072 * 4, &normalized));
   Value token = c.output;
   if (!c.has_output)

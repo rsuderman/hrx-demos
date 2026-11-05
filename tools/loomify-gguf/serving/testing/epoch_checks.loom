@@ -1,0 +1,436 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+command.program.decl @test.epoch8.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+func.def @reference_epoch8_0(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
+  %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
+  %cache = buffer.view %arena[%origin] : buffer -> view<160xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<8xi32>
+  %outputs = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %v0 = scalar.constant 26 : i32
+  view.store %v0, %res[0] : i32, view<8xi32>
+  %v1 = scalar.constant 22 : i32
+  view.store %v1, %res[1] : i32, view<8xi32>
+  %v2 = scalar.constant 24 : i32
+  view.store %v2, %res[2] : i32, view<8xi32>
+  %v3 = scalar.constant 3 : i32
+  view.store %v3, %meta[0] : i32, view<516xi32>
+  %v4 = scalar.constant 1 : i32
+  view.store %v4, %meta[1] : i32, view<516xi32>
+  %v5 = scalar.constant 1 : i32
+  view.store %v5, %meta[2] : i32, view<516xi32>
+  %v6 = scalar.constant 1 : i32
+  view.store %v6, %meta[3] : i32, view<516xi32>
+  %v7 = scalar.constant 8 : i32
+  view.store %v7, %meta[4] : i32, view<516xi32>
+  %v8 = scalar.constant 0 : i32
+  view.store %v8, %meta[5] : i32, view<516xi32>
+  %v9 = scalar.constant 0 : i32
+  view.store %v9, %meta[6] : i32, view<516xi32>
+  %v10 = scalar.constant 0 : i32
+  view.store %v10, %meta[7] : i32, view<516xi32>
+  %v11 = scalar.constant 127 : i32
+  view.store %v11, %meta[515] : i32, view<516xi32>
+  %v12 = scalar.constant 10 : i32
+  view.store %v12, %cache[133] : i32, view<160xi32>
+  %v13 = scalar.constant 11 : i32
+  view.store %v13, %cache[134] : i32, view<160xi32>
+  %v14 = scalar.constant 12 : i32
+  view.store %v14, %cache[135] : i32, view<160xi32>
+  %v15 = scalar.constant 13 : i32
+  view.store %v15, %cache[136] : i32, view<160xi32>
+  %v16 = scalar.constant 13 : i32
+  view.store %v16, %tokens[0] : i32, view<8xi32>
+  %v17 = scalar.constant 11 : i32
+  view.store %v17, %tokens[1] : i32, view<8xi32>
+  %v18 = scalar.constant 12 : i32
+  view.store %v18, %tokens[2] : i32, view<8xi32>
+  %v19 = scalar.constant 14 : i32
+  view.store %v19, %outputs[0] : i32, view<16xi32>
+  %v20 = scalar.constant 13 : i32
+  view.store %v20, %outputs[2] : i32, view<16xi32>
+  func.return
+}
+check.scenario @epoch8_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameters = check.generate.fill value(55) : tensor<4xi32>
+    %residual = check.generate.fill value(-77) : tensor<8xi32>
+    %metadata = check.generate.fill value(-77) : tensor<516xi32>
+    %origins = check.generate.fill value(-77) : tensor<64xi64>
+    %arena = check.generate.fill value(-77) : tensor<160xi32>
+    %input = check.generate.fill value(-77) : tensor<8xi32>
+    %output = check.generate.fill value(-77) : tensor<16xi32>
+    check.compare<@test.epoch8.0, @reference_epoch8_0>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<8xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<8xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<8xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>
+      check.expect.bitwise actual(%origins) expected(%origins) : tensor<64xi64>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<160xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @test.epoch8.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+func.def @reference_epoch8_1(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
+  %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
+  %cache = buffer.view %arena[%origin] : buffer -> view<160xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<8xi32>
+  %outputs = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %v0 = scalar.constant 26 : i32
+  view.store %v0, %res[0] : i32, view<8xi32>
+  %v1 = scalar.constant 22 : i32
+  view.store %v1, %res[1] : i32, view<8xi32>
+  %v2 = scalar.constant 24 : i32
+  view.store %v2, %res[2] : i32, view<8xi32>
+  %v3 = scalar.constant 3 : i32
+  view.store %v3, %meta[0] : i32, view<516xi32>
+  %v4 = scalar.constant 1 : i32
+  view.store %v4, %meta[1] : i32, view<516xi32>
+  %v5 = scalar.constant 0 : i32
+  view.store %v5, %meta[2] : i32, view<516xi32>
+  %v6 = scalar.constant 1 : i32
+  view.store %v6, %meta[3] : i32, view<516xi32>
+  %v7 = scalar.constant 8 : i32
+  view.store %v7, %meta[4] : i32, view<516xi32>
+  %v8 = scalar.constant 0 : i32
+  view.store %v8, %meta[5] : i32, view<516xi32>
+  %v9 = scalar.constant 0 : i32
+  view.store %v9, %meta[6] : i32, view<516xi32>
+  %v10 = scalar.constant 0 : i32
+  view.store %v10, %meta[7] : i32, view<516xi32>
+  %v11 = scalar.constant 127 : i32
+  view.store %v11, %meta[515] : i32, view<516xi32>
+  %v12 = scalar.constant 10 : i32
+  view.store %v12, %cache[133] : i32, view<160xi32>
+  %v13 = scalar.constant 11 : i32
+  view.store %v13, %cache[134] : i32, view<160xi32>
+  %v14 = scalar.constant 12 : i32
+  view.store %v14, %cache[135] : i32, view<160xi32>
+  %v15 = scalar.constant 13 : i32
+  view.store %v15, %cache[136] : i32, view<160xi32>
+  %v16 = scalar.constant 13 : i32
+  view.store %v16, %tokens[0] : i32, view<8xi32>
+  %v17 = scalar.constant 11 : i32
+  view.store %v17, %tokens[1] : i32, view<8xi32>
+  %v18 = scalar.constant 12 : i32
+  view.store %v18, %tokens[2] : i32, view<8xi32>
+  %v19 = scalar.constant 14 : i32
+  view.store %v19, %outputs[0] : i32, view<16xi32>
+  func.return
+}
+check.scenario @epoch8_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameters = check.generate.fill value(55) : tensor<4xi32>
+    %residual = check.generate.fill value(-77) : tensor<8xi32>
+    %metadata = check.generate.fill value(-77) : tensor<516xi32>
+    %origins = check.generate.fill value(-77) : tensor<64xi64>
+    %arena = check.generate.fill value(-77) : tensor<160xi32>
+    %input = check.generate.fill value(-77) : tensor<8xi32>
+    %output = check.generate.fill value(-77) : tensor<16xi32>
+    check.compare<@test.epoch8.1, @reference_epoch8_1>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<8xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<8xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<8xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>
+      check.expect.bitwise actual(%origins) expected(%origins) : tensor<64xi64>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<160xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @test.epoch8.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+func.def @reference_epoch8_2(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
+  %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
+  %cache = buffer.view %arena[%origin] : buffer -> view<160xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<8xi32>
+  %outputs = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %v0 = scalar.constant 26 : i32
+  view.store %v0, %res[0] : i32, view<8xi32>
+  %v1 = scalar.constant 22 : i32
+  view.store %v1, %res[1] : i32, view<8xi32>
+  %v2 = scalar.constant 196 : i32
+  view.store %v2, %res[2] : i32, view<8xi32>
+  %v3 = scalar.constant 3 : i32
+  view.store %v3, %meta[0] : i32, view<516xi32>
+  %v4 = scalar.constant 1 : i32
+  view.store %v4, %meta[1] : i32, view<516xi32>
+  %v5 = scalar.constant 1 : i32
+  view.store %v5, %meta[2] : i32, view<516xi32>
+  %v6 = scalar.constant 1 : i32
+  view.store %v6, %meta[3] : i32, view<516xi32>
+  %v7 = scalar.constant 8 : i32
+  view.store %v7, %meta[4] : i32, view<516xi32>
+  %v8 = scalar.constant 0 : i32
+  view.store %v8, %meta[5] : i32, view<516xi32>
+  %v9 = scalar.constant 0 : i32
+  view.store %v9, %meta[6] : i32, view<516xi32>
+  %v10 = scalar.constant 0 : i32
+  view.store %v10, %meta[7] : i32, view<516xi32>
+  %v11 = scalar.constant 127 : i32
+  view.store %v11, %meta[515] : i32, view<516xi32>
+  %v12 = scalar.constant 10 : i32
+  view.store %v12, %cache[133] : i32, view<160xi32>
+  %v13 = scalar.constant 11 : i32
+  view.store %v13, %cache[134] : i32, view<160xi32>
+  %v14 = scalar.constant 98 : i32
+  view.store %v14, %cache[135] : i32, view<160xi32>
+  %v15 = scalar.constant 13 : i32
+  view.store %v15, %cache[136] : i32, view<160xi32>
+  %v16 = scalar.constant 13 : i32
+  view.store %v16, %tokens[0] : i32, view<8xi32>
+  %v17 = scalar.constant 11 : i32
+  view.store %v17, %tokens[1] : i32, view<8xi32>
+  %v18 = scalar.constant 98 : i32
+  view.store %v18, %tokens[2] : i32, view<8xi32>
+  %v19 = scalar.constant 14 : i32
+  view.store %v19, %outputs[0] : i32, view<16xi32>
+  %v20 = scalar.constant 127 : i32
+  view.store %v20, %outputs[2] : i32, view<16xi32>
+  func.return
+}
+check.scenario @epoch8_2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameters = check.generate.fill value(55) : tensor<4xi32>
+    %residual = check.generate.fill value(-77) : tensor<8xi32>
+    %metadata = check.generate.fill value(-77) : tensor<516xi32>
+    %origins = check.generate.fill value(-77) : tensor<64xi64>
+    %arena = check.generate.fill value(-77) : tensor<160xi32>
+    %input = check.generate.fill value(-77) : tensor<8xi32>
+    %output = check.generate.fill value(-77) : tensor<16xi32>
+    check.compare<@test.epoch8.2, @reference_epoch8_2>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<8xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<8xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<8xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>
+      check.expect.bitwise actual(%origins) expected(%origins) : tensor<64xi64>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<160xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @test.epoch256.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+func.def @reference_epoch256_0(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
+  %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
+  %cache = buffer.view %arena[%origin] : buffer -> view<160xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %outputs = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %v0 = scalar.constant 26 : i32
+  view.store %v0, %res[0] : i32, view<256xi32>
+  %v1 = scalar.constant 22 : i32
+  view.store %v1, %res[1] : i32, view<256xi32>
+  %v2 = scalar.constant 24 : i32
+  view.store %v2, %res[2] : i32, view<256xi32>
+  %v3 = scalar.constant 3 : i32
+  view.store %v3, %meta[0] : i32, view<516xi32>
+  %v4 = scalar.constant 1 : i32
+  view.store %v4, %meta[1] : i32, view<516xi32>
+  %v5 = scalar.constant 1 : i32
+  view.store %v5, %meta[2] : i32, view<516xi32>
+  %v6 = scalar.constant 1 : i32
+  view.store %v6, %meta[3] : i32, view<516xi32>
+  %v7 = scalar.constant 8 : i32
+  view.store %v7, %meta[4] : i32, view<516xi32>
+  %v8 = scalar.constant 0 : i32
+  view.store %v8, %meta[5] : i32, view<516xi32>
+  %v9 = scalar.constant 0 : i32
+  view.store %v9, %meta[6] : i32, view<516xi32>
+  %v10 = scalar.constant 0 : i32
+  view.store %v10, %meta[7] : i32, view<516xi32>
+  %v11 = scalar.constant 127 : i32
+  view.store %v11, %meta[515] : i32, view<516xi32>
+  %v12 = scalar.constant 10 : i32
+  view.store %v12, %cache[133] : i32, view<160xi32>
+  %v13 = scalar.constant 11 : i32
+  view.store %v13, %cache[134] : i32, view<160xi32>
+  %v14 = scalar.constant 12 : i32
+  view.store %v14, %cache[135] : i32, view<160xi32>
+  %v15 = scalar.constant 13 : i32
+  view.store %v15, %cache[136] : i32, view<160xi32>
+  %v16 = scalar.constant 13 : i32
+  view.store %v16, %tokens[0] : i32, view<256xi32>
+  %v17 = scalar.constant 11 : i32
+  view.store %v17, %tokens[1] : i32, view<256xi32>
+  %v18 = scalar.constant 12 : i32
+  view.store %v18, %tokens[2] : i32, view<256xi32>
+  %v19 = scalar.constant 14 : i32
+  view.store %v19, %outputs[0] : i32, view<16xi32>
+  %v20 = scalar.constant 13 : i32
+  view.store %v20, %outputs[2] : i32, view<16xi32>
+  func.return
+}
+check.scenario @epoch256_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameters = check.generate.fill value(55) : tensor<4xi32>
+    %residual = check.generate.fill value(-77) : tensor<256xi32>
+    %metadata = check.generate.fill value(-77) : tensor<516xi32>
+    %origins = check.generate.fill value(-77) : tensor<64xi64>
+    %arena = check.generate.fill value(-77) : tensor<160xi32>
+    %input = check.generate.fill value(-77) : tensor<256xi32>
+    %output = check.generate.fill value(-77) : tensor<16xi32>
+    check.compare<@test.epoch256.0, @reference_epoch256_0>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<256xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<256xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<256xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>
+      check.expect.bitwise actual(%origins) expected(%origins) : tensor<64xi64>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<160xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @test.epoch256.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+func.def @reference_epoch256_1(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
+  %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
+  %cache = buffer.view %arena[%origin] : buffer -> view<160xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %outputs = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %v0 = scalar.constant 26 : i32
+  view.store %v0, %res[0] : i32, view<256xi32>
+  %v1 = scalar.constant 22 : i32
+  view.store %v1, %res[1] : i32, view<256xi32>
+  %v2 = scalar.constant 24 : i32
+  view.store %v2, %res[2] : i32, view<256xi32>
+  %v3 = scalar.constant 3 : i32
+  view.store %v3, %meta[0] : i32, view<516xi32>
+  %v4 = scalar.constant 1 : i32
+  view.store %v4, %meta[1] : i32, view<516xi32>
+  %v5 = scalar.constant 0 : i32
+  view.store %v5, %meta[2] : i32, view<516xi32>
+  %v6 = scalar.constant 1 : i32
+  view.store %v6, %meta[3] : i32, view<516xi32>
+  %v7 = scalar.constant 8 : i32
+  view.store %v7, %meta[4] : i32, view<516xi32>
+  %v8 = scalar.constant 0 : i32
+  view.store %v8, %meta[5] : i32, view<516xi32>
+  %v9 = scalar.constant 0 : i32
+  view.store %v9, %meta[6] : i32, view<516xi32>
+  %v10 = scalar.constant 0 : i32
+  view.store %v10, %meta[7] : i32, view<516xi32>
+  %v11 = scalar.constant 127 : i32
+  view.store %v11, %meta[515] : i32, view<516xi32>
+  %v12 = scalar.constant 10 : i32
+  view.store %v12, %cache[133] : i32, view<160xi32>
+  %v13 = scalar.constant 11 : i32
+  view.store %v13, %cache[134] : i32, view<160xi32>
+  %v14 = scalar.constant 12 : i32
+  view.store %v14, %cache[135] : i32, view<160xi32>
+  %v15 = scalar.constant 13 : i32
+  view.store %v15, %cache[136] : i32, view<160xi32>
+  %v16 = scalar.constant 13 : i32
+  view.store %v16, %tokens[0] : i32, view<256xi32>
+  %v17 = scalar.constant 11 : i32
+  view.store %v17, %tokens[1] : i32, view<256xi32>
+  %v18 = scalar.constant 12 : i32
+  view.store %v18, %tokens[2] : i32, view<256xi32>
+  %v19 = scalar.constant 14 : i32
+  view.store %v19, %outputs[0] : i32, view<16xi32>
+  func.return
+}
+check.scenario @epoch256_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameters = check.generate.fill value(55) : tensor<4xi32>
+    %residual = check.generate.fill value(-77) : tensor<256xi32>
+    %metadata = check.generate.fill value(-77) : tensor<516xi32>
+    %origins = check.generate.fill value(-77) : tensor<64xi64>
+    %arena = check.generate.fill value(-77) : tensor<160xi32>
+    %input = check.generate.fill value(-77) : tensor<256xi32>
+    %output = check.generate.fill value(-77) : tensor<16xi32>
+    check.compare<@test.epoch256.1, @reference_epoch256_1>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<256xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<256xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<256xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>
+      check.expect.bitwise actual(%origins) expected(%origins) : tensor<64xi64>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<160xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @test.epoch256.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+func.def @reference_epoch256_2(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
+  %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
+  %cache = buffer.view %arena[%origin] : buffer -> view<160xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %outputs = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %v0 = scalar.constant 26 : i32
+  view.store %v0, %res[0] : i32, view<256xi32>
+  %v1 = scalar.constant 22 : i32
+  view.store %v1, %res[1] : i32, view<256xi32>
+  %v2 = scalar.constant 196 : i32
+  view.store %v2, %res[2] : i32, view<256xi32>
+  %v3 = scalar.constant 3 : i32
+  view.store %v3, %meta[0] : i32, view<516xi32>
+  %v4 = scalar.constant 1 : i32
+  view.store %v4, %meta[1] : i32, view<516xi32>
+  %v5 = scalar.constant 1 : i32
+  view.store %v5, %meta[2] : i32, view<516xi32>
+  %v6 = scalar.constant 1 : i32
+  view.store %v6, %meta[3] : i32, view<516xi32>
+  %v7 = scalar.constant 8 : i32
+  view.store %v7, %meta[4] : i32, view<516xi32>
+  %v8 = scalar.constant 0 : i32
+  view.store %v8, %meta[5] : i32, view<516xi32>
+  %v9 = scalar.constant 0 : i32
+  view.store %v9, %meta[6] : i32, view<516xi32>
+  %v10 = scalar.constant 0 : i32
+  view.store %v10, %meta[7] : i32, view<516xi32>
+  %v11 = scalar.constant 127 : i32
+  view.store %v11, %meta[515] : i32, view<516xi32>
+  %v12 = scalar.constant 10 : i32
+  view.store %v12, %cache[133] : i32, view<160xi32>
+  %v13 = scalar.constant 11 : i32
+  view.store %v13, %cache[134] : i32, view<160xi32>
+  %v14 = scalar.constant 98 : i32
+  view.store %v14, %cache[135] : i32, view<160xi32>
+  %v15 = scalar.constant 13 : i32
+  view.store %v15, %cache[136] : i32, view<160xi32>
+  %v16 = scalar.constant 13 : i32
+  view.store %v16, %tokens[0] : i32, view<256xi32>
+  %v17 = scalar.constant 11 : i32
+  view.store %v17, %tokens[1] : i32, view<256xi32>
+  %v18 = scalar.constant 98 : i32
+  view.store %v18, %tokens[2] : i32, view<256xi32>
+  %v19 = scalar.constant 14 : i32
+  view.store %v19, %outputs[0] : i32, view<16xi32>
+  %v20 = scalar.constant 127 : i32
+  view.store %v20, %outputs[2] : i32, view<16xi32>
+  func.return
+}
+check.scenario @epoch256_2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameters = check.generate.fill value(55) : tensor<4xi32>
+    %residual = check.generate.fill value(-77) : tensor<256xi32>
+    %metadata = check.generate.fill value(-77) : tensor<516xi32>
+    %origins = check.generate.fill value(-77) : tensor<64xi64>
+    %arena = check.generate.fill value(-77) : tensor<160xi32>
+    %input = check.generate.fill value(-77) : tensor<256xi32>
+    %output = check.generate.fill value(-77) : tensor<16xi32>
+    check.compare<@test.epoch256.2, @reference_epoch256_2>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<256xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<256xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<256xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>
+      check.expect.bitwise actual(%origins) expected(%origins) : tensor<64xi64>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<160xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}

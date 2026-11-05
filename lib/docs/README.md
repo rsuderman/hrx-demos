@@ -16,3 +16,4 @@ under `examples/`, and Python tests under `tests/`.
 - [Dispatch invocation](dispatch-invocation.md): output-producing native norm and whole FFN authoring.
 - [Selected FFN compilation](llama-ffn-region.md): retained GGUF owner, static
   one-row region emission and source/bytecode proof boundaries.
+- [GGUF export](gguf-export.md): construct a supported Llama model and its existing Serve package.

@@ -153,6 +153,20 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     return false;
   try {
     Loader l{catalog, catalog.architecture + "."};
+    if (catalog.architecture == "llama") {
+      for (const auto &tensor : catalog.tensors) {
+        const auto &name = tensor.name;
+        if (name.rfind("blk.", 0) != 0)
+          continue;
+        size_t end = 4;
+        while (end < name.size() && name[end] >= '0' && name[end] <= '9')
+          ++end;
+        if (end > 4 && (name.substr(end) == ".attn_q_norm.weight" ||
+                        name.substr(end) == ".attn_k_norm.weight"))
+          l.Fail("unsupported Llama Q/K normalization tensor: " + name);
+      }
+    }
+
     ModelDescriptor m;
     m.family = catalog.architecture;
     m.name = catalog.name;

@@ -30,6 +30,7 @@ cc_test(
     linkstatic = True,
     deps = [
         "//tools/model:model_descriptor",
+        "//tools/model:llama_configuration",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
     ],

@@ -46,3 +46,16 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [":structure", "//lib/operations:operation_graph", "//tools/model:model_types"],
 )
+
+iree_cc_library(
+    name = "model_structure",
+    srcs = ["detail/model_structure.cc"],
+    cxxopts = _CXXOPTS,
+    deps = [":structure", ":embedding_structure", ":attention_structure", ":ffn_structure", "//lib/operations:tensor_operations", "//lib/operations:attention_operations", "//lib/operations:ffn_operations", "//lib/operations:control_operations"],
+)
+iree_cc_library(
+    name = "program",
+    srcs = ["program.cc"], hdrs = ["program.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":model_structure", ":structure", "//lib/dispatch:parameters", "//lib/dispatch:invocation", "//lib/dispatch:registry"],
+)

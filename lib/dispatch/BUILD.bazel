@@ -16,6 +16,7 @@ iree_cc_library(
         "@hrx_system//loom/src/loom/ops:op_defs",
         "@hrx_system//loom/src/loom/ops/template",
         "@hrx_system//loom/src/loom/ops/config",
+        "@hrx_system//loom/src/loom/ops/buffer",
         "@hrx_system//loom/src/loom/ops/kernel",
     ],
 )
