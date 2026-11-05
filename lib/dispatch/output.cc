@@ -129,8 +129,9 @@ loomc_status_t BuildHead(const Registration &r, BuildContext &c, Value *out) {
       gamma = g->native, weight, normalized;
   TRY(constant(c.request.Type(Port::Input)->dimension(0),
                LOOM_SCALAR_TYPE_INDEX, &capacity));
-  TRY(constant(0, LOOM_SCALAR_TYPE_INDEX, &begin));
-  TRY(constant(0, LOOM_SCALAR_TYPE_OFFSET, &origin));
+  TRY(constant(c.llama_rows ? c.llama_rows->token_begin : 0,
+               LOOM_SCALAR_TYPE_INDEX, &begin));
+  TRY(constant(c.count_origin, LOOM_SCALAR_TYPE_OFFSET, &origin));
   TRY(constant(3072, LOOM_SCALAR_TYPE_INDEX, &hidden));
   TRY(constant(128256, LOOM_SCALAR_TYPE_INDEX, &vocab));
   TRY(constant(3072ull * 128256 / 256 * 210, LOOM_SCALAR_TYPE_INDEX, &bytes));
@@ -193,30 +194,32 @@ std::vector<Registration> OutputRegistrations() {
                     {},
                     {"llama.model.hidden_size", "llama.model.rms_epsilon",
                      "qwen38.greedy_argmax.output_capacity"}};
-  for (auto n : {"projection/linear_q6k_q8_1_x4.loom",
-                 "projection/quantize_q8_1_x4.loom", "output/output.loom",
-                 "output/output_norm_last.loom", "rows.loom", "config.loom",
-                 "output/output_config.loom", "output/greedy_argmax.loom",
-                 "projection/quantize_q8_1_x4_mmvq_compat.loom",
-                 "projection/linear_q6k_q8_1_x4_compat.loom",
-                 "projection/linear_qk_mmvq_compat.loom",
-                 "projection/linear_qk_common.loom"})
+  for (auto n :
+       {"active_rows.loom", "projection/linear_q6k_q8_1_x4.loom",
+        "projection/quantize_q8_1_x4.loom", "output/output.loom",
+        "output/output_norm_last.loom", "output/head_count.loom", "rows.loom",
+        "config.loom", "output/output_config.loom", "output/greedy_argmax.loom",
+        "projection/quantize_q8_1_x4_mmvq_compat.loom",
+        "projection/linear_q6k_q8_1_x4_compat.loom",
+        "projection/linear_qk_mmvq_compat.loom",
+        "projection/linear_qk_common.loom"})
     head.provider_files.push_back(file(n));
   head.builder = OutputBuilder();
   head.operands = head.builder.operands;
   head.interface_symbol = head.symbol;
   entries.push_back(std::move(head));
   for (auto id : {Id::PublishPrefill, Id::PublishDecode}) {
-    Registration r{id,
-                   OpCode::PublishToken,
-                   Kind::Kernel,
-                   id == Id::PublishPrefill ? "llama.publish.prefill"
-                                            : "llama.publish.decode",
-                   "llama32_finish_isolated",
-                   file("publication/publication_interface.loom"),
-                   {file("publication/publication.loom")},
-                   {},
-                   {}};
+    Registration r{
+        id,
+        OpCode::PublishToken,
+        Kind::Kernel,
+        id == Id::PublishPrefill ? "llama.publish.prefill"
+                                 : "llama.publish.decode",
+        "llama32_finish_isolated",
+        file("publication/publication_interface.loom"),
+        {file("publication/publication.loom"), file("output/head_count.loom")},
+        {},
+        {}};
     r.phase = id == Id::PublishPrefill ? Phase::Prefill : Phase::Decode;
     r.builder = PublicationBuilder();
     r.operands = r.builder.operands;

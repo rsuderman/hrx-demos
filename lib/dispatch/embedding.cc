@@ -21,11 +21,13 @@ bool Supports(const Registration &, const InvocationRequest &r,
               std::string *error) {
   const auto *ids = r.Type(Port::TokenIds), *weight = r.Type(Port::Weight);
   const auto *a = std::get_if<EmbeddingAttrs>(&r.attributes);
-  for (const auto &input : r.inputs)
-    if (input.port == Port::RowBegin || input.port == Port::RowCount)
-      return Fail(
-          error,
-          "embedding provider computes all rows; active controls unsupported");
+  bool begin = false, count = false;
+  for (const auto &input : r.inputs) {
+    begin |= input.port == Port::RowBegin;
+    count |= input.port == Port::RowCount;
+  }
+  if (begin != count)
+    return Fail(error, "embedding row controls must be supplied together");
   return ids && weight && a && ids->rank() == 1 &&
                  ids->elementType() == ElementType::I32 && ids->dimension(0) &&
                  ids->dimension(0) <= 512 && a->embedding_width == 3072 &&
@@ -36,19 +38,28 @@ bool Supports(const Registration &, const InvocationRequest &r,
                            "and 1..512 token IDs");
 }
 loomc_status_t Build(const Registration &entry, BuildContext &ctx, Value *out) {
+  if (ctx.llama_rows && entry.symbol != "llama32_token_embedding_q6k_f32")
+    return Error("selected embedding implementation has no active-row adapter");
   const auto *ids = ctx.Operand(Port::TokenIds);
   const auto *weight = ctx.Operand(Port::Weight);
   if (!ids || !weight || !ids->parameter.empty() || weight->parameter.empty())
     return Error(
         "embedding requires token buffer and named immutable weight parameter");
   KernelRef kernel;
-  auto status = ctx.module.Kernel(entry.symbol, &kernel);
+  auto status = ctx.module.Kernel(
+      ctx.llama_rows ? "llama32_token_embedding_active_q6k_f32" : entry.symbol,
+      &kernel);
   if (!loomc_status_is_ok(status))
     return status;
   const auto index = ctx.module.Scalar(LOOM_SCALAR_TYPE_INDEX);
   const auto buffer = ctx.module.Buffer();
-  status = ctx.module.CheckKernelInterface(kernel, {index},
-                                           {index, buffer, buffer, buffer});
+  status = ctx.module.CheckKernelInterface(
+      kernel, {index},
+      ctx.llama_rows
+          ? std::vector<Type>{index, index,
+                              ctx.module.Scalar(LOOM_SCALAR_TYPE_OFFSET),
+                              buffer, buffer, buffer, buffer}
+          : std::vector<Type>{index, buffer, buffer, buffer});
   if (!loomc_status_is_ok(status))
     return status;
   status = ctx.program.InspectNative(
@@ -90,8 +101,19 @@ loomc_status_t Build(const Registration &entry, BuildContext &ctx, Value *out) {
                             LOOM_SCALAR_TYPE_INDEX, &bytes));
   STAGE(ctx.values.Parameter(weight->native, weight->parameter, {},
                              LOOM_SCALAR_TYPE_I8, {bytes}, &weights));
-  STAGE(ctx.program.Invoke(kernel, {count},
-                           {count, ids->native, weights, output}));
+  if (ctx.llama_rows) {
+    Value begin, origin;
+    STAGE(ctx.values.Constant(ctx.llama_rows->token_begin,
+                              LOOM_SCALAR_TYPE_INDEX, &begin));
+    STAGE(ctx.values.Constant(ctx.count_origin, LOOM_SCALAR_TYPE_OFFSET,
+                              &origin));
+    STAGE(ctx.program.Invoke(kernel, {count},
+                             {count, begin, origin, ctx.count_control,
+                              ids->native, weights, output}));
+  } else {
+    STAGE(ctx.program.Invoke(kernel, {count},
+                             {count, ids->native, weights, output}));
+  }
   *out = output;
 #undef STAGE
   return loomc_ok_status();
@@ -105,7 +127,9 @@ OperationBuilder EmbeddingBuilder() {
            {Port::Output, Access::Write}},
           Supports,
           Build,
-          {"llm_token_embedding_q6k_f32_row", "ggml_q6k_f32_vector4"}};
+          {"llm_token_embedding_q6k_f32_row", "ggml_q6k_f32_vector4",
+           "llama32_token_embedding_active_q6k_f32", "llama_active_row",
+           "llama32_head_count"}};
 }
 Registration EmbeddingRegistration() {
   const std::string root = "lib/kernels/llama/";
@@ -118,6 +142,7 @@ Registration EmbeddingRegistration() {
                  {root + "embedding/embedding.loom",
                   root + "embedding/embedding_rows.loom",
                   root + "embedding/embedding_config.loom",
+                  root + "active_rows.loom", root + "output/head_count.loom",
                   root + "config.loom"},
                  {},
                  {"llama.model.hidden_size", "llama.model.vocabulary_size"}};

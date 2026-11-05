@@ -93,7 +93,7 @@ struct LinearResidualAttrs {
   uint64_t output_width = 0;
 };
 enum class PackingPolicy { Canonical, QkCompat };
-enum class NumericalPolicy { F32Accumulate };
+enum class NumericalPolicy { F32Accumulate, LlamaPacketMixed };
 struct EmbeddingAttrs {
   uint64_t vocabulary_size = 0;
   uint64_t embedding_width = 0;

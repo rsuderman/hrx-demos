@@ -10,9 +10,22 @@
 #include <vector>
 namespace hrx::dispatch {
 enum class Kind { Kernel, CommandFamily };
-enum class Id { RmsNorm, GateUpPrefill, GateUpDecode, DownPrefill, DownDecode,
-                Embedding, Projection, Rope, RotatePublishKV, CausalAttention,
-                OutputHead, PublishPrefill, PublishDecode };
+enum class Id {
+  RmsNorm,
+  GateUpPrefill,
+  GateUpDecode,
+  DownPrefill,
+  DownDecode,
+  Embedding,
+  Projection,
+  AttentionOutput,
+  Rope,
+  RotatePublishKV,
+  CausalAttention,
+  OutputHead,
+  PublishPrefill,
+  PublishDecode
+};
 struct OperandContract {
   operations::Port port;
   operations::Access access;
@@ -33,6 +46,17 @@ struct NativeOperand {
   loomify_gguf::Value native;
   std::string parameter;
 };
+// Concrete mapping for the existing Llama packet ABI. Optional identities are
+// reserved derivations, not additional external buffers. Configure before any
+// native staging; the logical graph remains immutable.
+struct NativeLlamaRows {
+  operations::ValueId row_begin, row_count;
+  operations::ValueId count_control, packet_positions;
+  uint64_t row_capacity = 1, token_begin = 0;
+  operations::Phase phase = operations::Phase::Prefill;
+  loomify_gguf::Value packet;
+  uint64_t control_origin = 0;
+};
 struct BuildContext {
   const InvocationRequest &request;
   loomify_gguf::ModuleBuilder &module;
@@ -46,6 +70,9 @@ struct BuildContext {
   loomify_gguf::Value output;
   bool has_output = false;
   bool staged = false;
+  const NativeLlamaRows *llama_rows = nullptr;
+  loomify_gguf::Value count_control;
+  uint64_t count_origin = 0;
   const NativeOperand *Operand(operations::Port port) const;
   loomc_status_t Allocate(uint64_t bytes, loomify_gguf::Value *out);
 };
@@ -115,6 +142,15 @@ loomc_status_t LoadNative(loomc_context_t *context, loomc_workspace_t *workspace
                          const std::vector<NativeSource> &sources,
                          const std::string &source_root, loomc_module_t **out,
                          loomc_result_t **result);
+// configuration is borrowed for this synchronous merge and is never consumed.
+// Its definitions participate as INPUTs before required-config/strict LINK
+// checks.
+loomc_status_t LoadNative(loomc_context_t *context,
+                          loomc_workspace_t *workspace,
+                          const std::vector<NativeSource> &sources,
+                          const std::string &source_root,
+                          const loomc_module_t *configuration,
+                          loomc_module_t **out, loomc_result_t **result);
 // Normal authoring loads operation IDs; registered implementations and their
 // source closure are collected internally, so models do not enumerate variants.
 loomc_status_t Load(loomc_context_t *context, loomc_workspace_t *workspace,

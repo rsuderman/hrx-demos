@@ -1,6 +1,6 @@
 # Known numerical dispatches
 
-`//lib/dispatch:registry` maps five known semantic dispatches to independently
+`//lib/dispatch:registry` maps known semantic dispatches to independently
 owned files in `lib/kernels/llama`. `Registry::Llama3B()` provides the initial
 profile. `Find(Id)` or `Find(name)` inspects the first registered implementation.
 `Resolve` selects a supporting named implementation in registration order. `OpCode`, `Port` and `Access` are the existing
@@ -14,6 +14,13 @@ dependent weight views.
 | `llama.ffn.gate_up_decode` | GatedMatmul | `llm.ffn.gate_up_decode` | Command template family |
 | `llama.ffn.down_prefill` | LinearResidual | `llm.ffn.down_prefill` | Command template family |
 | `llama.ffn.down_decode` | LinearResidual | `llm.ffn.down_decode` | Command template family |
+| `llama.embedding` | Embedding | selected Q6 token embedding | Kernel |
+| `llama.projection` | Linear | Q4_K/Q6_K compatibility linear | Kernel |
+| `llama.attention_output` | LinearResidual | compatibility linear + guarded attention residual | Kernel composition |
+| typed Rope / RotatePublishKV / CausalAttention | attention operations | typed dense attention providers | Kernel |
+| output head | OutputHead | `llm.output.last_greedy` | Command template family |
+| prefill/decode publication | PublishToken | `llama32_finish_isolated` | Kernel |
+
 
 Norm reads input and gamma and writes a fresh F32 output. Gate/up reads input and
 two weight matrices and writes a fresh F32 activation. Down reads activation and
@@ -147,3 +154,47 @@ artifact compiler emits them. The override fixture is a selection witness only.
 These checks prove construction and compilation, not numerical accuracy, GPU
 execution, complete-model generation, or serving behavior. Numerical qualification
 of the owned bodies remains separate work.
+
+
+## Packet rows and checked attention regions
+
+Load registered IDs together with packet attention using `LoadLlamaNative` and
+one `AttentionNativeConfig`. Configure the session's `LlamaRows` before emitting:
+original packet, phase, physical capacity, static row origin and exact logical
+row controls. The session derives a private count snapshot each invocation.
+Reserve `count_control` for the head and `packet_positions` for attention;
+callers cannot supply buffer bindings for those derived identities. Publication
+retains the distinct original packet. Norm, embedding, projection and whole FFN
+consume active rows without requiring initialized inactive scratch. The existing
+selected-FFN wrapper now uses `FfnRegion::Emit` with a configured session.
+
+For packet attention, pass the actual `LlamaStructure` and recorded single-layer
+Attention selection to `NativeEmissionSession::EmitAttentionRegion`. It validates
+owner, packet-derived positions, row controls, vector layer slot, actual loaded
+capacity/profile, role-resolved factors and private intermediates before staging.
+It consumes the existing Rope/RotatePublishKV/CausalAttention subrange and owns
+native scratch for its existing attended output. Distinct logical K/V planes map
+internally onto the arena; callers do not fake them with duplicate arena bindings.
+Set `LlamaBuildOptions::attention_policy` to `LlamaPacketMixed`; the separate typed
+dense route retains `F32Accumulate` admission. Emit `Id::AttentionOutput` for the
+following LinearResidual: it selects Q4/Q6 projection, allocates fresh projection
+scratch, adds it to the original residual and returns that residual alias.
+
+Pre-staging admission failure leaves session order/bindings unchanged. A native
+failure after staging is terminal and requires discarding the mutable owner.
+Unsupported controlled custom norm/embedding variants take this terminal path
+because count staging may already have occurred; they never silently substitute
+a built-in active provider. Static custom variants retain normal registry routing.
+
+Useful test entrypoints under `//lib/dispatch/testing` are `invocation_test`,
+`attention_region_test`, `active_rows_execution_test`,
+`attention_regions_{dense,pooled}_execution_test`,
+`attention_output_execution_test`, `head_rows_execution_test`,
+`head_publication_{loom,loombc}_execution_test` and
+`joined_adapters_{loom,loombc}_execution_test`. The head-row fixture is private-count
+snapshot stress; the head-publication fixtures execute the actual registered
+full head before publication. Joined one/two-layer fixtures execute the session's
+attention and whole-FFN providers, replay changed packets, compare compact/padded
+execution and check inactive residual/cache preservation. They establish adapter
+composition; complete model/pipeline generation and real-model fidelity are
+separate deliveries.

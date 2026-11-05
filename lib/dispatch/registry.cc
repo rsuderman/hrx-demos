@@ -57,31 +57,33 @@ const loom_op_t *Symbol(loomc_module_t *module, const std::string &name) {
 Registry Registry::Llama3B() {
   Registry registry;
   registry.entries_.push_back(EmbeddingRegistration());
-  Registration norm{
-      Id::RmsNorm,
-      OpCode::RmsNorm,
-      Kind::Kernel,
-      "llama.rmsnorm",
-      "llama32_rmsnorm_f32",
-      File("norm/norm_interface.loom"),
-      {File("norm/norm.loom"), File("rows.loom"), File("config.loom")},
-      {{Port::Input, Access::Read},
-       {Port::Gamma, Access::Read},
-       {Port::Output, Access::Write}},
-      {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
+  Registration norm{Id::RmsNorm,
+                    OpCode::RmsNorm,
+                    Kind::Kernel,
+                    "llama.rmsnorm",
+                    "llama32_rmsnorm_f32",
+                    File("norm/norm_interface.loom"),
+                    {File("norm/norm.loom"), File("rows.loom"),
+                     File("config.loom"), File("active_rows.loom"),
+                     File("output/head_count.loom")},
+                    {{Port::Input, Access::Read},
+                     {Port::Gamma, Access::Read},
+                     {Port::Output, Access::Write}},
+                    {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
   norm.interface_symbol = norm.symbol;
   norm.builder = NormBuilder();
   registry.entries_.push_back(std::move(norm));
   std::vector<std::string> files;
-  for (const char *file : {"ffn/ffn.loom", "rows.loom", "config.loom",
-                           "projection/linear_q4k_q8_1_x4.loom",
-                           "projection/linear_q4k_q8_1_x4_compat.loom",
-                           "projection/linear_q6k_q8_1_x4.loom",
-                           "projection/linear_q6k_q8_1_x4_compat.loom",
-                           "projection/linear_qk_common.loom",
-                           "projection/linear_qk_mmvq_compat.loom",
-                           "projection/quantize_q8_1_x4.loom",
-                           "projection/quantize_q8_1_x4_mmvq_compat.loom"})
+  for (const char *file :
+       {"ffn/ffn.loom", "rows.loom", "config.loom", "active_rows.loom",
+        "output/head_count.loom", "projection/linear_q4k_q8_1_x4.loom",
+        "projection/linear_q4k_q8_1_x4_compat.loom",
+        "projection/linear_q6k_q8_1_x4.loom",
+        "projection/linear_q6k_q8_1_x4_compat.loom",
+        "projection/linear_qk_common.loom",
+        "projection/linear_qk_mmvq_compat.loom",
+        "projection/quantize_q8_1_x4.loom",
+        "projection/quantize_q8_1_x4_mmvq_compat.loom"})
     files.push_back(File(file));
   for (Id id :
        {Id::GateUpPrefill, Id::GateUpDecode, Id::DownPrefill, Id::DownDecode}) {
@@ -257,6 +259,15 @@ loomc_status_t LoadNative(loomc_context_t *context, loomc_workspace_t *workspace
                          const std::vector<NativeSource> &entries,
                          const std::string &source_root, loomc_module_t **out,
                          loomc_result_t **result) {
+  return LoadNative(context, workspace, entries, source_root, nullptr, out,
+                    result);
+}
+loomc_status_t LoadNative(loomc_context_t *context,
+                          loomc_workspace_t *workspace,
+                          const std::vector<NativeSource> &entries,
+                          const std::string &source_root,
+                          const loomc_module_t *configuration,
+                          loomc_module_t **out, loomc_result_t **result) {
   if (out) *out = nullptr;
   if (result) *result = nullptr;
   if (!context || !workspace || !out || !result || entries.empty())
@@ -301,6 +312,13 @@ loomc_status_t LoadNative(loomc_context_t *context, loomc_workspace_t *workspace
       return Error("missing symbol or wrong native callable kind");
   }
   std::vector<loomc_link_module_provider_t> providers;
+  if (configuration) {
+    loomc_link_module_provider_t provider{};
+    provider.module = configuration;
+    provider.provider_name = loomc_make_cstring_view("llama-configuration");
+    provider.role = LOOMC_LINK_PROVIDER_ROLE_INPUT;
+    providers.push_back(provider);
+  }
   for (size_t i = 0; i < modules.size(); ++i) {
     loomc_link_module_provider_t provider{};
     provider.module = modules[i].get();

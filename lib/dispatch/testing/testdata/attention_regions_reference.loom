@@ -1,0 +1,117 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Independent zero-Q scalar oracle. Existing nonzero Q/K rotation and GQA
+// checks remain in attention_sequence_checks. These cases isolate arena routing,
+// causal history, partial rows and the three visible PV precision policies.
+func.def @region_reference(%rows: index, %begin: index, %layer: index, %decode: index, %pooled: index, %control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %control_origin = index.constant 8 : offset
+  %map_origin = index.constant 4 : offset
+  %ctl = buffer.view %control[%control_origin] : buffer -> view<3xi32>
+  %mapping = buffer.view %map[%map_origin] : buffer -> view<8xi32>
+  %arena = buffer.view %cache[%origin] : buffer -> view<2097184xf16>
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %width = index.constant 1024 : index
+  %hidden = index.constant 3072 : index
+  %page = index.constant 64 : index
+  %plane = index.constant 524288 : index
+  %prefix = index.constant 8 : index
+  %limit = index.constant 256 : index
+  %query_limit = index.constant 3 : index
+  %blas_limit = index.constant 16 : index
+  %is_decode = index.cmp ne, %decode, %zero : index
+  %is_pooled = index.cmp ne, %pooled, %zero : index
+  %word0 = view.load %ctl[%zero] : view<3xi32> -> i32
+  %word1 = view.load %ctl[%one] : view<3xi32> -> i32
+  %w0 = index.cast %word0 : i32 to index
+  %w1 = index.cast %word1 : i32 to index
+  %count0 = scf.select %is_decode, %one, %w0 : index
+  %remaining = index.sub %rows, %begin : index
+  %count = index.assume %count0 [range(%count0, 1, 20), le(%count0, %remaining)] : index
+  %position = scf.select %is_decode, %w0, %w1 : index
+  %key_plane = index.mul %layer, %two : index
+  %value_plane = index.add %key_plane, %one : index
+  %key_add = index.mul %key_plane, %plane : index
+  %value_add = index.mul %value_plane, %plane : index
+  %key_base = index.add %prefix, %key_add : index
+  %value_base = index.add %prefix, %value_add : index
+  %zero_half = scalar.constant 0.0 : f16
+  %new_half = scalar.constant 0.75 : f16
+  %history = scalar.constant 0.125 : f32
+  %new = scalar.constant 0.75 : f32
+  %one_float = scalar.constant 1.0 : f32
+  %zero_float = scalar.constant 0.0 : f32
+  %initial = scalar.constant -1.0 : f32
+  scf.for %r = [%zero to %count step %one] {
+    %absolute0 = index.add %position, %r : index
+    %absolute = index.assume %absolute0 [range(%absolute0, 0, 511)] : index
+    %physical = scf.if %is_pooled -> (index) {
+      %block0 = index.div %absolute, %page : index
+      %block = index.assume %block0 [range(%block0, 0, 7)] : index
+      %lane = index.rem %absolute, %page : index
+      %mapped32 = view.load %mapping[%block] : view<8xi32> -> i32
+      %mapped0 = index.cast %mapped32 : i32 to index
+      %mapped = index.assume %mapped0 [range(%mapped0, 0, 7)] : index
+      %base = index.mul %mapped, %page : index
+      %result = index.add %base, %lane : index
+      scf.yield %result : index
+    } else {
+      scf.yield %absolute : index
+    }
+    %offset = index.mul %physical, %width : index
+    %key_row = index.add %key_base, %offset : index
+    %value_row = index.add %value_base, %offset : index
+    scf.for %column = [%zero to %width step %one] {
+      %ki0 = index.add %key_row, %column : index
+      %ki = index.assume %ki0 [range(%ki0, 0, 2097183)] : index
+      %vi0 = index.add %value_row, %column : index
+      %vi = index.assume %vi0 [range(%vi0, 0, 2097183)] : index
+      view.store %zero_half, %arena[%ki] : f16, view<2097184xf16>
+      view.store %new_half, %arena[%vi] : f16, view<2097184xf16>
+    }
+    %context = index.add %absolute, %one : index
+    %context_i32 = index.cast %context : index to i32
+    %context_f32 = scalar.sitofp %context_i32 : i32 to f32
+    %prob = scalar.divf %one_float, %context_f32 : f32
+    %prob16 = scalar.fptrunc %prob : f32 to f16
+    %prob32 = scalar.extf %prob16 : f16 to f32
+    %short = index.cmp ult, %absolute, %limit : index
+    %small = index.cmp ule, %count, %query_limit : index
+    %half_product = scalar.andi %short, %small : i1
+    %large = index.cmp ugt, %count, %blas_limit : index
+    %half_output = scalar.andi %short, %large : i1
+    %sum = scf.for %t = [%zero to %context step %one](%acc = %zero_float : f32) -> (f32) {
+      %fresh = index.cmp uge, %t, %position : index
+      %v = scf.select %fresh, %new, %history : f32
+      %product = scf.if %half_product -> (f32) {
+        %v16 = scalar.fptrunc %v : f32 to f16
+        %half = scalar.mulf %prob16, %v16 : f16
+        %wide = scalar.extf %half : f16 to f32
+        scf.yield %wide : f32
+      } else {
+        %p = scf.select %half_output, %prob32, %prob : f32
+        %full = scalar.mulf %p, %v : f32
+        scf.yield %full : f32
+      }
+      %next = scalar.addf %acc, %product : f32
+      scf.yield %next : f32
+    }
+    %result = scf.if %half_output -> (f32) {
+      %half = scalar.fptrunc %sum : f32 to f16
+      %wide = scalar.extf %half : f16 to f32
+      scf.yield %wide : f32
+    } else {
+      scf.yield %sum : f32
+    }
+    %observed = scalar.addf %initial, %result : f32
+    %row0 = index.add %begin, %r : index
+    %row = index.assume %row0 [range(%row0, 0, 19), lt(%row0, %rows)] : index
+    scf.for %column = [%zero to %hidden step %one] {
+      view.store %observed, %out[%row, %column] : f32, view<[%rows]x3072xf32>
+    }
+  }
+  func.return
+}

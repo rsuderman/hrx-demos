@@ -1,3 +1,4 @@
+func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/common/ffn.loom; independently maintained by Loomify.
@@ -33,7 +34,7 @@ kernel.def @llm_ffn_swiglu_f32_decode(%ffn_size: index) {
   kernel.return
 }
 
-kernel.def @llm_ffn_swiglu_f32_prefill(%token_count: index, %ffn_size: index) {
+kernel.def @llm_ffn_swiglu_f32_prefill_active(%token_count: index, %ffn_size: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
   %unit = index.constant 1 : index
   %channels_per_group = index.constant 256 : index
@@ -41,11 +42,15 @@ kernel.def @llm_ffn_swiglu_f32_prefill(%token_count: index, %ffn_size: index) {
   %workgroup_count = index.div %bounded_ffn_size, %channels_per_group : index
   %workgroup_size = index.constant 256 : index
   kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
-} launch(%ffn_size: index, %token_count: index, %gate: buffer, %up: buffer, %output: buffer) {
+} launch(%ffn_size: index, %token_count: index, %row_origin: index, %count_origin: offset, %count: buffer, %gate: buffer, %up: buffer, %output: buffer) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
-  template.apply<@llm.swiglu_f32.row>(%ffn_size, %bounded_token_count, %token, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @llama_active_row(%token, %row_origin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    template.apply<@llm.swiglu_f32.row>(%ffn_size, %bounded_token_count, %token, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  }
   kernel.return
 }
 
@@ -69,7 +74,7 @@ kernel.def @llm_ffn_residual_add_f32_decode(%hidden_size: index) {
   kernel.return
 }
 
-kernel.def @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size: index) {
+kernel.def @llm_ffn_residual_add_f32_prefill_active(%token_count: index, %hidden_size: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
   %unit = index.constant 1 : index
   %channels_per_group = index.constant 1024 : index
@@ -77,14 +82,18 @@ kernel.def @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size: 
   %workgroup_count = index.div %bounded_hidden_size, %channels_per_group : index
   %workgroup_size = index.constant 256 : index
   kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
-} launch(%token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer) {
+} launch(%token_count: index, %row_origin: index, %count_origin: offset, %count: buffer, %lhs: buffer, %rhs: buffer, %output: buffer) {
   %width_groups = kernel.workgroup.count<x> : index
   %width_per_group = index.constant 1024 : index
   %hidden_size = index.mul %width_groups, %width_per_group : index
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
-  template.apply<@llm.residual_add_f32.row>(%hidden_size, %bounded_token_count, %token, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @llama_active_row(%token, %row_origin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    template.apply<@llm.residual_add_f32.row>(%hidden_size, %bounded_token_count, %token, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
+  }
   kernel.return
 }
 
@@ -215,7 +224,7 @@ template.def<@llm.ffn.gate_up_prefill> @llm_ffn_gate_up_prefill(%hidden_size: in
 
 
 
-    kernel.launch @llm_ffn_swiglu_f32_prefill[%token_count, %ffn_size](%ffn_size, %token_capacity, %ffn_gate, %ffn_up, %swiglu) : [index, index](index, index, buffer, buffer, buffer)
+    kernel.launch @llm_ffn_swiglu_f32_prefill_active[%token_count, %ffn_size](%ffn_size, %token_capacity, %projection_row_origin, %projection_count_origin, %control, %ffn_gate, %ffn_up, %swiglu) : [index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
 
   template.return
 }
@@ -285,7 +294,7 @@ template.def<@llm.ffn.down_prefill> @llm_ffn_down_prefill(%hidden_size: index, %
 
 
     }
-    kernel.launch @llm_ffn_residual_add_f32_prefill[%token_count, %hidden_size](%token_capacity, %residual, %ffn_output, %residual) : [index, index](index, buffer, buffer, buffer)
+    kernel.launch @llm_ffn_residual_add_f32_prefill_active[%token_count, %hidden_size](%token_capacity, %projection_row_origin, %projection_count_origin, %control, %residual, %ffn_output, %residual) : [index, index](index, index, offset, buffer, buffer, buffer, buffer)
 
   template.return
 }
@@ -353,7 +362,45 @@ template.def<@llm.ffn.down_prefill> @llm_ffn_down_q4_prefill(%hidden_size: index
 
 
     }
-    kernel.launch @llm_ffn_residual_add_f32_prefill[%token_count, %hidden_size](%token_capacity, %residual, %ffn_output, %residual) : [index, index](index, buffer, buffer, buffer)
+    kernel.launch @llm_ffn_residual_add_f32_prefill_active[%token_count, %hidden_size](%token_capacity, %projection_row_origin, %projection_count_origin, %control, %residual, %ffn_output, %residual) : [index, index](index, index, offset, buffer, buffer, buffer, buffer)
 
   template.return
+}
+
+// Count-free full-static consumer; arithmetic stays in the shared row motif.
+kernel.def @llm_ffn_swiglu_f32_prefill(%token_count: index, %ffn_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
+  %unit = index.constant 1 : index
+  %channels_per_group = index.constant 256 : index
+  %bounded_ffn_size = index.assume %ffn_size [range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256)] : index
+  %workgroup_count = index.div %bounded_ffn_size, %channels_per_group : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%ffn_size: index, %token_count: index, %gate: buffer, %up: buffer, %output: buffer) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  template.apply<@llm.swiglu_f32.row>(%ffn_size, %bounded_token_count, %token, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  kernel.return
+}
+
+
+// Count-free full-static consumer; arithmetic stays in the shared row motif.
+kernel.def @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
+  %unit = index.constant 1 : index
+  %channels_per_group = index.constant 1024 : index
+  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024)] : index
+  %workgroup_count = index.div %bounded_hidden_size, %channels_per_group : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer) {
+  %width_groups = kernel.workgroup.count<x> : index
+  %width_per_group = index.constant 1024 : index
+  %hidden_size = index.mul %width_groups, %width_per_group : index
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  template.apply<@llm.residual_add_f32.row>(%hidden_size, %bounded_token_count, %token, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
+  kernel.return
 }

@@ -4,7 +4,7 @@ load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:public"])
 iree_cc_library(
     name = "registry",
-    srcs = ["registry.cc", "builders.cc", "embedding.cc", "projection.cc", "output.cc", "attention_builders.cc", "attention_sequence.cc"], hdrs = ["registry.h", "projection.h", "output.h", "attention_builders.h", "attention_sequence.h"],
+    srcs = ["registry.cc", "builders.cc", "embedding.cc", "projection.cc", "output.cc", "attention_builders.cc", "attention_sequence.cc"], hdrs = ["registry.h", "projection.h", "projection_internal.h", "output.h", "attention_builders.h", "attention_sequence.h"],
     cxxopts = ["-std=c++17"],
     deps = [
         "//lib/operations:operation_graph",
@@ -21,10 +21,10 @@ iree_cc_library(
 )
 iree_cc_library(
     name = "invocation",
-    srcs = ["invocation.cc"], hdrs = ["invocation.h"],
+    srcs = ["invocation.cc", "attention_region.cc"], hdrs = ["invocation.h"],
     cxxopts = ["-std=c++17"],
     deps = [
-        ":registry", "//lib/dispatch/shapes:result",
+        ":registry", "//lib/dispatch/shapes:result", "//lib/llama:structure",
         "//tools/loomify-gguf/authoring/commands:command_values",
         "@hrx_system//loom/src/loom/ops/config",
         "@hrx_system//loom/binding/c:loomc",

@@ -1,0 +1,818 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+func.decl @reference_q4_1(%input: buffer, %weight: buffer, %output: buffer)
+func.decl @init_q4_1(%input: buffer, %weight: buffer)
+func.decl @reference_q4_3(%input: buffer, %weight: buffer, %output: buffer)
+func.decl @init_q4_3(%input: buffer, %weight: buffer)
+func.decl @reference_q4_9(%input: buffer, %weight: buffer, %output: buffer)
+func.decl @init_q4_9(%input: buffer, %weight: buffer)
+func.decl @reference_q6_1(%input: buffer, %weight: buffer, %output: buffer)
+func.decl @init_q6_1(%input: buffer, %weight: buffer)
+func.decl @reference_q6_3(%input: buffer, %weight: buffer, %output: buffer)
+func.decl @init_q6_3(%input: buffer, %weight: buffer)
+func.decl @reference_q6_9(%input: buffer, %weight: buffer, %output: buffer)
+func.decl @init_q6_9(%input: buffer, %weight: buffer)
+// Existing independent scalar references adapted only for compact-input and
+// active-output coordinates. Actual roots come from NativeEmissionSession.
+command.program.decl @active.norm() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer)
+func.def @reference_norm(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %x = buffer.view %input[%origin] : buffer -> view<3x3072xf32>
+  %g = buffer.view %gamma[%origin] : buffer -> view<3072xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<8x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 3 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 3072 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %width_f = scalar.constant 3072.0 : f32
+  %epsilon = scalar.constant 0.00001 : f32
+  scf.for %r = [%zero to %two step %one] {
+    %destination = index.add %r, %begin : index
+    %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
+      %v = view.load %x[%r, %c] : view<3x3072xf32> -> f32
+      %square = scalar.mulf %v, %v : f32
+      %next = scalar.addf %partial, %square : f32
+      scf.yield %next : f32
+    }
+    %mean = scalar.divf %sum, %width_f : f32
+    %shifted = scalar.addf %mean, %epsilon : f32
+    %scale = scalar.rsqrtf %shifted : f32
+    scf.for %c = [%zero to %width step %one] {
+      %v = view.load %x[%r, %c] : view<3x3072xf32> -> f32
+      %weight = view.load %g[%c] : view<3072xf32> -> f32
+      %normalized = scalar.mulf %v, %scale : f32
+      %norm = scalar.mulf %normalized, %weight : f32
+      view.store %norm, %y[%destination, %c] : f32, view<8x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @norm {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-3.0) step(0.001) : tensor<9216xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.0001) : tensor<3072xf32>
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<24576xf32>
+    check.compare<@active.norm, @reference_norm>(%input, %gamma, %control, %output) : (tensor<9216xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<24576xf32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<9216xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.close actual(%output) expected(%output) atol(0.00005) rtol(0.00005) nan(same) : tensor<24576xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.norm.tail() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer)
+func.def @reference_norm_tail(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %x = buffer.view %input[%origin] : buffer -> view<3x3072xf32>
+  %g = buffer.view %gamma[%origin] : buffer -> view<3072xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<5x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 3 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 3072 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %width_f = scalar.constant 3072.0 : f32
+  %epsilon = scalar.constant 0.00001 : f32
+  scf.for %r = [%zero to %two step %one] {
+    %destination = index.add %r, %begin : index
+    %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
+      %v = view.load %x[%r, %c] : view<3x3072xf32> -> f32
+      %square = scalar.mulf %v, %v : f32
+      %next = scalar.addf %partial, %square : f32
+      scf.yield %next : f32
+    }
+    %mean = scalar.divf %sum, %width_f : f32
+    %shifted = scalar.addf %mean, %epsilon : f32
+    %scale = scalar.rsqrtf %shifted : f32
+    scf.for %c = [%zero to %width step %one] {
+      %v = view.load %x[%r, %c] : view<3x3072xf32> -> f32
+      %weight = view.load %g[%c] : view<3072xf32> -> f32
+      %normalized = scalar.mulf %v, %scale : f32
+      %norm = scalar.mulf %normalized, %weight : f32
+      view.store %norm, %y[%destination, %c] : f32, view<5x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @norm_tail {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-3.0) step(0.001) : tensor<9216xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.0001) : tensor<3072xf32>
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<15360xf32>
+    check.compare<@active.norm.tail, @reference_norm_tail>(%input, %gamma, %control, %output) : (tensor<9216xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<15360xf32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<9216xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.close actual(%output) expected(%output) atol(0.00005) rtol(0.00005) nan(same) : tensor<15360xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.norm.decode() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer)
+func.def @reference_norm_decode(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %x = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
+  %g = buffer.view %gamma[%origin] : buffer -> view<3072xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<1x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %width = index.constant 3072 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %width_f = scalar.constant 3072.0 : f32
+  %epsilon = scalar.constant 0.00001 : f32
+  scf.for %r = [%zero to %two step %one] {
+    %destination = index.add %r, %begin : index
+    %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
+      %v = view.load %x[%r, %c] : view<1x3072xf32> -> f32
+      %square = scalar.mulf %v, %v : f32
+      %next = scalar.addf %partial, %square : f32
+      scf.yield %next : f32
+    }
+    %mean = scalar.divf %sum, %width_f : f32
+    %shifted = scalar.addf %mean, %epsilon : f32
+    %scale = scalar.rsqrtf %shifted : f32
+    scf.for %c = [%zero to %width step %one] {
+      %v = view.load %x[%r, %c] : view<1x3072xf32> -> f32
+      %weight = view.load %g[%c] : view<3072xf32> -> f32
+      %normalized = scalar.mulf %v, %scale : f32
+      %norm = scalar.mulf %normalized, %weight : f32
+      view.store %norm, %y[%destination, %c] : f32, view<1x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @norm_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-3.0) step(0.001) : tensor<3072xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.0001) : tensor<3072xf32>
+    %control = check.generate.fill value(256) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<3072xf32>
+    check.compare<@active.norm.decode, @reference_norm_decode>(%input, %gamma, %control, %output) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3072xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.close actual(%output) expected(%output) atol(0.00005) rtol(0.00005) nan(same) : tensor<3072xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.embedding() launch(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer)
+func.def @reference_embedding(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer) {
+  %zero_o = index.constant 0 : offset
+  %ids_view = buffer.view %ids[%zero_o] : buffer -> view<3xi32>
+  %out = buffer.view %output[%zero_o] : buffer -> view<8x3072xf32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %c64 = index.constant 64 : index
+  %c128 = index.constant 128 : index
+  %c192 = index.constant 192 : index
+  %c256 = index.constant 256 : index
+  %width = index.constant 3072 : index
+  %row_bytes = index.constant 2520 : offset
+  %block_bytes = index.constant 210 : offset
+  %delta_add = index.constant 208 : offset
+  %mask15 = scalar.constant 15 : i32
+  %mask3 = scalar.constant 3 : i32
+  %shift4 = scalar.constant 4 : i32
+  %center = scalar.constant 32 : i32
+  %begin = index.constant 2 : index
+  %row_end = index.constant 3 : index
+  scf.for %row = [%c0 to %row_end step %c1] {
+    %destination = index.add %row, %begin : index
+    %id32 = view.load %ids_view[%row] : view<3xi32> -> i32
+    %id = index.cast %id32 : i32 to index
+    %row_origin = index.scale %id, %row_bytes : index, offset -> offset
+    scf.for %element = [%c0 to %width step %c1] {
+      %block = index.div %element, %c256 : index
+      %local = index.rem %element, %c256 : index
+      %half = index.div %local, %c128 : index
+      %in_half = index.rem %local, %c128 : index
+      %quadrant = index.div %in_half, %c32 : index
+      %j = index.rem %in_half, %c32 : index
+      %block_add = index.scale %block, %block_bytes : index, offset -> offset
+      %origin = index.add %row_origin, %block_add : offset
+      %bytes = buffer.view %weight[%origin] : buffer -> view<210xi8>
+      %half64 = index.mul %half, %c64 : index
+      %side = index.rem %quadrant, %c2 : index
+      %side32 = index.mul %side, %c32 : index
+      %ql_base = index.add %half64, %side32 : index
+      %ql_index = index.add %ql_base, %j : index
+      %half32 = index.mul %half, %c32 : index
+      %qh_base0 = index.add %c128, %half32 : index
+      %qh_index = index.add %qh_base0, %j : index
+      %ql8 = view.load %bytes[%ql_index] : view<210xi8> -> i8
+      %qh8 = view.load %bytes[%qh_index] : view<210xi8> -> i8
+      %ql = scalar.extui %ql8 : i8 to i32
+      %qh = scalar.extui %qh8 : i8 to i32
+      %nibble = index.div %quadrant, %c2 : index
+      %low_shift_idx = index.mul %nibble, %c4 : index
+      %high_shift_idx = index.mul %quadrant, %c2 : index
+      %low_shift = index.cast %low_shift_idx : index to i32
+      %high_shift = index.cast %high_shift_idx : index to i32
+      %low_shifted = scalar.shrui %ql, %low_shift : i32
+      %low = scalar.andi %low_shifted, %mask15 : i32
+      %high_shifted = scalar.shrui %qh, %high_shift : i32
+      %high0 = scalar.andi %high_shifted, %mask3 : i32
+      %high = scalar.shli %high0, %shift4 : i32
+      %code = scalar.ori %low, %high : i32
+      %signed = scalar.subi %code, %center : i32
+      %signed_f = scalar.sitofp %signed : i32 to f32
+      %half8 = index.mul %half, %c8 : index
+      %quad2 = index.mul %quadrant, %c2 : index
+      %group = index.add %half8, %quad2 : index
+      %part = index.div %j, %c16 : index
+      %scale0 = index.add %c192, %group : index
+      %scale_index = index.add %scale0, %part : index
+      %scale8 = view.load %bytes[%scale_index] : view<210xi8> -> i8
+      %scale = scalar.sitofp %scale8 : i8 to f32
+      %d_origin = index.add %origin, %delta_add : offset
+      %d_view = buffer.view %weight[%d_origin] : buffer -> view<1xf16>
+      %d16 = view.load %d_view[0] : view<1xf16> -> f16
+      %d = scalar.extf %d16 : f16 to f32
+      %scaled = scalar.mulf %d, %scale : f32
+      %value = scalar.mulf %scaled, %signed_f : f32
+      view.store %value, %out[%destination, %element] : f32, view<8x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @embedding {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %ids = check.generate.iota offset(2) step(-1) : tensor<3xi32>
+    %weight = check.generate.iota offset(-112) step(1) period(96) : tensor<323205120xi8>
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<24576xf32>
+    check.compare<@active.embedding, @reference_embedding>(%ids, %weight, %control, %output) : (tensor<3xi32>, tensor<323205120xi8>, tensor<3xi32>, tensor<24576xf32>) -> () {
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<323205120xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24576xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.embedding.tail() launch(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer)
+func.def @reference_embedding_tail(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer) {
+  %zero_o = index.constant 0 : offset
+  %ids_view = buffer.view %ids[%zero_o] : buffer -> view<3xi32>
+  %out = buffer.view %output[%zero_o] : buffer -> view<5x3072xf32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %c64 = index.constant 64 : index
+  %c128 = index.constant 128 : index
+  %c192 = index.constant 192 : index
+  %c256 = index.constant 256 : index
+  %width = index.constant 3072 : index
+  %row_bytes = index.constant 2520 : offset
+  %block_bytes = index.constant 210 : offset
+  %delta_add = index.constant 208 : offset
+  %mask15 = scalar.constant 15 : i32
+  %mask3 = scalar.constant 3 : i32
+  %shift4 = scalar.constant 4 : i32
+  %center = scalar.constant 32 : i32
+  %begin = index.constant 2 : index
+  %row_end = index.constant 3 : index
+  scf.for %row = [%c0 to %row_end step %c1] {
+    %destination = index.add %row, %begin : index
+    %id32 = view.load %ids_view[%row] : view<3xi32> -> i32
+    %id = index.cast %id32 : i32 to index
+    %row_origin = index.scale %id, %row_bytes : index, offset -> offset
+    scf.for %element = [%c0 to %width step %c1] {
+      %block = index.div %element, %c256 : index
+      %local = index.rem %element, %c256 : index
+      %half = index.div %local, %c128 : index
+      %in_half = index.rem %local, %c128 : index
+      %quadrant = index.div %in_half, %c32 : index
+      %j = index.rem %in_half, %c32 : index
+      %block_add = index.scale %block, %block_bytes : index, offset -> offset
+      %origin = index.add %row_origin, %block_add : offset
+      %bytes = buffer.view %weight[%origin] : buffer -> view<210xi8>
+      %half64 = index.mul %half, %c64 : index
+      %side = index.rem %quadrant, %c2 : index
+      %side32 = index.mul %side, %c32 : index
+      %ql_base = index.add %half64, %side32 : index
+      %ql_index = index.add %ql_base, %j : index
+      %half32 = index.mul %half, %c32 : index
+      %qh_base0 = index.add %c128, %half32 : index
+      %qh_index = index.add %qh_base0, %j : index
+      %ql8 = view.load %bytes[%ql_index] : view<210xi8> -> i8
+      %qh8 = view.load %bytes[%qh_index] : view<210xi8> -> i8
+      %ql = scalar.extui %ql8 : i8 to i32
+      %qh = scalar.extui %qh8 : i8 to i32
+      %nibble = index.div %quadrant, %c2 : index
+      %low_shift_idx = index.mul %nibble, %c4 : index
+      %high_shift_idx = index.mul %quadrant, %c2 : index
+      %low_shift = index.cast %low_shift_idx : index to i32
+      %high_shift = index.cast %high_shift_idx : index to i32
+      %low_shifted = scalar.shrui %ql, %low_shift : i32
+      %low = scalar.andi %low_shifted, %mask15 : i32
+      %high_shifted = scalar.shrui %qh, %high_shift : i32
+      %high0 = scalar.andi %high_shifted, %mask3 : i32
+      %high = scalar.shli %high0, %shift4 : i32
+      %code = scalar.ori %low, %high : i32
+      %signed = scalar.subi %code, %center : i32
+      %signed_f = scalar.sitofp %signed : i32 to f32
+      %half8 = index.mul %half, %c8 : index
+      %quad2 = index.mul %quadrant, %c2 : index
+      %group = index.add %half8, %quad2 : index
+      %part = index.div %j, %c16 : index
+      %scale0 = index.add %c192, %group : index
+      %scale_index = index.add %scale0, %part : index
+      %scale8 = view.load %bytes[%scale_index] : view<210xi8> -> i8
+      %scale = scalar.sitofp %scale8 : i8 to f32
+      %d_origin = index.add %origin, %delta_add : offset
+      %d_view = buffer.view %weight[%d_origin] : buffer -> view<1xf16>
+      %d16 = view.load %d_view[0] : view<1xf16> -> f16
+      %d = scalar.extf %d16 : f16 to f32
+      %scaled = scalar.mulf %d, %scale : f32
+      %value = scalar.mulf %scaled, %signed_f : f32
+      view.store %value, %out[%destination, %element] : f32, view<5x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @embedding_tail {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %ids = check.generate.iota offset(2) step(-1) : tensor<3xi32>
+    %weight = check.generate.iota offset(-112) step(1) period(96) : tensor<323205120xi8>
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<15360xf32>
+    check.compare<@active.embedding.tail, @reference_embedding_tail>(%ids, %weight, %control, %output) : (tensor<3xi32>, tensor<323205120xi8>, tensor<3xi32>, tensor<15360xf32>) -> () {
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<323205120xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15360xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.embedding.decode() launch(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer)
+func.def @reference_embedding_decode(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer) {
+  %zero_o = index.constant 0 : offset
+  %ids_view = buffer.view %ids[%zero_o] : buffer -> view<1xi32>
+  %out = buffer.view %output[%zero_o] : buffer -> view<1x3072xf32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %c64 = index.constant 64 : index
+  %c128 = index.constant 128 : index
+  %c192 = index.constant 192 : index
+  %c256 = index.constant 256 : index
+  %width = index.constant 3072 : index
+  %row_bytes = index.constant 2520 : offset
+  %block_bytes = index.constant 210 : offset
+  %delta_add = index.constant 208 : offset
+  %mask15 = scalar.constant 15 : i32
+  %mask3 = scalar.constant 3 : i32
+  %shift4 = scalar.constant 4 : i32
+  %center = scalar.constant 32 : i32
+  %begin = index.constant 0 : index
+  %row_end = index.constant 1 : index
+  scf.for %row = [%c0 to %row_end step %c1] {
+    %destination = index.add %row, %begin : index
+    %id32 = view.load %ids_view[%row] : view<1xi32> -> i32
+    %id = index.cast %id32 : i32 to index
+    %row_origin = index.scale %id, %row_bytes : index, offset -> offset
+    scf.for %element = [%c0 to %width step %c1] {
+      %block = index.div %element, %c256 : index
+      %local = index.rem %element, %c256 : index
+      %half = index.div %local, %c128 : index
+      %in_half = index.rem %local, %c128 : index
+      %quadrant = index.div %in_half, %c32 : index
+      %j = index.rem %in_half, %c32 : index
+      %block_add = index.scale %block, %block_bytes : index, offset -> offset
+      %origin = index.add %row_origin, %block_add : offset
+      %bytes = buffer.view %weight[%origin] : buffer -> view<210xi8>
+      %half64 = index.mul %half, %c64 : index
+      %side = index.rem %quadrant, %c2 : index
+      %side32 = index.mul %side, %c32 : index
+      %ql_base = index.add %half64, %side32 : index
+      %ql_index = index.add %ql_base, %j : index
+      %half32 = index.mul %half, %c32 : index
+      %qh_base0 = index.add %c128, %half32 : index
+      %qh_index = index.add %qh_base0, %j : index
+      %ql8 = view.load %bytes[%ql_index] : view<210xi8> -> i8
+      %qh8 = view.load %bytes[%qh_index] : view<210xi8> -> i8
+      %ql = scalar.extui %ql8 : i8 to i32
+      %qh = scalar.extui %qh8 : i8 to i32
+      %nibble = index.div %quadrant, %c2 : index
+      %low_shift_idx = index.mul %nibble, %c4 : index
+      %high_shift_idx = index.mul %quadrant, %c2 : index
+      %low_shift = index.cast %low_shift_idx : index to i32
+      %high_shift = index.cast %high_shift_idx : index to i32
+      %low_shifted = scalar.shrui %ql, %low_shift : i32
+      %low = scalar.andi %low_shifted, %mask15 : i32
+      %high_shifted = scalar.shrui %qh, %high_shift : i32
+      %high0 = scalar.andi %high_shifted, %mask3 : i32
+      %high = scalar.shli %high0, %shift4 : i32
+      %code = scalar.ori %low, %high : i32
+      %signed = scalar.subi %code, %center : i32
+      %signed_f = scalar.sitofp %signed : i32 to f32
+      %half8 = index.mul %half, %c8 : index
+      %quad2 = index.mul %quadrant, %c2 : index
+      %group = index.add %half8, %quad2 : index
+      %part = index.div %j, %c16 : index
+      %scale0 = index.add %c192, %group : index
+      %scale_index = index.add %scale0, %part : index
+      %scale8 = view.load %bytes[%scale_index] : view<210xi8> -> i8
+      %scale = scalar.sitofp %scale8 : i8 to f32
+      %d_origin = index.add %origin, %delta_add : offset
+      %d_view = buffer.view %weight[%d_origin] : buffer -> view<1xf16>
+      %d16 = view.load %d_view[0] : view<1xf16> -> f16
+      %d = scalar.extf %d16 : f16 to f32
+      %scaled = scalar.mulf %d, %scale : f32
+      %value = scalar.mulf %scaled, %signed_f : f32
+      view.store %value, %out[%destination, %element] : f32, view<1x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @embedding_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %ids = check.generate.iota offset(2) step(-1) : tensor<1xi32>
+    %weight = check.generate.iota offset(-112) step(1) period(96) : tensor<323205120xi8>
+    %control = check.generate.fill value(256) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<3072xf32>
+    check.compare<@active.embedding.decode, @reference_embedding_decode>(%ids, %weight, %control, %output) : (tensor<1xi32>, tensor<323205120xi8>, tensor<3xi32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<1xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<323205120xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3072xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.projection.q4.n1.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+func.def @reference_projection_q4_1_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
+  func.call @reference_q4_1(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %x = buffer.view %scratch[%origin] : buffer -> view<1x13xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %rows = index.constant 1 : index
+  %cols = index.constant 13 : index
+  scf.for %r = [%zero to %rows step %one] {
+    %destination = index.add %r, %begin : index
+    scf.for %c = [%zero to %cols step %one] {
+      %v = view.load %x[%r, %c] : view<1x13xf32> -> f32
+      view.store %v, %y[%destination, %c] : f32, view<8x13xf32>
+    }
+  }
+  func.return
+}
+check.scenario @projection_q4_1_independent {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.0) : tensor<256xf32>
+    %weight = check.generate.fill value(18) : tensor<1872xi8>
+    check.generate<@init_q4_1>(%input, %weight) : (tensor<256xf32>, tensor<1872xi8>) -> ()
+    %control = check.generate.fill value(1) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<104xf32>
+    %scratch = check.generate.fill value(-77.0) : tensor<13xf32>
+    check.compare<@active.projection.q4.n1.reference, @reference_projection_q4_1_independent>(%input, %weight, %control, %output, %scratch) : (tensor<256xf32>, tensor<1872xi8>, tensor<3xi32>, tensor<104xf32>, tensor<13xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.projection.q4.n3.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+func.def @reference_projection_q4_3_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
+  func.call @reference_q4_3(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %x = buffer.view %scratch[%origin] : buffer -> view<3x13xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %rows = index.constant 3 : index
+  %cols = index.constant 13 : index
+  scf.for %r = [%zero to %rows step %one] {
+    %destination = index.add %r, %begin : index
+    scf.for %c = [%zero to %cols step %one] {
+      %v = view.load %x[%r, %c] : view<3x13xf32> -> f32
+      view.store %v, %y[%destination, %c] : f32, view<8x13xf32>
+    }
+  }
+  func.return
+}
+check.scenario @projection_q4_3_independent {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.0) : tensor<768xf32>
+    %weight = check.generate.fill value(18) : tensor<1872xi8>
+    check.generate<@init_q4_3>(%input, %weight) : (tensor<768xf32>, tensor<1872xi8>) -> ()
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<104xf32>
+    %scratch = check.generate.fill value(-77.0) : tensor<39xf32>
+    check.compare<@active.projection.q4.n3.reference, @reference_projection_q4_3_independent>(%input, %weight, %control, %output, %scratch) : (tensor<768xf32>, tensor<1872xi8>, tensor<3xi32>, tensor<104xf32>, tensor<39xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<768xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.projection.q4.n9.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+func.def @reference_projection_q4_9_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
+  func.call @reference_q4_9(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %x = buffer.view %scratch[%origin] : buffer -> view<9x13xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<13x13xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %rows = index.constant 9 : index
+  %cols = index.constant 13 : index
+  scf.for %r = [%zero to %rows step %one] {
+    %destination = index.add %r, %begin : index
+    scf.for %c = [%zero to %cols step %one] {
+      %v = view.load %x[%r, %c] : view<9x13xf32> -> f32
+      view.store %v, %y[%destination, %c] : f32, view<13x13xf32>
+    }
+  }
+  func.return
+}
+check.scenario @projection_q4_9_independent {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.0) : tensor<2304xf32>
+    %weight = check.generate.fill value(18) : tensor<1872xi8>
+    check.generate<@init_q4_9>(%input, %weight) : (tensor<2304xf32>, tensor<1872xi8>) -> ()
+    %control = check.generate.fill value(9) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<169xf32>
+    %scratch = check.generate.fill value(-77.0) : tensor<117xf32>
+    check.compare<@active.projection.q4.n9.reference, @reference_projection_q4_9_independent>(%input, %weight, %control, %output, %scratch) : (tensor<2304xf32>, tensor<1872xi8>, tensor<3xi32>, tensor<169xf32>, tensor<117xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.01) rtol(0.001) nan(same) : tensor<169xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2304xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.projection.q6.n1.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+func.def @reference_projection_q6_1_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
+  func.call @reference_q6_1(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %x = buffer.view %scratch[%origin] : buffer -> view<1x13xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %rows = index.constant 1 : index
+  %cols = index.constant 13 : index
+  scf.for %r = [%zero to %rows step %one] {
+    %destination = index.add %r, %begin : index
+    scf.for %c = [%zero to %cols step %one] {
+      %v = view.load %x[%r, %c] : view<1x13xf32> -> f32
+      view.store %v, %y[%destination, %c] : f32, view<8x13xf32>
+    }
+  }
+  func.return
+}
+check.scenario @projection_q6_1_independent {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.0) : tensor<256xf32>
+    %weight = check.generate.fill value(18) : tensor<2730xi8>
+    check.generate<@init_q6_1>(%input, %weight) : (tensor<256xf32>, tensor<2730xi8>) -> ()
+    %control = check.generate.fill value(1) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<104xf32>
+    %scratch = check.generate.fill value(-77.0) : tensor<13xf32>
+    check.compare<@active.projection.q6.n1.reference, @reference_projection_q6_1_independent>(%input, %weight, %control, %output, %scratch) : (tensor<256xf32>, tensor<2730xi8>, tensor<3xi32>, tensor<104xf32>, tensor<13xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.projection.q6.n3.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+func.def @reference_projection_q6_3_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
+  func.call @reference_q6_3(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %x = buffer.view %scratch[%origin] : buffer -> view<3x13xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %rows = index.constant 3 : index
+  %cols = index.constant 13 : index
+  scf.for %r = [%zero to %rows step %one] {
+    %destination = index.add %r, %begin : index
+    scf.for %c = [%zero to %cols step %one] {
+      %v = view.load %x[%r, %c] : view<3x13xf32> -> f32
+      view.store %v, %y[%destination, %c] : f32, view<8x13xf32>
+    }
+  }
+  func.return
+}
+check.scenario @projection_q6_3_independent {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.0) : tensor<768xf32>
+    %weight = check.generate.fill value(18) : tensor<2730xi8>
+    check.generate<@init_q6_3>(%input, %weight) : (tensor<768xf32>, tensor<2730xi8>) -> ()
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<104xf32>
+    %scratch = check.generate.fill value(-77.0) : tensor<39xf32>
+    check.compare<@active.projection.q6.n3.reference, @reference_projection_q6_3_independent>(%input, %weight, %control, %output, %scratch) : (tensor<768xf32>, tensor<2730xi8>, tensor<3xi32>, tensor<104xf32>, tensor<39xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<768xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.projection.q6.n9.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+func.def @reference_projection_q6_9_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
+  func.call @reference_q6_9(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %x = buffer.view %scratch[%origin] : buffer -> view<9x13xf32>
+  %y = buffer.view %output[%origin] : buffer -> view<13x13xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %rows = index.constant 9 : index
+  %cols = index.constant 13 : index
+  scf.for %r = [%zero to %rows step %one] {
+    %destination = index.add %r, %begin : index
+    scf.for %c = [%zero to %cols step %one] {
+      %v = view.load %x[%r, %c] : view<9x13xf32> -> f32
+      view.store %v, %y[%destination, %c] : f32, view<13x13xf32>
+    }
+  }
+  func.return
+}
+check.scenario @projection_q6_9_independent {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.0) : tensor<2304xf32>
+    %weight = check.generate.fill value(18) : tensor<2730xi8>
+    check.generate<@init_q6_9>(%input, %weight) : (tensor<2304xf32>, tensor<2730xi8>) -> ()
+    %control = check.generate.fill value(9) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<169xf32>
+    %scratch = check.generate.fill value(-77.0) : tensor<117xf32>
+    check.compare<@active.projection.q6.n9.reference, @reference_projection_q6_9_independent>(%input, %weight, %control, %output, %scratch) : (tensor<2304xf32>, tensor<2730xi8>, tensor<3xi32>, tensor<169xf32>, tensor<117xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.01) rtol(0.001) nan(same) : tensor<169xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2304xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+// Whole-FFN wiring regression: active and compact production invocations.
+// Independent preservation remains the external immutable-baseline qualification.
+command.program.decl @active.ffn.q4.prefill.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+func.def @reference_ffn_q4_prefill_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %one = scalar.constant 1 : i32
+  %out = buffer.view %status[%origin] : buffer -> view<1xi32>
+  view.store %one, %out[0] : i32, view<1xi32>
+  func.return
+}
+check.scenario @ffn_q4_prefill_wiring {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %gate = check.generate.fill value(18) : tensor<14155776xi8>
+    %up = check.generate.fill value(35) : tensor<14155776xi8>
+    %down = check.generate.fill value(52) : tensor<14155776xi8>
+    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<9216xf32>
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %residual = check.generate.fill value(-99.0) : tensor<24576xf32>
+    %swiglu = check.generate.fill value(-99.0) : tensor<65536xf32>
+    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<9216xf32>
+    %status = check.generate.fill value(0) : tensor<1xi32>
+    check.compare<@active.ffn.q4.prefill.wiring, @reference_ffn_q4_prefill_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<9216xf32>, tensor<3xi32>, tensor<24576xf32>, tensor<65536xf32>, tensor<9216xf32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<14155776xi8>
+      check.expect.bitwise actual(%up) expected(%up) : tensor<14155776xi8>
+      check.expect.bitwise actual(%down) expected(%down) : tensor<14155776xi8>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<9216xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%initial) expected(%initial) : tensor<9216xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.ffn.q4.decode.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+func.def @reference_ffn_q4_decode_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %one = scalar.constant 1 : i32
+  %out = buffer.view %status[%origin] : buffer -> view<1xi32>
+  view.store %one, %out[0] : i32, view<1xi32>
+  func.return
+}
+check.scenario @ffn_q4_decode_wiring {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %gate = check.generate.fill value(18) : tensor<14155776xi8>
+    %up = check.generate.fill value(35) : tensor<14155776xi8>
+    %down = check.generate.fill value(52) : tensor<14155776xi8>
+    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<3072xf32>
+    %control = check.generate.fill value(256) : tensor<3xi32>
+    %residual = check.generate.fill value(-99.0) : tensor<3072xf32>
+    %swiglu = check.generate.fill value(-99.0) : tensor<8192xf32>
+    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<3072xf32>
+    %status = check.generate.fill value(0) : tensor<1xi32>
+    check.compare<@active.ffn.q4.decode.wiring, @reference_ffn_q4_decode_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<3072xf32>, tensor<3xi32>, tensor<3072xf32>, tensor<8192xf32>, tensor<3072xf32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<14155776xi8>
+      check.expect.bitwise actual(%up) expected(%up) : tensor<14155776xi8>
+      check.expect.bitwise actual(%down) expected(%down) : tensor<14155776xi8>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%initial) expected(%initial) : tensor<3072xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.ffn.q6.prefill.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+func.def @reference_ffn_q6_prefill_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %one = scalar.constant 1 : i32
+  %out = buffer.view %status[%origin] : buffer -> view<1xi32>
+  view.store %one, %out[0] : i32, view<1xi32>
+  func.return
+}
+check.scenario @ffn_q6_prefill_wiring {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %gate = check.generate.fill value(18) : tensor<14155776xi8>
+    %up = check.generate.fill value(35) : tensor<14155776xi8>
+    %down = check.generate.fill value(52) : tensor<20643840xi8>
+    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<9216xf32>
+    %control = check.generate.fill value(3) : tensor<3xi32>
+    %residual = check.generate.fill value(-99.0) : tensor<24576xf32>
+    %swiglu = check.generate.fill value(-99.0) : tensor<65536xf32>
+    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<9216xf32>
+    %status = check.generate.fill value(0) : tensor<1xi32>
+    check.compare<@active.ffn.q6.prefill.wiring, @reference_ffn_q6_prefill_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<20643840xi8>, tensor<9216xf32>, tensor<3xi32>, tensor<24576xf32>, tensor<65536xf32>, tensor<9216xf32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<14155776xi8>
+      check.expect.bitwise actual(%up) expected(%up) : tensor<14155776xi8>
+      check.expect.bitwise actual(%down) expected(%down) : tensor<20643840xi8>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<9216xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%initial) expected(%initial) : tensor<9216xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @active.ffn.q6.decode.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+func.def @reference_ffn_q6_decode_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %one = scalar.constant 1 : i32
+  %out = buffer.view %status[%origin] : buffer -> view<1xi32>
+  view.store %one, %out[0] : i32, view<1xi32>
+  func.return
+}
+check.scenario @ffn_q6_decode_wiring {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %gate = check.generate.fill value(18) : tensor<14155776xi8>
+    %up = check.generate.fill value(35) : tensor<14155776xi8>
+    %down = check.generate.fill value(52) : tensor<20643840xi8>
+    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<3072xf32>
+    %control = check.generate.fill value(256) : tensor<3xi32>
+    %residual = check.generate.fill value(-99.0) : tensor<3072xf32>
+    %swiglu = check.generate.fill value(-99.0) : tensor<8192xf32>
+    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<3072xf32>
+    %status = check.generate.fill value(0) : tensor<1xi32>
+    check.compare<@active.ffn.q6.decode.wiring, @reference_ffn_q6_decode_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<20643840xi8>, tensor<3072xf32>, tensor<3xi32>, tensor<3072xf32>, tensor<8192xf32>, tensor<3072xf32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<14155776xi8>
+      check.expect.bitwise actual(%up) expected(%up) : tensor<14155776xi8>
+      check.expect.bitwise actual(%down) expected(%down) : tensor<20643840xi8>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%initial) expected(%initial) : tensor<3072xf32>
+    }
+  }
+  check.return
+}

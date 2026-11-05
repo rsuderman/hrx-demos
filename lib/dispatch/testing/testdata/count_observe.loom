@@ -1,0 +1,54 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+kernel.def @test.observe_count() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%count: buffer, %output: buffer) {
+  %zero = index.constant 0 : offset
+  %input = buffer.view %count[%zero] : buffer -> view<3xi32>
+  %result = buffer.view %output[%zero] : buffer -> view<5xi32>
+  %a = view.load %input[0] : view<3xi32> -> i32
+  %b = view.load %input[1] : view<3xi32> -> i32
+  %c = view.load %input[2] : view<3xi32> -> i32
+  view.store %a, %result[1] : i32, view<5xi32>
+  view.store %b, %result[2] : i32, view<5xi32>
+  view.store %c, %result[3] : i32, view<5xi32>
+  kernel.return
+}
+kernel.def @test.reset_prefill() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%packet: buffer) {
+  %zero = index.constant 0 : offset
+  %words = buffer.view %packet[%zero] : buffer -> view<3xi32>
+  %n = scalar.constant 1 : i32
+  %p = scalar.constant 70 : i32
+  view.store %n, %words[0] : i32, view<3xi32>
+  view.store %p, %words[1] : i32, view<3xi32>
+  // EOS was untouched by publication; retain the same valid third word.
+  kernel.return
+}
+kernel.def @test.init_prefill() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%packet: buffer) {
+  %zero = index.constant 0 : offset
+  %words = buffer.view %packet[%zero] : buffer -> view<3xi32>
+  %a = scalar.constant 3 : i32
+  %b = scalar.constant 63 : i32
+  view.store %a, %words[0] : i32, view<3xi32>
+  view.store %b, %words[1] : i32, view<3xi32>
+  kernel.return
+}
+kernel.def @test.init_decode() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%packet: buffer) {
+  %zero = index.constant 0 : offset
+  %words = buffer.view %packet[%zero] : buffer -> view<3xi32>
+  %a = scalar.constant 255 : i32
+  %b = scalar.constant 7 : i32
+  view.store %a, %words[0] : i32, view<3xi32>
+  view.store %b, %words[1] : i32, view<3xi32>
+  kernel.return
+}

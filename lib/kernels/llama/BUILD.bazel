@@ -6,11 +6,11 @@ package(default_visibility = ["//visibility:public"])
 exports_files(glob(["**/*.loom"]))
 loom_library(name = "norm_interface", srcs = ["norm/norm_interface.loom"])
 loom_library(name = "ffn_interface", srcs = ["ffn/ffn_interface.loom"])
-loom_library(name = "norm", srcs = ["norm/norm.loom", "rows.loom", "config.loom"])
+loom_library(name = "norm", srcs = ["norm/norm.loom", "rows.loom", "config.loom", "active_rows.loom"])
 loom_library(
     name = "ffn",
     srcs = [
-        "ffn/ffn.loom", "rows.loom", "config.loom",
+        "ffn/ffn.loom", "rows.loom", "config.loom", "active_rows.loom",
         "projection/linear_q4k_q8_1_x4.loom", "projection/linear_q4k_q8_1_x4_compat.loom",
         "projection/linear_q6k_q8_1_x4.loom", "projection/linear_q6k_q8_1_x4_compat.loom",
         "projection/linear_qk_common.loom", "projection/linear_qk_mmvq_compat.loom",
@@ -27,9 +27,9 @@ loom_kernel_binary(
 
 loom_library(
     name = "output",
-    srcs = ["projection/linear_q6k_q8_1_x4.loom", "projection/quantize_q8_1_x4.loom", "output/output.loom", "output/output_interface.loom", "output/output_norm_last.loom", "rows.loom", "config.loom", "output/output_config.loom", "output/greedy_argmax.loom", "projection/quantize_q8_1_x4_mmvq_compat.loom", "projection/linear_q6k_q8_1_x4_compat.loom", "projection/linear_qk_mmvq_compat.loom", "projection/linear_qk_common.loom"],
+    srcs = ["active_rows.loom", "output/head_count.loom", "projection/linear_q6k_q8_1_x4.loom", "projection/quantize_q8_1_x4.loom", "output/output.loom", "output/output_interface.loom", "output/output_norm_last.loom", "rows.loom", "config.loom", "output/output_config.loom", "output/greedy_argmax.loom", "projection/quantize_q8_1_x4_mmvq_compat.loom", "projection/linear_q6k_q8_1_x4_compat.loom", "projection/linear_qk_mmvq_compat.loom", "projection/linear_qk_common.loom"],
 )
-loom_library(name = "publication", srcs = ["publication/publication.loom", "publication/publication_interface.loom"])
+loom_library(name = "publication", srcs = ["publication/publication.loom", "publication/publication_interface.loom", "output/head_count.loom"])
 
 loom_library(
     name = "attention_dispatch",

@@ -1,0 +1,97 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+command.program.decl @native.count.prefill() launch(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer)
+func.def @reference_prefill(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
+  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
+  %a = buffer.view %first[%origin] : buffer -> view<5xi32>
+  %b = buffer.view %second[%origin] : buffer -> view<5xi32>
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %token = scalar.constant 7 : i32
+  %active = scalar.constant 3 : i32
+  %next = scalar.constant 71 : i32
+  %generated = scalar.constant 1 : i32
+  view.store %active, %a[1] : i32, view<5xi32>
+  view.store %zero, %a[2] : i32, view<5xi32>
+  view.store %zero, %a[3] : i32, view<5xi32>
+  view.store %one, %b[1] : i32, view<5xi32>
+  view.store %zero, %b[2] : i32, view<5xi32>
+  view.store %zero, %b[3] : i32, view<5xi32>
+  view.store %next, %c[0] : i32, view<3xi32>
+  view.store %generated, %c[1] : i32, view<3xi32>
+  view.store %token, %h[0] : i32, view<129xi32>
+  view.store %token, %h[1] : i32, view<129xi32>
+  view.store %generated, %p[0] : i32, view<8xi32>
+  view.store %zero, %p[7] : i32, view<8xi32>
+  func.return
+}
+check.scenario @count_replay_prefill {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %raw = check.generate.fill value(7) : tensor<1xi32>
+    %control = check.generate.fill value(123) : tensor<3xi32>
+    %history = check.generate.fill value(-77) : tensor<129xi32>
+    %progress = check.generate.fill value(-88) : tensor<8xi32>
+    %first = check.generate.fill value(-99) : tensor<5xi32>
+    %second = check.generate.fill value(-99) : tensor<5xi32>
+    check.compare<@native.count.prefill, @reference_prefill>(%raw, %control, %history, %progress, %first, %second) : (tensor<1xi32>, tensor<3xi32>, tensor<129xi32>, tensor<8xi32>, tensor<5xi32>, tensor<5xi32>) -> () {
+      check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
+      check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
+      check.expect.bitwise actual(%first) expected(%first) : tensor<5xi32>
+      check.expect.bitwise actual(%second) expected(%second) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @native.count.decode() launch(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer)
+func.def @reference_decode(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
+  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
+  %a = buffer.view %first[%origin] : buffer -> view<5xi32>
+  %b = buffer.view %second[%origin] : buffer -> view<5xi32>
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %token = scalar.constant 7 : i32
+  %active = scalar.constant 1 : i32
+  %next = scalar.constant 257 : i32
+  %generated = scalar.constant 9 : i32
+  view.store %active, %a[1] : i32, view<5xi32>
+  view.store %zero, %a[2] : i32, view<5xi32>
+  view.store %zero, %a[3] : i32, view<5xi32>
+  view.store %one, %b[1] : i32, view<5xi32>
+  view.store %zero, %b[2] : i32, view<5xi32>
+  view.store %zero, %b[3] : i32, view<5xi32>
+  view.store %next, %c[0] : i32, view<3xi32>
+  view.store %generated, %c[1] : i32, view<3xi32>
+  view.store %token, %h[0] : i32, view<129xi32>
+  view.store %token, %h[8] : i32, view<129xi32>
+  view.store %token, %h[9] : i32, view<129xi32>
+  view.store %generated, %p[0] : i32, view<8xi32>
+  view.store %zero, %p[7] : i32, view<8xi32>
+  func.return
+}
+check.scenario @count_replay_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %raw = check.generate.fill value(7) : tensor<1xi32>
+    %control = check.generate.fill value(123) : tensor<3xi32>
+    %history = check.generate.fill value(-77) : tensor<129xi32>
+    %progress = check.generate.fill value(-88) : tensor<8xi32>
+    %first = check.generate.fill value(-99) : tensor<5xi32>
+    %second = check.generate.fill value(-99) : tensor<5xi32>
+    check.compare<@native.count.decode, @reference_decode>(%raw, %control, %history, %progress, %first, %second) : (tensor<1xi32>, tensor<3xi32>, tensor<129xi32>, tensor<8xi32>, tensor<5xi32>, tensor<5xi32>) -> () {
+      check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
+      check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
+      check.expect.bitwise actual(%first) expected(%first) : tensor<5xi32>
+      check.expect.bitwise actual(%second) expected(%second) : tensor<5xi32>
+    }
+  }
+  check.return
+}

@@ -40,7 +40,7 @@ kernel.def target(@llama32_attention_wave32) @llama32_attention_rows(%token_capa
   %q_width = config.get @llama.model.hidden_size : index
   %kv_width = config.get @llama.model.kv_size : index
   %layers = config.get @llama.model.layer_count : index
-  %layer = index.assume %layer0 [range(%layer0, 0, 27), lt(%layer0, %layers)] : index
+  %layer = index.assume %layer0 [lt(%layer0, %layers)] : index
   %tokens = kernel.workgroup.count<y> : index
   %row0 = kernel.workgroup.id<y> : index
   %row = index.assume %row0 [lt(%row0, %tokens)] : index

@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "lib/dispatch/attention_sequence.h"
+#include "lib/dispatch/invocation.h"
+#include "lib/dispatch/testing/attention_fixture.h"
 #include "lib/operations/tensor_operations.h"
 #include "loomc/target/amdgpu.h"
 #include <cstdio>
@@ -52,10 +53,9 @@ int main(int argc, char **argv) {
   auto registry = Registry::Llama3B();
   loomc_module_t *definitions = nullptr;
   loomc_result_t *result = nullptr;
-  if (!Ok(LoadAttentionSequence(
-          context, workspace, argv[1],
-          "lib/dispatch/testing/testdata/attention_capacity.loom", &definitions,
-          &result)) ||
+  if (!Ok(LoadAttentionSequence(context, workspace, argv[1],
+                                AttentionNativeConfig{2, 4, 128}, &definitions,
+                                &result)) ||
       !Succeeded(result))
     return 1;
   loomc_result_release(result);
@@ -78,9 +78,39 @@ int main(int argc, char **argv) {
     sequence_options.phase = decode ? Phase::Decode : Phase::Prefill;
     sequence_options.layer = 1;
     sequence_options.cache_base = 16;
+    std::string error;
+    auto construction = hrx::dispatch::testing::AttentionFixture(
+        1, 4, sequence_options.phase, &error);
+    if (!construction) {
+      std::fprintf(stderr, "%s\n", error.c_str());
+      return 1;
+    }
+    const auto &owner = construction->structure();
+    const auto &ops = owner.graph().invocations();
+    const auto &input = owner.inputs();
+    NativeEmissionSession session(registry, owner.graph(), *module, *program);
+    NativeLlamaRows rows;
+    rows.row_begin = input.row_begin;
+    rows.row_count = input.row_count;
+    rows.packet_positions = input.positions;
+    rows.row_capacity = 1;
+    rows.phase = sequence_options.phase;
+    rows.packet = bindings.control;
+    if (!Ok(session.LlamaRows(rows)) ||
+        !Ok(session.Bind(ops[12].binding(Port::Input)->value(),
+                         bindings.query_projection)) ||
+        !Ok(session.Bind(ops[13].binding(Port::Key)->value(),
+                         bindings.key_projection)) ||
+        !Ok(session.Bind(ops[13].binding(Port::Value)->value(),
+                         bindings.value_projection)) ||
+        !Ok(session.Bind(ops[12].binding(Port::Factors)->value(),
+                         bindings.factors)) ||
+        !Ok(session.EmitAttentionRegion(
+            owner, {hrx::llama::LlamaRegionKind::Attention, 1, 1},
+            sequence_options, bindings.map, bindings.cache)))
+      return 1;
     Value produced;
-    if (!Ok(BuildAttentionSequence(*module, *program, sequence_options,
-                                   bindings, &produced)))
+    if (!Ok(session.Native(ops[14].binding(Port::Output)->value(), &produced)))
       return 1;
     CommandValues values(*program);
     Value one, zero, origin;

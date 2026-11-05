@@ -1,0 +1,1019 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+func.decl @region_reference(%rows: index, %begin: index, %layer: index, %decode: index, %pooled: index, %control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+command.program.decl @region.dense.partial0() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+func.def @reference_partial0(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %begin = index.constant 2 : index
+  %layer = index.constant 0 : index
+  %decode = index.constant 0 : index
+  %pool = index.constant 0 : index
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+func.def @initialize_partial0_n3_p63(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 3 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 63 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_partial0_n3_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_partial0_n3_p63(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_partial0_n3_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_partial0_n3_p63[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.partial0[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_partial0_n3_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_partial0_n3_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_partial0_n3_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<8x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<8x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<8x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(61440) : tensor<8x3072xf32> -> tensor<9216xf32>
+    check.compare<@actual_partial0_n3_p63, @expected_partial0_n3_p63>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<8x3072xf32>, tensor<8x1024xf32>, tensor<8x1024xf32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_partial0_n4_p63(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 4 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 63 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_partial0_n4_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_partial0_n4_p63(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_partial0_n4_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_partial0_n4_p63[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.partial0[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_partial0_n4_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_partial0_n4_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_partial0_n4_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<8x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<8x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<8x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(73728) : tensor<8x3072xf32> -> tensor<6144xf32>
+    check.compare<@actual_partial0_n4_p63, @expected_partial0_n4_p63>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<8x3072xf32>, tensor<8x1024xf32>, tensor<8x1024xf32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<6144xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_partial0_n3_p255(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 3 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 255 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_partial0_n3_p255() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_partial0_n3_p255(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_partial0_n3_p255() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_partial0_n3_p255[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.partial0[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_partial0_n3_p255(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_partial0_n3_p255(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_partial0_n3_p255 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<8x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<8x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<8x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(61440) : tensor<8x3072xf32> -> tensor<9216xf32>
+    check.compare<@actual_partial0_n3_p255, @expected_partial0_n3_p255>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<8x3072xf32>, tensor<8x1024xf32>, tensor<8x1024xf32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @region.dense.partial1() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+func.def @reference_partial1(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %begin = index.constant 2 : index
+  %layer = index.constant 1 : index
+  %decode = index.constant 0 : index
+  %pool = index.constant 0 : index
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+func.def @initialize_partial1_n3_p63(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 3 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 63 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_partial1_n3_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_partial1_n3_p63(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_partial1_n3_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_partial1_n3_p63[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.partial1[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_partial1_n3_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_partial1_n3_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_partial1_n3_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<8x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<8x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<8x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(61440) : tensor<8x3072xf32> -> tensor<9216xf32>
+    check.compare<@actual_partial1_n3_p63, @expected_partial1_n3_p63>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<8x3072xf32>, tensor<8x1024xf32>, tensor<8x1024xf32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_partial1_n4_p63(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 4 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 63 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_partial1_n4_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_partial1_n4_p63(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_partial1_n4_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_partial1_n4_p63[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.partial1[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_partial1_n4_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_partial1_n4_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_partial1_n4_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<8x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<8x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<8x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(73728) : tensor<8x3072xf32> -> tensor<6144xf32>
+    check.compare<@actual_partial1_n4_p63, @expected_partial1_n4_p63>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<8x3072xf32>, tensor<8x1024xf32>, tensor<8x1024xf32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<6144xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_partial1_n3_p255(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 3 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 255 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_partial1_n3_p255() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_partial1_n3_p255(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_partial1_n3_p255() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_partial1_n3_p255[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.partial1[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_partial1_n3_p255(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_partial1_n3_p255(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_partial1_n3_p255 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<8x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<8x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<8x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(61440) : tensor<8x3072xf32> -> tensor<9216xf32>
+    check.compare<@actual_partial1_n3_p255, @expected_partial1_n3_p255>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<8x3072xf32>, tensor<8x1024xf32>, tensor<8x1024xf32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @region.dense.large() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+func.def @reference_large(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  %rows = index.constant 20 : index
+  %begin = index.constant 2 : index
+  %layer = index.constant 1 : index
+  %decode = index.constant 0 : index
+  %pool = index.constant 0 : index
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+func.def @initialize_large_n17_p63(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 17 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 63 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_large_n17_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_large_n17_p63(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_large_n17_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_large_n17_p63[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.large[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_large_n17_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_large_n17_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_large(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_large_n17_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<20x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<20x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<20x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<20x3072xf32>
+    %inactive_prefix = check.tensor.view %output offset(0) : tensor<20x3072xf32> -> tensor<6144xf32>
+    %inactive_suffix = check.tensor.view %output offset(233472) : tensor<20x3072xf32> -> tensor<3072xf32>
+    check.compare<@actual_large_n17_p63, @expected_large_n17_p63>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<20x3072xf32>, tensor<20x1024xf32>, tensor<20x1024xf32>, tensor<20x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<20x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<20x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<20x1024xf32>
+      check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<3072xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<20x3072xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @region.dense.decode() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+func.def @reference_decode(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %layer = index.constant 1 : index
+  %decode = index.constant 1 : index
+  %pool = index.constant 0 : index
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+func.def @initialize_decode_n1_p0(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 0 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 7 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_decode_n1_p0() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_decode_n1_p0(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_decode_n1_p0() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_decode_n1_p0[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_decode_n1_p0(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_decode_n1_p0(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_decode_n1_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<1x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<1x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<1x3072xf32>
+    check.compare<@actual_decode_n1_p0, @expected_decode_n1_p0>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<1x3072xf32>, tensor<1x1024xf32>, tensor<1x1024xf32>, tensor<1x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_decode_n1_p1(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 1 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 7 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_decode_n1_p1() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_decode_n1_p1(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_decode_n1_p1() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_decode_n1_p1[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_decode_n1_p1(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_decode_n1_p1(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_decode_n1_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<1x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<1x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<1x3072xf32>
+    check.compare<@actual_decode_n1_p1, @expected_decode_n1_p1>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<1x3072xf32>, tensor<1x1024xf32>, tensor<1x1024xf32>, tensor<1x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_decode_n1_p63(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 63 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 7 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_decode_n1_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_decode_n1_p63(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_decode_n1_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_decode_n1_p63[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_decode_n1_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_decode_n1_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_decode_n1_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<1x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<1x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<1x3072xf32>
+    check.compare<@actual_decode_n1_p63, @expected_decode_n1_p63>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<1x3072xf32>, tensor<1x1024xf32>, tensor<1x1024xf32>, tensor<1x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_decode_n1_p255(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 255 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 7 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_decode_n1_p255() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_decode_n1_p255(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_decode_n1_p255() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_decode_n1_p255[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_decode_n1_p255(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_decode_n1_p255(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_decode_n1_p255 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<1x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<1x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<1x3072xf32>
+    check.compare<@actual_decode_n1_p255, @expected_decode_n1_p255>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<1x3072xf32>, tensor<1x1024xf32>, tensor<1x1024xf32>, tensor<1x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>
+    }
+  }
+  check.return
+}
+func.def @initialize_decode_n1_p256(%control: buffer, %map: buffer) {
+  %zero = index.constant 0 : offset
+  %c = buffer.view %control[%zero] : buffer -> view<7xi32>
+  %m = buffer.view %map[%zero] : buffer -> view<10xi32>
+  %ci2 = index.constant 2 : index
+  %cv2 = scalar.constant 256 : i32
+  view.store %cv2, %c[%ci2] : i32, view<7xi32>
+  %ci3 = index.constant 3 : index
+  %cv3 = scalar.constant 7 : i32
+  view.store %cv3, %c[%ci3] : i32, view<7xi32>
+  %ci4 = index.constant 4 : index
+  %cv4 = scalar.constant 128001 : i32
+  view.store %cv4, %c[%ci4] : i32, view<7xi32>
+  %mi1 = index.constant 1 : index
+  %mv1 = scalar.constant 1 : i32
+  view.store %mv1, %m[%mi1] : i32, view<10xi32>
+  %mi2 = index.constant 2 : index
+  %mv2 = scalar.constant 0 : i32
+  view.store %mv2, %m[%mi2] : i32, view<10xi32>
+  %mi3 = index.constant 3 : index
+  %mv3 = scalar.constant 3 : i32
+  view.store %mv3, %m[%mi3] : i32, view<10xi32>
+  %mi4 = index.constant 4 : index
+  %mv4 = scalar.constant 2 : i32
+  view.store %mv4, %m[%mi4] : i32, view<10xi32>
+  %mi5 = index.constant 5 : index
+  %mv5 = scalar.constant 5 : i32
+  view.store %mv5, %m[%mi5] : i32, view<10xi32>
+  %mi6 = index.constant 6 : index
+  %mv6 = scalar.constant 4 : i32
+  view.store %mv6, %m[%mi6] : i32, view<10xi32>
+  %mi7 = index.constant 7 : index
+  %mv7 = scalar.constant 7 : i32
+  view.store %mv7, %m[%mi7] : i32, view<10xi32>
+  %mi8 = index.constant 8 : index
+  %mv8 = scalar.constant 6 : i32
+  view.store %mv8, %m[%mi8] : i32, view<10xi32>
+  func.return
+}
+kernel.def @initialize_kernel_decode_n1_p256() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %map: buffer) {
+  func.call @initialize_decode_n1_p256(%control, %map) : (buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_decode_n1_p256() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  kernel.launch @initialize_kernel_decode_n1_p256[](%control, %map) : [](buffer, buffer)
+  command.program.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @expected_decode_n1_p256(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
+  func.call @initialize_decode_n1_p256(%control, %map) : (buffer, buffer) -> ()
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @dense_decode_n1_p256 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-17) : tensor<7xi32>
+    %map = check.generate.fill value(-19) : tensor<10xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %factors = check.generate.fill value(1.0) : tensor<64xf32>
+    %query = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %key = check.generate.fill value(0.0) : tensor<1x1024xf32>
+    %value = check.generate.fill value(0.75) : tensor<1x1024xf32>
+    %output = check.generate.fill value(-1.0) : tensor<1x3072xf32>
+    check.compare<@actual_decode_n1_p256, @expected_decode_n1_p256>(%control, %map, %cache, %factors, %query, %key, %value, %output) : (tensor<7xi32>, tensor<10xi32>, tensor<2097184xf16>, tensor<64xf32>, tensor<1x3072xf32>, tensor<1x1024xf32>, tensor<1x1024xf32>, tensor<1x3072xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<7xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<10xi32>
+      check.expect.close actual(%cache) expected(%cache) atol(0.0) rtol(0.0) nan(same) : tensor<2097184xf16>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>
+    }
+  }
+  check.return
+}

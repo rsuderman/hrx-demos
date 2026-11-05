@@ -1,3 +1,4 @@
+func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/motifs/ggml/linear_q4k_q8_1_x4_compat.loom; independently maintained by Loomify.
@@ -200,47 +201,50 @@ kernel.def target(@ggml_q4k_compat_wave32) export("ggml_linear_q4k_q8_1_x4_compa
   %channel_tile = kernel.workgroup.id<x> : index
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
-  %subgroup = kernel.subgroup.id : index
-  %lane = kernel.subgroup.lane.id : index
-  %channel_base = index.mul %channel_tile, %subgroups_per_workgroup : index
-  %channel0 = index.add %channel_base, %subgroup : index
-  %valid_channel = index.cmp ult, %channel0, %bounded_output_size : index
-  %safe_channel0 = scf.select %valid_channel, %channel0, %c0 : index
-  %safe_channel = index.assume %safe_channel0 [lt(%safe_channel0, %output_capacity)] : index
-  %q4_block_count = index.div %bounded_input_size, %c256 : index
-  %weight_row_bytes = index.scale %q4_block_count, %c144_bytes : index, offset -> offset
-  %weight_row_byte_base = index.scale %safe_channel, %weight_row_bytes : index, offset -> offset
-  %q8_group_count = index.div %bounded_input_size, %c128 : index
-  %q8_row_bytes = index.scale %q8_group_count, %c144_bytes : index, offset -> offset
-  %q8_row_byte_base = index.scale %token, %q8_row_bytes : index, offset -> offset
-  %specialized, %one_row, %reverse_minima = func.call @ggml_qk_mmvq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1, i1, i1)
-  %round_weight_scales = func.call @ggml_qk_mmq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1)
-  %lane_acc = scf.if %valid_channel -> (f32) {
-    %value = scf.if %specialized -> (f32) {
-      %v = func.call @ggml_q4k_compat_row(%bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane, %one_row, %reverse_minima) : (index, buffer, offset, buffer, offset, index, i1, i1) -> (f32)
-      scf.yield %v : f32
+  %active = func.call @llama_active_row(%token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    %subgroup = kernel.subgroup.id : index
+    %lane = kernel.subgroup.lane.id : index
+    %channel_base = index.mul %channel_tile, %subgroups_per_workgroup : index
+    %channel0 = index.add %channel_base, %subgroup : index
+    %valid_channel = index.cmp ult, %channel0, %bounded_output_size : index
+    %safe_channel0 = scf.select %valid_channel, %channel0, %c0 : index
+    %safe_channel = index.assume %safe_channel0 [lt(%safe_channel0, %output_capacity)] : index
+    %q4_block_count = index.div %bounded_input_size, %c256 : index
+    %weight_row_bytes = index.scale %q4_block_count, %c144_bytes : index, offset -> offset
+    %weight_row_byte_base = index.scale %safe_channel, %weight_row_bytes : index, offset -> offset
+    %q8_group_count = index.div %bounded_input_size, %c128 : index
+    %q8_row_bytes = index.scale %q8_group_count, %c144_bytes : index, offset -> offset
+    %q8_row_byte_base = index.scale %token, %q8_row_bytes : index, offset -> offset
+    %specialized, %one_row, %reverse_minima = func.call @ggml_qk_mmvq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1, i1, i1)
+    %round_weight_scales = func.call @ggml_qk_mmq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1)
+    %lane_acc = scf.if %valid_channel -> (f32) {
+      %value = scf.if %specialized -> (f32) {
+        %v = func.call @ggml_q4k_compat_row(%bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane, %one_row, %reverse_minima) : (index, buffer, offset, buffer, offset, index, i1, i1) -> (f32)
+        scf.yield %v : f32
+      } else {
+        %v = func.call @ggml_q4k_q8_1_x4_row_lane_policy(%round_weight_scales, %bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane) : (i1, index, buffer, offset, buffer, offset, index) -> (f32)
+        scf.yield %v : f32
+      }
+      scf.yield %value : f32
     } else {
-      %v = func.call @ggml_q4k_q8_1_x4_row_lane_policy(%round_weight_scales, %bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane) : (i1, index, buffer, offset, buffer, offset, index) -> (f32)
-      scf.yield %v : f32
+      %c0_f32 = scalar.constant 0.0 : f32
+      scf.yield %c0_f32 : f32
     }
-    scf.yield %value : f32
-  } else {
-    %c0_f32 = scalar.constant 0.0 : f32
-    scf.yield %c0_f32 : f32
-  }
-  %dot = scf.if %specialized -> (f32) {
-    %ordered_dot = func.call @ggml_qk_mmvq_compat_reduce(%lane_acc) : (f32) -> (f32)
-    scf.yield %ordered_dot : f32
-  } else {
-    %canonical_dot = kernel.subgroup.reduce<addf> %lane_acc : f32
-    scf.yield %canonical_dot : f32
-  }
-  %is_lane_zero = index.cmp eq, %lane, %c0 : index
-  scf.if %valid_channel {
-    scf.if %is_lane_zero {
-      %c0_offset = index.constant 0 : offset
-      %output_view = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_token_count]x[%bounded_output_size]xf32>
-      view.store %dot, %output_view[%token, %channel0] : f32, view<[%bounded_token_count]x[%bounded_output_size]xf32>
+    %dot = scf.if %specialized -> (f32) {
+      %ordered_dot = func.call @ggml_qk_mmvq_compat_reduce(%lane_acc) : (f32) -> (f32)
+      scf.yield %ordered_dot : f32
+    } else {
+      %canonical_dot = kernel.subgroup.reduce<addf> %lane_acc : f32
+      scf.yield %canonical_dot : f32
+    }
+    %is_lane_zero = index.cmp eq, %lane, %c0 : index
+    scf.if %valid_channel {
+      scf.if %is_lane_zero {
+        %c0_offset = index.constant 0 : offset
+        %output_view = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_token_count]x[%bounded_output_size]xf32>
+        view.store %dot, %output_view[%token, %channel0] : f32, view<[%bounded_token_count]x[%bounded_output_size]xf32>
+      }
     }
   }
   kernel.return

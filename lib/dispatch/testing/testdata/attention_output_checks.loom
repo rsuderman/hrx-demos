@@ -1,0 +1,408 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Constant block codes give independent closed-form Q4/Q6 dots. Input is
+// constant per row, so every Q8 group stores q=127 with its rounded F16 scale.
+command.program.decl @attention.output.q4.prefill() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer)
+func.def @init_q4_prefill(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 8 : index
+  %width = index.constant 3072 : index
+  %blocks = index.constant 36864 : index
+  %stride = index.constant 144 : offset
+  %header = index.constant 0 : offset
+  %eighth = scalar.constant 0.125 : f32
+  %half = scalar.constant 0.125 : f16
+  %x = buffer.view %input[%origin] : buffer -> view<8x3072xf32>
+  %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %i0 = index.constant 0 : index
+  %c0 = scalar.constant 3 : i32
+  view.store %c0, %ctl[%i0] : i32, view<3xi32>
+  %i1 = index.constant 1 : index
+  %c1 = scalar.constant 63 : i32
+  view.store %c1, %ctl[%i1] : i32, view<3xi32>
+  %i2 = index.constant 2 : index
+  %c2 = scalar.constant 128001 : i32
+  view.store %c2, %ctl[%i2] : i32, view<3xi32>
+  scf.for %row = [%zero to %rows step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    scf.for %column = [%zero to %width step %one] {
+      view.store %value, %x[%row, %column] : f32, view<8x3072xf32>
+    }
+  }
+  scf.for %block = [%zero to %blocks step %one] {
+    %base = index.scale %block, %stride : index, offset -> offset
+    %offset = index.add %base, %header : offset
+    %d = buffer.view %weight[%offset] : buffer -> view<1xf16>
+    view.store %half, %d[0] : f16, view<1xf16>
+    %two = index.constant 2 : offset
+    %mo = index.add %base, %two : offset
+    %m = buffer.view %weight[%mo] : buffer -> view<1xf16>
+    view.store %half, %m[0] : f16, view<1xf16>
+  }
+  func.return
+}
+kernel.def @init_kernel_q4_prefill() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q4_prefill(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_q4_prefill() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  kernel.launch @init_kernel_q4_prefill[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.program.launch @attention.output.q4.prefill[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_q4_prefill(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q4_prefill(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %y = buffer.view %residual[%origin] : buffer -> view<8x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %end = index.constant 5 : index
+  %width = index.constant 3072 : index
+  %eighth = scalar.constant 0.125 : f32
+  %c127 = scalar.constant 127.0 : f32
+  %weight_sum = scalar.constant 2112.0 : f32
+  scf.for %row = [%begin to %end step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    %scale = scalar.divf %value, %c127 : f32
+    %half = scalar.fptrunc %scale : f32 to f16
+    %stored = scalar.extf %half : f16 to f32
+    %dequantized = scalar.mulf %stored, %c127 : f32
+    %dot = scalar.mulf %dequantized, %weight_sum : f32
+    scf.for %column = [%zero to %width step %one] {
+      %prior = view.load %y[%row, %column] : view<8x3072xf32> -> f32
+      %result = scalar.addf %prior, %dot : f32
+      view.store %result, %y[%row, %column] : f32, view<8x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @attention_output_q4_prefill {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weight = check.generate.fill value(18) : tensor<5308416xi8>
+    %input = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %control = check.generate.fill value(-17) : tensor<3xi32>
+    %residual = check.generate.iota offset(0.5) step(0.00001) : tensor<8x3072xf32>
+    %prefix = check.tensor.view %residual offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %suffix = check.tensor.view %residual offset(61440) : tensor<8x3072xf32> -> tensor<9216xf32>
+    check.compare<@actual_q4_prefill, @reference_q4_prefill>(%weight, %input, %control, %residual) : (tensor<5308416xi8>, tensor<8x3072xf32>, tensor<3xi32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<9216xf32>
+      check.expect.close actual(%residual) expected(%residual) atol(0.01) rtol(0.00005) nan(same) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<5308416xi8>
+    }
+  }
+  check.return
+}
+command.program.decl @attention.output.q4.decode() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer)
+func.def @init_q4_decode(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 1 : index
+  %width = index.constant 3072 : index
+  %blocks = index.constant 36864 : index
+  %stride = index.constant 144 : offset
+  %header = index.constant 0 : offset
+  %eighth = scalar.constant 0.125 : f32
+  %half = scalar.constant 0.125 : f16
+  %x = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
+  %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %i0 = index.constant 0 : index
+  %c0 = scalar.constant 256 : i32
+  view.store %c0, %ctl[%i0] : i32, view<3xi32>
+  %i1 = index.constant 1 : index
+  %c1 = scalar.constant 7 : i32
+  view.store %c1, %ctl[%i1] : i32, view<3xi32>
+  %i2 = index.constant 2 : index
+  %c2 = scalar.constant 128001 : i32
+  view.store %c2, %ctl[%i2] : i32, view<3xi32>
+  scf.for %row = [%zero to %rows step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    scf.for %column = [%zero to %width step %one] {
+      view.store %value, %x[%row, %column] : f32, view<1x3072xf32>
+    }
+  }
+  scf.for %block = [%zero to %blocks step %one] {
+    %base = index.scale %block, %stride : index, offset -> offset
+    %offset = index.add %base, %header : offset
+    %d = buffer.view %weight[%offset] : buffer -> view<1xf16>
+    view.store %half, %d[0] : f16, view<1xf16>
+    %two = index.constant 2 : offset
+    %mo = index.add %base, %two : offset
+    %m = buffer.view %weight[%mo] : buffer -> view<1xf16>
+    view.store %half, %m[0] : f16, view<1xf16>
+  }
+  func.return
+}
+kernel.def @init_kernel_q4_decode() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q4_decode(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_q4_decode() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  kernel.launch @init_kernel_q4_decode[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.program.launch @attention.output.q4.decode[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_q4_decode(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q4_decode(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %y = buffer.view %residual[%origin] : buffer -> view<1x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %end = index.constant 1 : index
+  %width = index.constant 3072 : index
+  %eighth = scalar.constant 0.125 : f32
+  %c127 = scalar.constant 127.0 : f32
+  %weight_sum = scalar.constant 2112.0 : f32
+  scf.for %row = [%begin to %end step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    %scale = scalar.divf %value, %c127 : f32
+    %half = scalar.fptrunc %scale : f32 to f16
+    %stored = scalar.extf %half : f16 to f32
+    %dequantized = scalar.mulf %stored, %c127 : f32
+    %dot = scalar.mulf %dequantized, %weight_sum : f32
+    scf.for %column = [%zero to %width step %one] {
+      %prior = view.load %y[%row, %column] : view<1x3072xf32> -> f32
+      %result = scalar.addf %prior, %dot : f32
+      view.store %result, %y[%row, %column] : f32, view<1x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @attention_output_q4_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weight = check.generate.fill value(18) : tensor<5308416xi8>
+    %input = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %control = check.generate.fill value(-17) : tensor<3xi32>
+    %residual = check.generate.iota offset(0.5) step(0.00001) : tensor<1x3072xf32>
+    check.compare<@actual_q4_decode, @reference_q4_decode>(%weight, %input, %control, %residual) : (tensor<5308416xi8>, tensor<1x3072xf32>, tensor<3xi32>, tensor<1x3072xf32>) -> () {
+      check.expect.close actual(%residual) expected(%residual) atol(0.01) rtol(0.00005) nan(same) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<5308416xi8>
+    }
+  }
+  check.return
+}
+command.program.decl @attention.output.q6.prefill() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer)
+func.def @init_q6_prefill(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 8 : index
+  %width = index.constant 3072 : index
+  %blocks = index.constant 36864 : index
+  %stride = index.constant 210 : offset
+  %header = index.constant 208 : offset
+  %eighth = scalar.constant 0.125 : f32
+  %half = scalar.constant 0.125 : f16
+  %x = buffer.view %input[%origin] : buffer -> view<8x3072xf32>
+  %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %i0 = index.constant 0 : index
+  %c0 = scalar.constant 3 : i32
+  view.store %c0, %ctl[%i0] : i32, view<3xi32>
+  %i1 = index.constant 1 : index
+  %c1 = scalar.constant 63 : i32
+  view.store %c1, %ctl[%i1] : i32, view<3xi32>
+  %i2 = index.constant 2 : index
+  %c2 = scalar.constant 128001 : i32
+  view.store %c2, %ctl[%i2] : i32, view<3xi32>
+  scf.for %row = [%zero to %rows step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    scf.for %column = [%zero to %width step %one] {
+      view.store %value, %x[%row, %column] : f32, view<8x3072xf32>
+    }
+  }
+  scf.for %block = [%zero to %blocks step %one] {
+    %base = index.scale %block, %stride : index, offset -> offset
+    %offset = index.add %base, %header : offset
+    %d = buffer.view %weight[%offset] : buffer -> view<1xf16>
+    view.store %half, %d[0] : f16, view<1xf16>
+  }
+  func.return
+}
+kernel.def @init_kernel_q6_prefill() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q6_prefill(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_q6_prefill() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  kernel.launch @init_kernel_q6_prefill[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.program.launch @attention.output.q6.prefill[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_q6_prefill(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q6_prefill(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %y = buffer.view %residual[%origin] : buffer -> view<8x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %end = index.constant 5 : index
+  %width = index.constant 3072 : index
+  %eighth = scalar.constant 0.125 : f32
+  %c127 = scalar.constant 127.0 : f32
+  %weight_sum = scalar.constant -127872.0 : f32
+  scf.for %row = [%begin to %end step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    %scale = scalar.divf %value, %c127 : f32
+    %half = scalar.fptrunc %scale : f32 to f16
+    %stored = scalar.extf %half : f16 to f32
+    %dequantized = scalar.mulf %stored, %c127 : f32
+    %dot = scalar.mulf %dequantized, %weight_sum : f32
+    scf.for %column = [%zero to %width step %one] {
+      %prior = view.load %y[%row, %column] : view<8x3072xf32> -> f32
+      %result = scalar.addf %prior, %dot : f32
+      view.store %result, %y[%row, %column] : f32, view<8x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @attention_output_q6_prefill {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weight = check.generate.fill value(18) : tensor<7741440xi8>
+    %input = check.generate.fill value(0.0) : tensor<8x3072xf32>
+    %control = check.generate.fill value(-17) : tensor<3xi32>
+    %residual = check.generate.iota offset(0.5) step(0.00001) : tensor<8x3072xf32>
+    %prefix = check.tensor.view %residual offset(0) : tensor<8x3072xf32> -> tensor<6144xf32>
+    %suffix = check.tensor.view %residual offset(61440) : tensor<8x3072xf32> -> tensor<9216xf32>
+    check.compare<@actual_q6_prefill, @reference_q6_prefill>(%weight, %input, %control, %residual) : (tensor<7741440xi8>, tensor<8x3072xf32>, tensor<3xi32>, tensor<8x3072xf32>) -> () {
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<6144xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<9216xf32>
+      check.expect.close actual(%residual) expected(%residual) atol(0.01) rtol(0.00005) nan(same) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<7741440xi8>
+    }
+  }
+  check.return
+}
+command.program.decl @attention.output.q6.decode() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer)
+func.def @init_q6_decode(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 1 : index
+  %width = index.constant 3072 : index
+  %blocks = index.constant 36864 : index
+  %stride = index.constant 210 : offset
+  %header = index.constant 208 : offset
+  %eighth = scalar.constant 0.125 : f32
+  %half = scalar.constant 0.125 : f16
+  %x = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
+  %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %i0 = index.constant 0 : index
+  %c0 = scalar.constant 256 : i32
+  view.store %c0, %ctl[%i0] : i32, view<3xi32>
+  %i1 = index.constant 1 : index
+  %c1 = scalar.constant 7 : i32
+  view.store %c1, %ctl[%i1] : i32, view<3xi32>
+  %i2 = index.constant 2 : index
+  %c2 = scalar.constant 128001 : i32
+  view.store %c2, %ctl[%i2] : i32, view<3xi32>
+  scf.for %row = [%zero to %rows step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    scf.for %column = [%zero to %width step %one] {
+      view.store %value, %x[%row, %column] : f32, view<1x3072xf32>
+    }
+  }
+  scf.for %block = [%zero to %blocks step %one] {
+    %base = index.scale %block, %stride : index, offset -> offset
+    %offset = index.add %base, %header : offset
+    %d = buffer.view %weight[%offset] : buffer -> view<1xf16>
+    view.store %half, %d[0] : f16, view<1xf16>
+  }
+  func.return
+}
+kernel.def @init_kernel_q6_decode() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q6_decode(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_q6_decode() launch(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  kernel.launch @init_kernel_q6_decode[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.program.launch @attention.output.q6.decode[](%weight, %input, %control, %residual) : [](buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_q6_decode(%weight: buffer, %input: buffer, %control: buffer, %residual: buffer) {
+  func.call @init_q6_decode(%weight, %input, %control, %residual) : (buffer, buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %y = buffer.view %residual[%origin] : buffer -> view<1x3072xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %end = index.constant 1 : index
+  %width = index.constant 3072 : index
+  %eighth = scalar.constant 0.125 : f32
+  %c127 = scalar.constant 127.0 : f32
+  %weight_sum = scalar.constant -127872.0 : f32
+  scf.for %row = [%begin to %end step %one] {
+    %r = index.add %row, %one : index
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %eighth : f32
+    %scale = scalar.divf %value, %c127 : f32
+    %half = scalar.fptrunc %scale : f32 to f16
+    %stored = scalar.extf %half : f16 to f32
+    %dequantized = scalar.mulf %stored, %c127 : f32
+    %dot = scalar.mulf %dequantized, %weight_sum : f32
+    scf.for %column = [%zero to %width step %one] {
+      %prior = view.load %y[%row, %column] : view<1x3072xf32> -> f32
+      %result = scalar.addf %prior, %dot : f32
+      view.store %result, %y[%row, %column] : f32, view<1x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @attention_output_q6_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weight = check.generate.fill value(18) : tensor<7741440xi8>
+    %input = check.generate.fill value(0.0) : tensor<1x3072xf32>
+    %control = check.generate.fill value(-17) : tensor<3xi32>
+    %residual = check.generate.iota offset(0.5) step(0.00001) : tensor<1x3072xf32>
+    check.compare<@actual_q6_decode, @reference_q6_decode>(%weight, %input, %control, %residual) : (tensor<7741440xi8>, tensor<1x3072xf32>, tensor<3xi32>, tensor<1x3072xf32>) -> () {
+      check.expect.close actual(%residual) expected(%residual) atol(0.01) rtol(0.00005) nan(same) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<7741440xi8>
+    }
+  }
+  check.return
+}

@@ -1,0 +1,196 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Actual registered full head then publication; equal nonzero Q6 vocabulary
+// rows independently imply greedy token zero. Embedding reads token IDs from
+// the same physical history buffer that publication later updates; the logical
+// token-ID and history identities remain distinct. M3 tests row selection numerically.
+command.program.decl @head.full.prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer)
+func.def @init_prefill(%control: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %i0 = index.constant 0 : index
+  %v0 = scalar.constant 3 : i32
+  view.store %v0, %c[%i0] : i32, view<3xi32>
+  %i1 = index.constant 1 : index
+  %v1 = scalar.constant 63 : i32
+  view.store %v1, %c[%i1] : i32, view<3xi32>
+  %i2 = index.constant 2 : index
+  %v2 = scalar.constant 128001 : i32
+  view.store %v2, %c[%i2] : i32, view<3xi32>
+  func.return
+}
+kernel.def @init_kernel_prefill() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer) {
+  func.call @init_prefill(%control) : (buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
+  kernel.launch @init_kernel_prefill[](%control) : [](buffer)
+  command.program.launch @head.full.prefill[](%weights, %input, %gamma, %control, %history, %progress, %token) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
+  func.call @init_prefill(%control) : (buffer) -> ()
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
+  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
+  %t = buffer.view %token[%origin] : buffer -> view<1xi32>
+  %next = scalar.constant 66 : i32
+  %generated = scalar.constant 1 : i32
+  %zero = scalar.constant 0 : i32
+  %i0 = index.constant 0 : index
+  %i1 = index.constant 1 : index
+  %i7 = index.constant 7 : index
+  %i8 = index.constant 8 : index
+  view.store %next, %c[%i0] : i32, view<3xi32>
+  view.store %generated, %c[%i1] : i32, view<3xi32>
+  view.store %zero, %h[%i0] : i32, view<129xi32>
+  view.store %zero, %h[%i1] : i32, view<129xi32>
+  view.store %generated, %p[%i0] : i32, view<8xi32>
+  view.store %zero, %p[%i7] : i32, view<8xi32>
+  view.store %zero, %t[%i0] : i32, view<1xi32>
+  %input_view = buffer.view %input[%origin] : buffer -> view<8x3072xf32>
+  %begin = index.constant 2 : index
+  %end = index.constant 5 : index
+  %width = index.constant 3072 : index
+  %step = index.constant 1 : index
+  %zero_idx = index.constant 0 : index
+  %c128 = index.constant 128 : index
+  %c32 = index.constant 32 : index
+  %delta = scalar.constant 0.00001531839370727539 : f32
+  %code0 = scalar.constant -15.0 : f32
+  %code1 = scalar.constant -31.0 : f32
+  %code2 = scalar.constant -32.0 : f32
+  scf.for %row = [%begin to %end step %step] {
+    scf.for %col = [%zero_idx to %width step %step] {
+      %local = index.rem %col, %c128 : index
+      %quadrant = index.div %local, %c32 : index
+      %first = index.cmp eq, %quadrant, %zero_idx : index
+      %second = index.cmp eq, %quadrant, %step : index
+      %upper = scf.select %second, %code1, %code2 : f32
+      %code = scf.select %first, %code0, %upper : f32
+      %v = scalar.mulf %delta, %code : f32
+      view.store %v, %input_view[%row, %col] : f32, view<8x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @registered_head_then_publication_prefill {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weights = check.generate.fill value(1) : tensor<323205120xi8>
+    %input = check.generate.iota offset(-3.0) step(0.001) : tensor<8x3072xf32>
+    %gamma = check.generate.fill value(1.0) : tensor<3072xf32>
+    %control = check.generate.fill value(-99) : tensor<3xi32>
+    %history = check.generate.fill value(1) : tensor<129xi32>
+    %progress = check.generate.fill value(-99) : tensor<8xi32>
+    %token = check.generate.fill value(-99) : tensor<1xi32>
+    check.compare<@actual_prefill, @reference_prefill>(%weights, %input, %gamma, %control, %history, %progress, %token) : (tensor<323205120xi8>, tensor<8x3072xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<129xi32>, tensor<8xi32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%weights) expected(%weights) : tensor<323205120xi8>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3072xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
+      check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
+      check.expect.bitwise actual(%token) expected(%token) : tensor<1xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @head.full.decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer)
+func.def @init_decode(%control: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %i0 = index.constant 0 : index
+  %v0 = scalar.constant 256 : i32
+  view.store %v0, %c[%i0] : i32, view<3xi32>
+  %i1 = index.constant 1 : index
+  %v1 = scalar.constant 7 : i32
+  view.store %v1, %c[%i1] : i32, view<3xi32>
+  %i2 = index.constant 2 : index
+  %v2 = scalar.constant 128001 : i32
+  view.store %v2, %c[%i2] : i32, view<3xi32>
+  func.return
+}
+kernel.def @init_kernel_decode() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer) {
+  func.call @init_decode(%control) : (buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
+  kernel.launch @init_kernel_decode[](%control) : [](buffer)
+  command.program.launch @head.full.decode[](%weights, %input, %gamma, %control, %history, %progress, %token) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
+  func.call @init_decode(%control) : (buffer) -> ()
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
+  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
+  %t = buffer.view %token[%origin] : buffer -> view<1xi32>
+  %next = scalar.constant 257 : i32
+  %generated = scalar.constant 8 : i32
+  %zero = scalar.constant 0 : i32
+  %i0 = index.constant 0 : index
+  %i1 = index.constant 1 : index
+  %i7 = index.constant 7 : index
+  %i8 = index.constant 8 : index
+  view.store %next, %c[%i0] : i32, view<3xi32>
+  view.store %generated, %c[%i1] : i32, view<3xi32>
+  view.store %zero, %h[%i0] : i32, view<129xi32>
+  view.store %zero, %h[%i8] : i32, view<129xi32>
+  view.store %generated, %p[%i0] : i32, view<8xi32>
+  view.store %zero, %p[%i7] : i32, view<8xi32>
+  view.store %zero, %t[%i0] : i32, view<1xi32>
+  %input_view = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 1 : index
+  %width = index.constant 3072 : index
+  %step = index.constant 1 : index
+  %zero_idx = index.constant 0 : index
+  %c128 = index.constant 128 : index
+  %c32 = index.constant 32 : index
+  %delta = scalar.constant 0.00001531839370727539 : f32
+  %code0 = scalar.constant -15.0 : f32
+  %code1 = scalar.constant -31.0 : f32
+  %code2 = scalar.constant -32.0 : f32
+  scf.for %row = [%begin to %end step %step] {
+    scf.for %col = [%zero_idx to %width step %step] {
+      %local = index.rem %col, %c128 : index
+      %quadrant = index.div %local, %c32 : index
+      %first = index.cmp eq, %quadrant, %zero_idx : index
+      %second = index.cmp eq, %quadrant, %step : index
+      %upper = scf.select %second, %code1, %code2 : f32
+      %code = scf.select %first, %code0, %upper : f32
+      %v = scalar.mulf %delta, %code : f32
+      view.store %v, %input_view[%row, %col] : f32, view<1x3072xf32>
+    }
+  }
+  func.return
+}
+check.scenario @registered_head_then_publication_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weights = check.generate.fill value(1) : tensor<323205120xi8>
+    %input = check.generate.iota offset(-3.0) step(0.001) : tensor<1x3072xf32>
+    %gamma = check.generate.fill value(1.0) : tensor<3072xf32>
+    %control = check.generate.fill value(-99) : tensor<3xi32>
+    %history = check.generate.fill value(1) : tensor<129xi32>
+    %progress = check.generate.fill value(-99) : tensor<8xi32>
+    %token = check.generate.fill value(-99) : tensor<1xi32>
+    check.compare<@actual_decode, @reference_decode>(%weights, %input, %gamma, %control, %history, %progress, %token) : (tensor<323205120xi8>, tensor<1x3072xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<129xi32>, tensor<8xi32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%weights) expected(%weights) : tensor<323205120xi8>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1x3072xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
+      check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
+      check.expect.bitwise actual(%token) expected(%token) : tensor<1xi32>
+    }
+  }
+  check.return
+}

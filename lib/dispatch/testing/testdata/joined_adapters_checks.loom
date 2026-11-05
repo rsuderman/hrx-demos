@@ -1,0 +1,280 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Wiring proof against separately emitted compact execution, not an independent
+// numerical model. M2 immutable anchors and M3 scalar oracles qualify arithmetic.
+command.program.decl @joined.1.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+func.def @reference_1_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %s = buffer.view %status[%origin] : buffer -> view<2xi32>
+  %one = scalar.constant 1 : i32
+  %a = scalar.constant 1 : i32
+  %b = scalar.constant 67 : i32
+  %eos = scalar.constant 128001 : i32
+  view.store %a, %c[0] : i32, view<3xi32>
+  view.store %b, %c[1] : i32, view<3xi32>
+  view.store %eos, %c[2] : i32, view<3xi32>
+  view.store %one, %s[0] : i32, view<2xi32>
+  view.store %one, %s[1] : i32, view<2xi32>
+  func.return
+}
+check.scenario @joined_1_prefill_replay {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %factor = check.generate.fill value(1.0) : tensor<64xf32>
+    %w0_0 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_1 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_2 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_3 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_4 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_5 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_6 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_7 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_8 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w1_0 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_1 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_2 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_3 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_4 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_5 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
+    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<8x3072xf32>
+    %control = check.generate.fill value(-99) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<8xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %status = check.generate.fill value(-99) : tensor<2xi32>
+    check.compare<@joined.1.prefill, @reference_1_prefill>(%factor, %w0_0, %w0_1, %w0_2, %w0_3, %w0_4, %w0_5, %w0_6, %w0_7, %w0_8, %w1_0, %w1_1, %w1_2, %w1_3, %w1_4, %w1_5, %w1_6, %w1_7, %w1_8, %residual, %control, %map, %cache, %status) : (tensor<64xf32>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<8x3072xf32>, tensor<3xi32>, tensor<8xi32>, tensor<2097184xf16>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%factor) expected(%factor) : tensor<64xf32>
+      check.expect.bitwise actual(%w0_0) expected(%w0_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_1) expected(%w0_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_2) expected(%w0_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_3) expected(%w0_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_4) expected(%w0_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_5) expected(%w0_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_6) expected(%w0_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_7) expected(%w0_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_8) expected(%w0_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_0) expected(%w1_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_1) expected(%w1_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_2) expected(%w1_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_3) expected(%w1_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_4) expected(%w1_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_5) expected(%w1_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_6) expected(%w1_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_7) expected(%w1_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_8) expected(%w1_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<8xi32>
+      check.expect.bitwise actual(%status) expected(%status) : tensor<2xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @joined.1.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+func.def @reference_1_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %s = buffer.view %status[%origin] : buffer -> view<2xi32>
+  %one = scalar.constant 1 : i32
+  %a = scalar.constant 257 : i32
+  %b = scalar.constant 8 : i32
+  %eos = scalar.constant 128001 : i32
+  view.store %a, %c[0] : i32, view<3xi32>
+  view.store %b, %c[1] : i32, view<3xi32>
+  view.store %eos, %c[2] : i32, view<3xi32>
+  view.store %one, %s[0] : i32, view<2xi32>
+  view.store %one, %s[1] : i32, view<2xi32>
+  func.return
+}
+check.scenario @joined_1_decode_replay {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %factor = check.generate.fill value(1.0) : tensor<64xf32>
+    %w0_0 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_1 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_2 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_3 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_4 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_5 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_6 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_7 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_8 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w1_0 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_1 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_2 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_3 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_4 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_5 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
+    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<1x3072xf32>
+    %control = check.generate.fill value(-99) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<8xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %status = check.generate.fill value(-99) : tensor<2xi32>
+    check.compare<@joined.1.decode, @reference_1_decode>(%factor, %w0_0, %w0_1, %w0_2, %w0_3, %w0_4, %w0_5, %w0_6, %w0_7, %w0_8, %w1_0, %w1_1, %w1_2, %w1_3, %w1_4, %w1_5, %w1_6, %w1_7, %w1_8, %residual, %control, %map, %cache, %status) : (tensor<64xf32>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<1x3072xf32>, tensor<3xi32>, tensor<8xi32>, tensor<2097184xf16>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%factor) expected(%factor) : tensor<64xf32>
+      check.expect.bitwise actual(%w0_0) expected(%w0_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_1) expected(%w0_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_2) expected(%w0_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_3) expected(%w0_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_4) expected(%w0_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_5) expected(%w0_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_6) expected(%w0_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_7) expected(%w0_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_8) expected(%w0_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_0) expected(%w1_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_1) expected(%w1_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_2) expected(%w1_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_3) expected(%w1_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_4) expected(%w1_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_5) expected(%w1_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_6) expected(%w1_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_7) expected(%w1_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_8) expected(%w1_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<8xi32>
+      check.expect.bitwise actual(%status) expected(%status) : tensor<2xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @joined.2.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+func.def @reference_2_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %s = buffer.view %status[%origin] : buffer -> view<2xi32>
+  %one = scalar.constant 1 : i32
+  %a = scalar.constant 1 : i32
+  %b = scalar.constant 67 : i32
+  %eos = scalar.constant 128001 : i32
+  view.store %a, %c[0] : i32, view<3xi32>
+  view.store %b, %c[1] : i32, view<3xi32>
+  view.store %eos, %c[2] : i32, view<3xi32>
+  view.store %one, %s[0] : i32, view<2xi32>
+  view.store %one, %s[1] : i32, view<2xi32>
+  func.return
+}
+check.scenario @joined_2_prefill_replay {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %factor = check.generate.fill value(1.0) : tensor<64xf32>
+    %w0_0 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_1 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_2 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_3 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_4 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_5 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_6 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_7 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_8 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w1_0 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_1 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_2 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_3 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_4 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_5 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
+    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<8x3072xf32>
+    %control = check.generate.fill value(-99) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<8xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %status = check.generate.fill value(-99) : tensor<2xi32>
+    check.compare<@joined.2.prefill, @reference_2_prefill>(%factor, %w0_0, %w0_1, %w0_2, %w0_3, %w0_4, %w0_5, %w0_6, %w0_7, %w0_8, %w1_0, %w1_1, %w1_2, %w1_3, %w1_4, %w1_5, %w1_6, %w1_7, %w1_8, %residual, %control, %map, %cache, %status) : (tensor<64xf32>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<8x3072xf32>, tensor<3xi32>, tensor<8xi32>, tensor<2097184xf16>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%factor) expected(%factor) : tensor<64xf32>
+      check.expect.bitwise actual(%w0_0) expected(%w0_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_1) expected(%w0_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_2) expected(%w0_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_3) expected(%w0_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_4) expected(%w0_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_5) expected(%w0_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_6) expected(%w0_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_7) expected(%w0_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_8) expected(%w0_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_0) expected(%w1_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_1) expected(%w1_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_2) expected(%w1_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_3) expected(%w1_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_4) expected(%w1_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_5) expected(%w1_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_6) expected(%w1_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_7) expected(%w1_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_8) expected(%w1_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<8xi32>
+      check.expect.bitwise actual(%status) expected(%status) : tensor<2xi32>
+    }
+  }
+  check.return
+}
+command.program.decl @joined.2.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+func.def @reference_2_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
+  %origin = index.constant 0 : offset
+  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %s = buffer.view %status[%origin] : buffer -> view<2xi32>
+  %one = scalar.constant 1 : i32
+  %a = scalar.constant 257 : i32
+  %b = scalar.constant 8 : i32
+  %eos = scalar.constant 128001 : i32
+  view.store %a, %c[0] : i32, view<3xi32>
+  view.store %b, %c[1] : i32, view<3xi32>
+  view.store %eos, %c[2] : i32, view<3xi32>
+  view.store %one, %s[0] : i32, view<2xi32>
+  view.store %one, %s[1] : i32, view<2xi32>
+  func.return
+}
+check.scenario @joined_2_decode_replay {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %factor = check.generate.fill value(1.0) : tensor<64xf32>
+    %w0_0 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_1 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_2 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_3 = check.generate.fill value(18) : tensor<2580480xi8>
+    %w0_4 = check.generate.fill value(18) : tensor<5308416xi8>
+    %w0_5 = check.generate.fill value(1.0) : tensor<3072xf32>
+    %w0_6 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_7 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w0_8 = check.generate.fill value(18) : tensor<14155776xi8>
+    %w1_0 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_1 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_2 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_3 = check.generate.fill value(19) : tensor<2580480xi8>
+    %w1_4 = check.generate.fill value(19) : tensor<5308416xi8>
+    %w1_5 = check.generate.fill value(1.125) : tensor<3072xf32>
+    %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
+    %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
+    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<1x3072xf32>
+    %control = check.generate.fill value(-99) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<8xi32>
+    %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
+    %status = check.generate.fill value(-99) : tensor<2xi32>
+    check.compare<@joined.2.decode, @reference_2_decode>(%factor, %w0_0, %w0_1, %w0_2, %w0_3, %w0_4, %w0_5, %w0_6, %w0_7, %w0_8, %w1_0, %w1_1, %w1_2, %w1_3, %w1_4, %w1_5, %w1_6, %w1_7, %w1_8, %residual, %control, %map, %cache, %status) : (tensor<64xf32>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<3072xf32>, tensor<5308416xi8>, tensor<2580480xi8>, tensor<2580480xi8>, tensor<5308416xi8>, tensor<3072xf32>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<1x3072xf32>, tensor<3xi32>, tensor<8xi32>, tensor<2097184xf16>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%factor) expected(%factor) : tensor<64xf32>
+      check.expect.bitwise actual(%w0_0) expected(%w0_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_1) expected(%w0_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_2) expected(%w0_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_3) expected(%w0_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w0_4) expected(%w0_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w0_5) expected(%w0_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w0_6) expected(%w0_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_7) expected(%w0_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w0_8) expected(%w0_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_0) expected(%w1_0) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_1) expected(%w1_1) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_2) expected(%w1_2) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_3) expected(%w1_3) : tensor<2580480xi8>
+      check.expect.bitwise actual(%w1_4) expected(%w1_4) : tensor<5308416xi8>
+      check.expect.bitwise actual(%w1_5) expected(%w1_5) : tensor<3072xf32>
+      check.expect.bitwise actual(%w1_6) expected(%w1_6) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_7) expected(%w1_7) : tensor<14155776xi8>
+      check.expect.bitwise actual(%w1_8) expected(%w1_8) : tensor<14155776xi8>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<8xi32>
+      check.expect.bitwise actual(%status) expected(%status) : tensor<2xi32>
+    }
+  }
+  check.return
+}

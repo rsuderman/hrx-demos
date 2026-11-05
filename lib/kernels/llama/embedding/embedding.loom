@@ -33,3 +33,37 @@ kernel.def export("llama32_token_embedding_q6k_f32") @llama32_token_embedding_q6
   kernel.return
 }
 
+
+func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+
+kernel.def @llama32_token_embedding_active_q6k_f32(%token_count0: index) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%token_count, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
+  %hidden_size = config.get @llama.model.hidden_size : index
+  %vocabulary = config.get @llama.model.vocabulary_size : index
+  %block_values = index.constant 256 : index
+  %block_bytes = index.constant 210 : index
+  %blocks = index.div %hidden_size, %block_values : index
+  %embedding_row_bytes = index.mul %blocks, %block_bytes : index
+  %row_value = kernel.workgroup.id<x> : index
+  %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %token_count)] : index
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @llama_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    %origin = index.constant 0 : offset
+    %word_bytes = index.constant 4 : offset
+    %row_bytes = index.scale %hidden_size, %word_bytes : index, offset -> offset
+    %output_origin = index.scale %row, %row_bytes : index, offset -> offset
+    %ids = buffer.view %token_ids[%origin] : buffer -> view<[%token_count]xi32>
+    %id32 = view.load %ids[%row] : view<[%token_count]xi32> -> i32
+    %id_value = index.cast %id32 : i32 to index
+    %id = index.assume %id_value [range(%id_value, 0, 128255), lt(%id_value, %vocabulary)] : index
+    %bounded_id = index.cast %id : index to i32
+    template.apply<@llm.token_embedding_q6k_f32.row>(%hidden_size, %embedding_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+  }
+  kernel.return
+}

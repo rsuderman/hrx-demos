@@ -21,12 +21,44 @@ struct AttentionSequenceBindings {
   loomify_gguf::Value control, map, cache, factors;
   loomify_gguf::Value query_projection, key_projection, value_projection;
 };
+struct AttentionNativeConfig {
+  uint64_t layer_count = 28;
+  uint64_t cache_capacity = 0;
+  uint64_t pool_capacity = 0;
+};
+// The actual packet sequence closure, excluding geometry/capacity providers.
+// A combined model loader may merge it with registered family closures once.
+std::vector<NativeSource> AttentionSequenceSources();
+loomc_status_t CreateAttentionConfiguration(loomc_context_t *,
+                                            loomc_workspace_t *,
+                                            const AttentionNativeConfig &,
+                                            loomc_module_t **,
+                                            loomc_result_t **);
+loomc_status_t LoadAttentionSequence(loomc_context_t *, loomc_workspace_t *,
+                                     const std::string &source_root,
+                                     const AttentionNativeConfig &,
+                                     loomc_module_t **, loomc_result_t **);
+// Combines registered operation families and the packet-attention providers
+// under one admitted configuration; implementation variants stay
+// registry-owned.
+loomc_status_t LoadLlamaNative(loomc_context_t *, loomc_workspace_t *,
+                               const Registry &, const std::vector<Id> &,
+                               const std::string &source_root,
+                               const AttentionNativeConfig &, loomc_module_t **,
+                               loomc_result_t **);
 // Loads actual packet kernels and their owned numerical closure. Uses the
 // native declarations for ABI/link checks; no typed graph operation is created.
 loomc_status_t LoadAttentionSequence(loomc_context_t *, loomc_workspace_t *,
                                      const std::string &source_root,
                                      const std::string &capacity_config,
                                      loomc_module_t **, loomc_result_t **);
+// Validates loaded configuration, offsets and kernel interfaces without
+// staging.
+loomc_status_t
+CheckAttentionSequence(loomify_gguf::ModuleBuilder &,
+                       loomify_gguf::CommandProgramBuilder &,
+                       const AttentionSequenceOptions &,
+                       AttentionNativeConfig *configuration = nullptr);
 // Stages all active K/V publication before causal attention, retaining existing
 // mixed F16/F32 policy and inactive attention-row zeroing. Owns Q/output
 // scratch. Caller discards the mutable program after staging failure.

@@ -19,6 +19,8 @@ struct LlamaBuildOptions {
   uint64_t cache_capacity = 0;
   uint64_t history_capacity = 0;
   std::string source_asset;
+  operations::NumericalPolicy attention_policy =
+      operations::NumericalPolicy::F32Accumulate;
 };
 enum class ParameterScope { Global, Layer };
 struct ParameterCoordinate {

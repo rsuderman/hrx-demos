@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: MIT
 #ifndef HRX_SOLUTIONS_LIB_DISPATCH_INVOCATION_H_
 #define HRX_SOLUTIONS_LIB_DISPATCH_INVOCATION_H_
+#include "lib/dispatch/attention_sequence.h"
 #include "lib/dispatch/registry.h"
 #include "lib/dispatch/shapes/result.h"
+#include "lib/llama/structure.h"
 #include "tools/loomify-gguf/authoring/commands/command_values.h"
 #include <utility>
 
@@ -23,11 +25,10 @@ public:
   loomc_status_t Bind(operations::ValueId logical, loomify_gguf::Value native);
   loomc_status_t Parameter(operations::ValueId logical,
                            loomify_gguf::Value parameters, std::string key);
-  // Prefill families consume existing control state (count at byte offset
-  // zero). Full-row static graph spans are supported here; active subspans need
-  // their native mapping before admission. Decode needs no external control
-  // buffer.
+  // Standalone prefill families consume count at byte zero. Packet-based
+  // Llama emission instead configures LlamaRows once for all consumers.
   loomc_status_t Control(loomify_gguf::Value control);
+  loomc_status_t LlamaRows(const NativeLlamaRows &rows);
   const operations::OperationGraph &graph() const { return graph_; }
   // An explicit compile-time proof-entry assertion, not inferred from capacity:
   // these exact I64 control identities mean begin=0/count=1 for this
@@ -41,6 +42,14 @@ public:
   loomc_status_t EmitExisting(Id dispatch,
                               const operations::Invocation &invocation,
                               const std::string &variant = {});
+  // Emits the packet subregion of one recorded normalized attention layer.
+  // Positions are the configured packet derivation; typed K/V planes remain
+  // distinct logical effects and are mapped internally onto the arena.
+  loomc_status_t EmitAttentionRegion(const llama::LlamaStructure &owner,
+                                     llama::LlamaRegion selection,
+                                     const AttentionSequenceOptions &options,
+                                     loomify_gguf::Value map,
+                                     loomify_gguf::Value cache);
   // Returns precisely the scoped native buffer used by the emitted call.
   loomc_status_t Native(operations::ValueId logical,
                         loomify_gguf::Value *out) const;
@@ -60,6 +69,9 @@ private:
   };
   const Binding *Find(operations::ValueId logical) const;
   loomc_status_t CheckBuffer(loomify_gguf::Value native) const;
+  loomc_status_t CheckPacket(loomify_gguf::Value native) const;
+  bool Reserved(operations::ValueId logical) const;
+  loomc_status_t StageCount();
   loomc_status_t FailMutation(loomc_status_t status);
   const Registry &registry_;
   const operations::OperationGraph &graph_;
@@ -72,6 +84,9 @@ private:
   bool failed_ = false;
   bool started_ = false;
   bool one_row_ = false;
+  bool has_llama_rows_ = false, has_count_ = false;
+  NativeLlamaRows llama_rows_;
+  loomify_gguf::Value count_;
   operations::ValueId row_begin_, row_count_;
   bool has_emitted_existing_ = false;
   size_t last_existing_ = 0;
@@ -94,6 +109,9 @@ public:
   }
   loomc_status_t Control(loomify_gguf::Value control) {
     return session_.Control(control);
+  }
+  loomc_status_t LlamaRows(const NativeLlamaRows &rows) {
+    return session_.LlamaRows(rows);
   }
   loomc_status_t Native(operations::ValueId logical,
                         loomify_gguf::Value *out) const {

@@ -104,6 +104,14 @@ TEST_F(AttentionDispatchTest,
   OperationAttrs attrs = a;
   EXPECT_TRUE(registry.Resolve(Id::CausalAttention,
                                {graph, attrs, operands, result}, {}, &error));
+  a.numerical_policy = NumericalPolicy::LlamaPacketMixed;
+  ASSERT_TRUE(shapes::InferResult(graph, OpCode::CausalAttention, a, operands,
+                                  &result, &error))
+      << error;
+  attrs = a;
+  EXPECT_FALSE(registry.Resolve(Id::CausalAttention,
+                                {graph, attrs, operands, result}, {}, &error));
+  a.numerical_policy = NumericalPolicy::F32Accumulate;
   a.scale = 1;
   attrs = a;
   EXPECT_FALSE(registry.Resolve(Id::CausalAttention,

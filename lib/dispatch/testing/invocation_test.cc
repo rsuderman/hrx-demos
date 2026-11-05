@@ -1,5 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
+#include "lib/dispatch/attention_sequence.h"
 #include "lib/dispatch/invocation.h"
 #include "lib/llama/detail/ffn_structure.h"
 #include "lib/llama/detail/structure_construction.h"
@@ -202,14 +203,16 @@ TEST_F(InvocationTest, RegisteredVariantsLoadAndRouteWithoutModelEnumeration) {
   ASSERT_TRUE(
       Ok(ModuleBuilder::Create(context, workspace, definitions, &authored)));
   loomc_module_release(definitions);
-  KernelRef original, alternate;
+  KernelRef original, alternate, active, count_helper;
   ASSERT_TRUE(Ok(authored->Kernel(base.symbol, &original)));
   ASSERT_TRUE(Ok(
       DefineLlamaRmsNorm(*authored, "registered.authored_norm", &alternate)));
+  ASSERT_TRUE(Ok(authored->Kernel("llama32_rmsnorm_active_f32", &active)));
+  ASSERT_TRUE(Ok(authored->Kernel("llama32_head_count", &count_helper)));
   loomc_module_t *provider = nullptr;
   loomc_result_t *result = nullptr;
-  ASSERT_TRUE(
-      Ok(authored->LinkAndVerify({original, alternate}, &provider, &result)));
+  ASSERT_TRUE(Ok(authored->LinkAndVerify(
+      {original, alternate, active, count_helper}, &provider, &result)));
   ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
   loomc_result_release(result);
   const auto directory =
@@ -1258,6 +1261,464 @@ TEST_F(InvocationTest,
   Save(linked, "f32-epsilon");
   Compile(context, workspace, environment, linked, "f32_epsilon");
   loomc_module_release(linked);
+}
+
+TEST_F(InvocationTest, LlamaRowsReserveDerivationsAndFreezePacketAuthority) {
+  auto registry = Registry::Llama3B();
+  auto *definitions = LoadEntry(*registry.Find(Id::OutputHead));
+  ASSERT_NE(definitions, nullptr);
+  std::unique_ptr<ModuleBuilder> module;
+  ASSERT_TRUE(
+      Ok(ModuleBuilder::Create(context, workspace, definitions, &module)));
+  loomc_module_release(definitions);
+  std::unique_ptr<CommandProgramBuilder> program;
+  ASSERT_TRUE(Ok(module->DefineProgram("row_contract", {}, 2, &program)));
+  OperationRegistry defs;
+  OperationGraph graph(defs);
+  std::string error;
+  NativeLlamaRows rows;
+  rows.row_begin = graph.scalar(ScalarType::I64, &error);
+  rows.row_count = graph.scalar(ScalarType::I64, &error);
+  rows.count_control =
+      graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  rows.packet_positions =
+      graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  rows.row_capacity = 3;
+  rows.packet = program->Binding(0);
+  auto bad = rows;
+  auto rejects = [&](const NativeLlamaRows &candidate) {
+    NativeEmissionSession attempt(registry, graph, *module, *program);
+    EXPECT_FALSE(Ok(attempt.LlamaRows(candidate)));
+  };
+  bad.row_count = rows.row_begin;
+  rejects(bad);
+  bad = rows;
+  bad.row_begin = graph.scalar(ScalarType::I32, &error);
+  rejects(bad);
+  OperationGraph foreign(defs);
+  bad = rows;
+  bad.row_count = foreign.scalar(ScalarType::I64, &error);
+  rejects(bad);
+  for (auto capacity : {0u, 513u}) {
+    bad = rows;
+    bad.row_capacity = capacity;
+    rejects(bad);
+  }
+  bad = rows;
+  bad.token_begin = 3;
+  rejects(bad);
+  bad = rows;
+  bad.control_origin = UINT64_MAX;
+  rejects(bad);
+  bad = rows;
+  bad.phase = Phase::Decode;
+  rejects(bad);
+  bad = rows;
+  bad.count_control = rows.packet_positions;
+  rejects(bad);
+  bad = rows;
+  bad.packet_positions =
+      graph.tensor(TensorType::vector(2, ElementType::I32), &error);
+  rejects(bad);
+  bad = rows;
+  bad.count_control =
+      graph.tensor(TensorType::vector(3, ElementType::F32), &error);
+  rejects(bad);
+  NativeEmissionSession prebound(registry, graph, *module, *program);
+  ASSERT_TRUE(Ok(prebound.Bind(rows.count_control, program->Binding(1))));
+  EXPECT_FALSE(Ok(prebound.LlamaRows(rows)));
+  NativeEmissionSession conflict(registry, graph, *module, *program);
+  ASSERT_TRUE(Ok(conflict.Control(program->Binding(1))));
+  EXPECT_FALSE(Ok(conflict.LlamaRows(rows)));
+  NativeEmissionSession session(registry, graph, *module, *program);
+  ASSERT_TRUE(Ok(session.Control(rows.packet)));
+  ASSERT_TRUE(Ok(session.LlamaRows(rows)));
+  EXPECT_FALSE(Ok(session.LlamaRows(rows)));
+  EXPECT_FALSE(Ok(session.SpecializeOneRow(rows.row_begin, rows.row_count)));
+  EXPECT_TRUE(Ok(session.Control(rows.packet)));
+  EXPECT_FALSE(Ok(session.Control(program->Binding(1))));
+  EXPECT_FALSE(Ok(session.Bind(rows.count_control, program->Binding(1))));
+  EXPECT_FALSE(Ok(session.Parameter(rows.packet_positions, program->Binding(1),
+                                    "positions")));
+  Value private_count;
+  EXPECT_FALSE(Ok(session.Native(rows.count_control, &private_count)));
+  ASSERT_TRUE(Ok(program->Finish()));
+}
+TEST_F(InvocationTest, ConfiguredRowsRequireExactLogicalProducerControls) {
+  auto registry = Registry::Llama3B();
+  auto *definitions = LoadEntry(*registry.Find(Id::RmsNorm));
+  ASSERT_NE(definitions, nullptr);
+  std::unique_ptr<ModuleBuilder> module;
+  ASSERT_TRUE(
+      Ok(ModuleBuilder::Create(context, workspace, definitions, &module)));
+  loomc_module_release(definitions);
+  std::unique_ptr<CommandProgramBuilder> program;
+  ASSERT_TRUE(Ok(module->DefineProgram("no_unguarded_rows", {}, 3, &program)));
+  OperationRegistry defs;
+  std::string error;
+  ASSERT_TRUE(DefineRmsNorm(&defs, &error));
+  OperationGraph graph(defs);
+  auto x = graph.tensor(TensorType::matrix(8, 3072, ElementType::F32), &error);
+  auto gamma = graph.tensor(TensorType::vector(3072, ElementType::F32), &error);
+  NativeLlamaRows rows;
+  rows.row_begin = graph.scalar(ScalarType::I64, &error);
+  rows.row_count = graph.scalar(ScalarType::I64, &error);
+  rows.row_capacity = 8;
+  rows.token_begin = 2;
+  rows.packet = program->Binding(2);
+  InvocationProgram author(registry, graph, *module, *program);
+  ASSERT_TRUE(Ok(author.Bind(x, program->Binding(0))));
+  ASSERT_TRUE(Ok(author.Bind(gamma, program->Binding(1))));
+  ASSERT_TRUE(Ok(author.LlamaRows(rows)));
+  ValueId result;
+  EXPECT_FALSE(
+      Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072, 1e-5},
+                       {{Port::Input, x}, {Port::Gamma, gamma}}, &result)));
+  EXPECT_TRUE(graph.invocations().empty());
+  auto different_begin = graph.scalar(ScalarType::I64, &error);
+  EXPECT_FALSE(Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072, 1e-5},
+                                {{Port::Input, x},
+                                 {Port::Gamma, gamma},
+                                 {Port::RowBegin, different_begin},
+                                 {Port::RowCount, rows.row_count}},
+                                &result)));
+  auto wrong_capacity =
+      graph.tensor(TensorType::matrix(9, 3072, ElementType::F32), &error);
+  ASSERT_TRUE(Ok(author.Bind(wrong_capacity, program->Binding(0))));
+  EXPECT_FALSE(Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072, 1e-5},
+                                {{Port::Input, wrong_capacity},
+                                 {Port::Gamma, gamma},
+                                 {Port::RowBegin, rows.row_begin},
+                                 {Port::RowCount, rows.row_count}},
+                                &result)));
+  EXPECT_TRUE(graph.invocations().empty());
+  ASSERT_TRUE(Ok(author.Invoke(Id::RmsNorm, RmsNormAttrs{3072, 1e-5},
+                               {{Port::Input, x},
+                                {Port::Gamma, gamma},
+                                {Port::RowBegin, rows.row_begin},
+                                {Port::RowCount, rows.row_count}},
+                               &result)));
+  ASSERT_TRUE(Ok(program->Finish()));
+}
+TEST_F(InvocationTest, ConfiguredHeadBindsInternalCountWithoutExternalBind) {
+  auto registry = Registry::Llama3B();
+  auto *definitions = LoadEntry(*registry.Find(Id::OutputHead));
+  ASSERT_NE(definitions, nullptr);
+  std::unique_ptr<ModuleBuilder> module;
+  ASSERT_TRUE(
+      Ok(ModuleBuilder::Create(context, workspace, definitions, &module)));
+  loomc_module_release(definitions);
+  std::unique_ptr<CommandProgramBuilder> program;
+  ASSERT_TRUE(Ok(module->DefineProgram("count_bound_head", {}, 4, &program)));
+  OperationRegistry defs;
+  std::string error;
+  ASSERT_TRUE(DefineOutputHead(&defs, &error));
+  OperationGraph graph(defs);
+  auto x = graph.tensor(TensorType::matrix(8, 3072, ElementType::F32), &error);
+  auto gamma = graph.tensor(TensorType::vector(3072, ElementType::F32), &error);
+  auto type = TensorType::matrix(3072, 128256, ElementType::F32);
+  type.setEncoding(Encoding::Q6_K).setLayout(Layout::GgmlWeightRows);
+  auto weight = graph.tensor(type, &error);
+  NativeLlamaRows rows;
+  rows.row_begin = graph.scalar(ScalarType::I64, &error);
+  rows.row_count = graph.scalar(ScalarType::I64, &error);
+  rows.count_control =
+      graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  rows.row_capacity = 8;
+  rows.token_begin = 2;
+  rows.packet = program->Binding(3);
+  auto wrong = graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  InvocationProgram author(registry, graph, *module, *program);
+  ASSERT_TRUE(Ok(author.Bind(x, program->Binding(0))));
+  ASSERT_TRUE(Ok(author.Bind(gamma, program->Binding(1))));
+  ASSERT_TRUE(
+      Ok(author.Parameter(weight, program->Binding(2), "token_embd.weight")));
+  ASSERT_TRUE(Ok(author.Bind(wrong, program->Binding(3))));
+  ASSERT_TRUE(Ok(author.LlamaRows(rows)));
+  ValueId token;
+  auto inputs = std::vector<shapes::Operand>{{Port::Input, x},
+                                             {Port::Gamma, gamma},
+                                             {Port::Weight, weight},
+                                             {Port::Control, wrong}};
+  EXPECT_FALSE(Ok(author.Invoke(Id::OutputHead, OutputHeadAttrs{3072, 128256},
+                                inputs, &token)));
+  EXPECT_TRUE(graph.invocations().empty());
+  inputs.back().value = rows.count_control;
+  ASSERT_TRUE(Ok(author.Invoke(Id::OutputHead, OutputHeadAttrs{3072, 128256},
+                               inputs, &token)));
+  Value count;
+  ASSERT_TRUE(Ok(author.Native(rows.count_control, &count)));
+  ASSERT_TRUE(Ok(program->InspectNative(
+      {count, rows.packet},
+      [](const loom_module_t *, const std::vector<loom_value_id_t> &ids) {
+        EXPECT_NE(ids[0], ids[1]);
+        return iree_ok_status();
+      })));
+  EXPECT_FALSE(Ok(author.LlamaRows(rows)));
+  ASSERT_TRUE(Ok(program->Finish()));
+  loomc_module_t *linked = nullptr;
+  loomc_result_t *result = nullptr;
+  ASSERT_TRUE(Ok(module->LinkAndVerify({program->Ref()}, &linked, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+  loomc_result_release(result);
+  std::string text;
+  ASSERT_TRUE(Ok(Dump(linked, &text)));
+  EXPECT_NE(text.find("llama32_head_count"), std::string::npos);
+  Save(linked, "configured-count-head");
+  loomc_module_release(linked);
+}
+
+TEST_F(InvocationTest,
+       AttentionConfigurationUsesActualLayerCountAndRoundtrips) {
+  for (uint64_t layers : {1, 2, 28, 29}) {
+    AttentionNativeConfig config{layers, 128, 128};
+    loomc_module_t *loaded = nullptr;
+    loomc_result_t *result = nullptr;
+    ASSERT_TRUE(Ok(LoadAttentionSequence(context, workspace, root, config,
+                                         &loaded, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
+    loomc_result_release(result);
+    loomc_module_serialize_options_t options{};
+    options.type = LOOMC_STRUCTURE_TYPE_MODULE_SERIALIZE_OPTIONS;
+    options.structure_size = sizeof(options);
+    loomc_source_t *source = nullptr;
+    ASSERT_TRUE(Ok(loomc_module_serialize_text_to_source(
+        loaded, &options, loomc_allocator_system(), &source)));
+    loomc_module_release(loaded);
+    loomc_module_t *reloaded = nullptr;
+    result = nullptr;
+    ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
+        context, workspace, source, nullptr, loomc_allocator_system(),
+        &reloaded, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
+    loomc_result_release(result);
+    loomc_source_release(source);
+    std::unique_ptr<ModuleBuilder> module;
+    ASSERT_TRUE(
+        Ok(ModuleBuilder::Create(context, workspace, reloaded, &module)));
+    loomc_module_release(reloaded);
+    std::unique_ptr<CommandProgramBuilder> program;
+    ASSERT_TRUE(Ok(module->DefineProgram("actual_layers", {}, 7, &program)));
+    AttentionSequenceBindings bindings{program->Binding(0), program->Binding(1),
+                                       program->Binding(2), program->Binding(3),
+                                       program->Binding(4), program->Binding(5),
+                                       program->Binding(6)};
+    AttentionSequenceOptions options_native;
+    options_native.layer = layers;
+    Value output;
+    EXPECT_FALSE(Ok(BuildAttentionSequence(*module, *program, options_native,
+                                           bindings, &output)));
+    options_native.layer = 0;
+    ASSERT_TRUE(Ok(BuildAttentionSequence(*module, *program, options_native,
+                                          bindings, &output)));
+    options_native.layer = layers - 1;
+    ASSERT_TRUE(Ok(BuildAttentionSequence(*module, *program, options_native,
+                                          bindings, &output)));
+    ASSERT_TRUE(Ok(program->Finish()));
+    loomc_module_t *linked = nullptr;
+    result = nullptr;
+    ASSERT_TRUE(Ok(module->LinkAndVerify({program->Ref()}, &linked, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
+    loomc_result_release(result);
+    if (layers == 29)
+      Compile(context, workspace, environment, linked, "actual_layers");
+    Save(linked, std::string("attention-layers-") + std::to_string(layers));
+    loomc_module_release(linked);
+  }
+}
+TEST_F(InvocationTest, AttentionConfigurationIsBorrowedAndRejectsConflicts) {
+  loomc_module_t *config = nullptr;
+  loomc_result_t *result = nullptr;
+  ASSERT_TRUE(Ok(CreateAttentionConfiguration(context, workspace, {2, 128, 128},
+                                              &config, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result));
+  loomc_result_release(result);
+  auto sources = AttentionSequenceSources();
+  loomc_module_t *loaded = nullptr;
+  result = nullptr;
+  ASSERT_TRUE(Ok(
+      LoadNative(context, workspace, sources, root, config, &loaded, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+  loomc_result_release(result);
+  std::string text;
+  EXPECT_TRUE(Ok(Dump(config, &text))); // loader did not consume caller input
+  loomc_module_release(config);
+  config = nullptr;
+  EXPECT_TRUE(Ok(Dump(loaded, &text))); // merged result owns its definitions
+  loomc_module_release(loaded);
+  loaded = nullptr;
+  result = nullptr;
+  auto missing =
+      LoadNative(context, workspace, sources, root, &loaded, &result);
+  EXPECT_TRUE(!loomc_status_is_ok(missing) || !result ||
+              !loomc_result_succeeded(result));
+  loomc_status_free(missing);
+  EXPECT_EQ(loaded,
+            nullptr); // missing required geometry/capacity configuration
+  if (result)
+    loomc_result_release(result);
+  result = nullptr;
+  EXPECT_FALSE(Ok(CreateAttentionConfiguration(
+      context, workspace, {0, 128, 128}, &config, &result)));
+  EXPECT_EQ(config, nullptr);
+  EXPECT_FALSE(Ok(CreateAttentionConfiguration(context, workspace, {1, 128, 65},
+                                               &config, &result)));
+  EXPECT_FALSE(Ok(CreateAttentionConfiguration(
+      context, workspace, {UINT64_MAX, 128, 128}, &config, &result)));
+  ASSERT_TRUE(Ok(CreateAttentionConfiguration(context, workspace, {2, 128, 128},
+                                              &config, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result));
+  loomc_result_release(result);
+  sources[0].provider_files.push_back(
+      "lib/kernels/llama/attention/attention_config.loom");
+  result = nullptr;
+  auto status =
+      LoadNative(context, workspace, sources, root, config, &loaded, &result);
+  EXPECT_TRUE(!loomc_status_is_ok(status) || !result ||
+              !loomc_result_succeeded(result));
+  loomc_status_free(status);
+  EXPECT_EQ(loaded, nullptr);
+  if (result)
+    loomc_result_release(result);
+  loomc_module_release(config);
+}
+
+TEST_F(InvocationTest, OneRowHeadCannotOverwriteReservedPositions) {
+  auto registry = Registry::Llama3B();
+  auto *definitions = LoadEntry(*registry.Find(Id::OutputHead));
+  ASSERT_NE(definitions, nullptr);
+  std::unique_ptr<ModuleBuilder> module;
+  ASSERT_TRUE(
+      Ok(ModuleBuilder::Create(context, workspace, definitions, &module)));
+  loomc_module_release(definitions);
+  std::unique_ptr<CommandProgramBuilder> program;
+  ASSERT_TRUE(Ok(module->DefineProgram("reserved_output", {}, 4, &program)));
+  OperationRegistry defs;
+  std::string error;
+  ASSERT_TRUE(DefineOutputHead(&defs, &error));
+  OperationGraph graph(defs);
+  auto x = graph.tensor(TensorType::matrix(1, 3072, ElementType::F32), &error);
+  auto gamma = graph.tensor(TensorType::vector(3072, ElementType::F32), &error);
+  auto type = TensorType::matrix(3072, 128256, ElementType::F32);
+  type.setEncoding(Encoding::Q6_K).setLayout(Layout::GgmlWeightRows);
+  auto weight = graph.tensor(type, &error);
+  NativeLlamaRows rows;
+  rows.row_begin = graph.scalar(ScalarType::I64, &error);
+  rows.row_count = graph.scalar(ScalarType::I64, &error);
+  rows.count_control =
+      graph.tensor(TensorType::vector(3, ElementType::I32), &error);
+  rows.packet_positions =
+      graph.tensor(TensorType::vector(1, ElementType::I32), &error);
+  rows.packet = program->Binding(3);
+  auto append = [&](ValueId output) {
+    return graph.operation(OpCode::OutputHead)
+        .bind(Port::Input, x)
+        .bind(Port::Gamma, gamma)
+        .bind(Port::Weight, weight)
+        .bind(Port::Control, rows.count_control)
+        .bind(Port::Output, output)
+        .attributes(OutputHeadAttrs{3072, 128256})
+        .append(&error);
+  };
+  ASSERT_TRUE(append(rows.packet_positions)) << error;
+  NativeEmissionSession session(registry, graph, *module, *program);
+  ASSERT_TRUE(Ok(session.Bind(x, program->Binding(0))));
+  ASSERT_TRUE(Ok(session.Bind(gamma, program->Binding(1))));
+  ASSERT_TRUE(
+      Ok(session.Parameter(weight, program->Binding(2), "token_embd.weight")));
+  ASSERT_TRUE(Ok(session.LlamaRows(rows)));
+  EXPECT_FALSE(
+      Ok(session.EmitExisting(Id::OutputHead, graph.invocations()[0])));
+  Value native;
+  EXPECT_FALSE(Ok(session.Native(rows.count_control, &native)));
+  auto token = graph.tensor(TensorType::vector(1, ElementType::I32), &error);
+  ASSERT_TRUE(append(token)) << error;
+  // Rejection occurred before staging, so the same session remains usable.
+  ASSERT_TRUE(Ok(session.EmitExisting(Id::OutputHead, graph.invocations()[1])));
+  EXPECT_TRUE(Ok(session.Native(token, &native)));
+  EXPECT_FALSE(Ok(session.Native(rows.packet_positions, &native)));
+  ASSERT_TRUE(Ok(program->Finish()));
+}
+
+TEST_F(InvocationTest,
+       ControlledCustomImplementationsNeverFallbackToBuiltinMath) {
+  for (bool embedding : {false, true}) {
+    auto builtins = Registry::Llama3B();
+    auto id = embedding ? Id::Embedding : Id::RmsNorm;
+    auto entry = *builtins.Find(id);
+    loomc_module_t *definitions = nullptr;
+    loomc_result_t *loaded_result = nullptr;
+    ASSERT_TRUE(Ok(Load(context, workspace, builtins, {id, Id::RmsNorm}, root,
+                        &definitions, &loaded_result)));
+    ASSERT_TRUE(loaded_result && loomc_result_succeeded(loaded_result))
+        << Diagnostics(loaded_result);
+    loomc_result_release(loaded_result);
+    ASSERT_NE(definitions, nullptr);
+    std::unique_ptr<ModuleBuilder> module;
+    ASSERT_TRUE(
+        Ok(ModuleBuilder::Create(context, workspace, definitions, &module)));
+    loomc_module_release(definitions);
+    KernelRef custom;
+    ASSERT_TRUE(
+        Ok(DefineLlamaRmsNorm(*module, "custom.implementation", &custom)));
+    entry.symbol = "custom.implementation";
+    entry.variant = "custom";
+    Registry registry;
+    std::string error;
+    ASSERT_TRUE(registry.Add(entry, &error)) << error;
+    std::unique_ptr<CommandProgramBuilder> program;
+    ASSERT_TRUE(
+        Ok(module->DefineProgram("controlled_custom", {}, 3, &program)));
+    OperationRegistry defs;
+    ASSERT_TRUE(embedding ? DefineEmbedding(&defs, &error)
+                          : DefineRmsNorm(&defs, &error));
+    OperationGraph graph(defs);
+    auto x =
+        graph.tensor(embedding ? TensorType::vector(8, ElementType::I32)
+                               : TensorType::matrix(8, 3072, ElementType::F32),
+                     &error);
+    auto type = embedding ? TensorType::matrix(3072, 128256, ElementType::F32)
+                          : TensorType::vector(3072, ElementType::F32);
+    if (embedding)
+      type.setEncoding(Encoding::Q6_K).setLayout(Layout::GgmlWeightRows);
+    auto weight = graph.tensor(type, &error);
+    NativeLlamaRows rows;
+    rows.row_begin = graph.scalar(ScalarType::I64, &error);
+    rows.row_count = graph.scalar(ScalarType::I64, &error);
+    rows.row_capacity = 8;
+    rows.token_begin = 2;
+    rows.packet = program->Binding(2);
+    InvocationProgram author(registry, graph, *module, *program);
+    ASSERT_TRUE(Ok(author.Bind(x, program->Binding(0))));
+    if (embedding)
+      ASSERT_TRUE(Ok(author.Parameter(weight, program->Binding(1), "weight")));
+    else
+      ASSERT_TRUE(Ok(author.Bind(weight, program->Binding(1))));
+    ASSERT_TRUE(Ok(author.LlamaRows(rows)));
+    ValueId result;
+    std::vector<shapes::Operand> inputs{
+        {embedding ? Port::TokenIds : Port::Input, x},
+        {embedding ? Port::Weight : Port::Gamma, weight},
+        {Port::RowBegin, rows.row_begin},
+        {Port::RowCount, rows.row_count}};
+    OperationAttrs attrs = embedding
+                               ? OperationAttrs(EmbeddingAttrs{128256, 3072})
+                               : OperationAttrs(RmsNormAttrs{3072, 1e-5});
+    auto status = author.Invoke(id, attrs, inputs, &result, "custom");
+    ASSERT_FALSE(loomc_status_is_ok(status));
+    EXPECT_NE(Message(status).find("no active-row adapter"), std::string::npos);
+    EXPECT_FALSE(result.valid());
+    EXPECT_TRUE(graph.invocations().empty());
+    // The count snapshot was already staged. This native capability failure
+    // follows terminal discard-owner semantics, not recoverable preflight.
+    Value native;
+    EXPECT_FALSE(Ok(author.Native(x, &native)));
+    EXPECT_FALSE(Ok(author.Invoke(id, attrs, inputs, &result, "custom")));
+    EXPECT_TRUE(graph.invocations().empty());
+  }
 }
 
 } // namespace

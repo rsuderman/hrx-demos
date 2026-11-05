@@ -102,25 +102,45 @@ bookkeeping for temporaries. Named immutable parameter mappings cannot be output
 original builder's body scope. Mutable `Invoke` delegates native staging here,
 then adds its newly inferred logical result and invocation exactly once.
 
-The first owner-resolved FFN proof contains explicit logical row controls. Use
-`SpecializeOneRow(owner.inputs().row_begin, owner.inputs().row_count)` once before
-emission to assert that these exact owned I64 controls mean begin zero/count one
-for the entire proof entrypoint. `one_row_specialized()` reports that explicit
-setting. Only full capacity one is admitted under this setting; capacity one
-alone and unresolved runtime scalars do not establish it. Mismatched controls,
-other capacities and late/repeated specialization fail. The original graph still
-retains the control operands for inspection and shape verification; native staging
-omits only the explicitly specialized pair. Prefill continues to require the
-existing control buffer with its i32 count field at byte zero fixed to one by the
-caller. This is a named compile-time proof contract, not a general Loom Serve
-entrypoint or a runtime bounds check.
+Configure packet-based Llama emission with `LlamaRows`: the original packet,
+phase, physical row capacity, static row origin and the graph's exact row-control
+identities. The session owns a separate three-word count snapshot and derives
+prefill count N or decode count one at each invocation. Optional `count_control`
+and `packet_positions` identities are reserved for that derivation and cannot be
+bound by callers. Head consumes the private count; publication consumes the
+original packet. Capacity sizes allocation; active count selects provider policy.
+Guarded norm, embedding, projection and whole-FFN producers support partial spans.
+Unwritten private rows need no initialization. Existing public `SpecializeOneRow`
+remains an explicit standalone begin-zero/count-one proof entrypoint.
 
-Native tests exercise const owner-resolved FFN references in both phases and both
-down formats, preserve every original graph/value identity, inspect actual native
-output/alias buffers, and strictly link/serialize/target-compile the generated
-module. Named norm gamma and compiled parameter-root binding remain a separate
-parameter checkpoint; this extraction's const fixture uses an explicit gamma
-boundary. No numerical or dynamic active-view qualification is claimed.
+`EmitAttentionRegion(owner, selection, options, map, arena)` takes a recorded
+single-layer Attention selection from the session's actual `LlamaStructure`.
+It emits the contiguous Rope/RotatePublishKV/CausalAttention portion, consumes its
+forward operation range, and binds the existing attended output. Logical graph
+counts and identities stay unchanged. Prefix Q/K/V projections may be earlier
+emissions or explicitly bound component boundaries. Rotated Q stays private;
+prebound or exported intermediates and prebound attended outputs are rejected.
+Positions must be the configured packet-derived identity on all three operations.
+The layer's distinct logical K/V planes remain tracked effects; callers do not
+bind both to a shared arena base. Vector layer slots, capacity and fixed rotary/
+causal attributes are checked against the actual loaded configuration. Factors
+resolve through the owner's global `rope_frequencies` role and canonical named
+binding; component tests may bind that same logical factor as a buffer.
+
+Packet attention requires explicit `NumericalPolicy::LlamaPacketMixed`, carried
+by `LlamaBuildOptions::attention_policy`. The typed dense attention dispatch
+continues to accept only `F32Accumulate`. Packet providers retain their existing
+internal precision routing. `LoadLlamaNative` combines registered operation IDs,
+packet providers and one admitted configuration without model-side variant lists.
+`Id::AttentionOutput` supports the Q4_K/Q6_K LinearResidual operation: fresh
+projection scratch followed by the guarded residual add, returning the original
+residual alias.
+
+Admission failures before staging leave bindings and forward order unchanged.
+Native failure after staging is terminal: discard the session and mutable native
+owner. Unsupported controlled custom norm/embedding variants are in this latter
+category because the private count may already have been staged. No successful
+partial graph result is published.
 
 ## Binding owner parameters
 

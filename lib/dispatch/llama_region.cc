@@ -38,8 +38,10 @@ bool FfnRegion::Select(std::shared_ptr<const llama::LlamaStructure> owner,
   if (selection.kind != llama::LlamaRegionKind::Ffn ||
       selection.layer_count != 1)
     return Fail(error, "expected one recorded FFN region");
-  if (owner->options().row_capacity != 1)
-    return Fail(error, "FFN checkpoint requires one static full row");
+  if (!owner->options().row_capacity || owner->options().row_capacity > 512 ||
+      (owner->options().phase == Phase::Decode &&
+       owner->options().row_capacity != 1))
+    return Fail(error, "unsupported FFN row capacity for phase");
   llama::LlamaRegionView view;
   if (!owner->select(selection, &view, error))
     return false;
@@ -126,9 +128,8 @@ bool FfnRegion::Select(std::shared_ptr<const llama::LlamaStructure> owner,
       new FfnRegion(std::move(owner), std::move(view), std::move(ids)));
   return true;
 }
-bool FfnRegion::EmitOneRow(NativeEmissionSession &session,
-                           loomify_gguf::Value parameters,
-                           std::string *error) const {
+bool FfnRegion::Emit(NativeEmissionSession &session,
+                     loomify_gguf::Value parameters, std::string *error) const {
   if (&session.graph() != &owner_->graph())
     return Fail(error, "FFN emission session belongs to another owner");
   auto check = [&](loomc_status_t status) {
@@ -140,9 +141,7 @@ bool FfnRegion::EmitOneRow(NativeEmissionSession &session,
     loomc_status_free(status);
     return ok;
   };
-  const auto &inputs = owner_->inputs();
-  if (!check(session.SpecializeOneRow(inputs.row_begin, inputs.row_count)) ||
-      !BindRegionParameters(*owner_, view_, parameters, session, error))
+  if (!BindRegionParameters(*owner_, view_, parameters, session, error))
     return false;
   for (size_t i = view_.operation_begin; i < view_.operation_end; ++i)
     if (!check(session.EmitExisting(dispatches_[i - view_.operation_begin],

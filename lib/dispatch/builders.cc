@@ -61,6 +61,9 @@ loomc_status_t BuildOwned(const Registration &registration, BuildContext &ctx,
   const bool norm = entry->operation == OpCode::RmsNorm;
   const bool gate = entry->operation == OpCode::GatedMatmul;
   const bool decode = entry->phase == Phase::Decode;
+  if (norm && ctx.llama_rows && entry->symbol != "llama32_rmsnorm_f32")
+    return Error(
+        "selected normalization implementation has no active-row adapter");
   const auto *weight = operand(norm   ? Port::Gamma
                                : gate ? Port::GateWeight
                                       : Port::Weight);
@@ -109,8 +112,11 @@ loomc_status_t BuildOwned(const Registration &registration, BuildContext &ctx,
     return Error("FFN weights require named parameters");
   KernelRef kernel, pack;
   CommandFamilyRef family;
-  auto status = norm ? ctx.module.Kernel(entry->symbol, &kernel)
-                     : ctx.module.CommandFamily(entry->symbol, &family);
+  auto status =
+      norm ? ctx.module.Kernel(ctx.llama_rows ? "llama32_rmsnorm_active_f32"
+                                              : entry->symbol,
+                               &kernel)
+           : ctx.module.CommandFamily(entry->symbol, &family);
   if (!loomc_status_is_ok(status))
     return status;
   const auto index_type = ctx.module.Scalar(LOOM_SCALAR_TYPE_INDEX);
@@ -118,7 +124,13 @@ loomc_status_t BuildOwned(const Registration &registration, BuildContext &ctx,
   if (norm) {
     status = ctx.module.CheckKernelInterface(
         kernel, {index_type},
-        {index_type, buffer_type, buffer_type, buffer_type});
+        ctx.llama_rows
+            ? std::vector<Type>{index_type, index_type,
+                                ctx.module.Scalar(LOOM_SCALAR_TYPE_OFFSET),
+                                buffer_type, buffer_type, buffer_type,
+                                buffer_type}
+            : std::vector<Type>{index_type, buffer_type, buffer_type,
+                                buffer_type});
     if (!loomc_status_is_ok(status))
       return status;
   } else {
@@ -178,8 +190,18 @@ loomc_status_t BuildOwned(const Registration &registration, BuildContext &ctx,
       STAGE(ctx.values.Parameter(weight->native, weight->parameter, {},
                                  LOOM_SCALAR_TYPE_F32, {width}, &gamma));
     }
-    STAGE(ctx.program.Invoke(kernel, {count},
-                             {count, input->native, gamma, native_output}));
+    if (ctx.llama_rows) {
+      Value begin, origin;
+      STAGE(index(ctx.llama_rows->token_begin, &begin));
+      STAGE(ctx.values.Constant(ctx.count_origin, LOOM_SCALAR_TYPE_OFFSET,
+                                &origin));
+      STAGE(ctx.program.Invoke(kernel, {count},
+                               {count, begin, origin, ctx.count_control,
+                                input->native, gamma, native_output}));
+    } else {
+      STAGE(ctx.program.Invoke(kernel, {count},
+                               {count, input->native, gamma, native_output}));
+    }
   } else {
     Value hidden, ffn, yes, no, bytes, ffn_row, hidden_row, zero, origin, four;
     STAGE(index(3072, &hidden));
@@ -188,8 +210,9 @@ loomc_status_t BuildOwned(const Registration &registration, BuildContext &ctx,
     STAGE(ctx.values.Constant(0, LOOM_SCALAR_TYPE_I1, &no));
     STAGE(index(8192 * 4, &ffn_row));
     STAGE(index(3072 * 4, &hidden_row));
-    STAGE(index(0, &zero));
-    STAGE(ctx.values.Constant(0, LOOM_SCALAR_TYPE_OFFSET, &origin));
+    STAGE(index(ctx.llama_rows ? ctx.llama_rows->token_begin : 0, &zero));
+    STAGE(ctx.values.Constant(ctx.count_origin, LOOM_SCALAR_TYPE_OFFSET,
+                              &origin));
     STAGE(index(4, &four));
     const uint64_t weight_bytes =
         3072ull * 8192 / 256 * (encoding == Encoding::Q4_K ? 144 : 210);
@@ -234,12 +257,13 @@ loomc_status_t BuildOwned(const Registration &registration, BuildContext &ctx,
       STAGE(index(4 * 3072 / 128 * 144, &packed_depth));
       args.insert(args.end(), {count, count, count, zero, origin, no, four,
                                ffn_capacity, bytes});
+      const auto control = ctx.llama_rows ? ctx.count_control : ctx.control;
       if (gate)
         args.insert(args.end(), {packed_capacity, packed_depth, w, up,
-                                 activation, ctx.control, native_output});
+                                 activation, control, native_output});
       else
-        args.insert(args.end(), {hidden_capacity, w, ctx.control, activation,
-                                 native_output});
+        args.insert(args.end(),
+                    {hidden_capacity, w, control, activation, native_output});
     }
     STAGE(ctx.program.Apply(family, args));
   }
@@ -282,7 +306,8 @@ OperationBuilder NormBuilder() {
            {Port::Output, Access::Write}},
           SupportsNorm,
           BuildOwned,
-          {"llm_rmsnorm_row"}};
+          {"llm_rmsnorm_row", "llama32_rmsnorm_active_f32", "llama_active_row",
+           "llama32_head_count"}};
 }
 OperationBuilder FfnBuilder(operations::OpCode opcode) {
   return {

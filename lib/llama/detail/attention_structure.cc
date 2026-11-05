@@ -169,9 +169,9 @@ bool AppendNormalizedAttention(StructureConstruction *owner, size_t layer_slot,
            .bind(Port::KeyCache, staged.key_cache)
            .bind(Port::ValueCache, staged.value_cache)
            .bind(Port::Output, attended)
-           .attributes(CausalAttentionAttrs{l.query_heads, l.kv_heads, d, d,
-                                            s.options().cache_capacity,
-                                            1.0 / std::sqrt(double(d))})
+           .attributes(CausalAttentionAttrs{
+               l.query_heads, l.kv_heads, d, d, s.options().cache_capacity,
+               1.0 / std::sqrt(double(d)), s.options().attention_policy})
            .append(error) ||
       !op(OpCode::LinearResidual)
            .bind(Port::Input, attended)

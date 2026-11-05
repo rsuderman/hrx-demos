@@ -1,0 +1,126 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Test setup copies compact defined rows into otherwise uninitialized native
+// storage. No padding is initialized to make the numerical providers safe.
+kernel.def @test.seed_active_f32(%rows0: index, %width0: index) {
+  %one = index.constant 1 : index
+  %tile = index.constant 256 : index
+  %bounded_rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %bounded_width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %groups = index.div %bounded_width, %tile : index
+  kernel.launch.config workgroups(%groups, %bounded_rows, %one) workgroup_size(%tile, %one, %one) : index
+} launch(%rows: index, %width: index, %capacity: index, %begin: index, %compact: buffer, %padded: buffer) {
+  %tile = index.constant 256 : index
+  %group = kernel.workgroup.id<x> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %lane = kernel.workitem.id<x> : index
+  %base = index.mul %group, %tile : index
+  %col0 = index.add %base, %lane : index
+  %col = index.assume %col0 [range(%col0, 0, 32767), lt(%col0, %width)] : index
+  %destination0 = index.add %row, %begin : index
+  %destination = index.assume %destination0 [range(%destination0, 0, 511), lt(%destination0, %capacity)] : index
+  %origin = index.constant 0 : offset
+  %source = buffer.view %compact[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  %target = buffer.view %padded[%origin] : buffer -> view<[%capacity]x[%width]xf32>
+  %v = view.load %source[%row, %col] : view<[%rows]x[%width]xf32> -> f32
+  view.store %v, %target[%destination, %col] : f32, view<[%capacity]x[%width]xf32>
+  kernel.return
+}
+kernel.def @test.seed_active_i32(%rows0: index) {
+  %one = index.constant 1 : index
+  %bounded_rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  kernel.launch.config workgroups(%bounded_rows, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%rows: index, %capacity: index, %begin: index, %compact: buffer, %padded: buffer) {
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %destination0 = index.add %row, %begin : index
+  %destination = index.assume %destination0 [range(%destination0, 0, 511), lt(%destination0, %capacity)] : index
+  %origin = index.constant 0 : offset
+  %source = buffer.view %compact[%origin] : buffer -> view<[%rows]xi32>
+  %target = buffer.view %padded[%origin] : buffer -> view<[%capacity]xi32>
+  %v = view.load %source[%row] : view<[%rows]xi32> -> i32
+  view.store %v, %target[%destination] : i32, view<[%capacity]xi32>
+  kernel.return
+}
+
+// Durable whole-family wiring check. The numerical reference is a separate
+// compact invocation of the same production family, not new FFN arithmetic.
+kernel.def @test.compare_ffn(%rows0: index, %capacity0: index) {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%rows0: index, %capacity0: index, %begin0: index, %actual_residual: buffer, %actual_swiglu: buffer, %compact_residual: buffer, %compact_swiglu: buffer, %initial: buffer, %status: buffer) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %capacity = index.assume %capacity0 [range(%capacity0, 1, 512)] : index
+  %begin = index.assume %begin0 [range(%begin0, 0, 511), lt(%begin0, %capacity)] : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %canary = scalar.constant -99.0 : f32
+  %residual_width = index.constant 3072 : index
+  %a_residual = buffer.view %actual_residual[%origin] : buffer -> view<[%capacity]x3072xf32>
+  %c_residual = buffer.view %compact_residual[%origin] : buffer -> view<[%rows]x3072xf32>
+  %all_residual = scf.for %r = [%zero to %capacity step %one](%valid = %true : i1) -> (i1) {
+    %at_begin = index.cmp uge, %r, %begin : index
+    %active = scf.if %at_begin -> (i1) {
+      %relative = index.sub %r, %begin : index
+      %in = index.cmp ult, %relative, %rows : index
+      scf.yield %in : i1
+    } else { scf.yield %false : i1 }
+    %row_valid = scf.for %c = [%zero to %residual_width step %one](%ok = %valid : i1) -> (i1) {
+      %expected = scf.if %active -> (f32) {
+        %relative0 = index.sub %r, %begin : index
+        %relative = index.assume %relative0 [range(%relative0, 0, 511), lt(%relative0, %rows)] : index
+        %v = view.load %c_residual[%relative, %c] : view<[%rows]x3072xf32> -> f32
+        scf.yield %v : f32
+      } else { scf.yield %canary : f32 }
+      %actual = view.load %a_residual[%r, %c] : view<[%capacity]x3072xf32> -> f32
+      %equal = scalar.cmpf oeq, %actual, %expected : f32
+      %next = scalar.andi %ok, %equal : i1
+      scf.yield %next : i1
+    }
+    scf.yield %row_valid : i1
+  }
+  %swiglu_width = index.constant 8192 : index
+  %a_swiglu = buffer.view %actual_swiglu[%origin] : buffer -> view<[%capacity]x8192xf32>
+  %c_swiglu = buffer.view %compact_swiglu[%origin] : buffer -> view<[%rows]x8192xf32>
+  %all_swiglu = scf.for %r = [%zero to %capacity step %one](%valid = %true : i1) -> (i1) {
+    %at_begin = index.cmp uge, %r, %begin : index
+    %active = scf.if %at_begin -> (i1) {
+      %relative = index.sub %r, %begin : index
+      %in = index.cmp ult, %relative, %rows : index
+      scf.yield %in : i1
+    } else { scf.yield %false : i1 }
+    %row_valid = scf.for %c = [%zero to %swiglu_width step %one](%ok = %valid : i1) -> (i1) {
+      %expected = scf.if %active -> (f32) {
+        %relative0 = index.sub %r, %begin : index
+        %relative = index.assume %relative0 [range(%relative0, 0, 511), lt(%relative0, %rows)] : index
+        %v = view.load %c_swiglu[%relative, %c] : view<[%rows]x8192xf32> -> f32
+        scf.yield %v : f32
+      } else { scf.yield %canary : f32 }
+      %actual = view.load %a_swiglu[%r, %c] : view<[%capacity]x8192xf32> -> f32
+      %equal = scalar.cmpf oeq, %actual, %expected : f32
+      %next = scalar.andi %ok, %equal : i1
+      scf.yield %next : i1
+    }
+    scf.yield %row_valid : i1
+  }
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<[%rows]x3072xf32>
+  %before = view.load %initial_view[%zero, %zero] : view<[%rows]x3072xf32> -> f32
+  %after = view.load %a_residual[%begin, %zero] : view<[%capacity]x3072xf32> -> f32
+  %gate = view.load %a_swiglu[%begin, %zero] : view<[%capacity]x8192xf32> -> f32
+  %zero_f = scalar.constant 0.0 : f32
+  %changed = scalar.cmpf one, %after, %before : f32
+  %nonzero = scalar.cmpf one, %gate, %zero_f : f32
+  %matches = scalar.andi %all_residual, %all_swiglu : i1
+  %executed = scalar.andi %changed, %nonzero : i1
+  %pass = scalar.andi %matches, %executed : i1
+  %one32 = scalar.constant 1 : i32
+  %zero32 = scalar.constant 0 : i32
+  %value = scf.select %pass, %one32, %zero32 : i32
+  %result = buffer.view %status[%origin] : buffer -> view<1xi32>
+  view.store %value, %result[%zero] : i32, view<1xi32>
+  kernel.return
+}

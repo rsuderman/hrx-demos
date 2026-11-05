@@ -47,8 +47,9 @@ TEST(FfnRegion, RejectsGeometryRowsEpsilonAndMissingRegistrations) {
     auto facts = testing::FfnFacts(mutation == 0 ? 256 : 3072);
     if (mutation == 2)
       facts.rms_epsilon = 1e-4;
-    auto owner = testing::FfnFixture(std::move(facts), Phase::Prefill,
-                                    mutation == 1 ? 2 : 1, &error);
+    auto owner = testing::FfnFixture(
+        std::move(facts), mutation == 1 ? Phase::Decode : Phase::Prefill,
+        mutation == 1 ? 2 : 1, &error);
     ASSERT_TRUE(owner) << error;
     Registry empty;
     EXPECT_FALSE(FfnRegion::Select(owner, {llama::LlamaRegionKind::Ffn, 0, 1},
@@ -62,6 +63,21 @@ TEST(FfnRegion, RejectsGeometryRowsEpsilonAndMissingRegistrations) {
   EXPECT_FALSE(FfnRegion::Select(baseline, {llama::LlamaRegionKind::Ffn, 1, 1},
                                  registry, &result, &error));
   EXPECT_EQ(result.get(), unchanged);
+}
+TEST(FfnRegion, PrefillCapacityRetainsTheSameOwnerAndControls) {
+  std::string error;
+  auto owner =
+      testing::FfnFixture(testing::FfnFacts(), Phase::Prefill, 8, &error);
+  ASSERT_TRUE(owner) << error;
+  const auto values = owner->graph().values().size();
+  const auto operations = owner->graph().invocations().size();
+  std::unique_ptr<FfnRegion> region;
+  ASSERT_TRUE(FfnRegion::Select(owner, {llama::LlamaRegionKind::Ffn, 0, 1},
+                                Registry::Llama3B(), &region, &error))
+      << error;
+  EXPECT_EQ(&region->owner(), owner.get());
+  EXPECT_EQ(owner->graph().values().size(), values);
+  EXPECT_EQ(owner->graph().invocations().size(), operations);
 }
 } // namespace
 } // namespace hrx::dispatch

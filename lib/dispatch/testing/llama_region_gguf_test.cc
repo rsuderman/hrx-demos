@@ -213,20 +213,25 @@ TEST_F(RealFfnTest, OwnedGgufRegionEmitsPrefill3Decode4AndCompilesSourceBytecode
     std::unique_ptr<CommandProgramBuilder> program;
     const bool decode = phase == Phase::Decode;
     const std::string name = decode ? "gguf_ffn_decode" : "gguf_ffn_prefill";
-    ASSERT_TRUE(Ok(module->DefineProgram(name, {}, decode ? 2 : 3, &program)));
+    ASSERT_TRUE(Ok(module->DefineProgram(name, {}, 3, &program)));
     auto foreign_owner = testing::FfnFixture(facts, phase, 1, &error);
     ASSERT_TRUE(foreign_owner) << error;
     NativeEmissionSession foreign(registry, foreign_owner->graph(), *module,
                                   *program);
-    EXPECT_FALSE(region->EmitOneRow(foreign, program->Binding(1), &error));
+    EXPECT_FALSE(region->Emit(foreign, program->Binding(1), &error));
     EXPECT_FALSE(foreign.one_row_specialized());
     NativeEmissionSession session(registry, owner->graph(), *module, *program);
     ASSERT_TRUE(Ok(session.Bind(owner->inputs().residual, program->Binding(0))));
-    if (!decode)
-      ASSERT_TRUE(Ok(session.Control(program->Binding(2))));
-    ASSERT_TRUE(region->EmitOneRow(session, program->Binding(1), &error))
+    NativeLlamaRows rows;
+    rows.row_begin = owner->inputs().row_begin;
+    rows.row_count = owner->inputs().row_count;
+    rows.row_capacity = owner->options().row_capacity;
+    rows.phase = phase;
+    rows.packet = program->Binding(2);
+    ASSERT_TRUE(Ok(session.LlamaRows(rows)));
+    ASSERT_TRUE(region->Emit(session, program->Binding(1), &error))
         << error;
-    EXPECT_TRUE(session.one_row_specialized());
+    EXPECT_FALSE(session.one_row_specialized());
     EXPECT_EQ(owner->graph().values().size(), values);
     EXPECT_EQ(owner->graph().invocations().size(), operations);
     const auto &ops = owner->graph().invocations();
@@ -237,10 +242,10 @@ TEST_F(RealFfnTest, OwnedGgufRegionEmitsPrefill3Decode4AndCompilesSourceBytecode
     ASSERT_TRUE(Ok(session.Native(activation, &a)));
     ASSERT_TRUE(Ok(session.Native(owner->inputs().residual, &residual)));
     const std::vector<std::string> expected = decode
-        ? std::vector<std::string>{registrations[0].symbol,
+        ? std::vector<std::string>{"llama32_head_count", "llama32_rmsnorm_active_f32",
               "ggml_quantize_q8_1_x4_qk_compat_f32", registrations[1].symbol,
               registrations[2].symbol}
-        : std::vector<std::string>{registrations[0].symbol,
+        : std::vector<std::string>{"llama32_head_count", "llama32_rmsnorm_active_f32",
               registrations[1].symbol, registrations[2].symbol};
     ASSERT_TRUE(Ok(program->InspectNative(
         {program->Binding(0), n, a, residual, program->Binding(1)},
@@ -293,7 +298,7 @@ TEST_F(RealFfnTest, OwnedGgufRegionEmitsPrefill3Decode4AndCompilesSourceBytecode
               else if (loom_template_apply_isa(op)) {
                 const auto operands = loom_template_apply_operands(op);
                 EXPECT_EQ(operands.count,
-                          decode ? 12u : calls.size() == 1 ? 22u : 20u);
+                          decode ? 12u : calls.size() == 2 ? 22u : 20u);
                 if (operands.count >= 2) {
                   EXPECT_EQ(IndexValue(native, operands.values[0]), 3072);
                   EXPECT_EQ(IndexValue(native, operands.values[1]), 8192);

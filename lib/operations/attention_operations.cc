@@ -66,7 +66,8 @@ bool Attention(const BoundOperands &o, const CausalAttentionAttrs &a,
   if (!a.query_heads || !a.kv_heads || a.query_heads % a.kv_heads ||
       !a.key_width || !a.value_width || !a.cache_capacity ||
       !std::isfinite(a.scale) || a.scale <= 0 ||
-      a.numerical_policy != NumericalPolicy::F32Accumulate)
+      (a.numerical_policy != NumericalPolicy::F32Accumulate &&
+       a.numerical_policy != NumericalPolicy::LlamaPacketMixed))
     return Fail(e, "invalid attention heads/widths/scale/policy");
   if (a.query_heads > std::numeric_limits<uint64_t>::max() / a.value_width)
     return Fail(e, "attention output width overflows uint64");

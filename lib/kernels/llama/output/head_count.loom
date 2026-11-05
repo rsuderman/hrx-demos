@@ -1,0 +1,27 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Snapshot active rows before publication changes the original packet.
+kernel.def @llama32_head_count() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %zero_offset = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %source = buffer.view %packet[%origin] : buffer -> view<3xi32>
+  %output = buffer.view %count[%zero_offset] : buffer -> view<3xi32>
+  %prefill = index.cmp eq, %kind, %zero : index
+  %n = scf.if %prefill -> (i32) {
+    %active = view.load %source[%zero] : view<3xi32> -> i32
+    scf.yield %active : i32
+  } else {
+    scf.yield %one32 : i32
+  }
+  view.store %n, %output[%zero] : i32, view<3xi32>
+  view.store %zero32, %output[%one] : i32, view<3xi32>
+  view.store %zero32, %output[%two] : i32, view<3xi32>
+  kernel.return
+}
