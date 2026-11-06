@@ -1,0 +1,14 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+package(default_visibility = ["//visibility:public"])
+iree_cc_library(
+    name = "structure", srcs = ["structure.cc"], hdrs = ["structure.h"],
+    cxxopts = ["-std=c++17"],
+    deps = ["//lib/operations:operation_graph", "//lib/operations:qwen_operations", "//lib/operations:tensor_operations", "//tools/model:model_types"],
+)
+iree_cc_library(
+    name = "program", srcs = ["program.cc", "registry.cc"], hdrs = ["program.h"],
+    cxxopts = ["-std=c++17"],
+    deps = [":structure", "//lib/dispatch:invocation", "//lib/dispatch:registry", "//lib/dispatch:qwen_gdn", "//lib/dispatch/qwen_attention:builder"],
+)

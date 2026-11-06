@@ -1,0 +1,161 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Independent analytic head fixture: alternating q=(h+1)*{1,2}, hence
+// RMS denominator sqrt(2.5*(h+1)^2+epsilon). Nonuniform learned gamma and
+// per-head {-1,0,1} gates distinguish interleaved split and one sigmoid.
+func.def @anchor_gamma(%lane: index) -> (f32) {
+  %four = index.constant 4 : index
+  %r = index.rem %lane, %four : index
+  %i = index.cast %r : index to i32
+  %f = scalar.uitofp %i : i32 to f32
+  %quarter = scalar.constant 0.25 : f32
+  %half = scalar.constant 0.5 : f32
+  %p = scalar.mulf %f, %quarter : f32
+  %v = scalar.addf %half, %p : f32
+  func.return %v : f32
+}
+func.def @anchor_query(%head: index, %lane: index) -> (f32) {
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %h = index.add %head, %one : index
+  %r = index.rem %lane, %two : index
+  %factor = index.add %r, %one : index
+  %v = index.mul %h, %factor : index
+  %i = index.cast %v : index to i32
+  %f = scalar.uitofp %i : i32 to f32
+  func.return %f : f32
+}
+func.def @anchor_gate(%head: index, %lane: index) -> (f32) {
+  %three = index.constant 3 : index
+  %two = index.constant 2 : index
+  %one = index.constant 1 : index
+  %h = index.rem %head, %three : index
+  %hi = index.cast %h : index to i32
+  %one32 = scalar.constant 1 : i32
+  %signed = scalar.subi %hi, %one32 : i32
+  %r = index.rem %lane, %two : index
+  %factor = index.add %r, %one : index
+  %fi = index.cast %factor : index to i32
+  %v = scalar.muli %signed, %fi : i32
+  %f = scalar.sitofp %v : i32 to f32
+  func.return %f : f32
+}
+func.def @anchor_init(%count: index, %position: index, %control: buffer, %projection: buffer, %weight: buffer) {
+  %origin = index.constant 0 : offset
+  %ctl = buffer.view %control[%origin] : buffer -> view<2xi32>
+  %p = buffer.view %projection[%origin] : buffer -> view<4x4096xf32>
+  %w = buffer.view %weight[%origin] : buffer -> view<256xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %head_width = index.constant 256 : index
+  %head_gate = index.constant 512 : index
+  %n = index.cast %count : index to i32
+  %pos = index.cast %position : index to i32
+  view.store %n, %ctl[%zero] : i32, view<2xi32>
+  view.store %pos, %ctl[%one] : i32, view<2xi32>
+  scf.for %lane = [%zero to %head_width step %one] {
+    %gamma = func.call @anchor_gamma(%lane) : (index) -> (f32)
+    view.store %gamma, %w[%lane] : f32, view<256xf32>
+  }
+  scf.for %row = [%zero to %four step %one] {
+    scf.for %head = [%zero to %eight step %one] {
+      %base = index.mul %head, %head_gate : index
+      %gate_base = index.add %base, %head_width : index
+      scf.for %lane = [%zero to %head_width step %one] {
+        %qi = index.add %base, %lane : index
+        %gi = index.add %gate_base, %lane : index
+        %q = func.call @anchor_query(%head, %lane) : (index, index) -> (f32)
+        %g = func.call @anchor_gate(%head, %lane) : (index, index) -> (f32)
+        view.store %q, %p[%row, %qi] : f32, view<4x4096xf32>
+        view.store %g, %p[%row, %gi] : f32, view<4x4096xf32>
+      }
+    }
+  }
+  func.return
+}
+func.def @anchor_normalized(%head: index, %lane: index) -> (f32) {
+  %one = index.constant 1 : index
+  %h = index.add %head, %one : index
+  %hi = index.cast %h : index to i32
+  %hf = scalar.uitofp %hi : i32 to f32
+  %square = scalar.mulf %hf, %hf : f32
+  %two_half = scalar.constant 2.5 : f32
+  %epsilon = scalar.constant 0.000001 : f32
+  %mean = scalar.mulf %square, %two_half : f32
+  %biased = scalar.addf %mean, %epsilon : f32
+  %root = scalar.sqrtf<afn> %biased : f32
+  %raw = func.call @anchor_query(%head, %lane) : (index, index) -> (f32)
+  %gamma = func.call @anchor_gamma(%lane) : (index) -> (f32)
+  %unit = scalar.divf %raw, %root : f32
+  %v = scalar.mulf %unit, %gamma : f32
+  func.return %v : f32
+}
+func.def @anchor_expected(%count: index, %position: index, %control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+  func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %q = buffer.view %query[%origin] : buffer -> view<4x2048xf32>
+  %g = buffer.view %gate[%origin] : buffer -> view<4x2048xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %eight = index.constant 8 : index
+  %width = index.constant 256 : index
+  %rotary = index.constant 64 : index
+  %half = index.constant 32 : index
+  %onef = scalar.constant 1.0 : f32
+  %log_step = scalar.constant -0.5036904811859131 : f32
+  scf.for %row = [%zero to %count step %one] {
+    %absolute = index.add %position, %row : index
+    %absolute_i32 = index.cast %absolute : index to i32
+    %absolute_f32 = scalar.uitofp %absolute_i32 : i32 to f32
+    scf.for %head = [%zero to %eight step %one] {
+      %base = index.mul %head, %width : index
+      scf.for %lane = [%zero to %width step %one] {
+        %own = func.call @anchor_normalized(%head, %lane) : (index, index) -> (f32)
+        %rotates = index.cmp ult, %lane, %rotary : index
+        %value = scf.if %rotates -> (f32) {
+          %low = index.cmp ult, %lane, %half : index
+          %pair = index.rem %lane, %half : index
+          %partner = scf.if %low -> (index) {
+            %high = index.add %lane, %half : index
+            scf.yield %high : index
+          } else {
+            %lower = index.sub %lane, %half : index
+            scf.yield %lower : index
+          }
+          %other = func.call @anchor_normalized(%head, %partner) : (index, index) -> (f32)
+          %pair_i32 = index.cast %pair : index to i32
+          %pair_f32 = scalar.uitofp %pair_i32 : i32 to f32
+          %exponent = scalar.mulf %pair_f32, %log_step : f32
+          %frequency = scalar.expf<afn> %exponent : f32
+          %angle = scalar.mulf %absolute_f32, %frequency : f32
+          %sine = scalar.sinf<afn> %angle : f32
+          %cosine = scalar.cosf<afn> %angle : f32
+          %own_cos = scalar.mulf %own, %cosine : f32
+          %other_sin = scalar.mulf %other, %sine : f32
+          %rotated = scf.if %low -> (f32) {
+            %v = scalar.subf %own_cos, %other_sin : f32
+            scf.yield %v : f32
+          } else {
+            %v = scalar.addf %own_cos, %other_sin : f32
+            scf.yield %v : f32
+          }
+          scf.yield %rotated : f32
+        } else {
+          scf.yield %own : f32
+        }
+        %raw_gate = func.call @anchor_gate(%head, %lane) : (index, index) -> (f32)
+        %neg = scalar.negf %raw_gate : f32
+        %exp = scalar.expf<afn> %neg : f32
+        %denom = scalar.addf %onef, %exp : f32
+        %sigmoid = scalar.divf %onef, %denom : f32
+        %column = index.add %base, %lane : index
+        view.store %value, %q[%row, %column] : f32, view<4x2048xf32>
+        view.store %sigmoid, %g[%row, %column] : f32, view<4x2048xf32>
+      }
+    }
+  }
+  func.return
+}
+

@@ -1,0 +1,356 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+kernel.decl @qwen38_attention_kv_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %key_projection: buffer, %value_projection: buffer, %weight: buffer, %state: buffer)
+func.decl @anchor_gamma(%lane: index) -> (f32)
+func.decl @anchor_query(%head: index, %lane: index) -> (f32)
+func.decl @anchor_normalized(%head: index, %lane: index) -> (f32)
+func.def @kv_metadata(%count: index, %position: index, %epoch: buffer, %rows: buffer) {
+  %origin = index.constant 0 : offset
+  %e = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
+  %r = buffer.view %rows[%origin] : buffer -> view<4xi64>
+  %map_origin = index.constant 2048 : offset
+  %m = buffer.view %rows[%map_origin] : buffer -> view<2xi32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %five = index.constant 5 : index
+  %six = index.constant 6 : index
+  %seven = index.constant 7 : index
+  %c = index.cast %count : index to i32
+  %p = index.cast %position : index to i32
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %minus_one32 = scalar.constant -1 : i32
+  %resident_origin = scalar.constant 64 : i64
+  view.store %c, %e[%zero] : i32, view<1048xi32>
+  view.store %one32, %e[%one] : i32, view<1048xi32>
+  view.store %zero32, %e[%two] : i32, view<1048xi32>
+  view.store %c, %e[%three] : i32, view<1048xi32>
+  view.store %p, %e[%four] : i32, view<1048xi32>
+  view.store %zero32, %e[%five] : i32, view<1048xi32>
+  view.store %zero32, %e[%six] : i32, view<1048xi32>
+  view.store %minus_one32, %e[%seven] : i32, view<1048xi32>
+  view.store %resident_origin, %r[%two] : i64, view<4xi64>
+  view.store %one32, %m[%zero] : i32, view<2xi32>
+  view.store %zero32, %m[%one] : i32, view<2xi32>
+  func.return
+}
+func.def @kv_value(%row: index, %head: index, %lane: index) -> (f32) {
+  %one = index.constant 1 : index
+  %head_one = index.add %head, %one : index
+  %hi = index.cast %head_one : index to i32
+  %li = index.cast %lane : index to i32
+  %ri = index.cast %row : index to i32
+  %hf = scalar.uitofp %hi : i32 to f32
+  %lf = scalar.uitofp %li : i32 to f32
+  %rf = scalar.uitofp %ri : i32 to f32
+  %stride = scalar.constant 0.0009765625 : f32
+  %row_stride = scalar.constant 0.0625 : f32
+  %rounding = scalar.constant 0.0003 : f32
+  %ld = scalar.mulf %lf, %stride : f32
+  %rd = scalar.mulf %rf, %row_stride : f32
+  %a = scalar.addf %hf, %ld : f32
+  %b = scalar.addf %a, %rd : f32
+  %v = scalar.addf %b, %rounding : f32
+  func.return %v : f32
+}
+func.def @kv_init(%count: index, %position: index, %epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
+  func.call @kv_metadata(%count, %position, %epoch, %rows) : (index, index, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %k = buffer.view %key[%origin] : buffer -> view<4x512xf32>
+  %v = buffer.view %value[%origin] : buffer -> view<4x512xf32>
+  %w = buffer.view %weight[%origin] : buffer -> view<256xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %four = index.constant 4 : index
+  %width = index.constant 256 : index
+  scf.for %lane = [%zero to %width step %one] {
+    %gamma = func.call @anchor_gamma(%lane) : (index) -> (f32)
+    view.store %gamma, %w[%lane] : f32, view<256xf32>
+  }
+  scf.for %row = [%zero to %four step %one] {
+    scf.for %head = [%zero to %two step %one] {
+      %base = index.mul %head, %width : index
+      scf.for %lane = [%zero to %width step %one] {
+        %column = index.add %base, %lane : index
+        %key_value = func.call @anchor_query(%head, %lane) : (index, index) -> (f32)
+        %value_value = func.call @kv_value(%row, %head, %lane) : (index, index, index) -> (f32)
+        view.store %key_value, %k[%row, %column] : f32, view<4x512xf32>
+        view.store %value_value, %v[%row, %column] : f32, view<4x512xf32>
+      }
+    }
+  }
+  func.return
+}
+func.def @kv_key_expected(%head: index, %lane: index, %position: index) -> (f32) {
+  %half = index.constant 32 : index
+  %rotary = index.constant 64 : index
+  %own = func.call @anchor_normalized(%head, %lane) : (index, index) -> (f32)
+  %rotates = index.cmp ult, %lane, %rotary : index
+  %value = scf.if %rotates -> (f32) {
+    %low = index.cmp ult, %lane, %half : index
+    %pair = index.rem %lane, %half : index
+    %partner = scf.if %low -> (index) {
+      %v = index.add %lane, %half : index
+      scf.yield %v : index
+    } else {
+      %v = index.sub %lane, %half : index
+      scf.yield %v : index
+    }
+    %other = func.call @anchor_normalized(%head, %partner) : (index, index) -> (f32)
+    %pi = index.cast %pair : index to i32
+    %pf = scalar.uitofp %pi : i32 to f32
+    %ti = index.cast %position : index to i32
+    %tf = scalar.uitofp %ti : i32 to f32
+    %step = scalar.constant -0.5036904811859131 : f32
+    %exp = scalar.mulf %pf, %step : f32
+    %frequency = scalar.expf<afn> %exp : f32
+    %angle = scalar.mulf %tf, %frequency : f32
+    %sine = scalar.sinf<afn> %angle : f32
+    %cosine = scalar.cosf<afn> %angle : f32
+    %a = scalar.mulf %own, %cosine : f32
+    %b = scalar.mulf %other, %sine : f32
+    %result = scf.if %low -> (f32) {
+      %v = scalar.subf %a, %b : f32
+      scf.yield %v : f32
+    } else {
+      %v = scalar.addf %a, %b : f32
+      scf.yield %v : f32
+    }
+    scf.yield %result : f32
+  } else {
+    scf.yield %own : f32
+  }
+  func.return %value : f32
+}
+func.def @kv_publish_expected(%count: index, %position: index, %arena: buffer) {
+  %origin = index.constant 0 : offset
+  %a = buffer.view %arena[%origin] : buffer -> view<262208xf16>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %width = index.constant 256 : index
+  %cache_width = index.constant 512 : index
+  %page = index.constant 64 : index
+  %key_base = index.constant 131104 : index
+  %value_base = index.constant 196640 : index
+  scf.for %row = [%zero to %count step %one] {
+    %absolute = index.add %position, %row : index
+    %first = index.cmp ult, %absolute, %page : index
+    %physical = scf.if %first -> (index) {
+      %v = index.add %absolute, %page : index
+      scf.yield %v : index
+    } else {
+      %v = index.sub %absolute, %page : index
+      scf.yield %v : index
+    }
+    %token_base = index.mul %physical, %cache_width : index
+    scf.for %head = [%zero to %two step %one] {
+      %head_base = index.mul %head, %width : index
+      scf.for %lane = [%zero to %width step %one] {
+        %column = index.add %head_base, %lane : index
+        %relative = index.add %token_base, %column : index
+        %ki0 = index.add %key_base, %relative : index
+        %vi0 = index.add %value_base, %relative : index
+        %ki = index.assume %ki0 [range(%ki0, 131104, 196639)] : index
+        %vi = index.assume %vi0 [range(%vi0, 196640, 262175)] : index
+        %key = func.call @kv_key_expected(%head, %lane, %absolute) : (index, index, index) -> (f32)
+        %value = func.call @kv_value(%row, %head, %lane) : (index, index, index) -> (f32)
+        %key16 = scalar.fptrunc %key : f32 to f16
+        %value16 = scalar.fptrunc %value : f32 to f16
+        view.store %key16, %a[%ki] : f16, view<262208xf16>
+        view.store %value16, %a[%vi] : f16, view<262208xf16>
+      }
+    }
+  }
+  func.return
+}
+
+kernel.def @kv_initialize_n1_p0() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
+  %count = index.constant 1 : index
+  %position = index.constant 0 : index
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+
+command.program.def public @kv_actual_n1_p0() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+  %capacity = index.constant 4 : index
+  %spans = index.constant 2 : index
+  %layer = index.constant 262144 : offset
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @kv_initialize_n1_p0[](%epoch, %rows, %key, %value, %weight) : [](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @kv_reference_n1_p0(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+  %count = index.constant 1 : index
+  %position = index.constant 0 : index
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer) -> ()
+  func.return
+}
+
+check.scenario @kv_n1_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(-1) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<520xi32>
+    %key = check.generate.fill value(0.0) : tensor<4x512xf32>
+    %value = check.generate.fill value(0.0) : tensor<4x512xf32>
+    %weight = check.generate.fill value(0.0) : tensor<256xf32>
+    %arena = check.generate.fill value(-7.0) : tensor<262208xf16>
+    %value_plane = check.tensor.view %arena offset(393280) : tensor<262208xf16> -> tensor<65536xf16>
+    %guard0 = check.tensor.view %arena offset(0) : tensor<262208xf16> -> tensor<131104xf16>
+    %guard1 = check.tensor.view %arena offset(524352) : tensor<262208xf16> -> tensor<32xf16>
+    %guard2 = check.tensor.view %arena offset(262208) : tensor<262208xf16> -> tensor<32768xf16>
+    %guard3 = check.tensor.view %arena offset(328768) : tensor<262208xf16> -> tensor<32256xf16>
+    check.compare<@kv_actual_n1_p0, @kv_reference_n1_p0>(%epoch, %rows, %key, %value, %weight, %arena) : (tensor<1048xi32>, tensor<520xi32>, tensor<4x512xf32>, tensor<4x512xf32>, tensor<256xf32>, tensor<262208xf16>) -> () {
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<4x512xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<4x512xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
+      check.expect.close actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>
+      check.expect.bitwise actual(%value_plane) expected(%value_plane) : tensor<65536xf16>
+      check.expect.bitwise actual(%guard0) expected(%guard0) : tensor<131104xf16>
+      check.expect.bitwise actual(%guard1) expected(%guard1) : tensor<32xf16>
+      check.expect.bitwise actual(%guard2) expected(%guard2) : tensor<32768xf16>
+      check.expect.bitwise actual(%guard3) expected(%guard3) : tensor<32256xf16>
+    }
+  }
+  check.return
+}
+
+kernel.def @kv_initialize_n3_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
+  %count = index.constant 3 : index
+  %position = index.constant 63 : index
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+
+command.program.def public @kv_actual_n3_p63() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+  %capacity = index.constant 4 : index
+  %spans = index.constant 2 : index
+  %layer = index.constant 262144 : offset
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @kv_initialize_n3_p63[](%epoch, %rows, %key, %value, %weight) : [](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @kv_reference_n3_p63(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+  %count = index.constant 3 : index
+  %position = index.constant 63 : index
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer) -> ()
+  func.return
+}
+
+check.scenario @kv_n3_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(-1) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<520xi32>
+    %key = check.generate.fill value(0.0) : tensor<4x512xf32>
+    %value = check.generate.fill value(0.0) : tensor<4x512xf32>
+    %weight = check.generate.fill value(0.0) : tensor<256xf32>
+    %arena = check.generate.fill value(-7.0) : tensor<262208xf16>
+    %value_plane = check.tensor.view %arena offset(393280) : tensor<262208xf16> -> tensor<65536xf16>
+    %guard0 = check.tensor.view %arena offset(0) : tensor<262208xf16> -> tensor<131104xf16>
+    %guard1 = check.tensor.view %arena offset(524352) : tensor<262208xf16> -> tensor<32xf16>
+    %guard2 = check.tensor.view %arena offset(264256) : tensor<262208xf16> -> tensor<64000xf16>
+    check.compare<@kv_actual_n3_p63, @kv_reference_n3_p63>(%epoch, %rows, %key, %value, %weight, %arena) : (tensor<1048xi32>, tensor<520xi32>, tensor<4x512xf32>, tensor<4x512xf32>, tensor<256xf32>, tensor<262208xf16>) -> () {
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<4x512xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<4x512xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
+      check.expect.close actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>
+      check.expect.bitwise actual(%value_plane) expected(%value_plane) : tensor<65536xf16>
+      check.expect.bitwise actual(%guard0) expected(%guard0) : tensor<131104xf16>
+      check.expect.bitwise actual(%guard1) expected(%guard1) : tensor<32xf16>
+      check.expect.bitwise actual(%guard2) expected(%guard2) : tensor<64000xf16>
+    }
+  }
+  check.return
+}
+
+kernel.def @kv_initialize_n2_p63_continue() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
+  %count = index.constant 2 : index
+  %position = index.constant 63 : index
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+
+kernel.def @kv_advance_n2_p63_continue() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer) {
+  %one = index.constant 1 : index
+  %position = index.constant 65 : index
+  func.call @kv_metadata(%one, %position, %epoch, %rows) : (index, index, buffer, buffer) -> ()
+  kernel.return
+}
+
+command.program.def public @kv_actual_n2_p63_continue() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+  %capacity = index.constant 4 : index
+  %spans = index.constant 2 : index
+  %layer = index.constant 262144 : offset
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @kv_initialize_n2_p63_continue[](%epoch, %rows, %key, %value, %weight) : [](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
+  kernel.launch @kv_advance_n2_p63_continue[](%epoch, %rows) : [](buffer, buffer)
+  kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @kv_reference_n2_p63_continue(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+  %count = index.constant 2 : index
+  %position = index.constant 63 : index
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer) -> ()
+  %one = index.constant 1 : index
+  %next_position = index.constant 65 : index
+  func.call @kv_metadata(%one, %next_position, %epoch, %rows) : (index, index, buffer, buffer) -> ()
+  func.call @kv_publish_expected(%one, %next_position, %arena) : (index, index, buffer) -> ()
+  func.return
+}
+
+check.scenario @kv_n2_p63_continue {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(-1) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<520xi32>
+    %key = check.generate.fill value(0.0) : tensor<4x512xf32>
+    %value = check.generate.fill value(0.0) : tensor<4x512xf32>
+    %weight = check.generate.fill value(0.0) : tensor<256xf32>
+    %arena = check.generate.fill value(-7.0) : tensor<262208xf16>
+    %value_plane = check.tensor.view %arena offset(393280) : tensor<262208xf16> -> tensor<65536xf16>
+    %guard0 = check.tensor.view %arena offset(0) : tensor<262208xf16> -> tensor<131104xf16>
+    %guard1 = check.tensor.view %arena offset(524352) : tensor<262208xf16> -> tensor<32xf16>
+    %guard2 = check.tensor.view %arena offset(264256) : tensor<262208xf16> -> tensor<64000xf16>
+    check.compare<@kv_actual_n2_p63_continue, @kv_reference_n2_p63_continue>(%epoch, %rows, %key, %value, %weight, %arena) : (tensor<1048xi32>, tensor<520xi32>, tensor<4x512xf32>, tensor<4x512xf32>, tensor<256xf32>, tensor<262208xf16>) -> () {
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<4x512xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<4x512xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
+      check.expect.close actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>
+      check.expect.bitwise actual(%value_plane) expected(%value_plane) : tensor<65536xf16>
+      check.expect.bitwise actual(%guard0) expected(%guard0) : tensor<131104xf16>
+      check.expect.bitwise actual(%guard1) expected(%guard1) : tensor<32xf16>
+      check.expect.bitwise actual(%guard2) expected(%guard2) : tensor<64000xf16>
+    }
+  }
+  check.return
+}

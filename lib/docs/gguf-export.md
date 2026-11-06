@@ -26,7 +26,7 @@ are absolute and still need their original files. The converter never copies
 checkpoint bytes or converts the tokenizer. It refuses an existing output
 directory and publishes `model.json` only after provider serialization succeeds.
 
-The bounded serving profile is ordinary greedy text with one active request,
+The bounded Llama serving profile is ordinary greedy text with one active request,
 no draft/checkpoint/session/prefix cache, maximum prefill chunk T in1..512 and
 context C between T and131072. It uses Serve's existing packed-epoch path with
 one span. Physical KV pool capacity rounds C up to64 tokens. The native prepare
@@ -61,3 +61,38 @@ AMDGPU. `:model_export_test` is an explicit manual gate using
 model, reloads both serialization formats and plans all three command roots.
 Existing Serve is the end-to-end consumer. Successful generation/loading alone
 does not establish numerical parity or resolve independent model-fidelity work.
+
+The same model mode also accepts the known Qwen3.5 0.8B UD-Q5_K_XL checkpoint.
+It selects the architecture from the owned GGUF descriptor, not the filename:
+
+```sh
+bazel-bin/tools/loomify-gguf/loomify-gguf \
+  --stage=model --gguf=/path/to/Qwen3.5-0.8B-UD-Q5_K_XL.gguf \
+  --tokenizer=/path/to/qwen/tokenizer.json --output-dir=/path/to/exported-qwen \
+  --context-capacity=512 --prefill-capacity=128 --format=bc
+loom-serve --device=amdgpu --model=/path/to/exported-qwen/model.json \
+  --listen=127.0.0.1:18081
+```
+
+The generated Qwen model name is `loomify-qwen-08b`. It uses ordinary greedy text,
+one active row/span, no MTP/vision or retained/prefix caches, T in1..512 and C from
+T through262144. Its sole `generated.qwen_epoch` entry is built by the descriptor
+recipe in `lib/qwen/program.h`: embedding, all24 registered hybrid layer bundles,
+then selected-row normalized vocabulary head. It directly accepts the existing
+epoch buffers; a one-token continuation uses the same entry. The owned prepare
+program reports the complete convolution/recurrent GDN slot and paged KV geometry
+so native request reset clears fresh state and subsequent chunks retain it. The
+Qwen control policy keeps Qwen framing/EOS behavior and requires ordinary inference;
+it does not use Llama's terminal mapping or an isolated numerical buffer shim.
+For the ordinary chat profile, pass `enable_thinking:false` and `temperature:0`.
+
+Qwen companion tests are in `//tools/loomify-gguf/serving/qwen:package_test`,
+`:prepare_execution_test` and `:packet_execution_test`. The VM component tests run
+production preparation/packet bodies with valid-input test callbacks for server
+imports; they inspect all cold geometry records and replay increasing/decreasing
+active token counts while checking the whole token-envelope zero fill. The manual
+`:model_export_test` and `:cli_model_test` require explicit
+`LOOMIFY_TEST_QWEN_GGUF` and `LOOMIFY_TEST_QWEN_TOKENIZER` fixtures. They exercise
+complete generated source/bytecode packages, command products and relocation, plus
+actual CLI conversion outside the checkout with owned provider runfiles. End-to-end
+Serve acceptance and independent numerical fidelity remain distinct checks.

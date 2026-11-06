@@ -1,0 +1,15 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Curated unchanged numerical definitions from loom-pipeline/llm/qwen/kernels/qwen38/gdn_common.loom.
+// Independently maintained Loomify ordinary Qwen GDN closure.
+
+config.decl @qwen.model.gdn_key_heads : index
+
+func.def public inline @qwen38_gdn_key_head_for_value_head(%value_head: index) -> (index) {
+  %key_head_count = config.get @qwen.model.gdn_key_heads : index
+  %key_head = index.rem %value_head, %key_head_count : index
+  func.return %key_head : index
+}
+
+// Locks the model's tiled Q/K-to-V head mapping independently of the recurrent
+// schedules that consume it.

@@ -118,7 +118,7 @@ TEST_F(ServingTest, PackageSourcesAndExternalAssets) {
   std::ofstream(weights) << "external";
   auto tokenizer = directory / "tokenizer.json";
   std::ofstream(tokenizer) << "{}";
-  LlamaPackageOptions o;
+  ModelPackageOptions o;
   o.source_root = ".";
   o.output_directory = (directory / "package").string();
   o.gguf = weights;

@@ -1,0 +1,29 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Span recurrence only publishes active rows. Define all raw rows consumed by
+// the retained full-capacity norm-gate route; persistent state is never cleared.
+kernel.def @qwen08_gdn_clear_raw(%tokens0: index) {
+  %tokens = index.assume %tokens0 [range(%tokens0, 1, 512)] : index
+  %groups_per_row = index.constant 8 : index
+  %groups = index.mul %tokens, %groups_per_row : index
+  %threads = index.constant 256 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%groups, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%tokens0: index, %output: buffer) {
+  %tokens = index.assume %tokens0 [range(%tokens0, 1, 512)] : index
+  %width = index.constant 2048 : index
+  %threads = index.constant 256 : index
+  %group = kernel.workgroup.id<x> : index
+  %thread = kernel.workitem.id<x> : index
+  %base = index.mul %group, %threads : index
+  %element = index.add %base, %thread : index
+  %count = index.mul %tokens, %width : index
+  %origin = index.constant 0 : offset
+  %zero = scalar.constant 0.0 : f32
+  %out = buffer.view %output[%origin] : buffer -> view<[%count]xf32>
+  %inside = index.cmp ult, %element, %count : index
+  scf.if %inside {
+    view.store %zero, %out[%element] : f32, view<[%count]xf32>
+  }
+  kernel.return
+}

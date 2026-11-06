@@ -4,10 +4,11 @@ load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:public"])
 iree_cc_library(
     name = "registry",
-    srcs = ["registry.cc", "builders.cc", "embedding.cc", "projection.cc", "output.cc", "attention_builders.cc", "attention_sequence.cc"], hdrs = ["registry.h", "projection.h", "projection_internal.h", "output.h", "attention_builders.h", "attention_sequence.h"],
+    srcs = ["qwen_output.cc", "qwen_registry.cc", "qwen_parameters.cc", "qwen_sources.cc", "qwen_configuration.cc", "registry.cc", "builders.cc", "embedding.cc", "projection.cc", "output.cc", "attention_builders.cc", "attention_sequence.cc"], hdrs = ["qwen_output.h", "registry.h", "qwen.h", "projection.h", "projection_internal.h", "output.h", "attention_builders.h", "attention_sequence.h"],
     cxxopts = ["-std=c++17"],
     deps = [
         "//lib/operations:operation_graph",
+        "//tools/model:model_types",
         "//lib/dispatch/shapes:result",
         "//tools/loomify-gguf/authoring/commands:command_values",
         "@hrx_system//loom/binding/c:loomc",
@@ -16,13 +17,14 @@ iree_cc_library(
         "@hrx_system//loom/src/loom/ops:op_defs",
         "@hrx_system//loom/src/loom/ops/template",
         "@hrx_system//loom/src/loom/ops/config",
+        "@hrx_system//loom/src/loom/ops/command",
         "@hrx_system//loom/src/loom/ops/buffer",
         "@hrx_system//loom/src/loom/ops/kernel",
     ],
 )
 iree_cc_library(
     name = "invocation",
-    srcs = ["invocation.cc", "attention_region.cc"], hdrs = ["invocation.h"],
+    srcs = ["qwen_epoch.cc", "invocation.cc", "attention_region.cc"], hdrs = ["invocation.h"],
     cxxopts = ["-std=c++17"],
     deps = [
         ":registry", "//lib/dispatch/shapes:result", "//lib/llama:structure",
@@ -44,4 +46,14 @@ iree_cc_library(
     srcs = ["llama_region.cc"], hdrs = ["llama_region.h"],
     cxxopts = ["-std=c++17"],
     deps = [":invocation", ":parameters", "//lib/llama:structure"],
+)
+
+# Family-owned complete layer; final registry assembly depends on this target,
+# while the common registry/provider library remains independent of it.
+iree_cc_library(
+    name = "qwen_gdn",
+    srcs = ["qwen_gdn.cc"], hdrs = ["qwen_gdn.h"],
+    cxxopts = ["-std=c++17"],
+    deps = [":registry", "//lib/operations:qwen_operations",
+            "@hrx_system//loom/binding/c:interop"],
 )

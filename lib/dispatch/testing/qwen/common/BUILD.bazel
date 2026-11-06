@@ -1,0 +1,27 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+cc_binary(
+    name = "emit_common", testonly = True,
+    srcs = ["emit_common.cc"], cxxopts = ["-std=c++17"],
+    deps = ["//lib/dispatch:registry", "//lib/qwen/testing:model_fixture",
+            "//tools/loomify-gguf/authoring/commands:command_values",
+            "@hrx_system//loom/binding/c/target/amdgpu"],
+)
+genrule(
+    name = "module", testonly = True,
+    srcs = ["//lib/kernels/qwen:all_sources", "//lib/kernels/llama:all_sources", "fixtures.loom"],
+    outs = ["common.loombc", "common.loom"],
+    cmd = "$(location :emit_common) . $(location common.loombc) $(location common.loom)",
+    tools = [":emit_common"],
+)
+loom_test(
+    name = "canonical_loombc_test", srcs = ["checks.loom", "common.loombc"],
+    benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+loom_test(
+    name = "canonical_loom_test", srcs = ["checks.loom", "common.loom"],
+    benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)

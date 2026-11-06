@@ -1,0 +1,1054 @@
+kernel.decl @qwen08_gdn_clear_raw(%tokens: index) launch(%tokens: index, %output: buffer)
+kernel.decl @qwen38_gdn_norm_gate_prefill(%tokens: index) launch(%capacity: index, %epsilon: f32, %raw: buffer, %weight: buffer, %z: buffer, %output: buffer)
+kernel.decl @qwen38_gdn_recurrent_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %qkv: buffer, %inverse_norm: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer)
+kernel.decl @qwen38_gdn_conv_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse_norm: buffer)
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Independent constant-channel state anchors, not copied recurrent math.
+func.def @test_gdn_epoch(%n: index, %epoch: buffer, %rows: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %five = index.constant 5 : index
+  %six = index.constant 6 : index
+  %seven = index.constant 7 : index
+  %n32 = index.cast %n : index to i32
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %minus = scalar.constant -1 : i32
+  %control = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
+  view.store %n32, %control[%zero] : i32, view<1048xi32>
+  view.store %one32, %control[%one] : i32, view<1048xi32>
+  view.store %zero32, %control[%two] : i32, view<1048xi32>
+  view.store %n32, %control[%three] : i32, view<1048xi32>
+  view.store %zero32, %control[%four] : i32, view<1048xi32>
+  view.store %two32, %control[%five] : i32, view<1048xi32>
+  view.store %zero32, %control[%six] : i32, view<1048xi32>
+  view.store %minus, %control[%seven] : i32, view<1048xi32>
+  %table = buffer.view %rows[%origin] : buffer -> view<4xi64>
+  %zero64 = scalar.constant 0 : i64
+  scf.for %i = [%zero to %four step %one] { view.store %zero64, %table[%i] : i64, view<4xi64> }
+  func.return
+}
+kernel.def @test_gdn_epoch_kernel() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%n: index, %epoch: buffer, %rows: buffer) {
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_rec1() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 1 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_rec1(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 1 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 2048 : index
+  %elements = index.constant 262144 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %matrix = buffer.view %state[%offset] : buffer -> view<262144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x2048xf32>
+  %initial = view.load %matrix[%zero] : view<262144xf32> -> f32
+  // With normalized Q=K=1/sqrt128, V=1, alpha=bias=beta=0 and A=-1:
+  // decay=1/2; one scalar state entry advances m'=m/4+1/(2sqrt128).
+  // Query readout (including scale1/sqrt128) equals m' exactly in real arithmetic.
+  %quarter = scalar.constant 0.25 : f32
+  %increment = scalar.constant 0.04419417382415922 : f32
+  %final = scf.for %t = [%zero to %n step %one](%m = %initial : f32) -> (f32) {
+    %decayed = scalar.mulf %m, %quarter : f32
+    %next = scalar.addf %decayed, %increment : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %next, %out[%row, %c] : f32, view<8x2048xf32> }
+    scf.yield %next : f32
+  }
+  scf.for %i = [%zero to %elements step %one] { view.store %final, %matrix[%i] : f32, view<262144xf32> }
+  func.return
+}
+check.scenario @recurrent_zero_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.0) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(24576) : tensor<16384xf32> -> tensor<10240xf32>
+    check.compare<@actual_rec1, @reference_rec1>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<10240xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @recurrent_nonzero_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.03125) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(24576) : tensor<16384xf32> -> tensor<10240xf32>
+    check.compare<@actual_rec1, @reference_rec1>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<10240xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+command.program.def public @actual_rec3() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 3 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_rec3(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 3 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 2048 : index
+  %elements = index.constant 262144 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %matrix = buffer.view %state[%offset] : buffer -> view<262144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x2048xf32>
+  %initial = view.load %matrix[%zero] : view<262144xf32> -> f32
+  // With normalized Q=K=1/sqrt128, V=1, alpha=bias=beta=0 and A=-1:
+  // decay=1/2; one scalar state entry advances m'=m/4+1/(2sqrt128).
+  // Query readout (including scale1/sqrt128) equals m' exactly in real arithmetic.
+  %quarter = scalar.constant 0.25 : f32
+  %increment = scalar.constant 0.04419417382415922 : f32
+  %final = scf.for %t = [%zero to %n step %one](%m = %initial : f32) -> (f32) {
+    %decayed = scalar.mulf %m, %quarter : f32
+    %next = scalar.addf %decayed, %increment : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %next, %out[%row, %c] : f32, view<8x2048xf32> }
+    scf.yield %next : f32
+  }
+  scf.for %i = [%zero to %elements step %one] { view.store %final, %matrix[%i] : f32, view<262144xf32> }
+  func.return
+}
+check.scenario @recurrent_zero_3 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.0) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(40960) : tensor<16384xf32> -> tensor<6144xf32>
+    check.compare<@actual_rec3, @reference_rec3>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<6144xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @recurrent_nonzero_3 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.03125) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(40960) : tensor<16384xf32> -> tensor<6144xf32>
+    check.compare<@actual_rec3, @reference_rec3>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<6144xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+command.program.def public @actual_rec5() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 5 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_rec5(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 5 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 2048 : index
+  %elements = index.constant 262144 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %matrix = buffer.view %state[%offset] : buffer -> view<262144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x2048xf32>
+  %initial = view.load %matrix[%zero] : view<262144xf32> -> f32
+  // With normalized Q=K=1/sqrt128, V=1, alpha=bias=beta=0 and A=-1:
+  // decay=1/2; one scalar state entry advances m'=m/4+1/(2sqrt128).
+  // Query readout (including scale1/sqrt128) equals m' exactly in real arithmetic.
+  %quarter = scalar.constant 0.25 : f32
+  %increment = scalar.constant 0.04419417382415922 : f32
+  %final = scf.for %t = [%zero to %n step %one](%m = %initial : f32) -> (f32) {
+    %decayed = scalar.mulf %m, %quarter : f32
+    %next = scalar.addf %decayed, %increment : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %next, %out[%row, %c] : f32, view<8x2048xf32> }
+    scf.yield %next : f32
+  }
+  scf.for %i = [%zero to %elements step %one] { view.store %final, %matrix[%i] : f32, view<262144xf32> }
+  func.return
+}
+check.scenario @recurrent_zero_5 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.0) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(57344) : tensor<16384xf32> -> tensor<2048xf32>
+    check.compare<@actual_rec5, @reference_rec5>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<2048xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @recurrent_nonzero_5 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.03125) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(57344) : tensor<16384xf32> -> tensor<2048xf32>
+    check.compare<@actual_rec5, @reference_rec5>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<2048xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+command.program.def public @actual_conv1() launch(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %n = index.constant 1 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_conv_spans[%one](%epoch, %rows, %offset, %epsilon, %input, %weight, %history, %output, %inverse) : [index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_conv1(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %n = index.constant 1 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 6144 : index
+  %heads = index.constant 32 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %h = buffer.view %history[%offset] : buffer -> view<6144x3xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x6144xf32>
+  %inv = buffer.view %inverse[%origin] : buffer -> view<8x32xf32>
+  %h0 = view.load %h[%zero, %zero] : view<6144x3xf32> -> f32
+  %h1 = view.load %h[%zero, %one] : view<6144x3xf32> -> f32
+  %h2 = view.load %h[%zero, %two] : view<6144x3xf32> -> f32
+  %x = scalar.constant 0.125 : f32
+  %w0 = scalar.constant 0.125 : f32
+  %w1 = scalar.constant 0.15625 : f32
+  %w2 = scalar.constant 0.1875 : f32
+  %w3 = scalar.constant 0.21875 : f32
+  %sqrt128 = scalar.constant 11.313708498984761 : f32
+  %epsilon = scalar.constant 0.000001 : f32
+  %onef = scalar.constant 1.0 : f32
+  %last0, %last1, %last2 = scf.for %t = [%zero to %n step %one](%old0 = %h0 : f32, %old1 = %h1 : f32, %old2 = %h2 : f32) -> (f32, f32, f32) {
+    %v0 = scalar.mulf %old0, %w0 : f32
+    %v1 = scalar.mulf %old1, %w1 : f32
+    %v2 = scalar.mulf %old2, %w2 : f32
+    %v3 = scalar.mulf %x, %w3 : f32
+    %s0 = scalar.addf %v0, %v1 : f32
+    %s1 = scalar.addf %v2, %v3 : f32
+    %sum = scalar.addf %s0, %s1 : f32
+    %negative = scalar.negf %sum : f32
+    %exponential = scalar.expf<afn> %negative : f32
+    %denominator = scalar.addf %onef, %exponential : f32
+    %activated = scalar.divf %sum, %denominator : f32
+    %abs = scalar.absf %activated : f32
+    %length = scalar.mulf %abs, %sqrt128 : f32
+    %safe = scalar.maxnumf %length, %epsilon : f32
+    %inverse_value = scalar.divf %onef, %safe : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %activated, %out[%row, %c] : f32, view<8x6144xf32> }
+    scf.for %head = [%zero to %heads step %one] { view.store %inverse_value, %inv[%row, %head] : f32, view<8x32xf32> }
+    scf.yield %old1, %old2, %x : f32, f32, f32
+  }
+  scf.for %c = [%zero to %width step %one] {
+    view.store %last0, %h[%c, %zero] : f32, view<6144x3xf32>
+    view.store %last1, %h[%c, %one] : f32, view<6144x3xf32>
+    view.store %last2, %h[%c, %two] : f32, view<6144x3xf32>
+  }
+  func.return
+}
+check.scenario @convolution_zero_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.125) : tensor<49152xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<24576xf32>
+    %history = check.generate.fill value(0.0) : tensor<18560xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<49152xf32> -> tensor<12288xf32>
+    %output_suffix = check.tensor.view %output offset(73728) : tensor<49152xf32> -> tensor<30720xf32>
+    check.compare<@actual_conv1, @reference_conv1>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.bitwise actual(%history) expected(%history) : tensor<18560xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<49152xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<30720xf32>
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @convolution_nonzero_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.125) : tensor<49152xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<24576xf32>
+    %history = check.generate.fill value(0.03125) : tensor<18560xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<49152xf32> -> tensor<12288xf32>
+    %output_suffix = check.tensor.view %output offset(73728) : tensor<49152xf32> -> tensor<30720xf32>
+    check.compare<@actual_conv1, @reference_conv1>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.bitwise actual(%history) expected(%history) : tensor<18560xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<49152xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<30720xf32>
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+command.program.def public @actual_conv3() launch(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %n = index.constant 3 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_conv_spans[%one](%epoch, %rows, %offset, %epsilon, %input, %weight, %history, %output, %inverse) : [index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_conv3(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %n = index.constant 3 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 6144 : index
+  %heads = index.constant 32 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %h = buffer.view %history[%offset] : buffer -> view<6144x3xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x6144xf32>
+  %inv = buffer.view %inverse[%origin] : buffer -> view<8x32xf32>
+  %h0 = view.load %h[%zero, %zero] : view<6144x3xf32> -> f32
+  %h1 = view.load %h[%zero, %one] : view<6144x3xf32> -> f32
+  %h2 = view.load %h[%zero, %two] : view<6144x3xf32> -> f32
+  %x = scalar.constant 0.125 : f32
+  %w0 = scalar.constant 0.125 : f32
+  %w1 = scalar.constant 0.15625 : f32
+  %w2 = scalar.constant 0.1875 : f32
+  %w3 = scalar.constant 0.21875 : f32
+  %sqrt128 = scalar.constant 11.313708498984761 : f32
+  %epsilon = scalar.constant 0.000001 : f32
+  %onef = scalar.constant 1.0 : f32
+  %last0, %last1, %last2 = scf.for %t = [%zero to %n step %one](%old0 = %h0 : f32, %old1 = %h1 : f32, %old2 = %h2 : f32) -> (f32, f32, f32) {
+    %v0 = scalar.mulf %old0, %w0 : f32
+    %v1 = scalar.mulf %old1, %w1 : f32
+    %v2 = scalar.mulf %old2, %w2 : f32
+    %v3 = scalar.mulf %x, %w3 : f32
+    %s0 = scalar.addf %v0, %v1 : f32
+    %s1 = scalar.addf %v2, %v3 : f32
+    %sum = scalar.addf %s0, %s1 : f32
+    %negative = scalar.negf %sum : f32
+    %exponential = scalar.expf<afn> %negative : f32
+    %denominator = scalar.addf %onef, %exponential : f32
+    %activated = scalar.divf %sum, %denominator : f32
+    %abs = scalar.absf %activated : f32
+    %length = scalar.mulf %abs, %sqrt128 : f32
+    %safe = scalar.maxnumf %length, %epsilon : f32
+    %inverse_value = scalar.divf %onef, %safe : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %activated, %out[%row, %c] : f32, view<8x6144xf32> }
+    scf.for %head = [%zero to %heads step %one] { view.store %inverse_value, %inv[%row, %head] : f32, view<8x32xf32> }
+    scf.yield %old1, %old2, %x : f32, f32, f32
+  }
+  scf.for %c = [%zero to %width step %one] {
+    view.store %last0, %h[%c, %zero] : f32, view<6144x3xf32>
+    view.store %last1, %h[%c, %one] : f32, view<6144x3xf32>
+    view.store %last2, %h[%c, %two] : f32, view<6144x3xf32>
+  }
+  func.return
+}
+check.scenario @convolution_zero_3 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.125) : tensor<49152xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<24576xf32>
+    %history = check.generate.fill value(0.0) : tensor<18560xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<49152xf32> -> tensor<12288xf32>
+    %output_suffix = check.tensor.view %output offset(122880) : tensor<49152xf32> -> tensor<18432xf32>
+    check.compare<@actual_conv3, @reference_conv3>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.bitwise actual(%history) expected(%history) : tensor<18560xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<49152xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<18432xf32>
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @convolution_nonzero_3 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.125) : tensor<49152xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<24576xf32>
+    %history = check.generate.fill value(0.03125) : tensor<18560xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<49152xf32> -> tensor<12288xf32>
+    %output_suffix = check.tensor.view %output offset(122880) : tensor<49152xf32> -> tensor<18432xf32>
+    check.compare<@actual_conv3, @reference_conv3>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.bitwise actual(%history) expected(%history) : tensor<18560xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<49152xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<18432xf32>
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+command.program.def public @actual_conv5() launch(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %n = index.constant 5 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_conv_spans[%one](%epoch, %rows, %offset, %epsilon, %input, %weight, %history, %output, %inverse) : [index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_conv5(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %n = index.constant 5 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %begin = index.constant 2 : index
+  %width = index.constant 6144 : index
+  %heads = index.constant 32 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %h = buffer.view %history[%offset] : buffer -> view<6144x3xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x6144xf32>
+  %inv = buffer.view %inverse[%origin] : buffer -> view<8x32xf32>
+  %h0 = view.load %h[%zero, %zero] : view<6144x3xf32> -> f32
+  %h1 = view.load %h[%zero, %one] : view<6144x3xf32> -> f32
+  %h2 = view.load %h[%zero, %two] : view<6144x3xf32> -> f32
+  %x = scalar.constant 0.125 : f32
+  %w0 = scalar.constant 0.125 : f32
+  %w1 = scalar.constant 0.15625 : f32
+  %w2 = scalar.constant 0.1875 : f32
+  %w3 = scalar.constant 0.21875 : f32
+  %sqrt128 = scalar.constant 11.313708498984761 : f32
+  %epsilon = scalar.constant 0.000001 : f32
+  %onef = scalar.constant 1.0 : f32
+  %last0, %last1, %last2 = scf.for %t = [%zero to %n step %one](%old0 = %h0 : f32, %old1 = %h1 : f32, %old2 = %h2 : f32) -> (f32, f32, f32) {
+    %v0 = scalar.mulf %old0, %w0 : f32
+    %v1 = scalar.mulf %old1, %w1 : f32
+    %v2 = scalar.mulf %old2, %w2 : f32
+    %v3 = scalar.mulf %x, %w3 : f32
+    %s0 = scalar.addf %v0, %v1 : f32
+    %s1 = scalar.addf %v2, %v3 : f32
+    %sum = scalar.addf %s0, %s1 : f32
+    %negative = scalar.negf %sum : f32
+    %exponential = scalar.expf<afn> %negative : f32
+    %denominator = scalar.addf %onef, %exponential : f32
+    %activated = scalar.divf %sum, %denominator : f32
+    %abs = scalar.absf %activated : f32
+    %length = scalar.mulf %abs, %sqrt128 : f32
+    %safe = scalar.maxnumf %length, %epsilon : f32
+    %inverse_value = scalar.divf %onef, %safe : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %activated, %out[%row, %c] : f32, view<8x6144xf32> }
+    scf.for %head = [%zero to %heads step %one] { view.store %inverse_value, %inv[%row, %head] : f32, view<8x32xf32> }
+    scf.yield %old1, %old2, %x : f32, f32, f32
+  }
+  scf.for %c = [%zero to %width step %one] {
+    view.store %last0, %h[%c, %zero] : f32, view<6144x3xf32>
+    view.store %last1, %h[%c, %one] : f32, view<6144x3xf32>
+    view.store %last2, %h[%c, %two] : f32, view<6144x3xf32>
+  }
+  func.return
+}
+check.scenario @convolution_zero_5 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.125) : tensor<49152xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<24576xf32>
+    %history = check.generate.fill value(0.0) : tensor<18560xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<49152xf32> -> tensor<12288xf32>
+    %output_suffix = check.tensor.view %output offset(172032) : tensor<49152xf32> -> tensor<6144xf32>
+    check.compare<@actual_conv5, @reference_conv5>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.bitwise actual(%history) expected(%history) : tensor<18560xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<49152xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<6144xf32>
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @convolution_nonzero_5 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.125) : tensor<49152xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<24576xf32>
+    %history = check.generate.fill value(0.03125) : tensor<18560xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<49152xf32> -> tensor<12288xf32>
+    %output_suffix = check.tensor.view %output offset(172032) : tensor<49152xf32> -> tensor<6144xf32>
+    check.compare<@actual_conv5, @reference_conv5>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.bitwise actual(%history) expected(%history) : tensor<18560xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<49152xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<6144xf32>
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+
+check.case @norm_gate_nonzero {
+  %tokens = check.literal value(3) : index
+  %epsilon = check.literal value(0.000001) : f32
+  %raw = check.generate.fill value(0.25) : tensor<6144xf32>
+  %weight = check.generate.fill value(0.5) : tensor<128xf32>
+  %z = check.generate.fill value(0.125) : tensor<6144xf32>
+  %output = check.generate.fill value(-99.0) : tensor<6144xf32>
+  %expected = check.generate.fill value(0.033200320234360294) : tensor<6144xf32>
+  kernel.launch @qwen38_gdn_norm_gate_prefill[%tokens](%tokens, %epsilon, %raw, %weight, %z, %output) : [index](index, f32, tensor<6144xf32>, tensor<128xf32>, tensor<6144xf32>, tensor<6144xf32>)
+  check.expect.close actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<6144xf32>
+  check.return
+}
+
+check.case @norm_gate_zero {
+  %tokens = check.literal value(3) : index
+  %epsilon = check.literal value(0.000001) : f32
+  %raw = check.generate.fill value(0.0) : tensor<6144xf32>
+  %weight = check.generate.fill value(0.5) : tensor<128xf32>
+  %z = check.generate.fill value(0.125) : tensor<6144xf32>
+  %output = check.generate.fill value(-99.0) : tensor<6144xf32>
+  %expected = check.generate.fill value(0.0) : tensor<6144xf32>
+  kernel.launch @qwen38_gdn_norm_gate_prefill[%tokens](%tokens, %epsilon, %raw, %weight, %z, %output) : [index](index, f32, tensor<6144xf32>, tensor<128xf32>, tensor<6144xf32>, tensor<6144xf32>)
+  check.expect.close actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<6144xf32>
+  check.return
+}
+
+kernel.def @test_gdn_impulse() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%state: buffer) {
+  %origin = index.constant 256 : offset
+  %index = index.constant 907 : index
+  %v = scalar.constant 0.125 : f32
+  %matrix = buffer.view %state[%origin] : buffer -> view<262144xf32>
+  view.store %v, %matrix[%index] : f32, view<262144xf32>
+  kernel.return
+}
+command.program.def public @actual_layout() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 3 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @test_gdn_impulse[](%state) : [](buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_layout(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 3 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %count = index.constant 262144 : index
+  %width = index.constant 128 : index
+  %value = index.constant 7 : index
+  %key = index.constant 11 : index
+  %offset = index.constant 256 : offset
+  %matrix = buffer.view %state[%offset] : buffer -> view<262144xf32>
+  // A one-cell impulse decomposes into a constant key-vector and an orthogonal
+  // component. Their eigenvalues are1/4 and1/2 respectively for this fixture.
+  %baseline = scalar.constant 0.05800485314420897 : f32
+  %orthogonal = scalar.constant 0.015625 : f32
+  %mean = scalar.constant -0.0001068115234375 : f32
+  scf.for %i = [%zero to %count step %one] {
+    %column = index.div %i, %width : index
+    %row = index.rem %i, %width : index
+    %selected_column = index.cmp eq, %column, %value : index
+    %expected = scf.if %selected_column -> (f32) {
+      %selected_key = index.cmp eq, %row, %key : index
+      %z = scalar.constant 0.0 : f32
+      %bump = scf.select %selected_key, %orthogonal, %z : f32
+      %delta = scalar.addf %mean, %bump : f32
+      %v = scalar.addf %baseline, %delta : f32
+      scf.yield %v : f32
+    } else { scf.yield %baseline : f32 }
+    view.store %expected, %matrix[%i] : f32, view<262144xf32>
+  }
+  %origin = index.constant 0 : offset
+  %out = buffer.view %output[%origin] : buffer -> view<8x2048xf32>
+  %row1 = index.constant 2 : index
+  %baseline1 = scalar.constant 0.044194173824159216 : f32
+  %bump1 = scalar.constant 0.000244140625 : f32
+  %columns1 = index.constant 2048 : index
+  scf.for %c = [%zero to %columns1 step %one] {
+    %selected = index.cmp eq, %c, %value : index
+    %z = scalar.constant 0.0 : f32
+    %delta = scf.select %selected, %bump1, %z : f32
+    %expected = scalar.addf %baseline1, %delta : f32
+    view.store %expected, %out[%row1, %c] : f32, view<8x2048xf32>
+  }
+  %row2 = index.constant 3 : index
+  %baseline2 = scalar.constant 0.05524271728019902 : f32
+  %bump2 = scalar.constant 6.103515625e-05 : f32
+  %columns2 = index.constant 2048 : index
+  scf.for %c = [%zero to %columns2 step %one] {
+    %selected = index.cmp eq, %c, %value : index
+    %z = scalar.constant 0.0 : f32
+    %delta = scf.select %selected, %bump2, %z : f32
+    %expected = scalar.addf %baseline2, %delta : f32
+    view.store %expected, %out[%row2, %c] : f32, view<8x2048xf32>
+  }
+  %row3 = index.constant 4 : index
+  %baseline3 = scalar.constant 0.05800485314420897 : f32
+  %bump3 = scalar.constant 1.52587890625e-05 : f32
+  %columns3 = index.constant 2048 : index
+  scf.for %c = [%zero to %columns3 step %one] {
+    %selected = index.cmp eq, %c, %value : index
+    %z = scalar.constant 0.0 : f32
+    %delta = scf.select %selected, %bump3, %z : f32
+    %expected = scalar.addf %baseline3, %delta : f32
+    view.store %expected, %out[%row3, %c] : f32, view<8x2048xf32>
+  }
+  func.return
+}
+check.scenario @recurrent_layout_impulse {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.0) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(40960) : tensor<16384xf32> -> tensor<6144xf32>
+    check.compare<@actual_layout, @reference_layout>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<6144xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+
+check.case @clear_raw_defines_tail {
+  %tokens = check.literal value(3) : index
+  %storage = check.generate.fill value(-99.0) : tensor<6272xf32>
+  %output = check.tensor.view %storage offset(256) : tensor<6272xf32> -> tensor<6144xf32>
+  %prefix = check.tensor.view %storage offset(0) : tensor<6272xf32> -> tensor<64xf32>
+  %suffix = check.tensor.view %storage offset(24832) : tensor<6272xf32> -> tensor<64xf32>
+  %zero = check.generate.fill value(0.0) : tensor<6144xf32>
+  %canary = check.generate.fill value(-99.0) : tensor<64xf32>
+  kernel.launch @qwen08_gdn_clear_raw[%tokens](%tokens, %output) : [index](index, tensor<6144xf32>)
+  check.expect.bitwise actual(%output) expected(%zero) : tensor<6144xf32>
+  check.expect.bitwise actual(%prefix) expected(%canary) : tensor<64xf32>
+  check.expect.bitwise actual(%suffix) expected(%canary) : tensor<64xf32>
+  check.return
+}
+
+func.def @test_gdn_fork(%rows: buffer, %state: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %count = index.constant 262144 : index
+  %origin = index.constant 0 : offset
+  %table = buffer.view %rows[%origin] : buffer -> view<4xi64>
+  %writer = scalar.constant 1049088 : i64
+  view.store %writer, %table[%one] : i64, view<4xi64>
+  %writer_origin = index.constant 1049344 : offset
+  %matrix = buffer.view %state[%writer_origin] : buffer -> view<262144xf32>
+  %poison = scalar.constant 0.25 : f32
+  scf.for %i = [%zero to %count step %one] { view.store %poison, %matrix[%i] : f32, view<262144xf32> }
+  func.return
+}
+kernel.def @test_gdn_fork_kernel() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%rows: buffer, %state: buffer) {
+  func.call @test_gdn_fork(%rows, %state) : (buffer, buffer) -> ()
+  kernel.return
+}
+func.def @test_gdn_continue(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %one32 = scalar.constant 1 : i32
+  %three32 = scalar.constant 3 : i32
+  %view = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
+  view.store %one32, %view[%zero] : i32, view<1048xi32>
+  view.store %one32, %view[%three] : i32, view<1048xi32>
+  view.store %three32, %view[%four] : i32, view<1048xi32>
+  func.return
+}
+kernel.def @test_gdn_continue_kernel() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
+  func.call @test_gdn_continue(%epoch) : (buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_continuation() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 3 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  kernel.launch @test_gdn_epoch_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @test_gdn_fork_kernel[](%rows, %state) : [](buffer, buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test_gdn_continue_kernel[](%epoch) : [](buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_continuation(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 3 : index
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  func.call @test_gdn_fork(%rows, %state) : (buffer, buffer) -> ()
+  func.call @test_gdn_continue(%epoch) : (buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  %two = index.constant 2 : index
+  %width = index.constant 2048 : index
+  %count = index.constant 262144 : index
+  %origin = index.constant 0 : offset
+  %writer_origin = index.constant 1049344 : offset
+  %read_origin = index.constant 256 : offset
+  %anchor = buffer.view %state[%read_origin] : buffer -> view<262144xf32>
+  %writer = buffer.view %state[%writer_origin] : buffer -> view<262144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x2048xf32>
+  %initial = view.load %anchor[%zero] : view<262144xf32> -> f32
+  %quarter = scalar.constant 0.25 : f32
+  %increment = scalar.constant 0.04419417382415922 : f32
+  %final = scf.for %t = [%zero to %four step %one](%m = %initial : f32) -> (f32) {
+    %d = scalar.mulf %m, %quarter : f32
+    %next = scalar.addf %d, %increment : f32
+    %three = index.constant 3 : index
+    %last = index.cmp eq, %t, %three : index
+    %row0 = index.add %t, %two : index
+    %row = scf.select %last, %two, %row0 : index
+    scf.for %c = [%zero to %width step %one] { view.store %next, %out[%row, %c] : f32, view<8x2048xf32> }
+    scf.yield %next : f32
+  }
+  scf.for %i = [%zero to %count step %one] { view.store %final, %writer[%i] : f32, view<262144xf32> }
+  func.return
+}
+check.scenario @anchor_writer_continuation {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<128xf32>
+    %beta = check.generate.fill value(0.0) : tensor<128xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.03125) : tensor<524544xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<524544xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(2097920) : tensor<524544xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<16384xf32>
+    %output_prefix = check.tensor.view %output offset(0) : tensor<16384xf32> -> tensor<4096xf32>
+    %output_suffix = check.tensor.view %output offset(40960) : tensor<16384xf32> -> tensor<6144xf32>
+    %immutable_anchor = check.tensor.view %state offset(256) : tensor<524544xf32> -> tensor<262144xf32>
+    %state_gap = check.tensor.view %state offset(1048832) : tensor<524544xf32> -> tensor<128xf32>
+    check.compare<@actual_continuation, @reference_continuation>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<524544xf32>, tensor<16384xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<524544xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<16384xf32>
+      check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<4096xf32>
+      check.expect.bitwise actual(%output_suffix) expected(%output_suffix) : tensor<6144xf32>
+      check.expect.bitwise actual(%immutable_anchor) expected(%immutable_anchor) : tensor<262144xf32>
+      check.expect.bitwise actual(%state_gap) expected(%state_gap) : tensor<128xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<49152xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+
+func.def @test_gdn_epoch_full(%n: index, %epoch: buffer, %rows: buffer) {
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %begin_index = index.constant 5 : index
+  %zero = scalar.constant 0 : i32
+  %control = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
+  view.store %zero, %control[%begin_index] : i32, view<1048xi32>
+  func.return
+}
+kernel.def @test_gdn_epoch_full_kernel() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%n: index, %epoch: buffer, %rows: buffer) {
+  func.call @test_gdn_epoch_full(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @actual_rec512() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 512 : index
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  kernel.launch @test_gdn_epoch_full_kernel[](%n, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_recurrent_spans[%one](%epoch, %rows, %offset, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : [index](buffer, buffer, offset, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @reference_rec512(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+  %n = index.constant 512 : index
+  func.call @test_gdn_epoch_full(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %width = index.constant 2048 : index
+  %elements = index.constant 262144 : index
+  %origin = index.constant 0 : offset
+  %offset = index.constant 256 : offset
+  %matrix = buffer.view %state[%offset] : buffer -> view<262144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<512x2048xf32>
+  %initial = view.load %matrix[%zero] : view<262144xf32> -> f32
+  // With normalized Q=K=1/sqrt128, V=1, alpha=bias=beta=0 and A=-1:
+  // decay=1/2; one scalar state entry advances m'=m/4+1/(2sqrt128).
+  // Query readout (including scale1/sqrt128) equals m' exactly in real arithmetic.
+  %quarter = scalar.constant 0.25 : f32
+  %increment = scalar.constant 0.04419417382415922 : f32
+  %final = scf.for %t = [%zero to %n step %one](%m = %initial : f32) -> (f32) {
+    %decayed = scalar.mulf %m, %quarter : f32
+    %next = scalar.addf %decayed, %increment : f32
+    %row = index.add %t, %begin : index
+    scf.for %c = [%zero to %width step %one] { view.store %next, %out[%row, %c] : f32, view<512x2048xf32> }
+    scf.yield %next : f32
+  }
+  scf.for %i = [%zero to %elements step %one] { view.store %final, %matrix[%i] : f32, view<262144xf32> }
+  func.return
+}
+check.scenario @recurrent_zero_512 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<3145728xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<16384xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<8192xf32>
+    %beta = check.generate.fill value(0.0) : tensor<8192xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.0) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<1048576xf32>
+    check.compare<@actual_rec512, @reference_rec512>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<3145728xf32>, tensor<16384xf32>, tensor<8192xf32>, tensor<8192xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<1048576xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<1048576xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<3145728xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+check.scenario @recurrent_nonzero_512 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %qkv = check.generate.fill value(1.0) : tensor<3145728xf32>
+    %inverse = check.generate.fill value(0.08838834764831845) : tensor<16384xf32>
+    %alpha = check.generate.fill value(0.0) : tensor<8192xf32>
+    %beta = check.generate.fill value(0.0) : tensor<8192xf32>
+    %a = check.generate.fill value(-1.0) : tensor<16xf32>
+    %bias = check.generate.fill value(0.0) : tensor<16xf32>
+    %state = check.generate.fill value(0.03125) : tensor<262272xf32>
+    %state_prefix = check.tensor.view %state offset(0) : tensor<262272xf32> -> tensor<64xf32>
+    %state_suffix = check.tensor.view %state offset(1048832) : tensor<262272xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<1048576xf32>
+    check.compare<@actual_rec512, @reference_rec512>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %output) : (tensor<1048xi32>, tensor<4xi64>, tensor<3145728xf32>, tensor<16384xf32>, tensor<8192xf32>, tensor<8192xf32>, tensor<16xf32>, tensor<16xf32>, tensor<262272xf32>, tensor<1048576xf32>) -> () {
+      check.expect.close actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<262272xf32>
+      check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
+      check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<1048576xf32>
+      check.expect.bitwise actual(%qkv) expected(%qkv) : tensor<3145728xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<4xi64>
+    }
+  }
+  check.return
+}

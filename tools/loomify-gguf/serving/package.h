@@ -7,14 +7,15 @@
 #include <cstdint>
 #include <string>
 namespace hrx::loomify_gguf {
-struct LlamaPackageOptions {
+inline constexpr char kLlamaPrefillRoot[] = "generated.llama_prefill";
+inline constexpr char kLlamaDecodeRoot[] = "generated.llama_decode";
+inline constexpr char kLlamaEpochRoot[] = "generated.llama_epoch";
+
+struct ModelPackageOptions {
   std::string source_root;
   std::string output_directory;
   std::string gguf;
   std::string tokenizer;
-  std::string prefill_root = "generated.llama_prefill";
-  std::string decode_root = "generated.llama_decode";
-  std::string epoch_root = "generated.llama_epoch";
   uint64_t context_capacity = 512;
   uint64_t prefill_capacity = 128;
   loomc_source_format_t format = LOOMC_SOURCE_FORMAT_BYTECODE;
@@ -24,7 +25,7 @@ struct LlamaPackageOptions {
 // copied. The module must contain all three admitted roots and numerical
 // providers.
 bool WriteLlamaPackage(const model::ModelDescriptor &,
-                       const LlamaPackageOptions &, const loomc_module_t *,
+                       const ModelPackageOptions &, const loomc_module_t *,
                        std::string *error);
 } // namespace hrx::loomify_gguf
 #endif

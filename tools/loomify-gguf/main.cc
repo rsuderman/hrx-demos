@@ -3,8 +3,9 @@
 #include "iree/base/tooling/flags.h"
 #include "loomc/target/amdgpu.h"
 #include "tools/loomify-gguf/serving/model_export.h"
+#include "tools/loomify-gguf/serving/qwen/model_export.h"
 #include "tools/loomify-gguf/source_builder.h"
-#include "tools/model/llama_configuration.h"
+#include "tools/model/model_descriptor.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -24,9 +25,8 @@ IREE_FLAG_NAMED(int64_t, context_capacity, "context-capacity", 512,
                 "Baked model context capacity.");
 IREE_FLAG_NAMED(int64_t, prefill_capacity, "prefill-capacity", 128,
                 "Baked maximum prefill chunk size (1..512).");
-IREE_FLAG(
-    string, stage, "embedding",
-    "Generation stage: embedding (F32) or model (supported Llama Q4_K_M).");
+IREE_FLAG(string, stage, "embedding",
+          "Generation stage: embedding (F32) or model (supported Llama/Qwen).");
 namespace {
 template <typename T, void (*Release)(T *)> struct Deleter {
   void operator()(T *value) const { Release(value); }
@@ -60,13 +60,13 @@ int ExportModel(const char *executable) {
       !*FLAG_tokenizer || FLAG_output || FLAG_prefill_capacity < 1 ||
       FLAG_prefill_capacity > 512 ||
       FLAG_context_capacity < FLAG_prefill_capacity ||
-      FLAG_context_capacity > 131072) {
+      FLAG_context_capacity > 262144) {
     std::fprintf(stderr, "loomify-gguf: model requires "
                          "--output-dir=NEW_DIRECTORY, --tokenizer=PATH and "
                          "valid capacities; use --output only for embedding\n");
     return 1;
   }
-  hrx::loomify_gguf::LlamaPackageOptions options;
+  hrx::loomify_gguf::ModelPackageOptions options;
   options.source_root = SourceRoot(executable);
   options.output_directory = FLAG_output_dir;
   options.gguf = FLAG_gguf;
@@ -95,8 +95,15 @@ int ExportModel(const char *executable) {
   }
   hrx::model::ModelDescriptor model;
   std::string error;
-  if (!hrx::model::ExtractLlamaConfiguration(input, &model, &error)) {
+  hrx::model::GgufCatalog catalog;
+  if (!hrx::model::ReadGgufCatalog(input, &catalog, &error) ||
+      !hrx::model::LoadModelDescriptor(catalog, &model, &error)) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
+    return 1;
+  }
+  file.reset();
+  if (model.family != "llama" && model.family != "qwen35") {
+    std::fprintf(stderr, "loomify-gguf: unsupported model family\n");
     return 1;
   }
   loomc_target_environment_t *environment = nullptr;
@@ -121,13 +128,24 @@ int ExportModel(const char *executable) {
     return 1;
   Owner<loomc_workspace_t, loomc_workspace_release> workspace_owner(workspace);
   loomc_module_t *module = nullptr;
-  if (!hrx::loomify_gguf::BuildLlamaServeModule(model, options, context,
-                                                workspace, &module, &error)) {
+  hrx::dispatch::QwenNativeGeometry qwen_geometry;
+  const bool qwen = model.family == "qwen35";
+  const bool built =
+      qwen ? hrx::loomify_gguf::BuildQwenServeModule(model, options, context,
+                                                     workspace, &module,
+                                                     &qwen_geometry, &error)
+           : hrx::loomify_gguf::BuildLlamaServeModule(
+                 model, options, context, workspace, &module, &error);
+  if (!built) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
     return 1;
   }
   Owner<loomc_module_t, loomc_module_release> module_owner(module);
-  if (!hrx::loomify_gguf::WriteLlamaPackage(model, options, module, &error)) {
+  const bool written = qwen ? hrx::loomify_gguf::WriteQwenPackage(
+                                  model, options, qwen_geometry, module, &error)
+                            : hrx::loomify_gguf::WriteLlamaPackage(
+                                  model, options, module, &error);
+  if (!written) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
     return 1;
   }

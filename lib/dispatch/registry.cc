@@ -5,6 +5,7 @@
 #include "lib/dispatch/output.h"
 #include "lib/dispatch/attention_builders.h"
 #include "loom/ops/config/ops.h"
+#include "loom/ops/command/ops.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/template/ops.h"
 #include "loomc/interop.h"
@@ -150,7 +151,9 @@ std::vector<Registration> Registry::Implementations(Id id) const {
 bool Registry::Add(Registration entry, std::string *error) {
   if (error)
     error->clear();
-  if (entry.name.empty() || entry.symbol.empty() ||
+  if ((entry.kind != Kind::Kernel && entry.kind != Kind::CommandFamily &&
+       entry.kind != Kind::CommandProgram) ||
+      entry.name.empty() || entry.symbol.empty() ||
       entry.interface_file.empty() || entry.provider_files.empty() ||
       entry.variant.empty() || entry.interface_symbol.empty() ||
       !entry.builder.supports || !entry.builder.build ||
@@ -274,7 +277,9 @@ loomc_status_t LoadNative(loomc_context_t *context,
     return Error("native load requires context, workspace, sources and outputs");
   std::vector<std::string> files;
   for (const auto &entry : entries) {
-    if (entry.symbol.empty() || entry.interface_symbol.empty() ||
+    if ((entry.kind != Kind::Kernel && entry.kind != Kind::CommandFamily &&
+         entry.kind != Kind::CommandProgram) ||
+        entry.symbol.empty() || entry.interface_symbol.empty() ||
         entry.interface_file.empty() || entry.provider_files.empty())
       return Error("native source requires callable and interface/provider closure");
     auto add = [&](const std::string &file) {
@@ -306,16 +311,18 @@ loomc_status_t LoadNative(loomc_context_t *context,
     auto i = std::find(files.begin(), files.end(), entry.interface_file) -
              files.begin();
     const auto *declaration = Symbol(modules[i].get(), entry.interface_symbol);
-    if (!declaration ||
-        (entry.kind == Kind::Kernel ? !loom_kernel_decl_isa(declaration)
-                                    : !loom_template_decl_isa(declaration)))
+    const bool kind_matches = declaration &&
+        (entry.kind == Kind::Kernel ? loom_kernel_decl_isa(declaration)
+         : entry.kind == Kind::CommandFamily ? loom_template_decl_isa(declaration)
+         : loom_command_program_decl_isa(declaration));
+    if (!kind_matches)
       return Error("missing symbol or wrong native callable kind");
   }
   std::vector<loomc_link_module_provider_t> providers;
   if (configuration) {
     loomc_link_module_provider_t provider{};
     provider.module = configuration;
-    provider.provider_name = loomc_make_cstring_view("llama-configuration");
+    provider.provider_name = loomc_make_cstring_view("configuration");
     provider.role = LOOMC_LINK_PROVIDER_ROLE_INPUT;
     providers.push_back(provider);
   }
@@ -356,7 +363,8 @@ loomc_status_t LoadNative(loomc_context_t *context,
       for (const auto &name : entry.required_definitions) {
         const auto *definition = Symbol(*out, name);
         if (!definition || loom_kernel_decl_isa(definition) ||
-            loom_template_decl_isa(definition)) {
+            loom_template_decl_isa(definition) ||
+            loom_command_program_decl_isa(definition)) {
           loomc_module_release(*out);
           *out = nullptr;
           loomc_linker_release(linker);

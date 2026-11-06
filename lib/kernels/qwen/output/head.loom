@@ -1,0 +1,289 @@
+// Copyright 2026 The IREE Authors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Curated ordinary Qwen0.8B closure from loom-pipeline at0aed77a.
+config.decl @qwen.model.hidden_row_bytes : index
+config.decl @qwen.model.hidden_size : index
+config.decl @qwen.model.rms_epsilon : f32
+config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : index
+config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : index
+config.decl @qwen38.greedy_argmax.output_capacity : index
+func.decl @ggml_q6k_q8_1_x4_block_lane(%weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %q6_block: index, %lane: index) -> (f32)
+template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+amdgpu.target<gfx11-generic> @qwen38_output_spans_gfx11_wave32 {subgroup_size = 32}
+amdgpu.target<gfx11-generic> @qwen38_greedy_argmax_gfx11_wave64 {subgroup_size = 64}
+func.def inline @ggml_q6k_q8_1_x4_row_lane_m4(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row0_byte_base: offset, %q8_row1_byte_base: offset, %q8_row2_byte_base: offset, %q8_row3_byte_base: offset, %lane: index) -> (f32, f32, f32, f32) {
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c256 = index.constant 256 : index
+  %c0_f32 = scalar.constant 0.0 : f32
+  %block_count = index.div %bounded_input_size, %c256 : index
+  %row0, %row1, %row2, %row3 = scf.for %block = [%c0 to %block_count step %c1](%row0_acc = %c0_f32, %row1_acc = %c0_f32, %row2_acc = %c0_f32, %row3_acc = %c0_f32 : f32, f32, f32, f32) -> (f32, f32, f32, f32) {
+    %contribution0 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row0_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %contribution1 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row1_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %contribution2 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row2_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %contribution3 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row3_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %next0 = scalar.addf<reassoc|nnan|ninf|nsz> %row0_acc, %contribution0 : f32
+    %next1 = scalar.addf<reassoc|nnan|ninf|nsz> %row1_acc, %contribution1 : f32
+    %next2 = scalar.addf<reassoc|nnan|ninf|nsz> %row2_acc, %contribution2 : f32
+    %next3 = scalar.addf<reassoc|nnan|ninf|nsz> %row3_acc, %contribution3 : f32
+    scf.yield %next0, %next1, %next2, %next3 : f32, f32, f32, f32
+  }
+  func.return %row0, %row1, %row2, %row3 : f32, f32, f32, f32
+}
+kernel.def export("ggml_linear_q6k_q8_1_x4_m4") @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 4, 4)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144)] : index
+  %c8 = index.constant 8 : index
+  %c7 = index.constant 7 : index
+  %c1 = index.constant 1 : index
+  %workgroup_size = index.constant 256 : index
+  %padded_output_size = index.add %bounded_output_size, %c7 : index
+  %output_tiles = index.div %padded_output_size, %c8 : index
+  kernel.launch.config workgroups(%output_tiles, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer) {
+  %q8_noalias, %weight_noalias, %output_noalias = buffer.assume.noalias %q8_input, %weight, %output : buffer, buffer, buffer
+  %token_capacity = config.get @ggml.linear_q6k_q8_1_x4.token_capacity : index
+  %output_capacity = config.get @ggml.linear_q6k_q8_1_x4.output_capacity : index
+  %bounded_token_count = index.assume %token_count [range(%token_count, 4, 4), le(%token_count, %token_capacity)] : index
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
+  %channel_tile = kernel.workgroup.id<x> : index
+  %subgroup0 = kernel.subgroup.id : index
+  %subgroup = index.assume %subgroup0 [range(%subgroup0, 0, 7)] : index
+  %lane = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4_bytes = index.constant 4 : offset
+  %c8 = index.constant 8 : index
+  %c128 = index.constant 128 : index
+  %c144_bytes = index.constant 144 : offset
+  %c210_bytes = index.constant 210 : offset
+  %c256 = index.constant 256 : index
+  %channel_base = index.mul %channel_tile, %c8 : index
+  %channel0 = index.add %channel_base, %subgroup : index
+  %valid_channel = index.cmp ult, %channel0, %bounded_output_size : index
+  %safe_channel0 = scf.select %valid_channel, %channel0, %c0 : index
+  %safe_channel = index.assume %safe_channel0 [lt(%safe_channel0, %output_capacity)] : index
+  %q6_block_count = index.div %bounded_input_size, %c256 : index
+  %weight_row_bytes = index.scale %q6_block_count, %c210_bytes : index, offset -> offset
+  %weight_row_byte_base = index.scale %safe_channel, %weight_row_bytes : index, offset -> offset
+  %q8_group_count = index.div %bounded_input_size, %c128 : index
+  %q8_row_bytes = index.scale %q8_group_count, %c144_bytes : index, offset -> offset
+  %q8_row0_byte_base = index.scale %c0, %q8_row_bytes : index, offset -> offset
+  %q8_row1_byte_base = index.scale %c1, %q8_row_bytes : index, offset -> offset
+  %q8_row2_byte_base = index.scale %c2, %q8_row_bytes : index, offset -> offset
+  %q8_row3_byte_base = index.scale %c3, %q8_row_bytes : index, offset -> offset
+  %lane0, %lane1, %lane2, %lane3 = scf.if %valid_channel -> (f32, f32, f32, f32) {
+    %value0, %value1, %value2, %value3 = func.call @ggml_q6k_q8_1_x4_row_lane_m4(%bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row0_byte_base, %q8_row1_byte_base, %q8_row2_byte_base, %q8_row3_byte_base, %lane) : (index, buffer, offset, buffer, offset, offset, offset, offset, index) -> (f32, f32, f32, f32)
+    scf.yield %value0, %value1, %value2, %value3 : f32, f32, f32, f32
+  } else {
+    %c0_f32 = scalar.constant 0.0 : f32
+    scf.yield %c0_f32, %c0_f32, %c0_f32, %c0_f32 : f32, f32, f32, f32
+  }
+  %dot0 = kernel.subgroup.reduce<addf> %lane0 : f32
+  %dot1 = kernel.subgroup.reduce<addf> %lane1 : f32
+  %dot2 = kernel.subgroup.reduce<addf> %lane2 : f32
+  %dot3 = kernel.subgroup.reduce<addf> %lane3 : f32
+  %is_lane_zero = index.cmp eq, %lane, %c0 : index
+  scf.if %valid_channel {
+    scf.if %is_lane_zero {
+      %c0_offset = index.constant 0 : offset
+      %output_row_bytes = index.scale %bounded_output_size, %c4_bytes : index, offset -> offset
+      %output_row1_byte_base = index.scale %c1, %output_row_bytes : index, offset -> offset
+      %output_row2_byte_base = index.scale %c2, %output_row_bytes : index, offset -> offset
+      %output_row3_byte_base = index.scale %c3, %output_row_bytes : index, offset -> offset
+      %output_row0 = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_output_size]xf32>
+      %output_row1 = buffer.view %output_noalias[%output_row1_byte_base] : buffer -> view<[%bounded_output_size]xf32>
+      %output_row2 = buffer.view %output_noalias[%output_row2_byte_base] : buffer -> view<[%bounded_output_size]xf32>
+      %output_row3 = buffer.view %output_noalias[%output_row3_byte_base] : buffer -> view<[%bounded_output_size]xf32>
+      view.store %dot0, %output_row0[%channel0] : f32, view<[%bounded_output_size]xf32>
+      view.store %dot1, %output_row1[%channel0] : f32, view<[%bounded_output_size]xf32>
+      view.store %dot2, %output_row2[%channel0] : f32, view<[%bounded_output_size]xf32>
+      view.store %dot3, %output_row3[%channel0] : f32, view<[%bounded_output_size]xf32>
+    }
+  }
+  kernel.return
+}
+kernel.def target(@qwen38_output_spans_gfx11_wave32) export("qwen38_output_normalize_spans") @qwen38_output_normalize_spans(%output_capacity: index) {
+  %outputs = index.assume %output_capacity [range(%output_capacity, 1, 64)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%outputs, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%epoch: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
+  %shape_hidden_row_bytes = config.get @qwen.model.hidden_row_bytes : index
+  %shape_hidden_size = config.get @qwen.model.hidden_size : index
+  %ordinal_value = kernel.workgroup.id<x> : index
+  %ordinal = index.assume %ordinal_value [range(%ordinal_value, 0, 63)] : index
+  %zero_origin = index.constant 0 : offset
+  %selection_origin = index.constant 1292 : offset
+  %row_bytes = index.cast %shape_hidden_row_bytes : index to offset
+  %output_origin = index.scale %ordinal, %row_bytes : index, offset -> offset
+  %metadata = buffer.assume.memory_space<constant> %epoch : buffer
+  %header = buffer.view %metadata[%zero_origin] : buffer -> view<3xi32>
+  %count_word = view.load %header[2] : view<3xi32> -> i32
+  %count = index.cast %count_word : i32 to index
+  %active = index.cmp ult, %ordinal, %count : index
+  scf.if %active {
+    %selection = buffer.view %metadata[%selection_origin] : buffer -> view<64xi32>
+    %row_word = view.load %selection[%ordinal] : view<64xi32> -> i32
+    %row_value = index.cast %row_word : i32 to index
+    %row = index.assume %row_value [range(%row_value, 0, 511)] : index
+    %capacity = index.constant 512 : index
+    template.apply<@qwen38.rmsnorm_f32.row>(%capacity, %row, %output_origin, %epsilon, %input, %weight, %output) : (index, index, offset, f32, buffer, buffer, buffer)
+  } else {
+    %lane = kernel.workitem.id<x> : index
+    %threads = index.constant 256 : index
+    %hidden = config.get @qwen.model.hidden_size : index
+    %zero = scalar.constant 0.0 : f32
+    %row = buffer.view %output[%output_origin] : buffer -> view<[%shape_hidden_size]xf32>
+    scf.for %element = [%lane to %hidden step %threads] {
+      view.store %zero, %row[%element] : f32, view<[%shape_hidden_size]xf32>
+    }
+  }
+  kernel.return
+}
+kernel.def target(@qwen38_greedy_argmax_gfx11_wave64) export("qwen38_greedy_argmax_partial_rows_f32") @qwen38_greedy_argmax_partial_rows_f32(%token_count0: index, %output_size: index) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
+  %c1 = index.constant 1 : index
+  %c4095 = index.constant 4095 : index
+  %c4096 = index.constant 4096 : index
+  %padded_output_size = index.add %output_size, %c4095 : index
+  %partial_count = index.div %padded_output_size, %c4096 : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%partial_count, %token_count, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%token_count0: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
+  %output_capacity = config.get @qwen38.greedy_argmax.output_capacity : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262144), le(%output_size, %output_capacity)] : index
+  %c0 = index.constant 0 : index
+  %c4095 = index.constant 4095 : index
+  %c4096 = index.constant 4096 : index
+  %workgroup_size = index.constant 256 : index
+  %largest_i32 = scalar.constant 2147483647 : i32
+  %negative_large = scalar.constant -3.4028234663852886e+38 : f32
+  %c0_offset = index.constant 0 : offset
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [lt(%row0, %token_count)] : index
+  %partial0 = kernel.workgroup.id<x> : index
+  %padded_output_size = index.add %bounded_output_size, %c4095 : index
+  %partial_count = index.div %padded_output_size, %c4096 : index
+  %partial = index.assume %partial0 [lt(%partial0, %partial_count)] : index
+  %workitem = kernel.workitem.id<x> : index
+  %tile_begin = index.mul %partial, %c4096 : index
+  %tile_end0 = index.add %tile_begin, %c4096 : index
+  %tile_end = index.min %tile_end0, %bounded_output_size : index
+  %candidate0 = index.add %tile_begin, %workitem : index
+  %has_initial = index.cmp ult, %candidate0, %tile_end : index
+  %initial_logit, %initial_id = scf.if %has_initial -> (f32, i32) {
+    %initial_candidate = index.assume %candidate0 [lt(%candidate0, %bounded_output_size)] : index
+    %logits_view = buffer.view %logits[%c0_offset] : buffer -> view<[%token_count]x[%bounded_output_size]xf32>
+    %value = view.load %logits_view[%row, %initial_candidate] : view<[%token_count]x[%bounded_output_size]xf32> -> f32
+    %id = index.cast %initial_candidate : index to i32
+    scf.yield %value, %id : f32, i32
+  } else {
+    scf.yield %negative_large, %largest_i32 : f32, i32
+  }
+  %scan_begin = index.add %candidate0, %workgroup_size : index
+  %local_logit, %local_id = scf.for %candidate = [%scan_begin to %tile_end step %workgroup_size](%best_logit = %initial_logit : f32, %best_id = %initial_id : i32) -> (f32, i32) {
+    %bounded_candidate = index.assume %candidate [lt(%candidate, %bounded_output_size)] : index
+    %logits_view = buffer.view %logits[%c0_offset] : buffer -> view<[%token_count]x[%bounded_output_size]xf32>
+    %candidate_logit = view.load %logits_view[%row, %bounded_candidate] : view<[%token_count]x[%bounded_output_size]xf32> -> f32
+    %candidate_id = index.cast %bounded_candidate : index to i32
+    %is_greater = scalar.cmpf ogt, %candidate_logit, %best_logit : f32
+    %is_equal = scalar.cmpf oeq, %candidate_logit, %best_logit : f32
+    %is_lower_id = scalar.cmpi slt, %candidate_id, %best_id : i32
+    %is_lower_tie = scalar.andi %is_equal, %is_lower_id : i1
+    %is_better = scalar.ori %is_greater, %is_lower_tie : i1
+    %next_logit = scf.select %is_better, %candidate_logit, %best_logit : f32
+    %next_id = scf.select %is_better, %candidate_id, %best_id : i32
+    scf.yield %next_logit, %next_id : f32, i32
+  }
+  %winning_logit = kernel.workgroup.reduce<maxnumf> %local_logit : f32
+  %owns_winning_logit = scalar.cmpf oeq, %local_logit, %winning_logit : f32
+  %candidate_winning_id = scf.select %owns_winning_logit, %local_id, %largest_i32 : i32
+  %winning_id = kernel.workgroup.reduce<minsi> %candidate_winning_id : i32
+  %publishes_partial = index.cmp eq, %workitem, %c0 : index
+  scf.if %publishes_partial {
+    %partial_logits_view = buffer.view %partial_logits[%c0_offset] : buffer -> view<[%token_count]x[%partial_count]xf32>
+    %partial_token_ids_view = buffer.view %partial_token_ids[%c0_offset] : buffer -> view<[%token_count]x[%partial_count]xi32>
+    view.store %winning_logit, %partial_logits_view[%row, %partial] : f32, view<[%token_count]x[%partial_count]xf32>
+    view.store %winning_id, %partial_token_ids_view[%row, %partial] : i32, view<[%token_count]x[%partial_count]xi32>
+  }
+  kernel.return
+}
+kernel.def target(@qwen38_greedy_argmax_gfx11_wave64) export("qwen38_greedy_argmax_reduce_rows_f32") @qwen38_greedy_argmax_reduce_rows_f32(%token_count0: index, %output_size: index) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
+  %c1 = index.constant 1 : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%token_count, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%token_count0: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
+  %output_capacity = config.get @qwen38.greedy_argmax.output_capacity : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262144), le(%output_size, %output_capacity)] : index
+  %c0 = index.constant 0 : index
+  %c4095 = index.constant 4095 : index
+  %c4096 = index.constant 4096 : index
+  %largest_i32 = scalar.constant 2147483647 : i32
+  %negative_large = scalar.constant -3.4028234663852886e+38 : f32
+  %c0_offset = index.constant 0 : offset
+  %padded_output_size = index.add %bounded_output_size, %c4095 : index
+  %partial_count = index.div %padded_output_size, %c4096 : index
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [lt(%row0, %token_count)] : index
+  %workitem = kernel.workitem.id<x> : index
+  %has_initial = index.cmp ult, %workitem, %partial_count : index
+  %initial_logit, %initial_id = scf.if %has_initial -> (f32, i32) {
+    %partial_logits_view = buffer.view %partial_logits[%c0_offset] : buffer -> view<[%token_count]x[%partial_count]xf32>
+    %partial_token_ids_view = buffer.view %partial_token_ids[%c0_offset] : buffer -> view<[%token_count]x[%partial_count]xi32>
+    %logit = view.load %partial_logits_view[%row, %workitem] : view<[%token_count]x[%partial_count]xf32> -> f32
+    %id = view.load %partial_token_ids_view[%row, %workitem] : view<[%token_count]x[%partial_count]xi32> -> i32
+    scf.yield %logit, %id : f32, i32
+  } else {
+    scf.yield %negative_large, %largest_i32 : f32, i32
+  }
+  %winning_logit = kernel.workgroup.reduce<maxnumf> %initial_logit : f32
+  %owns_winning_logit = scalar.cmpf oeq, %initial_logit, %winning_logit : f32
+  %candidate_winning_id = scf.select %owns_winning_logit, %initial_id, %largest_i32 : i32
+  %winning_id = kernel.workgroup.reduce<minsi> %candidate_winning_id : i32
+  %publishes_token = index.cmp eq, %workitem, %c0 : index
+  scf.if %publishes_token {
+    %token_ids_view = buffer.view %token_ids[%c0_offset] : buffer -> view<[%token_count]xi32>
+    view.store %winning_id, %token_ids_view[%row] : i32, view<[%token_count]xi32>
+  }
+  kernel.return
+}
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width: index) launch(%rows: index, %width: index, %input: buffer, %output: buffer)
+kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch: buffer, %private_ids: buffer, %output: buffer)
+// Four private projection rows preserve the existing ordinary canonical Q6 route.
+// Public selected capacity remains1; publication consumes only epoch output_count.
+command.program.def @qwen08_epoch_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
+  %four = index.constant 4 : index
+  %hidden = index.constant 1024 : index
+  %vocab = index.constant 248320 : index
+  %origin = index.constant 0 : offset
+  %norm_bytes = index.constant 16384 : offset
+  %q8_bytes = index.constant 4608 : offset
+  %logit_bytes = index.constant 3973120 : offset
+  %partial_bytes = index.constant 976 : offset
+  %id_bytes = index.constant 16 : offset
+  %normalized = buffer.alloca<global> align(256) %norm_bytes : buffer
+  %q8 = buffer.alloca<global> align(256) %q8_bytes : buffer
+  %logits = buffer.alloca<global> align(256) %logit_bytes : buffer
+  %partial_logits = buffer.alloca<global> align(256) %partial_bytes : buffer
+  %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
+  %private_ids = buffer.alloca<global> align(256) %id_bytes : buffer
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  %gamma = command.parameter %parameters, "output_norm.weight" : view<1024xf32>
+  %weight = command.parameter %parameters, "token_embd.weight" : view<208588800xi8>
+  kernel.launch @qwen38_output_normalize_spans[%four](%epoch, %epsilon, %residual, %gamma, %normalized) : [index](buffer, f32, buffer, view<1024xf32>, buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%four, %hidden](%four, %hidden, %normalized, %q8) : [index, index](index, index, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4_m4[%four, %hidden, %vocab](%four, %hidden, %vocab, %q8, %weight, %logits) : [index, index, index](index, index, index, buffer, view<208588800xi8>, buffer)
+  kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%four, %vocab](%four, %vocab, %logits, %partial_logits, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
+  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%four, %vocab](%four, %vocab, %partial_logits, %partial_ids, %private_ids) : [index, index](index, index, buffer, buffer, buffer)
+  kernel.launch @qwen08_publish_selected_ids[%output_capacity](%epoch, %private_ids, %output) : [index](buffer, buffer, buffer)
+  command.return
+}

@@ -569,5 +569,33 @@ TEST_F(CommandBuilderTest, NativeInspectionFailuresRemainRecoverable) {
   EXPECT_EQ(Calls(Symbol(Native(output.get()), "authored")).size(), 2u);
 }
 
+
+TEST_F(CommandBuilderTest, ProgramInterfaceChecksDefinitionAndDeclarationGroups) {
+  auto declared = Parse("command.program.decl @declared(%n: index) launch(%a: buffer, %b: buffer)\n");
+  ASSERT_NE(declared, nullptr);
+  auto owner = Builder(declared.get()), foreign = Builder(declared.get());
+  ProgramRef declaration, other;
+  ASSERT_TRUE(Ok(owner->Program("declared", &declaration)));
+  ASSERT_TRUE(Ok(foreign->Program("declared", &other)));
+  const auto index = owner->Scalar(LOOM_SCALAR_TYPE_INDEX), buffer = owner->Buffer();
+  ASSERT_TRUE(Ok(owner->CheckProgramInterface(declaration, {index}, {buffer, buffer})));
+  EXPECT_EQ(loomc_status_consume_code(owner->CheckProgramInterface(other, {index}, {buffer, buffer})),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(loomc_status_consume_code(owner->CheckProgramInterface(declaration, {}, {buffer, buffer})),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(loomc_status_consume_code(owner->CheckProgramInterface(declaration, {index}, {buffer})),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(loomc_status_consume_code(owner->CheckProgramInterface(declaration, {buffer}, {buffer, buffer})),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(loomc_status_consume_code(owner->CheckProgramInterface(declaration, {foreign->Scalar(LOOM_SCALAR_TYPE_INDEX)}, {buffer, buffer})),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  auto body = Program(*owner);
+  ASSERT_TRUE(Ok(body->Finish()));
+  ASSERT_TRUE(Ok(owner->CheckProgramInterface(body->Ref(), {index}, {buffer, buffer, buffer})));
+  EXPECT_EQ(loomc_status_consume_code(owner->CheckProgramInterface(body->Ref(), {index}, {buffer, buffer})),
+            LOOMC_STATUS_INVALID_ARGUMENT);
+  auto module = Finish(*owner, {body->Ref()});
+  ASSERT_NE(module, nullptr);
+}
 } // namespace
 } // namespace hrx::loomify_gguf

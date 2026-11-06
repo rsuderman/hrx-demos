@@ -1,0 +1,70 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Known tied rows1=[+1,+1 halves],2=[+1,-1 halves], others zero.
+// Gamma=[+1,-2 halves]. Thus embeddingID1 predicts2, ID2 predicts1.
+kernel.def @qwen_output_init_tied_bank() {
+  %two = index.constant 2 : index
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  kernel.launch.config workgroups(%two, %one, %one) workgroup_size(%four, %one, %one) : index
+} launch(%weight: buffer, %gamma: buffer) {
+  %group = kernel.workgroup.id<x> : index
+  %block = kernel.workitem.id<x> : index
+  %one = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %two = index.constant 2 : index
+  %sixteen = index.constant 16 : index
+  %sixty_four = index.constant 64 : index
+  %one_twenty_eight = index.constant 128 : index
+  %half = index.constant 512 : index
+  %row = index.add %group, %one : index
+  %row_bytes = index.constant 840 : offset
+  %block_bytes = index.constant 210 : offset
+  %row_origin = index.scale %row, %row_bytes : index, offset -> offset
+  %block_origin = index.scale %block, %block_bytes : index, offset -> offset
+  %origin = index.add %row_origin, %block_origin : offset
+  %qh_add = index.constant 128 : offset
+  %scale_add = index.constant 192 : offset
+  %delta_add = index.constant 208 : offset
+  %qh_origin = index.add %origin, %qh_add : offset
+  %scale_origin = index.add %origin, %scale_add : offset
+  %delta_origin = index.add %origin, %delta_add : offset
+  %second_row = index.cmp eq, %group, %one : index
+  %second_half = index.cmp uge, %block, %two : index
+  %negative = scalar.andi %second_row, %second_half : i1
+  %positive_ql = scalar.constant 17 : i8
+  %negative_ql = scalar.constant -1 : i8
+  %positive_qh = scalar.constant -86 : i8
+  %negative_qh = scalar.constant 85 : i8
+  %ql_code = scf.select %negative, %negative_ql, %positive_ql : i8
+  %qh_code = scf.select %negative, %negative_qh, %positive_qh : i8
+  %ql = buffer.view %weight[%origin] : buffer -> view<128xi8>
+  %qh = buffer.view %weight[%qh_origin] : buffer -> view<64xi8>
+  %scales = buffer.view %weight[%scale_origin] : buffer -> view<16xi8>
+  %delta = buffer.view %weight[%delta_origin] : buffer -> view<1xf16>
+  %scale = scalar.constant 1 : i8
+  %unit = scalar.constant 1.0 : f16
+  scf.for %i = [%zero to %one_twenty_eight step %one] {
+    view.store %ql_code, %ql[%i] : i8, view<128xi8>
+  }
+  scf.for %i = [%zero to %sixty_four step %one] {
+    view.store %qh_code, %qh[%i] : i8, view<64xi8>
+  }
+  scf.for %i = [%zero to %sixteen step %one] {
+    view.store %scale, %scales[%i] : i8, view<16xi8>
+  }
+  view.store %unit, %delta[0] : f16, view<1xf16>
+  %gamma_positive = scalar.constant 1.0 : f32
+  %gamma_negative = scalar.constant -2.0 : f32
+  %gamma_value = scf.select %second_row, %gamma_negative, %gamma_positive : f32
+  %gamma_group = index.mul %group, %half : index
+  %gamma_block = index.mul %block, %one_twenty_eight : index
+  %gamma_base = index.add %gamma_group, %gamma_block : index
+  %zero_origin = index.constant 0 : offset
+  %g = buffer.view %gamma[%zero_origin] : buffer -> view<1024xf32>
+  scf.for %i = [%zero to %one_twenty_eight step %one] {
+    %position = index.add %gamma_base, %i : index
+    view.store %gamma_value, %g[%position] : f32, view<1024xf32>
+  }
+  kernel.return
+}

@@ -341,3 +341,12 @@ loom_test(
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
+
+cc_test(
+    name = "qwen_configuration_test", size = "small",
+    srcs = ["qwen_configuration_test.cc"], copts = ["-std=c++17"], linkstatic = True,
+    data = ["testdata/program_interface.loom", "testdata/program_provider.loom", "//lib/kernels/qwen:all_sources", "//lib/kernels/llama:all_sources"],
+    deps = ["//lib/dispatch:registry", "//lib/dispatch:invocation", "//lib/qwen:structure", "//lib/qwen/testing:model_fixture",
+            "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/config",
+            "@hrx_system//loom/binding/c/target/amdgpu", "@googletest//:gtest", "@googletest//:gtest_main"],
+)

@@ -4,6 +4,7 @@
 #ifndef HRX_SOLUTIONS_LIB_OPERATIONS_OPERATION_GRAPH_H_
 #define HRX_SOLUTIONS_LIB_OPERATIONS_OPERATION_GRAPH_H_
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -28,7 +29,10 @@ enum class OpCode {
   CopyRows,
   ArgMax,
   OutputHead,
-  PublishToken
+  PublishToken,
+  QwenGdnLayer,
+  QwenAttentionLayer,
+  QwenEpochHead
 };
 enum class Port {
   Input,
@@ -51,7 +55,29 @@ enum class Port {
   Token,
   Control,
   History,
-  Progress
+  Progress,
+  InputNormWeight,
+  PostNormWeight,
+  DownWeight,
+  QkvWeight,
+  RecurrentGateWeight,
+  ConvolutionWeight,
+  DtBias,
+  DecayWeight,
+  AlphaWeight,
+  BetaWeight,
+  RecurrentNormWeight,
+  RecurrentOutputWeight,
+  QueryWeight,
+  KeyWeight,
+  ValueWeight,
+  AttentionOutputWeight,
+  QueryNormWeight,
+  KeyNormWeight,
+  ConvolutionHistory,
+  RecurrentState,
+  Epoch,
+  Rows
 };
 enum class ValueKind { Tensor, Scalar, State };
 enum class Access { Read, Write, ReadWrite };
@@ -170,11 +196,43 @@ struct PublishTokenAttrs {
   TerminalPolicy terminal_policy = TerminalPolicy::None;
   std::vector<int32_t> terminal_ids;
 };
+// Complete Qwen layers include both block norms, the mixer/output residual,
+// and the entire normalized FFN/down residual. State tensors retain identities.
+struct QwenGdnLayerAttrs {
+  uint32_t layer_index = 0;
+  uint64_t recurrent_ordinal = 0;
+  uint64_t token_capacity = 0, span_capacity = 0;
+  uint64_t hidden_width = 0, ffn_width = 0;
+  uint64_t convolution_taps = 0, state_width = 0;
+  uint64_t key_heads = 0, value_heads = 0;
+  double epsilon = 1e-6;
+};
+struct QwenAttentionLayerAttrs {
+  uint32_t layer_index = 0;
+  uint64_t attention_ordinal = 0;
+  uint64_t token_capacity = 0, span_capacity = 0;
+  uint64_t hidden_width = 0, ffn_width = 0;
+  uint64_t query_heads = 0, kv_heads = 0, head_width = 0;
+  uint64_t rotary_width = 0, cache_capacity = 0;
+  double epsilon = 1e-6, rope_base = 10000000, rope_scaling_factor = 1;
+  RopeScaling rope_scaling = RopeScaling::Linear;
+  std::array<uint64_t, 4> rope_sections{};
+  double attention_scale = 0;
+};
+// Only [0, runtime epoch output_count) is defined. At count zero no output byte
+// is written; padded normalization/projection rows remain native-private.
+struct QwenEpochHeadAttrs {
+  uint64_t width = 0, vocabulary_size = 0;
+  double epsilon = 1e-6;
+  uint64_t token_capacity = 0, span_capacity = 0, selected_output_capacity = 0;
+};
 using OperationAttrs =
     std::variant<GatedMatmulAttrs, LinearResidualAttrs, EmbeddingAttrs,
                  RmsNormAttrs, QuantizeAttrs, LinearAttrs, CopyRowsAttrs,
                  ArgMaxAttrs, RopeAttrs, RotatePublishKVAttrs,
-                 CausalAttentionAttrs, OutputHeadAttrs, PublishTokenAttrs>;
+                 CausalAttentionAttrs, OutputHeadAttrs, PublishTokenAttrs,
+                 QwenGdnLayerAttrs, QwenAttentionLayerAttrs,
+                 QwenEpochHeadAttrs>;
 
 class BoundOperands;
 class DefinitionBuilder;

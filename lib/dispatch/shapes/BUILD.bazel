@@ -15,6 +15,7 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [
         "//lib/operations:operation_graph",
+        "//lib/operations:qwen_operations",
         "//lib/operations:ffn_operations",
         "//lib/operations:attention_operations",
         "//lib/operations:control_operations",

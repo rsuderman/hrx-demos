@@ -60,3 +60,8 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [":operation_graph"],
 )
+
+iree_cc_library(
+    name = "qwen_operations", srcs = ["qwen_operations.cc"], hdrs = ["qwen_operations.h"],
+    cxxopts = _CXXOPTS, deps = [":operation_graph"],
+)

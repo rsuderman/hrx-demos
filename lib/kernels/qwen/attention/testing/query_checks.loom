@@ -1,0 +1,92 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+kernel.decl @qwen38_attention_query_prepare_prefill(%token_count: index) launch(%control: buffer, %epsilon: f32, %query_gate_projection: buffer, %norm_weight: buffer, %query: buffer, %gate: buffer)
+func.decl @anchor_init(%count: index, %position: index, %control: buffer, %projection: buffer, %weight: buffer)
+func.decl @anchor_expected(%count: index, %position: index, %control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer)
+kernel.def @initialize_n1_p0() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %projection: buffer, %weight: buffer) {
+  %count = index.constant 1 : index
+  %position = index.constant 0 : index
+  func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @query_actual_n1_p0() launch(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+  %capacity = index.constant 4 : index
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @initialize_n1_p0[](%control, %projection, %weight) : [](buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_query_prepare_prefill[%capacity](%control, %epsilon, %projection, %weight, %query, %gate) : [index](buffer, f32, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @query_expected_n1_p0(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+  %count = index.constant 1 : index
+  %position = index.constant 0 : index
+  func.call @anchor_expected(%count, %position, %control, %projection, %weight, %query, %gate) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @query_n1_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-1) : tensor<2xi32>
+    %projection = check.generate.fill value(0.0) : tensor<4x4096xf32>
+    %weight = check.generate.fill value(0.0) : tensor<256xf32>
+    %query = check.generate.fill value(-17.0) : tensor<4x2048xf32>
+    %gate = check.generate.fill value(-19.0) : tensor<4x2048xf32>
+    %inactive_query = check.tensor.view %query offset(8192) : tensor<4x2048xf32> -> tensor<6144xf32>
+    %inactive_gate = check.tensor.view %gate offset(8192) : tensor<4x2048xf32> -> tensor<6144xf32>
+    check.compare<@query_actual_n1_p0, @query_expected_n1_p0>(%control, %projection, %weight, %query, %gate) : (tensor<2xi32>, tensor<4x4096xf32>, tensor<256xf32>, tensor<4x2048xf32>, tensor<4x2048xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<2xi32>
+      check.expect.bitwise actual(%projection) expected(%projection) : tensor<4x4096xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
+      check.expect.close actual(%query) expected(%query) atol(0.00002) rtol(0.00002) nan(same) : tensor<4x2048xf32>
+      check.expect.close actual(%gate) expected(%gate) atol(0.000002) rtol(0.000002) nan(same) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%inactive_query) expected(%inactive_query) : tensor<6144xf32>
+      check.expect.bitwise actual(%inactive_gate) expected(%inactive_gate) : tensor<6144xf32>
+    }
+  }
+  check.return
+}
+
+kernel.def @initialize_n2_p63() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%control: buffer, %projection: buffer, %weight: buffer) {
+  %count = index.constant 2 : index
+  %position = index.constant 63 : index
+  func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @query_actual_n2_p63() launch(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+  %capacity = index.constant 4 : index
+  %epsilon = scalar.constant 0.000001 : f32
+  kernel.launch @initialize_n2_p63[](%control, %projection, %weight) : [](buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_query_prepare_prefill[%capacity](%control, %epsilon, %projection, %weight, %query, %gate) : [index](buffer, f32, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @query_expected_n2_p63(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+  %count = index.constant 2 : index
+  %position = index.constant 63 : index
+  func.call @anchor_expected(%count, %position, %control, %projection, %weight, %query, %gate) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @query_n2_p63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(-1) : tensor<2xi32>
+    %projection = check.generate.fill value(0.0) : tensor<4x4096xf32>
+    %weight = check.generate.fill value(0.0) : tensor<256xf32>
+    %query = check.generate.fill value(-17.0) : tensor<4x2048xf32>
+    %gate = check.generate.fill value(-19.0) : tensor<4x2048xf32>
+    %inactive_query = check.tensor.view %query offset(16384) : tensor<4x2048xf32> -> tensor<4096xf32>
+    %inactive_gate = check.tensor.view %gate offset(16384) : tensor<4x2048xf32> -> tensor<4096xf32>
+    check.compare<@query_actual_n2_p63, @query_expected_n2_p63>(%control, %projection, %weight, %query, %gate) : (tensor<2xi32>, tensor<4x4096xf32>, tensor<256xf32>, tensor<4x2048xf32>, tensor<4x2048xf32>) -> () {
+      check.expect.bitwise actual(%control) expected(%control) : tensor<2xi32>
+      check.expect.bitwise actual(%projection) expected(%projection) : tensor<4x4096xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
+      check.expect.close actual(%query) expected(%query) atol(0.00002) rtol(0.00002) nan(same) : tensor<4x2048xf32>
+      check.expect.close actual(%gate) expected(%gate) atol(0.000002) rtol(0.000002) nan(same) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%inactive_query) expected(%inactive_query) : tensor<4096xf32>
+      check.expect.bitwise actual(%inactive_gate) expected(%inactive_gate) : tensor<4096xf32>
+    }
+  }
+  check.return
+}

@@ -1,0 +1,28 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+package(default_visibility = ["//visibility:public"])
+exports_files(glob(["**/*.loom"]))
+filegroup(name = "all_sources", srcs = glob(["**/*.loom"]))
+loom_library(name = "spans", srcs = ["common/spans.loom"])
+
+loom_library(
+    name = "shared",
+    srcs = [
+        "common/shared_interface.loom",
+        "projection/quantize_q8_1_x4.loom",
+        "projection/linear_q4k_q8_1_x4.loom",
+        "projection/linear_q5k_q8_1_x4.loom",
+        "projection/linear_q6k_q8_1_x4.loom",
+        "common/layer_decode.loom",
+        "ffn/sequence.loom",
+        "common/layer_prefill.loom",
+        "ffn/children.loom",
+        "//lib/kernels/llama:projection/linear_q4k_q8_1_x4.loom",
+        "//lib/kernels/llama:projection/linear_q6k_q8_1_x4.loom",
+        "//lib/kernels/llama:projection/linear_qk_common.loom",
+        "//lib/kernels/llama:projection/quantize_q8_1_x4.loom",
+        "//lib/kernels/llama:rows.loom",
+        "common/spans.loom",
+    ],
+)

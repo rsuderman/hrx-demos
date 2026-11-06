@@ -1,0 +1,7 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+package(default_visibility = ["//visibility:public"])
+exports_files(glob(["*.loom"]))
+loom_library(name = "core", srcs = ["common.loom", "prefill.loom", "spans.loom", "clear.loom"], deps = ["//lib/kernels/qwen:spans"])
+filegroup(name = "all_sources", srcs = glob(["*.loom"]))

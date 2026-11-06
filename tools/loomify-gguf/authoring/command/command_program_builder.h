@@ -133,6 +133,10 @@ public:
   loomc_status_t KernelPipeline(std::string_view name,
                                 KernelPipelineRef *out) const;
   loomc_status_t Program(std::string_view name, ProgramRef *out) const;
+  // Read-only check of specialization/binding groups before native staging.
+  loomc_status_t CheckProgramInterface(ProgramRef program,
+                                      const std::vector<Type> &specializations,
+                                      const std::vector<Type> &bindings) const;
   // Resolve other existing entry kinds (e.g. functions) for artifact roots.
   loomc_status_t Root(std::string_view name, RootRef *out) const;
   loomc_status_t DeclareKernel(std::string_view name,

@@ -365,6 +365,38 @@ loomc_status_t ModuleBuilder::Program(std::string_view name,
   out->symbol_ = id;
   return loomc_ok_status();
 }
+loomc_status_t ModuleBuilder::CheckProgramInterface(
+    ProgramRef program, const std::vector<Type> &specializations,
+    const std::vector<Type> &bindings) const {
+  auto status = state_->Mutable();
+  if (!loomc_status_is_ok(status)) return status;
+  if (program.owner_ != state_->identity ||
+      program.symbol_ >= state_->native->symbols.count)
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT, "foreign or invalid program reference");
+  const auto *op = state_->native->symbols.entries[program.symbol_].defining_op;
+  std::vector<loom_value_id_t> signature;
+  size_t count = 0;
+  if (op && loom_command_program_def_isa(op)) {
+    signature = BlockArguments(loom_command_program_def_body(op));
+    count = loom_command_program_def_specialization_count(op);
+  } else if (op && loom_command_program_decl_isa(op)) {
+    signature = Copy(loom_command_program_decl_args(op));
+    count = loom_command_program_decl_specialization_count(op);
+  } else {
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT, "reference is not a command program");
+  }
+  if (count > signature.size() || count != specializations.size() ||
+      signature.size() - count != bindings.size())
+    return Error(LOOMC_STATUS_INVALID_ARGUMENT, "program declared operand group count mismatch");
+  for (size_t i = 0; i < signature.size(); ++i) {
+    const auto &expected = i < count ? specializations[i] : bindings[i - count];
+    if (expected.owner_ != state_->identity ||
+        !loom_type_equal(expected.type_, loom_module_value_type(state_->native, signature[i])))
+      return Error(LOOMC_STATUS_INVALID_ARGUMENT, "program declared operand type mismatch at " +
+                   std::to_string(i));
+  }
+  return loomc_ok_status();
+}
 loomc_status_t ModuleBuilder::Root(std::string_view name, RootRef *out) const {
   if (!out)
     return Error(LOOMC_STATUS_INVALID_ARGUMENT, "missing root output");

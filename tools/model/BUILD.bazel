@@ -42,3 +42,8 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [":model_descriptor", ":gguf_catalog"],
 )
+
+iree_cc_library(
+    name = "qwen_configuration", srcs = ["qwen_configuration.cc"], hdrs = ["qwen_configuration.h"],
+    cxxopts = _CXXOPTS, deps = [":model_descriptor", ":gguf_catalog"],
+)

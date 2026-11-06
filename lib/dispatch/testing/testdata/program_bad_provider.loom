@@ -1,0 +1,5 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+command.program.def @test.registered_program(%rows: index) launch(%input: buffer) {
+  command.return
+}

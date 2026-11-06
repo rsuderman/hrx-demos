@@ -1,0 +1,23 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Bounded selected-ID publication; padding remains private and count0 is no-op.
+kernel.def @qwen08_publish_selected_ids(%output_capacity: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%epoch: buffer, %private_ids: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %header = buffer.view %epoch[%origin] : buffer -> view<3xi32>
+  %count_word = view.load %header[2] : view<3xi32> -> i32
+  %count_value = index.cast %count_word : i32 to index
+  %count = index.assume %count_value [range(%count_value, 0, 1)] : index
+  %lane = kernel.workitem.id<x> : index
+  %active = index.cmp ult, %lane, %count : index
+  scf.if %active {
+    %source = buffer.view %private_ids[%origin] : buffer -> view<4xi32>
+    %target = buffer.view %output[%origin] : buffer -> view<1xi32>
+    %value = view.load %source[%lane] : view<4xi32> -> i32
+    view.store %value, %target[%lane] : i32, view<1xi32>
+  }
+  kernel.return
+}

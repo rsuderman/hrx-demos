@@ -1,0 +1,25 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+iree_cc_library(
+    name = "model_fixture", testonly = True, hdrs = ["model_fixture.h"],
+    visibility = ["//visibility:public"], deps = ["//tools/model:model_types"],
+)
+cc_test(
+    name = "structure_test", size = "small", srcs = ["structure_test.cc", "model_fixture.h"],
+    copts = ["-std=c++17"], linkstatic = True,
+    deps = ["//lib/qwen:structure", "//lib/operations:qwen_operations", "//lib/dispatch/shapes:result", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+cc_test(
+    name = "real_gguf_test", size = "small", tags = ["manual"],
+    srcs = ["real_gguf_test.cc"], copts = ["-std=c++17"], linkstatic = True,
+    deps = ["//lib/qwen:structure", "//tools/model:qwen_configuration", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "program_test", size = "large", tags = ["manual"],
+    srcs = ["program_test.cc"], copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/kernels/qwen:all_sources", "//lib/kernels/qwen/gdn:all_sources", "//lib/kernels/qwen/attention:all_sources", "//lib/kernels/llama:all_sources"],
+    deps = ["//lib/qwen:program", "//tools/model:qwen_configuration", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)

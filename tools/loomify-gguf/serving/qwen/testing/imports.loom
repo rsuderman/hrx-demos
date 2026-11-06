@@ -1,0 +1,7 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Valid-input component tests need only the success side of input.require.
+// Actual unsupported-input enforcement is checked through the serving loader.
+func.def @require(%condition: i32, %diagnostic: buffer) {
+  func.return
+}

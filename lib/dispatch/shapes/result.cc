@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT
 #include "lib/dispatch/shapes/result.h"
 
-#include "lib/operations/ffn_operations.h"
 #include "lib/operations/attention_operations.h"
 #include "lib/operations/control_operations.h"
+#include "lib/operations/ffn_operations.h"
+#include "lib/operations/qwen_operations.h"
 #include "lib/operations/tensor_operations.h"
 #include <limits>
 
@@ -49,6 +50,12 @@ bool CheckSize(const TensorType &type, std::string *error) {
 }
 bool Define(OpCode opcode, OperationRegistry *registry, std::string *error) {
   switch (opcode) {
+  case OpCode::QwenGdnLayer:
+    return DefineQwenGdnLayer(registry, error);
+  case OpCode::QwenAttentionLayer:
+    return DefineQwenAttentionLayer(registry, error);
+  case OpCode::QwenEpochHead:
+    return DefineQwenEpochHead(registry, error);
   case OpCode::OutputHead:
     return DefineOutputHead(registry, error);
   case OpCode::Embedding:
@@ -90,10 +97,11 @@ bool InferResult(const operations::OperationGraph &graph,
   auto invocation = checked.operation(opcode);
   const TensorType *input = nullptr;
   Result staged;
-  if (opcode == OpCode::LinearResidual)
+  if (opcode == OpCode::LinearResidual || opcode == OpCode::QwenGdnLayer ||
+      opcode == OpCode::QwenAttentionLayer)
     staged.port = Port::Residual;
-  staged.has_result = opcode != OpCode::RotatePublishKV &&
-                      opcode != OpCode::PublishToken;
+  staged.has_result =
+      opcode != OpCode::RotatePublishKV && opcode != OpCode::PublishToken;
   if (staged.has_result)
     staged.access = definition->port(staged.port)->access();
   std::vector<std::pair<ValueId, ValueId>> copied;
@@ -113,6 +121,10 @@ bool InferResult(const operations::OperationGraph &graph,
           operand.port == Port::UpWeight) {
         if (type->encoding() != Encoding::Dense &&
             type->encoding() != Encoding::Q4_K &&
+            !(type->encoding() == Encoding::Q5_K &&
+              (opcode == OpCode::QwenGdnLayer ||
+               opcode == OpCode::QwenAttentionLayer ||
+               opcode == OpCode::QwenEpochHead)) &&
             type->encoding() != Encoding::Q6_K &&
             type->encoding() != Encoding::Q8_0)
           return Fail(error, "unsupported dispatch weight encoding");
@@ -120,7 +132,10 @@ bool InferResult(const operations::OperationGraph &graph,
       if (!clone.valid())
         clone = checked.tensor(*type, error);
       if (operand.port == Port::Input || operand.port == Port::TokenIds ||
-          operand.port == Port::Query)
+          operand.port == Port::Query ||
+          ((opcode == OpCode::QwenGdnLayer ||
+            opcode == OpCode::QwenAttentionLayer) &&
+           operand.port == Port::Residual))
         input = type;
       if (staged.has_result && operand.port == Port::Residual) {
         staged.type = *type;
@@ -149,8 +164,17 @@ bool InferResult(const operations::OperationGraph &graph,
     return Fail(error, "dispatch shape inference requires a tensor input");
   uint64_t width = 0;
   TensorType result_type;
-  if (std::holds_alternative<OutputHeadAttrs>(attributes) &&
-      opcode == OpCode::OutputHead) {
+  if ((opcode == OpCode::QwenGdnLayer &&
+       std::holds_alternative<QwenGdnLayerAttrs>(attributes)) ||
+      (opcode == OpCode::QwenAttentionLayer &&
+       std::holds_alternative<QwenAttentionLayerAttrs>(attributes))) {
+    width = staged.type.dimension(1);
+  } else if (opcode == OpCode::QwenEpochHead &&
+             std::holds_alternative<QwenEpochHeadAttrs>(attributes)) {
+    width = std::get<QwenEpochHeadAttrs>(attributes).selected_output_capacity;
+    result_type = TensorType::vector(width, ElementType::I32);
+  } else if (std::holds_alternative<OutputHeadAttrs>(attributes) &&
+             opcode == OpCode::OutputHead) {
     result_type = TensorType::vector(1, ElementType::I32);
     width = 1;
   } else if (const auto *a = std::get_if<EmbeddingAttrs>(&attributes)) {
@@ -180,8 +204,10 @@ bool InferResult(const operations::OperationGraph &graph,
   if (!width)
     return Fail(error, "missing result width or incompatible attributes");
   if (staged.access == Access::Write) {
-    staged.type = result_type.rank() ? result_type :
-        TensorType::matrix(input->dimension(0), width, ElementType::F32);
+    staged.type =
+        result_type.rank()
+            ? result_type
+            : TensorType::matrix(input->dimension(0), width, ElementType::F32);
     if (!CheckSize(staged.type, error))
       return false;
     auto result = checked.tensor(staged.type, error);

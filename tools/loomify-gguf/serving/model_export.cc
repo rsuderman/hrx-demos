@@ -39,7 +39,7 @@ bool Result(loomc_result_t *r, std::string *error) {
 }
 } // namespace
 bool BuildLlamaServeModule(const model::ModelDescriptor &model,
-                           const LlamaPackageOptions &o,
+                           const ModelPackageOptions &o,
                            loomc_context_t *context,
                            loomc_workspace_t *workspace, loomc_module_t **out,
                            std::string *error) {
@@ -112,16 +112,16 @@ bool BuildLlamaServeModule(const model::ModelDescriptor &model,
   settings.source_asset = o.gguf;
   llama::LlamaProgram prefill, decode;
   if (!llama::DefineLlamaProgram(model, settings, registry, *module,
-                                 o.prefill_root, &prefill, error))
+                                 kLlamaPrefillRoot, &prefill, error))
     return false;
   settings.phase = operations::Phase::Decode;
   settings.row_capacity = 1;
   if (!llama::DefineLlamaProgram(model, settings, registry, *module,
-                                 o.decode_root, &decode, error))
+                                 kLlamaDecodeRoot, &decode, error))
     return false;
   ProgramRef epoch;
   if (!Check(DefineLlamaEpoch(*module, prefill.program, o.prefill_capacity,
-                              o.epoch_root, &epoch),
+                              kLlamaEpochRoot, &epoch),
              error))
     return false;
   r = nullptr;

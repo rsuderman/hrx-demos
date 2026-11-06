@@ -26,6 +26,12 @@ NativeEmissionSession::Find(ValueId id) const {
   return nullptr;
 }
 bool NativeEmissionSession::Reserved(ValueId id) const {
+  if (has_qwen_epoch_ && id.valid()) {
+    if (id == qwen_epoch_.logical_epoch || id == qwen_epoch_.logical_rows)
+      return true;
+    for (const auto &state : qwen_epoch_.states)
+      if (id == state.value) return true;
+  }
   return has_llama_rows_ && id.valid() &&
          (id == llama_rows_.count_control ||
           id == llama_rows_.packet_positions);
@@ -91,7 +97,7 @@ loomc_status_t NativeEmissionSession::CheckPacket(Value packet) const {
       });
 }
 loomc_status_t NativeEmissionSession::LlamaRows(const NativeLlamaRows &rows) {
-  if (failed_ || started_ || has_llama_rows_ || one_row_)
+  if (failed_ || started_ || has_llama_rows_ || has_qwen_epoch_ || one_row_)
     return Error("Llama row binding must be configured once before emission");
   const auto *begin = graph_.value(rows.row_begin);
   const auto *count = graph_.value(rows.row_count);
@@ -361,6 +367,7 @@ NativeEmissionSession::Emit(Id id, const OperationAttrs &attrs,
                        values_,      native_operands, control_,
                        has_control_, existing,        has_output};
   context.llama_rows = has_llama_rows_ ? &llama_rows_ : nullptr;
+  context.qwen_epoch = has_qwen_epoch_ ? &qwen_epoch_ : nullptr;
   context.count_control = count_;
   context.staged = has_llama_rows_;
   Value native_output;
@@ -380,7 +387,7 @@ NativeEmissionSession::Emit(Id id, const OperationAttrs &attrs,
 
 loomc_status_t NativeEmissionSession::SpecializeOneRow(ValueId begin,
                                                        ValueId count) {
-  if (failed_ || started_ || one_row_ || has_llama_rows_)
+  if (failed_ || started_ || one_row_ || has_llama_rows_ || has_qwen_epoch_)
     return Error("one-row specialization must be set once before emission");
   const auto *begin_value = graph_.value(begin),
              *count_value = graph_.value(count);
@@ -427,12 +434,19 @@ loomc_status_t NativeEmissionSession::EmitExisting(Id id,
       output = binding.value();
     } else {
       inputs.push_back({binding.port(), binding.value()});
-      if (has_result && port->access() == Access::ReadWrite)
-        output = binding.value();
+
     }
   }
-  if (has_result && !output.valid())
-    return Error("missing existing output identity");
+  if (has_result && !output.valid()) {
+    shapes::Result result;
+    std::string error;
+    if (!shapes::InferResult(graph_, invocation.opcode(), invocation.attributes(),
+                             inputs, &result, &error))
+      return Error(error);
+    if (!result.has_result || result.access != Access::ReadWrite || !result.alias.valid())
+      return Error("missing existing output identity");
+    output = result.alias;
+  }
   shapes::Result inferred;
   Value native;
   auto status = Emit(id, invocation.attributes(), inputs, output, &inferred,

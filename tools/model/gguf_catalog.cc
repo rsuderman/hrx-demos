@@ -156,6 +156,8 @@ Encoding Storage(uint32_t type) {
     return {32, 34, "q8_0"};
   case 12:
     return {256, 144, "q4_K"};
+  case 13:
+    return {256, 176, "q5_K"};
   case 14:
     return {256, 210, "q6_K"};
   default:

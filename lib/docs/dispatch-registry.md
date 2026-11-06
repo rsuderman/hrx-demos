@@ -198,3 +198,35 @@ attention and whole-FFN providers, replay changed packets, compare compact/padde
 execution and check inactive residual/cache preservation. They establish adapter
 composition; complete model/pipeline generation and real-model fidelity are
 separate deliveries.
+
+## Qwen 0.8B native providers
+
+`QwenCommonRegistrations()` supplies the Q6 embedding and selected epoch head.
+`QwenSharedSources()` supplies the owned canonical Q8 packing, Q4/Q5/Q6
+projections, row math and whole-FFN children used by complete layer registrations.
+`LoadQwenNative` admits the descriptor and deployment bounds, derives one native
+configuration and returns its physical geometry. Logical cache capacity and
+rounded physical pool capacity remain distinct. The native residual footprint
+is 2 MiB even when the logical token capacity is smaller than 512.
+
+Configure `NativeEmissionSession::QwenEpoch` with the retained graph's epoch/map
+identities and state associations, plus the native packet, rows and resident
+arena. It checks graph ownership, state shapes/ordinals and loaded geometry
+before installing those bindings. Callers do not bind state tensors to the arena
+manually. Complete layer builders check canonical parameter keys, one shared
+parameter buffer and the loaded encoding selector bits before their own native
+allocation/Call. `EmitExisting` retains the explicit residual result alias when
+other operands also have read-write effects. After earlier native staging, a
+failed full-program definition requires discarding its mutable owner.
+
+The ordinary dense route computes all configured transient rows. Input IDs must
+be valid throughout that extent; the exporter retains the existing full token
+buffer zero-fill. Span-written GDN/attention scratch is initialized by its layer
+provider before full-row consumers. The head keeps four grouped rows private,
+normalizes selected rows once and copies only selected IDs to the public output;
+zero selections leave that output unchanged.
+
+`//lib/dispatch/testing:qwen_configuration_test` covers native admission and
+session transport. `//lib/dispatch/testing/qwen/output:execution_t{1,4}_{loom,loombc}`
+executes the actual registered embedding/head and fresh producer chain, including
+F16 rounding, selected-row normalization and public/private buffer guards.

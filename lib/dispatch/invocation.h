@@ -3,6 +3,7 @@
 #ifndef HRX_SOLUTIONS_LIB_DISPATCH_INVOCATION_H_
 #define HRX_SOLUTIONS_LIB_DISPATCH_INVOCATION_H_
 #include "lib/dispatch/attention_sequence.h"
+#include "lib/dispatch/qwen.h"
 #include "lib/dispatch/registry.h"
 #include "lib/dispatch/shapes/result.h"
 #include "lib/llama/structure.h"
@@ -29,6 +30,7 @@ public:
   // Llama emission instead configures LlamaRows once for all consumers.
   loomc_status_t Control(loomify_gguf::Value control);
   loomc_status_t LlamaRows(const NativeLlamaRows &rows);
+  loomc_status_t QwenEpoch(const NativeQwenEpoch &epoch);
   const operations::OperationGraph &graph() const { return graph_; }
   // An explicit compile-time proof-entry assertion, not inferred from capacity:
   // these exact I64 control identities mean begin=0/count=1 for this
@@ -86,6 +88,8 @@ private:
   bool one_row_ = false;
   bool has_llama_rows_ = false, has_count_ = false;
   NativeLlamaRows llama_rows_;
+  bool has_qwen_epoch_ = false;
+  NativeQwenEpoch qwen_epoch_;
   loomify_gguf::Value count_;
   operations::ValueId row_begin_, row_count_;
   bool has_emitted_existing_ = false;

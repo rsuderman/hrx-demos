@@ -29,12 +29,12 @@ iree_cc_library(
 cc_binary(
     name = "loomify-gguf",
     srcs = ["main.cc"],
-    data = ["//lib/kernels/llama:all_sources", "//tools/loomify-gguf/serving:providers"],
+    data = ["//lib/kernels/llama:all_sources", "//lib/kernels/qwen:all_sources", "//lib/kernels/qwen/gdn:all_sources", "//lib/kernels/qwen/attention:all_sources", "//tools/loomify-gguf/serving:providers", "//tools/loomify-gguf/serving/qwen:providers"],
     cxxopts = _CXXOPTS,
     deps = [
         ":source_builder",
         "//tools/loomify-gguf/serving:model_export",
-        "//tools/model:llama_configuration",
+        "//tools/loomify-gguf/serving/qwen:model_export",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "//tools/model:model_descriptor",
         "@hrx_system//runtime/src/iree/base/tooling:flags",

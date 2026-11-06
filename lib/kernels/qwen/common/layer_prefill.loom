@@ -1,0 +1,51 @@
+// Copyright 2026 The IREE Authors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Curated from loom-pipeline/llm/qwen/kernels/qwen38/layer_prefill.loom at0aed77a.
+// Independently maintained ordinary canonical Qwen closure.
+config.decl @qwen.model.hidden_size : index
+
+template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
+template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
+config.decl @qwen.model.hidden_divisor : f32
+
+kernel.def export("qwen38_rmsnorm_f32_prefill") @qwen38_rmsnorm_f32_prefill(%token_count: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
+  %unit = index.constant 1 : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%unit, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%token_count: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  %hidden_size = config.get @qwen.model.hidden_size : index
+  %divisor = config.get @qwen.model.hidden_divisor : f32
+  %element_bytes = index.constant 4 : offset
+  %row_bytes = index.scale %hidden_size, %element_bytes : index, offset -> offset
+  %output_origin = index.scale %token, %row_bytes : index, offset -> offset
+  %output_is_f16 = scalar.constant false : i1
+  template.apply<@llm.rmsnorm.row>(%hidden_size, %divisor, %bounded_token_count, %token, %output_origin, %output_is_f16, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
+  kernel.return
+}
+
+// Produces the same F16 values consumed by WMMA projections without
+// materializing and repeatedly reloading an F32 normalized tensor.
+
+kernel.def export("qwen38_residual_add_f32_prefill") @qwen38_residual_add_f32_prefill(%token_count: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
+  %unit = index.constant 1 : index
+  %hidden_size = config.get @qwen.model.hidden_size : index
+  %channels_per_group = index.constant 1024 : index
+  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024)] : index
+  %workgroup_count = index.div %bounded_hidden_size, %channels_per_group : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer) {
+  %hidden_size = config.get @qwen.model.hidden_size : index
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  template.apply<@llm.residual_add_f32.row>(%hidden_size, %bounded_token_count, %token, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
+  kernel.return
+}

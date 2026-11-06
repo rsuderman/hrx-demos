@@ -1,0 +1,321 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Independent scalar GQA softmax anchor over analytic F16 inputs, not the
+// production scalar attention or WMMA implementation. C96 != physical P128;
+// page map [1,0] reverses 64-token pages. Prefix/suffix/other-layer bytes guard
+// the selected ordinal-one planes. Future tokens are initialized but masked.
+kernel.decl @qwen38_attention_spans_f16_wmma(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %query: buffer, %gate: buffer, %state: buffer, %output: buffer)
+func.def @wmma_value(%token: index, %head: index, %lane: index) -> (f32) {
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %h = index.add %head, %one : index
+  %r = index.rem %lane, %four : index
+  %channel = index.add %r, %one : index
+  %product = index.mul %h, %channel : index
+  %pi = index.cast %product : index to i32
+  %pf = scalar.uitofp %pi : i32 to f32
+  %eighth = scalar.constant 0.125 : f32
+  %base = scalar.mulf %pf, %eighth : f32
+  %t = index.rem %token, %three : index
+  %ti = index.cast %t : index to i32
+  %tf = scalar.uitofp %ti : i32 to f32
+  %half = scalar.constant 0.5 : f32
+  %onef = scalar.constant 1.0 : f32
+  %delta = scalar.mulf %tf, %half : f32
+  %factor = scalar.addf %onef, %delta : f32
+  %value = scalar.mulf %base, %factor : f32
+  func.return %value : f32
+}
+func.def @wmma_gate(%head: index) -> (f32) {
+  %four = index.constant 4 : index
+  %one = index.constant 1 : index
+  %r = index.rem %head, %four : index
+  %n = index.add %r, %one : index
+  %ni = index.cast %n : index to i32
+  %nf = scalar.uitofp %ni : i32 to f32
+  %quarter = scalar.constant 0.25 : f32
+  %value = scalar.mulf %nf, %quarter : f32
+  func.return %value : f32
+}
+func.def @wmma_init(%count: index, %position: index, %nonzero: index, %epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer) {
+  %origin = index.constant 0 : offset
+  %e = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
+  %row = buffer.view %rows[%origin] : buffer -> view<4xi64>
+  %q = buffer.view %query[%origin] : buffer -> view<4x2048xf32>
+  %g = buffer.view %gate[%origin] : buffer -> view<4x2048xf32>
+  %state = buffer.view %arena[%origin] : buffer -> view<262208xf16>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %six = index.constant 6 : index
+  %seven = index.constant 7 : index
+  %eight = index.constant 8 : index
+  %c64 = index.constant 64 : index
+  %c96 = index.constant 96 : index
+  %width = index.constant 256 : index
+  %kv_width = index.constant 512 : index
+  %map_origin = index.constant 2048 : offset
+  %map = buffer.view %rows[%map_origin] : buffer -> view<2xi32>
+  %count32 = index.cast %count : index to i32
+  %position32 = index.cast %position : index to i32
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %minus_one32 = scalar.constant -1 : i32
+  view.store %count32, %e[%zero] : i32, view<1048xi32>
+  view.store %one32, %e[%one] : i32, view<1048xi32>
+  view.store %zero32, %e[%two] : i32, view<1048xi32>
+  view.store %count32, %e[%three] : i32, view<1048xi32>
+  view.store %position32, %e[%four] : i32, view<1048xi32>
+  %five = index.constant 5 : index
+  view.store %zero32, %e[%five] : i32, view<1048xi32>
+  view.store %zero32, %e[%six] : i32, view<1048xi32>
+  view.store %minus_one32, %e[%seven] : i32, view<1048xi32>
+  %resident_origin = scalar.constant 64 : i64
+  view.store %resident_origin, %row[%two] : i64, view<4xi64>
+  view.store %one32, %map[%zero] : i32, view<2xi32>
+  view.store %zero32, %map[%one] : i32, view<2xi32>
+  %zero_f32 = scalar.constant 0.0 : f32
+  %sixteen_f32 = scalar.constant 16.0 : f32
+  %key_base = index.constant 131104 : index
+  %value_base = index.constant 196640 : index
+  scf.for %r = [%zero to %four step %one] {
+    scf.for %h = [%zero to %eight step %one] {
+      %head_base = index.mul %h, %width : index
+      %head_parity = index.rem %h, %two : index
+      %head_query = index.add %head_parity, %one : index
+      %query_int = index.mul %head_query, %nonzero : index
+      %query_i32 = index.cast %query_int : index to i32
+      %query_f32 = scalar.uitofp %query_i32 : i32 to f32
+      %gate_value = func.call @wmma_gate(%h) : (index) -> (f32)
+      scf.for %lane = [%zero to %width step %one] {
+        %column = index.add %head_base, %lane : index
+        %lane_zero = index.cmp eq, %lane, %zero : index
+        %query_value = scf.select %lane_zero, %query_f32, %zero_f32 : f32
+        view.store %query_value, %q[%r, %column] : f32, view<4x2048xf32>
+        view.store %gate_value, %g[%r, %column] : f32, view<4x2048xf32>
+      }
+    }
+  }
+  scf.for %t = [%zero to %c96 step %one] {
+    %first_page = index.cmp ult, %t, %c64 : index
+    %physical = scf.if %first_page -> (index) {
+      %v = index.add %t, %c64 : index
+      scf.yield %v : index
+    } else {
+      %v = index.sub %t, %c64 : index
+      scf.yield %v : index
+    }
+    %token_base = index.mul %physical, %kv_width : index
+    %parity = index.rem %t, %two : index
+    %parity_i32 = index.cast %parity : index to i32
+    %parity_f32 = scalar.uitofp %parity_i32 : i32 to f32
+    %k0 = scalar.mulf %parity_f32, %sixteen_f32 : f32
+    scf.for %h = [%zero to %two step %one] {
+      %head_base = index.mul %h, %width : index
+      scf.for %lane = [%zero to %width step %one] {
+        %column = index.add %head_base, %lane : index
+        %relative = index.add %token_base, %column : index
+        %ki = index.add %key_base, %relative : index
+        %vi = index.add %value_base, %relative : index
+        %lane_zero = index.cmp eq, %lane, %zero : index
+        %key_value = scf.select %lane_zero, %k0, %zero_f32 : f32
+        %key_half = scalar.fptrunc %key_value : f32 to f16
+        %value = func.call @wmma_value(%t, %h, %lane) : (index, index, index) -> (f32)
+        %value_half = scalar.fptrunc %value : f32 to f16
+        view.store %key_half, %state[%ki] : f16, view<262208xf16>
+        view.store %value_half, %state[%vi] : f16, view<262208xf16>
+      }
+    }
+  }
+  func.return
+}
+func.def @wmma_expected(%count: index, %position: index, %nonzero: index, %epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %out = buffer.view %output[%origin] : buffer -> view<4x2048xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %width = index.constant 256 : index
+  %zero_f32 = scalar.constant 0.0 : f32
+  scf.for %r = [%zero to %count step %one] {
+    %absolute = index.add %position, %r : index
+    %context = index.add %absolute, %one : index
+    scf.for %h = [%zero to %eight step %one] {
+      %kv_head = index.div %h, %four : index
+      %head_base = index.mul %h, %width : index
+      %parity = index.rem %h, %two : index
+      %head_scale = index.add %parity, %one : index
+      %query_int = index.mul %head_scale, %nonzero : index
+      %query_i32 = index.cast %query_int : index to i32
+      %query_f32 = scalar.uitofp %query_i32 : i32 to f32
+      %gate_value = func.call @wmma_gate(%h) : (index) -> (f32)
+      scf.for %lane = [%zero to %width step %one] {
+        %sum, %acc = scf.for %t = [%zero to %context step %one](%sum = %zero_f32 : f32, %acc = %zero_f32 : f32) -> (f32, f32) {
+          %odd = index.rem %t, %two : index
+          %odd_i32 = index.cast %odd : index to i32
+          %odd_f32 = scalar.uitofp %odd_i32 : i32 to f32
+          // Q has one nonzero lane; K[0]=16*(t%2), scale=1/16.
+          %score = scalar.mulf %query_f32, %odd_f32 : f32
+          %weight = scalar.expf<afn> %score : f32
+          %value = func.call @wmma_value(%t, %kv_head, %lane) : (index, index, index) -> (f32)
+          %weighted = scalar.mulf %weight, %value : f32
+          %next_sum = scalar.addf %sum, %weight : f32
+          %next_acc = scalar.addf %acc, %weighted : f32
+          scf.yield %next_sum, %next_acc : f32, f32
+        }
+        %mean = scalar.divf %acc, %sum : f32
+        %gated = scalar.mulf %mean, %gate_value : f32
+        %column = index.add %head_base, %lane : index
+        view.store %gated, %out[%r, %column] : f32, view<4x2048xf32>
+      }
+    }
+  }
+  func.return
+}
+
+kernel.def @wmma_initialize_n2_p0_q1() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer) {
+  %count = index.constant 2 : index
+  %position = index.constant 0 : index
+  %nonzero = index.constant 1 : index
+  func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @wmma_actual_n2_p0_q1() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  %capacity = index.constant 4 : index
+  %spans = index.constant 2 : index
+  %layer = index.constant 262144 : offset
+  kernel.launch @wmma_initialize_n2_p0_q1[](%epoch, %rows, %query, %gate, %arena) : [](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_spans_f16_wmma[%capacity, %spans](%epoch, %rows, %layer, %query, %gate, %arena, %output) : [index, index](buffer, buffer, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @wmma_reference_n2_p0_q1(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  %count = index.constant 2 : index
+  %position = index.constant 0 : index
+  %nonzero = index.constant 1 : index
+  func.call @wmma_expected(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena, %output) : (index, index, index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @wmma_n2_p0_q1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(-1) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<520xi32>
+    %query = check.generate.fill value(0.0) : tensor<4x2048xf32>
+    %gate = check.generate.fill value(0.0) : tensor<4x2048xf32>
+    %arena = check.generate.fill value(-7.0) : tensor<262208xf16>
+    %output = check.generate.fill value(-17.0) : tensor<4x2048xf32>
+    %inactive = check.tensor.view %output offset(16384) : tensor<4x2048xf32> -> tensor<4096xf32>
+    check.compare<@wmma_actual_n2_p0_q1, @wmma_reference_n2_p0_q1>(%epoch, %rows, %query, %gate, %arena, %output) : (tensor<1048xi32>, tensor<520xi32>, tensor<4x2048xf32>, tensor<4x2048xf32>, tensor<262208xf16>, tensor<4x2048xf32>) -> () {
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<262208xf16>
+      check.expect.close actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<4096xf32>
+    }
+  }
+  check.return
+}
+
+kernel.def @wmma_initialize_n3_p63_q0() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer) {
+  %count = index.constant 3 : index
+  %position = index.constant 63 : index
+  %nonzero = index.constant 0 : index
+  func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @wmma_actual_n3_p63_q0() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  %capacity = index.constant 4 : index
+  %spans = index.constant 2 : index
+  %layer = index.constant 262144 : offset
+  kernel.launch @wmma_initialize_n3_p63_q0[](%epoch, %rows, %query, %gate, %arena) : [](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_spans_f16_wmma[%capacity, %spans](%epoch, %rows, %layer, %query, %gate, %arena, %output) : [index, index](buffer, buffer, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @wmma_reference_n3_p63_q0(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  %count = index.constant 3 : index
+  %position = index.constant 63 : index
+  %nonzero = index.constant 0 : index
+  func.call @wmma_expected(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena, %output) : (index, index, index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @wmma_n3_p63_q0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(-1) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<520xi32>
+    %query = check.generate.fill value(0.0) : tensor<4x2048xf32>
+    %gate = check.generate.fill value(0.0) : tensor<4x2048xf32>
+    %arena = check.generate.fill value(-7.0) : tensor<262208xf16>
+    %output = check.generate.fill value(-17.0) : tensor<4x2048xf32>
+    %inactive = check.tensor.view %output offset(24576) : tensor<4x2048xf32> -> tensor<2048xf32>
+    check.compare<@wmma_actual_n3_p63_q0, @wmma_reference_n3_p63_q0>(%epoch, %rows, %query, %gate, %arena, %output) : (tensor<1048xi32>, tensor<520xi32>, tensor<4x2048xf32>, tensor<4x2048xf32>, tensor<262208xf16>, tensor<4x2048xf32>) -> () {
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<262208xf16>
+      check.expect.close actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
+    }
+  }
+  check.return
+}
+
+kernel.def @wmma_initialize_n3_p63_q1() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer) {
+  %count = index.constant 3 : index
+  %position = index.constant 63 : index
+  %nonzero = index.constant 1 : index
+  func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def public @wmma_actual_n3_p63_q1() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  %capacity = index.constant 4 : index
+  %spans = index.constant 2 : index
+  %layer = index.constant 262144 : offset
+  kernel.launch @wmma_initialize_n3_p63_q1[](%epoch, %rows, %query, %gate, %arena) : [](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @qwen38_attention_spans_f16_wmma[%capacity, %spans](%epoch, %rows, %layer, %query, %gate, %arena, %output) : [index, index](buffer, buffer, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @wmma_reference_n3_p63_q1(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+  %count = index.constant 3 : index
+  %position = index.constant 63 : index
+  %nonzero = index.constant 1 : index
+  func.call @wmma_expected(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena, %output) : (index, index, index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @wmma_n3_p63_q1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(-1) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<520xi32>
+    %query = check.generate.fill value(0.0) : tensor<4x2048xf32>
+    %gate = check.generate.fill value(0.0) : tensor<4x2048xf32>
+    %arena = check.generate.fill value(-7.0) : tensor<262208xf16>
+    %output = check.generate.fill value(-17.0) : tensor<4x2048xf32>
+    %inactive = check.tensor.view %output offset(24576) : tensor<4x2048xf32> -> tensor<2048xf32>
+    check.compare<@wmma_actual_n3_p63_q1, @wmma_reference_n3_p63_q1>(%epoch, %rows, %query, %gate, %arena, %output) : (tensor<1048xi32>, tensor<520xi32>, tensor<4x2048xf32>, tensor<4x2048xf32>, tensor<262208xf16>, tensor<4x2048xf32>) -> () {
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%arena) expected(%arena) : tensor<262208xf16>
+      check.expect.close actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
+    }
+  }
+  check.return
+}

@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 namespace hrx::dispatch {
-enum class Kind { Kernel, CommandFamily };
+enum class Kind { Kernel, CommandFamily, CommandProgram };
 enum class Id {
   RmsNorm,
   GateUpPrefill,
@@ -24,7 +24,10 @@ enum class Id {
   CausalAttention,
   OutputHead,
   PublishPrefill,
-  PublishDecode
+  PublishDecode,
+  QwenGdnLayer,
+  QwenAttentionLayer,
+  QwenEpochHead
 };
 struct OperandContract {
   operations::Port port;
@@ -57,6 +60,7 @@ struct NativeLlamaRows {
   loomify_gguf::Value packet;
   uint64_t control_origin = 0;
 };
+struct NativeQwenEpoch;
 struct BuildContext {
   const InvocationRequest &request;
   loomify_gguf::ModuleBuilder &module;
@@ -73,6 +77,7 @@ struct BuildContext {
   const NativeLlamaRows *llama_rows = nullptr;
   loomify_gguf::Value count_control;
   uint64_t count_origin = 0;
+  const NativeQwenEpoch *qwen_epoch = nullptr;
   const NativeOperand *Operand(operations::Port port) const;
   loomc_status_t Allocate(uint64_t bytes, loomify_gguf::Value *out);
 };
@@ -112,6 +117,8 @@ struct Registration {
 class Registry {
 public:
   static Registry Llama3B();
+  // Full factory definition belongs to the joined Qwen model delivery.
+  static Registry Qwen08B();
   const Registration *Find(Id id) const;
   const Registration *Find(const std::string &name) const;
   std::vector<Registration> Implementations(Id id) const;

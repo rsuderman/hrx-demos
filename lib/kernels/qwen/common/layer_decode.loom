@@ -1,0 +1,87 @@
+// Copyright 2026 The IREE Authors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Curated from loom-pipeline/llm/qwen/kernels/qwen38/layer_decode.loom at0aed77a.
+// Independently maintained ordinary canonical Qwen closure.
+template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
+config.decl @qwen.model.hidden_size : index
+
+config.decl @qwen.model.hidden_divisor : f32
+
+template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
+template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
+kernel.def target(@qwen38_layer_gfx11_wave32) export("qwen38_rmsnorm_f32_decode") @qwen38_rmsnorm_f32_decode() {
+  %unit = index.constant 1 : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  template.apply<@qwen38.rmsnorm_f32.row>(%c1, %c0, %origin, %epsilon, %input, %weight, %output) : (index, index, offset, f32, buffer, buffer, buffer)
+  kernel.return
+}
+
+// Selects the final active prefill row from control[0] without baking a
+// prompt-specific residual offset into the reusable command buffer.
+
+amdgpu.target<gfx11-generic> @qwen38_layer_gfx11_wave32 {subgroup_size = 32}
+
+// Callers provide a contiguous F32 row domain, its F32 width divisor, and
+// disjoint input/weight/output buffers. All 256 threads participate in the
+// original reduction order. Output precision specializes only the final store.
+
+template.def<@qwen38.rmsnorm_f32.row> device @qwen38_rmsnorm_f32_row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
+  %hidden_size = config.get @qwen.model.hidden_size : index
+  %divisor = config.get @qwen.model.hidden_divisor : f32
+  %output_is_f16 = scalar.constant false : i1
+  template.apply<@llm.rmsnorm.row>(%hidden_size, %divisor, %input_row_count, %input_row, %output_origin, %output_is_f16, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
+  template.return
+}
+
+// Contiguous rows, complete 1024-channel tiles, four F32 values per lane.
+// No noalias promise: the output may update either input in place.
+
+kernel.def target(@qwen38_layer_gfx11_wave32) export("qwen38_rmsnorm_f32_prefill_last") @qwen38_rmsnorm_f32_prefill_last() {
+  %unit = index.constant 1 : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%control: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c0_offset = index.constant 0 : offset
+  %c512 = index.constant 512 : index
+  %control_view = buffer.view %control[%c0_offset] : buffer -> view<2xi32>
+  %token_count_i32 = view.load %control_view[%c0] : view<2xi32> -> i32
+  %token_count0 = index.cast %token_count_i32 : i32 to index
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
+  %last_token0 = index.sub %token_count, %c1 : index
+  %last_token = index.assume %last_token0 [range(%last_token0, 0, 511)] : index
+  template.apply<@qwen38.rmsnorm_f32.row>(%c512, %last_token, %c0_offset, %epsilon, %input, %weight, %output) : (index, index, offset, f32, buffer, buffer, buffer)
+  kernel.return
+}
+
+// Adds one projection result into its residual stream. Four adjacent F32
+// elements travel together; each workgroup covers 1024 hidden channels.
+
+kernel.def export("qwen38_residual_add_f32_decode") @qwen38_residual_add_f32_decode() {
+  %c1 = index.constant 1 : index
+  %hidden_size = config.get @qwen.model.hidden_size : index
+  %channels_per_group = index.constant 1024 : index
+  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024)] : index
+  %workgroup_count = index.div %bounded_hidden_size, %channels_per_group : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%workgroup_count, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+  %hidden_size = config.get @qwen.model.hidden_size : index
+  %row_count = index.constant 1 : index
+  %row = index.constant 0 : index
+  template.apply<@llm.residual_add_f32.row>(%hidden_size, %row_count, %row, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
+  kernel.return
+}
+
+// Applies SwiGLU to paired gate and up projections. This ordinary F32 boundary
+// is the correctness baseline; a later schedule may fuse Q8 publication when
+// the command-program trace proves that extra materialization is significant.

@@ -55,7 +55,7 @@ TEST(LlamaServeExport, KnownGgufCompleteCommandProductReload) {
   loomc_workspace_t *workspace = nullptr;
   ASSERT_TRUE(Ok(
       loomc_workspace_create(nullptr, loomc_allocator_system(), &workspace)));
-  LlamaPackageOptions options;
+  ModelPackageOptions options;
   options.source_root = ".";
   options.gguf = path;
   options.prefill_capacity = 128;
@@ -78,10 +78,9 @@ TEST(LlamaServeExport, KnownGgufCompleteCommandProductReload) {
     ASSERT_TRUE(r && loomc_result_succeeded(r)) << Diagnostics(r);
     loomc_result_release(r);
     loomc_source_release(source);
-    loomc_string_view_t roots[] = {
-        loomc_make_cstring_view(options.prefill_root.c_str()),
-        loomc_make_cstring_view(options.decode_root.c_str()),
-        loomc_make_cstring_view(options.epoch_root.c_str())};
+    loomc_string_view_t roots[] = {loomc_make_cstring_view(kLlamaPrefillRoot),
+                                   loomc_make_cstring_view(kLlamaDecodeRoot),
+                                   loomc_make_cstring_view(kLlamaEpochRoot)};
     loomc_cmd_program_module_options_t compile{};
     compile.root_symbols = roots;
     compile.root_symbol_count = 3;

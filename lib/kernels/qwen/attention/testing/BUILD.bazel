@@ -1,0 +1,43 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+loom_test(
+    name = "query_execution_test",
+    srcs = ["config.loom", "preparation_reference.loom", "query_checks.loom",
+            "//lib/kernels/qwen/attention:attention_common.loom",
+            "//lib/kernels/qwen/attention:attention_prefill.loom",
+            "//lib/kernels/qwen:common/spans.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "wmma_execution_test",
+    srcs = ["config.loom", "wmma_checks.loom",
+            "//lib/kernels/qwen/attention:attention_common.loom",
+            "//lib/kernels/qwen/attention:attention_prefill.loom",
+            "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
+            "//lib/kernels/qwen/attention:attention_spans.loom",
+            "//lib/kernels/qwen:common/spans.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "kv_execution_test",
+    srcs = ["config.loom", "preparation_reference.loom", "kv_checks.loom",
+            "//lib/kernels/qwen/attention:attention_common.loom",
+            "//lib/kernels/qwen/attention:attention_prefill.loom",
+            "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
+            "//lib/kernels/qwen/attention:attention_spans.loom",
+            "//lib/kernels/qwen:common/spans.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+loom_test(
+    name = "clear_execution_test",
+    srcs = ["clear_checks.loom", "//lib/kernels/qwen/attention:clear.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)

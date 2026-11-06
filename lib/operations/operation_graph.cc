@@ -124,7 +124,7 @@ const OperationDefinition *OperationRegistry::find(OpCode opcode) const {
 DefinitionBuilder::DefinitionBuilder(OperationRegistry &registry, OpCode opcode)
     : registry_(&registry) {
   staged_.opcode_ = opcode;
-  if (!InRange(opcode, OpCode::Embedding, OpCode::PublishToken))
+  if (!InRange(opcode, OpCode::Embedding, OpCode::QwenEpochHead))
     fail("invalid operation code");
   else if (registry.find(opcode))
     fail("operation code is already registered");
@@ -167,7 +167,7 @@ DefinitionBuilder &DefinitionBuilder::addPort(Port port, ValueKind kind,
                                               AccessDomain domain) {
   if (!ready())
     return *this;
-  if (!InRange(port, Port::Input, Port::Progress))
+  if (!InRange(port, Port::Input, Port::Rows))
     fail("invalid port");
   else if (!InRange(kind, ValueKind::Tensor, ValueKind::State))
     fail("invalid value kind");
@@ -313,7 +313,7 @@ bool BoundOperands::sameValue(Port a, Port b) const {
 InvocationBuilder::InvocationBuilder(OperationGraph &graph, OpCode opcode)
     : graph_(&graph) {
   staged_.opcode_ = opcode;
-  if (!InRange(opcode, OpCode::Embedding, OpCode::PublishToken))
+  if (!InRange(opcode, OpCode::Embedding, OpCode::QwenEpochHead))
     fail("invalid operation code");
   else if (!graph.definition(opcode))
     fail("operation code is not registered in graph snapshot");
@@ -346,7 +346,7 @@ InvocationBuilder &InvocationBuilder::bind(Port port, ValueId value) {
     return *this;
   const auto *definition = graph_->definition(staged_.opcode_)->port(port);
   const auto *description = graph_->value(value);
-  if (!InRange(port, Port::Input, Port::Progress))
+  if (!InRange(port, Port::Input, Port::Rows))
     fail("invalid port");
   else if (!definition)
     fail("port is not declared by operation");
@@ -490,6 +490,12 @@ InvocationBuilder OperationGraph::operation(OpCode opcode) {
 
 const char *OpCodeName(OpCode opcode) {
   switch (opcode) {
+  case OpCode::QwenGdnLayer:
+    return "qwen_gdn_layer";
+  case OpCode::QwenAttentionLayer:
+    return "qwen_attention_layer";
+  case OpCode::QwenEpochHead:
+    return "qwen_epoch_head";
   case OpCode::Embedding:
     return "embedding";
   case OpCode::RmsNorm:
@@ -521,6 +527,50 @@ const char *OpCodeName(OpCode opcode) {
 }
 const char *PortName(Port port) {
   switch (port) {
+  case Port::InputNormWeight:
+    return "input_norm_weight";
+  case Port::PostNormWeight:
+    return "post_norm_weight";
+  case Port::DownWeight:
+    return "down_weight";
+  case Port::QkvWeight:
+    return "qkv_weight";
+  case Port::RecurrentGateWeight:
+    return "recurrent_gate_weight";
+  case Port::ConvolutionWeight:
+    return "convolution_weight";
+  case Port::DtBias:
+    return "dt_bias";
+  case Port::DecayWeight:
+    return "decay_weight";
+  case Port::AlphaWeight:
+    return "alpha_weight";
+  case Port::BetaWeight:
+    return "beta_weight";
+  case Port::RecurrentNormWeight:
+    return "recurrent_norm_weight";
+  case Port::RecurrentOutputWeight:
+    return "recurrent_output_weight";
+  case Port::QueryWeight:
+    return "query_weight";
+  case Port::KeyWeight:
+    return "key_weight";
+  case Port::ValueWeight:
+    return "value_weight";
+  case Port::AttentionOutputWeight:
+    return "attention_output_weight";
+  case Port::QueryNormWeight:
+    return "query_norm_weight";
+  case Port::KeyNormWeight:
+    return "key_norm_weight";
+  case Port::ConvolutionHistory:
+    return "convolution_history";
+  case Port::RecurrentState:
+    return "recurrent_state";
+  case Port::Epoch:
+    return "epoch";
+  case Port::Rows:
+    return "rows";
   case Port::Input:
     return "input";
   case Port::Weight:

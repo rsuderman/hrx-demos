@@ -1,0 +1,264 @@
+func.decl @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32)
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+func.def @actual_packet_5_2_1(%plan: buffer, %input: buffer, %metadata: buffer, %tokens: buffer) {
+  %origin = index.constant 0 : offset
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %control = buffer.alloca<private> align(4) %origin : buffer
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %first = scalar.constant 5 : i32
+  %last = scalar.constant 2 : i32
+  %selected = scalar.constant 1 : i32
+  %eos = scalar.constant 123 : i32
+  %capacity = scalar.constant 512 : i32
+  view.store %first, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 2] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 3] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 4] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %one, %requests[0, 6] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 7] : i32, view<32x9xi32>
+  %a = func.call @encode_epoch(%control, %plan, %input, %control, %one, %zero, %first, %zero, %zero, %capacity, %zero, %eos, %metadata, %tokens) : (buffer, buffer, buffer, buffer, i32, i32, i32, i32, i32, i32, i32, i32, buffer, buffer) -> (i32)
+  view.store %last, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %last, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %selected, %requests[0, 6] : i32, view<32x9xi32>
+  %b = func.call @encode_epoch(%control, %plan, %input, %control, %one, %zero, %last, %zero, %zero, %capacity, %zero, %eos, %metadata, %tokens) : (buffer, buffer, buffer, buffer, i32, i32, i32, i32, i32, i32, i32, i32, buffer, buffer) -> (i32)
+  func.return
+}
+func.def @expected_packet_5_2_1(%plan: buffer, %input: buffer, %metadata: buffer, %tokens: buffer) {
+  %origin = index.constant 0 : offset
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %packet = buffer.view %metadata[%origin] : buffer -> view<1048xi32>
+  %ids = buffer.view %tokens[%origin] : buffer -> view<1024xi32>
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %first = scalar.constant 5 : i32
+  %last = scalar.constant 2 : i32
+  %selected = scalar.constant 1 : i32
+  %slot = scalar.constant 0 : i32
+  %row = scalar.constant 1 : i32
+  %eos = scalar.constant 123 : i32
+  %id = scalar.constant 17 : i32
+  %zero_index = index.constant 0 : index
+  %one_index = index.constant 1 : index
+  %active = index.constant 2 : index
+  %bytes = buffer.length %tokens
+  buffer.fill %zero, %tokens[%origin], %bytes : i32
+  scf.for %i = [%zero_index to %active step %one_index] {
+    view.store %id, %ids[%i] : i32, view<1024xi32>
+    scf.yield
+  }
+  view.store %last, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 2] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 3] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 4] : i32, view<32x9xi32>
+  view.store %last, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %selected, %requests[0, 6] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 7] : i32, view<32x9xi32>
+  view.store %last, %packet[0] : i32, view<1048xi32>
+  view.store %one, %packet[1] : i32, view<1048xi32>
+  view.store %selected, %packet[2] : i32, view<1048xi32>
+  view.store %last, %packet[3] : i32, view<1048xi32>
+  view.store %first, %packet[4] : i32, view<1048xi32>
+  view.store %zero, %packet[5] : i32, view<1048xi32>
+  view.store %zero, %packet[6] : i32, view<1048xi32>
+  view.store %slot, %packet[7] : i32, view<1048xi32>
+  view.store %row, %packet[323] : i32, view<1048xi32>
+  view.store %zero, %packet[387] : i32, view<1048xi32>
+  view.store %zero, %packet[388] : i32, view<1048xi32>
+  view.store %eos, %packet[515] : i32, view<1048xi32>
+  func.return
+}
+check.scenario @packet_5_2_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %plan = check.generate.fill value(-77) : tensor<32x9xi32>
+    %input = check.generate.fill value(17) : tensor<512xi32>
+    %metadata = check.generate.fill value(-77) : tensor<1048xi32>
+    %tokens = check.generate.fill value(999) : tensor<1024xi32>
+    check.compare<@actual_packet_5_2_1, @expected_packet_5_2_1>(%plan, %input, %metadata, %tokens) : (tensor<32x9xi32>, tensor<512xi32>, tensor<1048xi32>, tensor<1024xi32>) -> () {
+      check.expect.bitwise actual(%plan) expected(%plan) : tensor<32x9xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<512xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<1048xi32>
+      check.expect.bitwise actual(%tokens) expected(%tokens) : tensor<1024xi32>
+    }
+  }
+  check.return
+}
+func.def @actual_packet_2_5_1(%plan: buffer, %input: buffer, %metadata: buffer, %tokens: buffer) {
+  %origin = index.constant 0 : offset
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %control = buffer.alloca<private> align(4) %origin : buffer
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %first = scalar.constant 2 : i32
+  %last = scalar.constant 5 : i32
+  %selected = scalar.constant 1 : i32
+  %eos = scalar.constant 123 : i32
+  %capacity = scalar.constant 512 : i32
+  view.store %first, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 2] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 3] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 4] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %one, %requests[0, 6] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 7] : i32, view<32x9xi32>
+  %a = func.call @encode_epoch(%control, %plan, %input, %control, %one, %zero, %first, %zero, %zero, %capacity, %zero, %eos, %metadata, %tokens) : (buffer, buffer, buffer, buffer, i32, i32, i32, i32, i32, i32, i32, i32, buffer, buffer) -> (i32)
+  view.store %last, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %last, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %selected, %requests[0, 6] : i32, view<32x9xi32>
+  %b = func.call @encode_epoch(%control, %plan, %input, %control, %one, %zero, %last, %zero, %zero, %capacity, %zero, %eos, %metadata, %tokens) : (buffer, buffer, buffer, buffer, i32, i32, i32, i32, i32, i32, i32, i32, buffer, buffer) -> (i32)
+  func.return
+}
+func.def @expected_packet_2_5_1(%plan: buffer, %input: buffer, %metadata: buffer, %tokens: buffer) {
+  %origin = index.constant 0 : offset
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %packet = buffer.view %metadata[%origin] : buffer -> view<1048xi32>
+  %ids = buffer.view %tokens[%origin] : buffer -> view<1024xi32>
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %first = scalar.constant 2 : i32
+  %last = scalar.constant 5 : i32
+  %selected = scalar.constant 1 : i32
+  %slot = scalar.constant 0 : i32
+  %row = scalar.constant 4 : i32
+  %eos = scalar.constant 123 : i32
+  %id = scalar.constant 17 : i32
+  %zero_index = index.constant 0 : index
+  %one_index = index.constant 1 : index
+  %active = index.constant 5 : index
+  %bytes = buffer.length %tokens
+  buffer.fill %zero, %tokens[%origin], %bytes : i32
+  scf.for %i = [%zero_index to %active step %one_index] {
+    view.store %id, %ids[%i] : i32, view<1024xi32>
+    scf.yield
+  }
+  view.store %last, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 2] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 3] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 4] : i32, view<32x9xi32>
+  view.store %last, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %selected, %requests[0, 6] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 7] : i32, view<32x9xi32>
+  view.store %last, %packet[0] : i32, view<1048xi32>
+  view.store %one, %packet[1] : i32, view<1048xi32>
+  view.store %selected, %packet[2] : i32, view<1048xi32>
+  view.store %last, %packet[3] : i32, view<1048xi32>
+  view.store %first, %packet[4] : i32, view<1048xi32>
+  view.store %zero, %packet[5] : i32, view<1048xi32>
+  view.store %zero, %packet[6] : i32, view<1048xi32>
+  view.store %slot, %packet[7] : i32, view<1048xi32>
+  view.store %row, %packet[323] : i32, view<1048xi32>
+  view.store %zero, %packet[387] : i32, view<1048xi32>
+  view.store %zero, %packet[388] : i32, view<1048xi32>
+  view.store %eos, %packet[515] : i32, view<1048xi32>
+  func.return
+}
+check.scenario @packet_2_5_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %plan = check.generate.fill value(-77) : tensor<32x9xi32>
+    %input = check.generate.fill value(17) : tensor<512xi32>
+    %metadata = check.generate.fill value(-77) : tensor<1048xi32>
+    %tokens = check.generate.fill value(999) : tensor<1024xi32>
+    check.compare<@actual_packet_2_5_1, @expected_packet_2_5_1>(%plan, %input, %metadata, %tokens) : (tensor<32x9xi32>, tensor<512xi32>, tensor<1048xi32>, tensor<1024xi32>) -> () {
+      check.expect.bitwise actual(%plan) expected(%plan) : tensor<32x9xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<512xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<1048xi32>
+      check.expect.bitwise actual(%tokens) expected(%tokens) : tensor<1024xi32>
+    }
+  }
+  check.return
+}
+func.def @actual_packet_5_2_0(%plan: buffer, %input: buffer, %metadata: buffer, %tokens: buffer) {
+  %origin = index.constant 0 : offset
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %control = buffer.alloca<private> align(4) %origin : buffer
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %first = scalar.constant 5 : i32
+  %last = scalar.constant 2 : i32
+  %selected = scalar.constant 0 : i32
+  %eos = scalar.constant 123 : i32
+  %capacity = scalar.constant 512 : i32
+  view.store %first, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 2] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 3] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 4] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %one, %requests[0, 6] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 7] : i32, view<32x9xi32>
+  %a = func.call @encode_epoch(%control, %plan, %input, %control, %one, %zero, %first, %zero, %zero, %capacity, %zero, %eos, %metadata, %tokens) : (buffer, buffer, buffer, buffer, i32, i32, i32, i32, i32, i32, i32, i32, buffer, buffer) -> (i32)
+  view.store %last, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %last, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %selected, %requests[0, 6] : i32, view<32x9xi32>
+  %b = func.call @encode_epoch(%control, %plan, %input, %control, %one, %zero, %last, %zero, %zero, %capacity, %zero, %eos, %metadata, %tokens) : (buffer, buffer, buffer, buffer, i32, i32, i32, i32, i32, i32, i32, i32, buffer, buffer) -> (i32)
+  func.return
+}
+func.def @expected_packet_5_2_0(%plan: buffer, %input: buffer, %metadata: buffer, %tokens: buffer) {
+  %origin = index.constant 0 : offset
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %packet = buffer.view %metadata[%origin] : buffer -> view<1048xi32>
+  %ids = buffer.view %tokens[%origin] : buffer -> view<1024xi32>
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %first = scalar.constant 5 : i32
+  %last = scalar.constant 2 : i32
+  %selected = scalar.constant 0 : i32
+  %slot = scalar.constant -1 : i32
+  %row = scalar.constant 4 : i32
+  %eos = scalar.constant 123 : i32
+  %id = scalar.constant 17 : i32
+  %zero_index = index.constant 0 : index
+  %one_index = index.constant 1 : index
+  %active = index.constant 2 : index
+  %bytes = buffer.length %tokens
+  buffer.fill %zero, %tokens[%origin], %bytes : i32
+  scf.for %i = [%zero_index to %active step %one_index] {
+    view.store %id, %ids[%i] : i32, view<1024xi32>
+    scf.yield
+  }
+  view.store %last, %requests[0, 0] : i32, view<32x9xi32>
+  view.store %first, %requests[0, 1] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 2] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 3] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 4] : i32, view<32x9xi32>
+  view.store %last, %requests[0, 5] : i32, view<32x9xi32>
+  view.store %selected, %requests[0, 6] : i32, view<32x9xi32>
+  view.store %zero, %requests[0, 7] : i32, view<32x9xi32>
+  view.store %last, %packet[0] : i32, view<1048xi32>
+  view.store %one, %packet[1] : i32, view<1048xi32>
+  view.store %selected, %packet[2] : i32, view<1048xi32>
+  view.store %last, %packet[3] : i32, view<1048xi32>
+  view.store %first, %packet[4] : i32, view<1048xi32>
+  view.store %zero, %packet[5] : i32, view<1048xi32>
+  view.store %zero, %packet[6] : i32, view<1048xi32>
+  view.store %slot, %packet[7] : i32, view<1048xi32>
+  view.store %row, %packet[323] : i32, view<1048xi32>
+  view.store %zero, %packet[387] : i32, view<1048xi32>
+  view.store %zero, %packet[388] : i32, view<1048xi32>
+  view.store %eos, %packet[515] : i32, view<1048xi32>
+  func.return
+}
+check.scenario @packet_5_2_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %plan = check.generate.fill value(-77) : tensor<32x9xi32>
+    %input = check.generate.fill value(17) : tensor<512xi32>
+    %metadata = check.generate.fill value(-77) : tensor<1048xi32>
+    %tokens = check.generate.fill value(999) : tensor<1024xi32>
+    check.compare<@actual_packet_5_2_0, @expected_packet_5_2_0>(%plan, %input, %metadata, %tokens) : (tensor<32x9xi32>, tensor<512xi32>, tensor<1048xi32>, tensor<1024xi32>) -> () {
+      check.expect.bitwise actual(%plan) expected(%plan) : tensor<32x9xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<512xi32>
+      check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<1048xi32>
+      check.expect.bitwise actual(%tokens) expected(%tokens) : tensor<1024xi32>
+    }
+  }
+  check.return
+}

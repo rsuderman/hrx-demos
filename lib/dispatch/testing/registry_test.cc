@@ -388,5 +388,48 @@ TEST(RegistryContracts, DuplicateAndProfileAdmission) {
   EXPECT_FALSE(test(3072, operations::Encoding::Q6_K));
   EXPECT_FALSE(test(4096, operations::Encoding::Q4_K));
 }
+
+TEST_F(RegistryTest, NativeCommandProgramUsesItsActualDeclarationAndCallAbi) {
+  NativeSource source{"test.registered_program", Kind::CommandProgram,
+      "lib/dispatch/testing/testdata/program_interface.loom",
+      {"lib/dispatch/testing/testdata/program_provider.loom"}, {},
+      "test.registered_program", {"test.registered_program"}};
+  loomc_module_t *loaded = nullptr;
+  loomc_result_t *result = nullptr;
+  ASSERT_TRUE(Ok(LoadNative(context, workspace, {source}, root, &loaded, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+  loomc_result_release(result);
+  std::unique_ptr<loomify_gguf::ModuleBuilder> module;
+  ASSERT_TRUE(Ok(loomify_gguf::ModuleBuilder::Create(context, workspace, loaded, &module)));
+  loomc_module_release(loaded);
+  loomify_gguf::ProgramRef callee;
+  ASSERT_TRUE(Ok(module->Program(source.symbol, &callee)));
+  ASSERT_TRUE(Ok(module->CheckProgramInterface(callee,
+      {module->Scalar(LOOM_SCALAR_TYPE_INDEX)}, {module->Buffer(), module->Buffer()})));
+  std::unique_ptr<loomify_gguf::CommandProgramBuilder> program;
+  ASSERT_TRUE(Ok(module->DefineProgram("caller", {LOOM_SCALAR_TYPE_INDEX}, 2, &program)));
+  ASSERT_TRUE(Ok(program->Call(callee, {program->Specialization(0)},
+                             {program->Binding(0), program->Binding(1)})));
+  ASSERT_TRUE(Ok(program->Finish()));
+  loomc_module_t *linked = nullptr;
+  result = nullptr;
+  ASSERT_TRUE(Ok(module->LinkAndVerify({program->Ref()}, &linked, &result)));
+  ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+  loomc_module_release(linked);
+  loomc_result_release(result);
+  for (int invalid = 0; invalid < 4; ++invalid) {
+    auto bad = source;
+    if (invalid == 0) bad.kind = Kind::CommandFamily;
+    if (invalid == 1) bad.kind = static_cast<Kind>(99);
+    if (invalid == 2) bad.provider_files = {bad.interface_file};
+    if (invalid == 3) bad.provider_files = {"lib/dispatch/testing/testdata/program_bad_provider.loom"};
+    loaded = nullptr; result = nullptr;
+    auto status = LoadNative(context, workspace, {bad}, root, &loaded, &result);
+    EXPECT_TRUE(!loomc_status_is_ok(status) || !result || !loomc_result_succeeded(result));
+    EXPECT_EQ(loaded, nullptr);
+    loomc_status_free(status);
+    if (result) loomc_result_release(result);
+  }
+}
 } // namespace
 } // namespace hrx::dispatch

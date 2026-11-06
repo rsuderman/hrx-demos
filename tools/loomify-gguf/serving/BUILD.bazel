@@ -10,7 +10,7 @@ iree_cc_library(
     deps = ["//tools/loomify-gguf/authoring/command:command_program_builder", "//tools/loomify-gguf/authoring/commands:command_values"],
 )
 iree_cc_library(
-    name = "package", srcs = ["package.cc"], hdrs = ["package.h"], cxxopts = ["-std=c++17"],
+    name = "package", srcs = ["package.cc"], hdrs = ["package.h", "package_internal.h"], cxxopts = ["-std=c++17"],
     deps = ["//tools/model:model_descriptor", "@hrx_system//loom/binding/c:loomc"],
 )
 cc_test(

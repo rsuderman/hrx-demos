@@ -1,0 +1,2 @@
+// SPDX-License-Identifier: MIT
+command.program.decl @qwen38_gdn_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %gdn_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %gdn_state: buffer, %epoch: buffer, %transition_capture: buffer, %rows: buffer)

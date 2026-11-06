@@ -1,0 +1,28 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Initialize every transient row consumed by dense output projection. The
+// following span attention writes only active N; no persistent bytes are touched.
+kernel.def @qwen38_attention_clear_attended(%token_capacity: index) {
+  %tokens = index.assume %token_capacity [range(%token_capacity, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%tokens, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%token_capacity0: index, %output: buffer) {
+  %tokens = index.assume %token_capacity0 [range(%token_capacity0, 1, 512)] : index
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %tokens)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 255)] : index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%tokens]x2048xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %eight = index.constant 8 : index
+  %stride = index.constant 256 : index
+  %zero_float = scalar.constant 0.0 : f32
+  scf.for %part = [%zero to %eight step %one] unroll {
+    %column = index.madd %part, %stride, %lane : index
+    view.store %zero_float, %view[%row, %column] : f32, view<[%tokens]x2048xf32>
+  }
+  kernel.return
+}

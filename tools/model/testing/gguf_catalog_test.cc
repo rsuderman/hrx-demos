@@ -117,11 +117,9 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
     const char *name;
     uint64_t bytes;
   };
-  const Case cases[] = {{0, "f32", 2048},
-                        {1, "f16", 1024},
-                        {8, "q8_0", 544},
-                        {12, "q4_K", 288},
-                        {14, "q6_K", 420}};
+  const Case cases[] = {{0, "f32", 2048},  {1, "f16", 1024},
+                        {8, "q8_0", 544},  {12, "q4_K", 288},
+                        {13, "q5_K", 352}, {14, "q6_K", 420}};
   for (const auto &test : cases) {
     SCOPED_TRACE(test.name);
     const uint64_t relative = uint64_t{1} << 32;
@@ -148,11 +146,18 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
 
 TEST(GgufCatalog, RejectsBadStorageGeometryAndTruncationTransactionally) {
   std::vector<std::string> cases = {
-      TensorHeader(99, {256, 2}),        TensorHeader(12, {255, 2}),
-      TensorHeader(14, {128, 2}),        TensorHeader(0, {INT64_MAX, 4}),
+      TensorHeader(99, {256, 2}),
+      TensorHeader(12, {255, 2}),
+      TensorHeader(14, {128, 2}),
+      TensorHeader(13, {255, 2}),
+      TensorHeader(13, {257, 2}),
+      TensorHeader(13, {256, UINT64_MAX}),
+      TensorHeader(0, {INT64_MAX, 4}),
       TensorHeader(0, {INT64_MAX}), // encoded byte multiplication overflow
-      TensorHeader(0, {256, 2}, 1),      TensorHeader(0, {256}, 0, 0),
-      TensorHeader(0, {256}, 0, 3),      TensorHeader(0, {256, 0}),
+      TensorHeader(0, {256, 2}, 1),
+      TensorHeader(0, {256}, 0, 0),
+      TensorHeader(0, {256}, 0, 3),
+      TensorHeader(0, {256, 0}),
       TensorHeader(0, {256, UINT64_MAX})};
   const auto good = TensorHeader(12, {256, 2});
   // Every prefix includes truncated strings, dimensions, type and offset.
@@ -192,6 +197,20 @@ TEST(GgufCatalog, ReportsArithmeticOverflowBeforeFileRangeFailure) {
     std::string error;
     EXPECT_FALSE(Inspect(TensorHeader(0, shape), &catalog, &error));
     EXPECT_NE(error.find("tensor size overflow"), std::string::npos) << error;
+  }
+}
+
+TEST(GgufCatalog, Q5BlockRowsAndExactEncodedRange) {
+  for (uint64_t width : {256, 512}) {
+    const auto header = TensorHeader(13, {width, 3});
+    const auto data = (header.size() + 31) / 32 * 32;
+    const auto bytes = width / 256 * 3 * 176;
+    GgufCatalog catalog;
+    std::string error;
+    ASSERT_TRUE(InspectSparse(header, data + bytes, &catalog, &error)) << error;
+    EXPECT_EQ(catalog.tensors[0].byte_size, bytes);
+    EXPECT_FALSE(InspectSparse(header, data + bytes - 1, &catalog, &error));
+    EXPECT_EQ(catalog.tensors[0].byte_size, bytes);
   }
 }
 
