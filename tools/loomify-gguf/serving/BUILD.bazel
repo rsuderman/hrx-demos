@@ -11,12 +11,12 @@ iree_cc_library(
 )
 iree_cc_library(
     name = "package", srcs = ["package.cc"], hdrs = ["package.h", "package_internal.h"], cxxopts = ["-std=c++17"],
-    deps = ["//tools/model:model_descriptor", "@hrx_system//loom/binding/c:loomc"],
+    deps = ["//tools/model:model_descriptor", "//tools/loomify-gguf/authoring/model-config:model", "@hrx_system//loom/binding/c:loomc"],
 )
 cc_test(
     name = "serving_test", size = "small", srcs = ["serving_test.cc"], copts = ["-std=c++17"], linkstatic = True,
     data = [":providers"],
-    deps = [":epoch", ":package", "//tools/loomify-gguf/authoring/command:command_program_builder",
+    deps = [":epoch", ":package", ":model_export", "//tools/loomify-gguf/authoring/model-config:configuration", "//tools/loomify-gguf/authoring/model-config:configuration_fixture", "//tools/loomify-gguf/authoring/command:command_program_builder",
             "@hrx_system//loom/binding/c/target/amdgpu", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
@@ -39,14 +39,38 @@ loom_test(
 )
 iree_cc_library(
     name = "model_export", srcs = ["model_export.cc"], hdrs = ["model_export.h"], cxxopts = ["-std=c++17"],
-    deps = [":epoch", ":package", "//lib/llama:program", "@hrx_system//loom/binding/c:loomc"],
+    deps = [":package", "//tools/loomify-gguf/authoring/model-config:configuration", "//tools/loomify-gguf/authoring/model-config:providers", "//tools/loomify-gguf/authoring/model-config:model", "@hrx_system//loom/binding/c:loomc"],
 )
 # Immutable external real-model fixture; no download or fallback substitution.
 cc_test(
     name = "model_export_test", size = "medium", tags = ["manual"], srcs = ["model_export_test.cc"],
     copts = ["-std=c++17"], linkstatic = True,
-    data = [":providers", "//lib/kernels/llama:all_sources"],
+    data = [":providers", "//tools/loomify-gguf/authoring/model-config:llama_providers"],
     deps = [":model_export", "//tools/model:llama_configuration", "@hrx_system//loom/binding/c/target/amdgpu",
             "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 cc_test(name = "cli_test", size = "small", srcs = ["testing/cli_test.cc"], data = ["testing/cli_test.sh", "//tools/loomify-gguf:loomify-gguf"], deps = ["@googletest//:gtest", "@googletest//:gtest_main"])
+
+load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
+cc_binary(
+    name = "emit_prepare", testonly = True, srcs = ["testing/emit_prepare.cc"],
+    cxxopts = ["-std=c++17"],
+    deps = [":package", "//tools/loomify-gguf/authoring/model-config:configuration",
+            "//tools/loomify-gguf/authoring/model-config:configuration_fixture"],
+)
+genrule(
+    name = "prepare_test_source", testonly = True, srcs = [":providers"],
+    outs = ["prepare_test.loom", "prepare_expected.loom"], tools = [":emit_prepare"],
+    cmd = "$(location :emit_prepare) . $(location prepare_test.loom) $(location prepare_expected.loom)",
+)
+loom_test(
+    name = "prepare_execution_test",
+    srcs = [":prepare_test_source", "testing/prepare_imports.loom", "testing/prepare_checks.loom"],
+    benchmark_smoke = False, execution_profiles = [VM_REFERENCE_PROFILE],
+)
+cc_test(
+    name = "cli_model_test", size = "small", tags = ["manual"],
+    srcs = ["testing/cli_model_test.cc"],
+    data = ["testing/cli_model_test.sh", "//tools/loomify-gguf:loomify-gguf"],
+    deps = ["@googletest//:gtest", "@googletest//:gtest_main"],
+)

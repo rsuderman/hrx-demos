@@ -137,53 +137,96 @@ bool WriteServingPackage(const ModelPackageOptions &o, const std::string &name,
   return true;
 }
 } // namespace detail
-bool WriteLlamaPackage(const model::ModelDescriptor &model,
-                       const ModelPackageOptions &o,
-                       const loomc_module_t *module, std::string *error) {
-  if (!module || model.layers.empty() || !model.embedding_width ||
-      !o.prefill_capacity || o.prefill_capacity > 512 ||
-      o.context_capacity < o.prefill_capacity || o.context_capacity > 131072) {
-    if (error)
-      *error = "invalid bounded Llama package configuration";
-    return false;
+namespace detail {
+namespace {
+// Native preparation owns these records. Rendering copies their admitted words;
+// it does not derive a second model/storage layout.
+std::string StorageRecords(const LlamaLinkedLayout &layout) {
+  std::ostringstream body;
+  body << "  %origin = index.constant 0 : offset\n";
+  auto words = [&](const char *name, const auto &values) {
+    body << "  %" << name << "_bytes = index.constant " << values.size() * 8
+         << " : offset\n  %" << name << " = buffer.alloca<private> align(8) %"
+         << name << "_bytes : buffer\n"
+         << "  %" << name << "_view = buffer.view %" << name
+         << "[%origin] : buffer -> view<" << values.size() << "xi64>\n";
+    for (size_t i = 0; i < values.size(); ++i) {
+      body << "  %" << name << "_" << i << " = scalar.constant " << values[i]
+           << " : i64\n  view.store %" << name << "_" << i << ", %" << name
+           << "_view[" << i << "] : i64, view<" << values.size() << "xi64>\n";
+    }
+  };
+  std::array<uint64_t, 33> allocations{};
+  for (size_t i = 0; i < layout.cold_allocations.size(); ++i) {
+    allocations[3 * i] = layout.cold_allocations[i].bytes;
+    allocations[3 * i + 1] = layout.cold_allocations[i].alignment;
+    allocations[3 * i + 2] = layout.cold_allocations[i].clear_bytes;
   }
+  words("allocations", allocations);
+  words("views", layout.row_views);
+  words("origins", layout.origins);
+  words("geometry", layout.pooled_geometry);
+  body
+      << "  %draft_origins = buffer.alloca<private> align(8) %origin : buffer\n"
+      << "  func.return %allocations, %views, %origins, %draft_origins, "
+         "%geometry"
+         " : buffer, buffer, buffer, buffer, buffer\n";
+  return body.str();
+}
+} // namespace
+bool RenderLlamaCompanions(const ModelPackageOptions &o,
+                           const LlamaLinkedLayout &layout,
+                           CompanionSources *out, std::string *error) {
+  if (!out || !o.prefill_capacity || o.prefill_capacity > 512 ||
+      o.context_capacity < o.prefill_capacity || o.context_capacity > 131072 ||
+      layout.token_capacity != o.prefill_capacity ||
+      layout.context_capacity != o.context_capacity ||
+      layout.pool_capacity != ((o.context_capacity + 63) / 64) * 64 ||
+      !layout.layer_count || layout.hidden_size != 3072 ||
+      layout.kv_size != 1024)
+    return Fail(error,
+                "Llama package options differ from admitted build layout");
   const auto providers =
       std::filesystem::path(o.source_root) / "tools/loomify-gguf/serving";
-  detail::CompanionSources sources;
-  if (!detail::ReadText((providers / "prepare.loom.in").string(),
-                        &sources.prepare, error) ||
-      !detail::ReadText((providers / "control.loom").string(), &sources.control,
-                        error) ||
-      !detail::ReadText((providers / "weights.loom").string(), &sources.weights,
-                        error))
+  CompanionSources sources;
+  if (!ReadText((providers / "prepare.loom.in").string(), &sources.prepare,
+                error) ||
+      !ReadText((providers / "control.loom").string(), &sources.control,
+                error) ||
+      !ReadText((providers / "weights.loom").string(), &sources.weights, error))
     return false;
   auto &prepare = sources.prepare;
-  detail::ReplaceToken(prepare, "HIDDEN",
-                       std::to_string(model.embedding_width));
-  detail::ReplaceToken(prepare, "FFN",
-                       std::to_string(model.layers.front().feed_forward_width));
-  detail::ReplaceToken(
-      prepare, "KV",
-      std::to_string(model.layers.front().kv_heads * model.key_head_width));
-  detail::ReplaceToken(prepare, "LAYERS", std::to_string(model.layers.size()));
-  detail::ReplaceToken(prepare, "CONTEXT", std::to_string(o.context_capacity));
-  detail::ReplaceToken(prepare, "POOL",
-                       std::to_string(((o.context_capacity + 63) / 64) * 64));
-  detail::ReplaceToken(prepare, "TOKENS", std::to_string(o.prefill_capacity));
-  detail::ReplaceToken(
-      prepare, "HISTORY",
-      std::to_string(std::max<uint64_t>(o.prefill_capacity, 129)));
-  detail::ReplaceToken(prepare, "PREFILL_ROOT_HEX",
-                       detail::Hex(kLlamaPrefillRoot));
-  detail::ReplaceToken(prepare, "DECODE_ROOT_HEX",
-                       detail::Hex(kLlamaDecodeRoot));
-  detail::ReplaceToken(prepare, "EPOCH_ROOT_HEX", detail::Hex(kLlamaEpochRoot));
-  if (prepare.find("{{") != std::string::npos) {
-    if (error)
-      *error = "unresolved prepare template field";
+  ReplaceToken(prepare, "TOKENS", std::to_string(layout.token_capacity));
+  ReplaceToken(prepare, "CONTEXT", std::to_string(layout.context_capacity));
+  ReplaceToken(prepare, "POOL", std::to_string(layout.pool_capacity));
+  ReplaceToken(prepare, "STORAGE_RECORDS", StorageRecords(layout));
+  ReplaceToken(prepare, "PREFILL_ROOT_HEX", Hex(kLlamaPrefillRoot));
+  ReplaceToken(prepare, "DECODE_ROOT_HEX", Hex(kLlamaDecodeRoot));
+  ReplaceToken(prepare, "EPOCH_ROOT_HEX", Hex(kLlamaEpochRoot));
+  if (prepare.find("{{") != std::string::npos)
+    return Fail(error, "unresolved prepare template field");
+  *out = std::move(sources);
+  return true;
+}
+} // namespace detail
+bool WriteLlamaPackage(const model::ModelDescriptor &model,
+                       const ModelPackageOptions &o,
+                       const ConfiguredLlamaModel &built, std::string *error) {
+  if (!built.module || model.family != "llama" || model.layers.empty() ||
+      model.layers.size() != built.layout.layer_count ||
+      model.embedding_width != built.layout.hidden_size)
+    return detail::Fail(
+        error, "Llama package requires a matching admitted model build");
+  std::error_code asset_error;
+  if (built.source_asset.empty() ||
+      !std::filesystem::equivalent(built.source_asset, o.gguf, asset_error) ||
+      asset_error)
+    return detail::Fail(error,
+                        "Llama package GGUF differs from admitted build input");
+  detail::CompanionSources sources;
+  if (!detail::RenderLlamaCompanions(o, built.layout, &sources, error))
     return false;
-  }
-  return detail::WriteServingPackage(o, "loomify-llama", sources, module,
-                                     error);
+  return detail::WriteServingPackage(o, "loomify-llama", sources,
+                                     built.module.get(), error);
 }
 } // namespace hrx::loomify_gguf

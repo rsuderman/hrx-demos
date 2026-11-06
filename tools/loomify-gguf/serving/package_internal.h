@@ -9,6 +9,10 @@ namespace hrx::loomify_gguf::detail {
 struct CompanionSources {
   std::string prepare, control, weights;
 };
+// Renders the production cold records directly from the admitted build layout.
+bool RenderLlamaCompanions(const ModelPackageOptions &,
+                           const LlamaLinkedLayout &, CompanionSources *,
+                           std::string *error);
 bool ReadText(const std::string &path, std::string *, std::string *error);
 void ReplaceToken(std::string &, const std::string &key,
                   const std::string &value);

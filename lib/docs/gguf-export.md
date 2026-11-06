@@ -1,9 +1,12 @@
 # GGUF model export
 
 `loomify-gguf --stage=model` constructs the supported Llama3.2 3B Q4_K_M
-architecture from the GGUF descriptor, invokes Loomify's registered numerical
-implementations, and writes the model document and source providers consumed by
-existing Loom Serve. GGUF weights and matching tokenizer JSON remain external.
+architecture by deriving data-only configuration and parameter bindings from the
+GGUF descriptor, selecting a config-free numerical provider closure, and linking
+maintained Loom programs. It writes the model document and source providers
+consumed by existing Loom Serve. GGUF weights and matching tokenizer JSON remain
+external. C++ handles admission, linking and packaging; the numerical sequence
+is authored in Loom.
 
 Build the converter with the repository's Bazel version, then export to a new
 directory:
@@ -19,7 +22,7 @@ loom-serve --device=amdgpu --model=/path/to/exported-llama/model.json \
 ```
 
 `--format=loom` writes textual numerical source instead of bytecode. Both formats
-use the same model recipe. The package contains `model.json`, `model.loombc` (or
+serialize the same configuration-linked module. The package contains `model.json`, `model.loombc` (or
 `model.loom`), `prepare.loom`, `control.loom` and `weights.loom`. Package-owned
 references are relative, so this directory can move; external asset references
 are absolute and still need their original files. The converter never copies
@@ -36,14 +39,19 @@ mapping. Isolated Serve step execution is explicitly unsupported by this package
 the generated numerical prefill/decode roots remain usable through their direct
 seven-buffer interface with the exported offsets and requirements.
 
-The recipe in `lib/llama/program.h` remains responsible for the numerical layer
-sequence. The serving wrapper translates one-span packets, calls that prefill
-program at its maximum configured row capacity, and scatters the selected token.
-Active count masks unused rows; a one-token continuation follows the same path.
-The prepare program retains the host-owned page map at byte2048 in origins and
-uses the private arena extent as the generated cache base. Named immutable
-parameters preserve canonical GGUF keys; compiler-reflected packed root offsets
-are distinct from file offsets.
+The maintained programs in `lib/llama/programs` own embedding, repeated decoder
+layers, normalized vocabulary selection and publication. `lib/programs/ffn`
+contains their shared FFN sequence; each profile selects its numerical packing
+and normalization providers. Generated configuration supplies tensor bindings,
+layer extents/quantization and capacities, without generating command order.
+The maintained epoch translates one-span packets, invokes prefill at the maximum
+configured row capacity, and scatters the selected token. Active count masks
+unused rows; one-token continuation follows the same path. The model build
+returns its owned module together with the admitted storage layout. Preparation
+copies that layout's cold allocation, row-view, origin and KV geometry records;
+it does not independently recalculate model extents. Named immutable parameters
+preserve canonical GGUF keys; compiler-reflected packed root offsets are distinct
+from file offsets.
 
 The converter still supports its independent F32 embedding demonstration:
 
@@ -56,9 +64,14 @@ Host/provider/package and CLI failure tests are in
 `//tools/loomify-gguf/serving:serving_test` and `:cli_test`. The packet replay
 `:epoch_execution_test` covers consecutive spans, inactive storage, selected and
 unselected results, EOS and capacities below/above129 history words on native
-AMDGPU. `:model_export_test` is an explicit manual gate using
-`--test_env=LOOMIFY_TEST_GGUF=/path/to/the/supported.gguf`; it constructs the full
-model, reloads both serialization formats and plans all three command roots.
+AMDGPU. `:prepare_execution_test` evaluates production preparation and compares every cold
+record to the admitted layout. `:model_export_test` is an explicit manual gate using
+`--test_env=LOOMIFY_TEST_GGUF=/path/to/the/supported.gguf` and
+`--test_env=LOOMIFY_TEST_TOKENIZER=/path/to/tokenizer.json`; it constructs the full
+model, writes and relocates both package formats, reloads all providers and plans
+all three command roots from the moved package.
+The manual `:cli_model_test` also requires `LOOMIFY_TEST_TOKENIZER` and exports
+both formats outside the checkout before relocating the generated package.
 Existing Serve is the end-to-end consumer. Successful generation/loading alone
 does not establish numerical parity or resolve independent model-fidelity work.
 
@@ -73,6 +86,9 @@ bazel-bin/tools/loomify-gguf/loomify-gguf \
 loom-serve --device=amdgpu --model=/path/to/exported-qwen/model.json \
   --listen=127.0.0.1:18081
 ```
+
+Qwen full-model export retains its existing C++ recipe; the shared configuration-
+linked Qwen FFN proof does not convert its complete hybrid architecture.
 
 The generated Qwen model name is `loomify-qwen-08b`. It uses ordinary greedy text,
 one active row/span, no MTP/vision or retained/prefix caches, T in1..512 and C from

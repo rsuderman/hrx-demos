@@ -1,0 +1,46 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+
+template.decl @loomify.ffn(%hidden: index, %ffn: index, %rows: index, %phase: index, %profile: index, %epsilon: f32, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%gate_bytes]xi8>, %down: view<[%down_bytes]xi8>)
+config.decl @qwen.model.hidden_size : index
+config.decl @qwen.model.rms_epsilon : f32
+config.decl @loomify.ffn.profile : index
+
+func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
+template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
+
+command.program.def public @loomify.qwen.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%layer, 0, 64), range(%phase, 0, 1), range(%rows, 1, 512)] {
+  %hidden = config.get @qwen.model.hidden_size : index
+  %epsilon = config.get @qwen.model.rms_epsilon : f32
+  %profile = config.get @loomify.ffn.profile : index
+  %ffn, %gate_tag, %up_tag, %down_tag, %gate_bytes, %up_bytes, %down_bytes = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
+  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %gate_bytes, %up_bytes) : (index, index, index, index)
+  %gamma = command.parameter %parameters, "blk.{}.post_attention_norm.weight"[%layer] : view<[%hidden]xf32>
+  %gate = command.parameter %parameters, "blk.{}.ffn_gate.weight"[%layer] : view<[%gate_bytes]xi8>
+  %up = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%gate_bytes]xi8>
+  %down = command.parameter %parameters, "blk.{}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
+  template.apply<@loomify.ffn>(%hidden, %ffn, %rows, %phase, %profile, %epsilon, %gate_tag, %down_tag, %gate_bytes, %down_bytes, %residual, %count, %gamma, %gate, %up, %down) : (index, index, index, index, index, f32, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>)
+  command.return
+}
+
+template.decl @loomify.ffn.normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer)
+template.def<@loomify.ffn.normalize> @loomify_qwen_ffn_normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer) where [eq(%hidden, 1024), range(%rows, 1, 512), range(%phase, 0, 1)] {
+  %one = index.constant 1 : index
+  %decode = index.cmp eq, %phase, %one : index
+  scf.if %decode {
+    kernel.launch @qwen38_rmsnorm_f32_decode[](%epsilon, %input, %gamma, %normalized) : [](f32, buffer, view<[%hidden]xf32>, buffer)
+  } else {
+    kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %gamma, %normalized) : [index](index, f32, buffer, view<[%hidden]xf32>, buffer)
+  }
+  template.return
+}
+
+template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer)
+template.def<@loomify.ffn.pack_input> @loomify_qwen_ffn_pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer) where [eq(%rows, 1), eq(%input_size, 1024)] {
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %input_size](%rows, %input_size, %input, %output) : [index, index](index, index, buffer, buffer)
+  template.return
+}
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
+kernel.decl @qwen38_rmsnorm_f32_decode() launch(%epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @qwen38_rmsnorm_f32_prefill(%token_count: index) launch(%token_count: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)

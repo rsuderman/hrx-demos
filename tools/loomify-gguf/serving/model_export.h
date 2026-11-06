@@ -4,11 +4,12 @@
 #define HRX_SOLUTIONS_LOOMIFY_SERVING_MODEL_EXPORT_H_
 #include "tools/loomify-gguf/serving/package.h"
 namespace hrx::loomify_gguf {
-// Uses the sole descriptor-driven model recipe, then wraps it for the existing
-// one-row ordinary packed-epoch Serve interface. Caller owns returned module.
+// Extracts data-only GGUF configuration, selects numerical providers and links
+// maintained Loom model/epoch programs. Success owns the module and its
+// admitted layout together; failure leaves the result unchanged.
 bool BuildLlamaServeModule(const model::ModelDescriptor &,
                            const ModelPackageOptions &, loomc_context_t *,
-                           loomc_workspace_t *, loomc_module_t **,
+                           loomc_workspace_t *, ConfiguredLlamaModel *,
                            std::string *error);
 } // namespace hrx::loomify_gguf
 #endif

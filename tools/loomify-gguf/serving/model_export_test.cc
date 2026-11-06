@@ -6,6 +6,7 @@
 #include "tools/model/llama_configuration.h"
 #include "gtest/gtest.h"
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 namespace hrx::loomify_gguf {
 namespace {
@@ -32,6 +33,9 @@ std::string Diagnostics(loomc_result_t *r) {
 TEST(LlamaServeExport, KnownGgufCompleteCommandProductReload) {
   const char *path = std::getenv("LOOMIFY_TEST_GGUF");
   ASSERT_NE(path, nullptr) << "manual gate requires LOOMIFY_TEST_GGUF";
+  const char *tokenizer = std::getenv("LOOMIFY_TEST_TOKENIZER");
+  ASSERT_NE(tokenizer, nullptr)
+      << "manual gate requires LOOMIFY_TEST_TOKENIZER";
   std::unique_ptr<FILE, decltype(&std::fclose)> input(std::fopen(path, "rb"),
                                                       &std::fclose);
   ASSERT_TRUE(input);
@@ -58,26 +62,50 @@ TEST(LlamaServeExport, KnownGgufCompleteCommandProductReload) {
   ModelPackageOptions options;
   options.source_root = ".";
   options.gguf = path;
+  options.tokenizer = tokenizer;
   options.prefill_capacity = 128;
   options.context_capacity = 512;
-  loomc_module_t *module = nullptr;
-  ASSERT_TRUE(BuildLlamaServeModule(model, options, context, workspace, &module,
-                                    &error))
+  ConfiguredLlamaModel built;
+  ASSERT_TRUE(
+      BuildLlamaServeModule(model, options, context, workspace, &built, &error))
       << error;
+  EXPECT_EQ(built.layout.token_capacity, options.prefill_capacity);
+  EXPECT_EQ(built.layout.context_capacity, options.context_capacity);
   for (auto format : {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
-    loomc_module_serialize_options_t serialization{};
-    serialization.format = format;
-    loomc_source_t *source = nullptr;
-    ASSERT_TRUE(Ok(loomc_module_serialize_to_source(
-        module, &serialization, loomc_allocator_system(), &source)));
+    options.format = format;
+    const std::string suffix =
+        format == LOOMC_SOURCE_FORMAT_TEXT ? "loom" : "bc";
+    const auto destination = std::filesystem::path(std::getenv("TEST_TMPDIR")) /
+                             ("package-" + suffix);
+    options.output_directory = destination.string();
+    ASSERT_TRUE(WriteLlamaPackage(model, options, built, &error)) << error;
+    const auto relocated = destination.string() + "-relocated";
+    std::filesystem::rename(destination, relocated);
+    auto load = [&](const std::filesystem::path &provider,
+                    loomc_module_t **out) {
+      loomc_result_t *result = nullptr;
+      auto status = loomc_module_deserialize_from_path(
+          context, workspace, loomc_make_cstring_view(provider.c_str()),
+          nullptr, loomc_allocator_system(), out, &result);
+      const bool success = loomc_status_is_ok(status) && result &&
+                           loomc_result_succeeded(result);
+      EXPECT_TRUE(Ok(status)) << provider;
+      EXPECT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
+      loomc_result_release(result);
+      return success;
+    };
+    for (const char *name : {"prepare.loom", "control.loom", "weights.loom"}) {
+      loomc_module_t *provider = nullptr;
+      ASSERT_TRUE(load(std::filesystem::path(relocated) / name, &provider));
+      loomc_module_release(provider);
+    }
     loomc_module_t *loaded = nullptr;
+    ASSERT_TRUE(load(std::filesystem::path(relocated) /
+                         (format == LOOMC_SOURCE_FORMAT_TEXT ? "model.loom"
+                                                             : "model.loombc"),
+                     &loaded));
     loomc_result_t *r = nullptr;
-    ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
-        context, workspace, source, nullptr, loomc_allocator_system(), &loaded,
-        &r)));
-    ASSERT_TRUE(r && loomc_result_succeeded(r)) << Diagnostics(r);
-    loomc_result_release(r);
-    loomc_source_release(source);
     loomc_string_view_t roots[] = {loomc_make_cstring_view(kLlamaPrefillRoot),
                                    loomc_make_cstring_view(kLlamaDecodeRoot),
                                    loomc_make_cstring_view(kLlamaEpochRoot)};
@@ -100,7 +128,7 @@ TEST(LlamaServeExport, KnownGgufCompleteCommandProductReload) {
     loomc_result_release(r);
     loomc_module_release(loaded);
   }
-  loomc_module_release(module);
+  built.module.reset();
   loomc_workspace_release(workspace);
   loomc_context_release(context);
   loomc_target_environment_release(environment);

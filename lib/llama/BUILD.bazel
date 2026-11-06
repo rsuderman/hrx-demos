@@ -59,3 +59,6 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     deps = [":model_structure", ":structure", "//lib/dispatch:parameters", "//lib/dispatch:invocation", "//lib/dispatch:registry"],
 )
+
+exports_files(glob(["programs/*.loom"]))
+filegroup(name = "maintained_program_sources", srcs = glob(["programs/*.loom"]) + ["//lib/programs/ffn:interface.loom", "//lib/programs/ffn:ffn.loom"])

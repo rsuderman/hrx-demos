@@ -51,7 +51,7 @@ std::filesystem::path SourceRoot(const char *executable) {
       std::filesystem::path(std::string(executable) + ".runfiles") / "_main");
   candidates.emplace_back(std::filesystem::current_path());
   for (const auto &path : candidates)
-    if (std::filesystem::exists(path / "tools/loomify-gguf/serving/epoch.loom"))
+    if (std::filesystem::exists(path / "lib/llama/programs/model.loom"))
       return path;
   return {};
 }
@@ -129,22 +129,24 @@ int ExportModel(const char *executable) {
   Owner<loomc_workspace_t, loomc_workspace_release> workspace_owner(workspace);
   loomc_module_t *module = nullptr;
   hrx::dispatch::QwenNativeGeometry qwen_geometry;
+  hrx::loomify_gguf::ConfiguredLlamaModel llama_model;
   const bool qwen = model.family == "qwen35";
   const bool built =
       qwen ? hrx::loomify_gguf::BuildQwenServeModule(model, options, context,
                                                      workspace, &module,
                                                      &qwen_geometry, &error)
            : hrx::loomify_gguf::BuildLlamaServeModule(
-                 model, options, context, workspace, &module, &error);
+                 model, options, context, workspace, &llama_model, &error);
   if (!built) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
     return 1;
   }
-  Owner<loomc_module_t, loomc_module_release> module_owner(module);
+  if (!qwen) module = llama_model.module.get();
+  Owner<loomc_module_t, loomc_module_release> module_owner(qwen ? module : nullptr);
   const bool written = qwen ? hrx::loomify_gguf::WriteQwenPackage(
                                   model, options, qwen_geometry, module, &error)
                             : hrx::loomify_gguf::WriteLlamaPackage(
-                                  model, options, module, &error);
+                                  model, options, llama_model, &error);
   if (!written) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
     return 1;

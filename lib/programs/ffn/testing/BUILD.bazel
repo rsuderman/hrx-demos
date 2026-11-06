@@ -1,0 +1,43 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+package(default_visibility = ["//visibility:public"])
+exports_files(["llama_roots.loom", "qwen_roots.loom"])
+cc_test(
+    name = "ffn_test",
+    size = "medium",
+    srcs = ["ffn_test.cc"],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    data = [
+        "llama_roots.loom", "qwen_roots.loom",
+        "//lib/programs/ffn:ffn.loom",
+        "//lib/llama:maintained_program_sources", "//lib/qwen:maintained_program_sources",
+        "//lib/kernels/llama:all_sources", "//lib/kernels/qwen:all_sources",
+        "//lib/kernels/llama:configured_providers", "//lib/kernels/qwen:configured_providers",
+    ],
+    deps = [
+        "//tools/loomify-gguf/authoring/model-config:configuration",
+        "//tools/loomify-gguf/authoring/model-config:providers",
+        "//lib/llama/testing:model_fixture", "//lib/qwen/testing:model_fixture",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@hrx_system//loom/binding/c/target/cmd",
+        "@googletest//:gtest", "@googletest//:gtest_main",
+    ],
+)
+
+cc_binary(
+    name = "emit_real_ffn",
+    testonly = True,
+    srcs = ["emit_real_ffn.cc"],
+    cxxopts = ["-std=c++17"],
+    deps = [
+        "//tools/loomify-gguf/authoring/model-config:configuration",
+        "//tools/loomify-gguf/authoring/model-config:providers",
+        "//tools/model:llama_configuration", "//tools/model:qwen_configuration",
+        "//lib/dispatch:llama_region", "//lib/dispatch/testing:ffn_fixture",
+        "//lib/qwen:program",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)

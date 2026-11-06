@@ -1,0 +1,98 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+
+// One orchestration body; each linked artifact supplies one numerical profile.
+template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
+template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
+
+template.decl @loomify.ffn.normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer)
+template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer)
+
+// Bounded admission matches the existing qualified numerical child families.
+template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index)
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_0_12_12(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 3072), eq(%ffn, 8192), eq(%profile, 0), eq(%gate_tag, 12), eq(%down_tag, 12), eq(%gate_bytes, 14155776), eq(%down_bytes, 14155776)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_0_12_14(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 3072), eq(%ffn, 8192), eq(%profile, 0), eq(%gate_tag, 12), eq(%down_tag, 14), eq(%gate_bytes, 14155776), eq(%down_bytes, 20643840)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_1_12_13(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 1024), eq(%ffn, 3584), eq(%profile, 1), eq(%gate_tag, 12), eq(%down_tag, 13), eq(%gate_bytes, 2064384), eq(%down_bytes, 2523136)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_1_12_14(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 1024), eq(%ffn, 3584), eq(%profile, 1), eq(%gate_tag, 12), eq(%down_tag, 14), eq(%gate_bytes, 2064384), eq(%down_bytes, 3010560)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_1_13_13(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 1024), eq(%ffn, 3584), eq(%profile, 1), eq(%gate_tag, 13), eq(%down_tag, 13), eq(%gate_bytes, 2523136), eq(%down_bytes, 2523136)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_1_13_14(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 1024), eq(%ffn, 3584), eq(%profile, 1), eq(%gate_tag, 13), eq(%down_tag, 14), eq(%gate_bytes, 2523136), eq(%down_bytes, 3010560)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_1_14_13(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 1024), eq(%ffn, 3584), eq(%profile, 1), eq(%gate_tag, 14), eq(%down_tag, 13), eq(%gate_bytes, 3010560), eq(%down_bytes, 2523136)] {
+  template.return
+}
+
+template.def<@loomify.ffn.admit> @loomify_ffn_admit_1_14_14(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [eq(%hidden, 1024), eq(%ffn, 3584), eq(%profile, 1), eq(%gate_tag, 14), eq(%down_tag, 14), eq(%gate_bytes, 3010560), eq(%down_bytes, 3010560)] {
+  template.return
+}
+
+template.decl @loomify.ffn(%hidden: index, %ffn: index, %rows: index, %phase: index, %profile: index, %epsilon: f32, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%gate_bytes]xi8>, %down: view<[%down_bytes]xi8>)
+
+template.def<@loomify.ffn> @loomify_ffn(%hidden: index, %ffn: index, %rows: index, %phase: index, %profile: index, %epsilon: f32, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%gate_bytes]xi8>, %down: view<[%down_bytes]xi8>) where [range(%rows, 1, 512), range(%phase, 0, 1), range(%profile, 0, 1)] {
+  template.apply<@loomify.ffn.admit>(%hidden, %ffn, %profile, %gate_tag, %down_tag, %gate_bytes, %down_bytes) : (index, index, index, index, index, index, index)
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  %c12 = index.constant 12 : index
+  %c14 = index.constant 14 : index
+  %origin = index.constant 0 : offset
+  %generic = scalar.constant true : i1
+  %no_m4 = scalar.constant false : i1
+  %compat = index.cmp eq, %profile, %zero : index
+  %gate_q4 = index.cmp eq, %gate_tag, %c12 : index
+  %gate_q6 = index.cmp eq, %gate_tag, %c14 : index
+  %down_q4 = index.cmp eq, %down_tag, %c12 : index
+  %down_q6 = index.cmp eq, %down_tag, %c14 : index
+  %hidden_row_bytes = index.mul %hidden, %four : index
+  %ffn_row_bytes = index.mul %ffn, %four : index
+  %hidden_bytes = index.mul %rows, %hidden_row_bytes : index
+  %ffn_bytes = index.mul %rows, %ffn_row_bytes : index
+  %hidden_allocation = index.cast %hidden_bytes : index to offset
+  %ffn_allocation = index.cast %ffn_bytes : index to offset
+  %normalized = buffer.alloca<global> align(256) %hidden_allocation : buffer
+  %swiglu = buffer.alloca<global> align(256) %ffn_allocation : buffer
+  template.apply<@loomify.ffn.normalize>(%hidden, %rows, %phase, %epsilon, %residual, %count, %gamma, %normalized) : (index, index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  %decode = index.cmp eq, %phase, %one : index
+  scf.if %decode {
+    // Row-count admission is separate from capacity allocation: decode is one row.
+    template.apply<@loomify.ffn.decode_rows>(%rows) : (index)
+    %packed = buffer.alloca<global> align(256) %hidden_allocation : buffer
+    template.apply<@loomify.ffn.pack_input>(%rows, %hidden, %count, %normalized, %packed) : (index, index, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%hidden, %ffn, %generic, %compat, %gate_q4, %gate_q6, %gate_bytes, %ffn_row_bytes, %gate, %up, %packed, %swiglu) : (index, index, i1, i1, i1, i1, index, index, view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.down_decode>(%hidden, %ffn, %generic, %compat, %down_q4, %down_q6, %down_bytes, %ffn_row_bytes, %hidden_row_bytes, %down, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, view<[%down_bytes]xi8>, buffer, buffer)
+  } else {
+    // rows is both launch capacity and schedule; count selects the active prefix.
+    template.apply<@llm.ffn.gate_up_prefill>(%hidden, %ffn, %generic, %compat, %gate_q4, %gate_q6, %rows, %rows, %rows, %zero, %origin, %no_m4, %zero, %ffn_bytes, %gate_bytes, %hidden_bytes, %hidden_bytes, %gate, %up, %normalized, %count, %swiglu) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%hidden, %ffn, %generic, %compat, %down_q4, %down_q6, %rows, %rows, %rows, %zero, %origin, %no_m4, %zero, %ffn_bytes, %down_bytes, %hidden_bytes, %down, %count, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%down_bytes]xi8>, buffer, buffer, buffer)
+  }
+  template.return
+}
+
+template.decl @loomify.ffn.decode_rows(%rows: index)
+template.def<@loomify.ffn.decode_rows> @loomify_ffn_decode_rows(%rows: index) where [eq(%rows, 1)] {
+  template.return
+}
+
+// Independent up metadata must agree before both views use gate_bytes.
+template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
+template.def<@loomify.ffn.match_up> @loomify_ffn_match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index) where [eq(%gate_tag, %up_tag), eq(%gate_bytes, %up_bytes)] {
+  template.return
+}

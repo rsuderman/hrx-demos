@@ -1,7 +1,7 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
-load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 cc_test(
@@ -378,4 +378,9 @@ cc_test(
     deps = ["//lib/dispatch:registry", "//lib/dispatch:invocation", "//lib/qwen:structure", "//lib/qwen/testing:model_fixture",
             "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/config",
             "@hrx_system//loom/binding/c/target/amdgpu", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_cc_library(
+ name = "ffn_fixture", testonly = True, visibility = ["//visibility:public"], hdrs = ["ffn_fixture.h"],
+ deps = ["//lib/llama:structure", "//lib/llama:ffn_structure", "//lib/operations:ffn_operations", "//lib/operations:tensor_operations"],
 )

@@ -41,3 +41,30 @@ loom_library(
         "//lib/kernels/attention:kv_position.loom",
     ],
 )
+
+# Generated model facts supply every model configuration definition.
+# Keep source and relocatable provider forms on this identical closure.
+_CONFIGURED_PROVIDER_SOURCES = [
+    "common/shared_interface.loom",
+    "//lib/kernels/quantization:q8_1_x4_canonical.loom",
+    "//lib/kernels/projection:q4k_canonical.loom",
+    "//lib/kernels/projection:q5k.loom",
+    "//lib/kernels/projection:q6k_canonical.loom",
+    "common/layer_decode.loom",
+    "ffn/sequence.loom",
+    "common/layer_prefill.loom",
+    "ffn/children.loom",
+    "//lib/kernels/elementwise:ffn_launches.loom",
+    "//lib/kernels/projection:q4k.loom",
+    "//lib/kernels/projection:q6k.loom",
+    "//lib/kernels/projection:qk_common.loom",
+    "//lib/kernels/quantization:q8_1_x4.loom",
+    "//lib/kernels/normalization:rmsnorm_row.loom",
+    "//lib/kernels/elementwise:residual_row.loom",
+    "//lib/kernels/elementwise:swiglu_row.loom",
+    "common/spans.loom",
+    "//lib/kernels/attention:kv_position.loom",
+]
+
+filegroup(name = "configured_provider_sources", srcs = _CONFIGURED_PROVIDER_SOURCES)
+loom_library(name = "configured_providers", srcs = _CONFIGURED_PROVIDER_SOURCES)

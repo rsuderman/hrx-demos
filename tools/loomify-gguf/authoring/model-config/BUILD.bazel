@@ -1,0 +1,70 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+package(default_visibility = ["//visibility:public"])
+iree_cc_library(
+    name = "configuration",
+    srcs = ["configuration.cc"],
+    hdrs = ["configuration.h"],
+    cxxopts = ["-std=c++17"],
+    deps = [
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c:loomc",
+    ],
+)
+
+iree_cc_library(
+    name = "linker",
+    srcs = ["linker.cc"], hdrs = ["linker.h"],
+    cxxopts = ["-std=c++17"],
+    deps = [
+        "@hrx_system//loom/binding/c:loomc", "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/src/loom/ir", "@hrx_system//loom/src/loom/ops/command",
+        "@hrx_system//loom/src/loom/ops/config", "@hrx_system//loom/src/loom/ops:op_defs",
+        "@hrx_system//loom/src/loom/ops/kernel", "@hrx_system//loom/src/loom/ops/template",
+    ],
+)
+loom_library(
+    name = "test_norm_provider",
+    srcs = [
+        "//lib/kernels/llama:norm/norm.loom",
+        "//lib/kernels/llama:active_rows.loom",
+        "//lib/kernels/normalization:rmsnorm_row.loom",
+    ],
+)
+cc_test(
+    name = "linker_test", size = "small", srcs = ["linker_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = [":test_norm_provider", "//lib/kernels/llama:all_sources"],
+    deps = [":linker", "@googletest//:gtest", "@googletest//:gtest_main",
+            "@hrx_system//loom/binding/c/target/amdgpu"],
+)
+
+iree_cc_library(
+    name = "providers", srcs = ["providers.cc"], hdrs = ["providers.h"],
+    cxxopts = ["-std=c++17"], deps = [":linker"],
+)
+
+cc_test(
+    name = "configuration_test", size = "small", srcs = ["configuration_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    deps = [":configuration", ":configuration_fixture", "//tools/model:llama_configuration", "//tools/model:qwen_configuration", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "configuration_real_assets_test", size = "small", srcs = ["configuration_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    defines = ["LOOMIFY_CONFIGURATION_REAL_ASSETS"], tags = ["manual"],
+    deps = [":configuration", ":configuration_fixture", "//tools/model:llama_configuration", "//tools/model:qwen_configuration", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_cc_library(
+    name = "model", srcs = ["model.cc"], hdrs = ["model.h"],
+    cxxopts = ["-std=c++17"], deps = [":configuration", ":linker"],
+)
+
+iree_cc_library(name = "configuration_fixture", testonly = True, hdrs = ["testing/fixture.h"], deps = ["//tools/model:model_descriptor"])
+
+filegroup(name = "llama_providers", srcs = ["//lib/llama:maintained_program_sources", "//lib/kernels/llama:configured_provider_sources", "//lib/kernels/llama:configured_providers", "//tools/loomify-gguf/serving:epoch.loom"])

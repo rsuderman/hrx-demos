@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef HRX_SOLUTIONS_LOOMIFY_SERVING_PACKAGE_H_
 #define HRX_SOLUTIONS_LOOMIFY_SERVING_PACKAGE_H_
-#include "loomc/module.h"
+#include "tools/loomify-gguf/authoring/model-config/model.h"
 #include "tools/model/model_descriptor.h"
 #include <cstdint>
 #include <string>
@@ -25,7 +25,7 @@ struct ModelPackageOptions {
 // copied. The module must contain all three admitted roots and numerical
 // providers.
 bool WriteLlamaPackage(const model::ModelDescriptor &,
-                       const ModelPackageOptions &, const loomc_module_t *,
-                       std::string *error);
+                       const ModelPackageOptions &,
+                       const ConfiguredLlamaModel &, std::string *error);
 } // namespace hrx::loomify_gguf
 #endif

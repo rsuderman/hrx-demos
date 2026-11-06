@@ -12,3 +12,6 @@ iree_cc_library(
     cxxopts = ["-std=c++17"],
     deps = [":structure", "//lib/dispatch:invocation", "//lib/dispatch:registry", "//lib/dispatch:qwen_gdn", "//lib/dispatch/qwen_attention:builder"],
 )
+
+exports_files(glob(["programs/*.loom"]))
+filegroup(name = "maintained_program_sources", srcs = glob(["programs/*.loom"]) + ["//lib/programs/ffn:interface.loom", "//lib/programs/ffn:ffn.loom"])

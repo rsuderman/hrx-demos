@@ -1,8 +1,10 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "loomc/target/amdgpu.h"
+#include "tools/loomify-gguf/authoring/model-config/testing/fixture.h"
 #include "tools/loomify-gguf/serving/epoch.h"
-#include "tools/loomify-gguf/serving/package.h"
+#include "tools/loomify-gguf/serving/model_export.h"
+#include "tools/loomify-gguf/serving/package_internal.h"
 #include "gtest/gtest.h"
 #include <cstdlib>
 #include <filesystem>
@@ -108,12 +110,7 @@ TEST_F(ServingTest, EpochConstructionAndSerialization) {
 TEST_F(ServingTest, PackageSourcesAndExternalAssets) {
   loomc_module_t *definitions = nullptr;
   ASSERT_TRUE(Load("tools/loomify-gguf/serving/epoch.loom", &definitions));
-  model::ModelDescriptor model;
-  model.embedding_width = 3072;
-  model.key_head_width = 128;
-  model.layers.resize(28);
-  model.layers.front().kv_heads = 8;
-  model.layers.front().feed_forward_width = 8192;
+  auto model = testing::Fixture(true, 28);
   auto weights = directory / "external weights.gguf";
   std::ofstream(weights) << "external";
   auto tokenizer = directory / "tokenizer.json";
@@ -125,15 +122,26 @@ TEST_F(ServingTest, PackageSourcesAndExternalAssets) {
   o.tokenizer = tokenizer;
   o.prefill_capacity = 8;
   std::string error;
-  ASSERT_TRUE(WriteLlamaPackage(model, o, definitions, &error)) << error;
+  LinkedConfigurationSettings settings;
+  settings.token_capacity = o.prefill_capacity;
+  settings.context_capacity = o.context_capacity;
+  LinkedConfigurationFacts facts;
+  ASSERT_TRUE(
+      DeriveLinkedConfiguration(model, weights, settings, &facts, &error))
+      << error;
+  ConfiguredLlamaModel built;
+  built.module.reset(definitions);
+  built.layout = *facts.llama_layout;
+  built.source_asset = weights;
+  ASSERT_TRUE(WriteLlamaPackage(model, o, built, &error)) << error;
   auto prepare =
       Read(std::filesystem::path(o.output_directory) / "prepare.loom");
   EXPECT_EQ(prepare.find("{{"), std::string::npos);
-  EXPECT_NE(prepare.find("%history_capacity = scalar.constant 129"),
+  EXPECT_NE(prepare.find("%views_5 = scalar.constant " +
+                         std::to_string(built.layout.row_views[5])),
             std::string::npos);
-  EXPECT_NE(prepare.find("%attention_origin = scalar.constant 512"),
-            std::string::npos);
-  EXPECT_NE(prepare.find("%one, %attention_base, %attention_bytes"),
+  EXPECT_NE(prepare.find("%origins_2 = scalar.constant " +
+                         std::to_string(built.layout.cache_base)),
             std::string::npos);
   auto manifest =
       Read(std::filesystem::path(o.output_directory) / "model.json");
@@ -147,14 +155,88 @@ TEST_F(ServingTest, PackageSourcesAndExternalAssets) {
         << file;
     loomc_module_release(provider);
   }
-  EXPECT_FALSE(WriteLlamaPackage(model, o, definitions, &error));
+  EXPECT_FALSE(WriteLlamaPackage(model, o, built, &error));
   EXPECT_TRUE(std::filesystem::exists(
       std::filesystem::path(o.output_directory) / "model.json"));
   o.output_directory = (directory / "missing-tokenizer").string();
   o.tokenizer = (directory / "absent.json").string();
-  EXPECT_FALSE(WriteLlamaPackage(model, o, definitions, &error));
+  EXPECT_FALSE(WriteLlamaPackage(model, o, built, &error));
   EXPECT_FALSE(std::filesystem::exists(o.output_directory));
-  loomc_module_release(definitions);
+  o.tokenizer = tokenizer;
+  o.output_directory = (directory / "mismatched-asset").string();
+  const auto alternate = directory / "alternate.gguf";
+  std::ofstream(alternate) << "other checkpoint";
+  o.gguf = alternate;
+  EXPECT_FALSE(WriteLlamaPackage(model, o, built, &error));
+  EXPECT_FALSE(std::filesystem::exists(o.output_directory));
+  o.gguf = weights;
+  o.tokenizer = tokenizer;
+  o.output_directory = (directory / "mismatched-layout").string();
+  ++o.context_capacity;
+  EXPECT_FALSE(WriteLlamaPackage(model, o, built, &error));
+  EXPECT_FALSE(std::filesystem::exists(o.output_directory));
+  --o.context_capacity;
+  auto sentinel = directory / "parent-file";
+  std::ofstream(sentinel) << "preserve";
+  o.output_directory = (sentinel / "child").string();
+  EXPECT_FALSE(WriteLlamaPackage(model, o, built, &error));
+  EXPECT_EQ(Read(sentinel), "preserve");
+  o.output_directory = (directory / "missing-provider").string();
+  o.source_root = (directory / "absent").string();
+  EXPECT_FALSE(WriteLlamaPackage(model, o, built, &error));
+  EXPECT_FALSE(std::filesystem::exists(o.output_directory));
+}
+TEST_F(ServingTest, BuildFailurePreservesOwnedModuleAndLayout) {
+  ConfiguredLlamaModel built;
+  loomc_module_t *module = nullptr;
+  ASSERT_TRUE(Load("tools/loomify-gguf/serving/epoch.loom", &module));
+  built.module.reset(module);
+  built.layout.token_capacity = 37;
+  built.source_asset = "original asset";
+  ModelPackageOptions options;
+  options.source_root = ".";
+  options.gguf = "asset";
+  options.prefill_capacity = 0;
+  std::string error;
+  EXPECT_FALSE(BuildLlamaServeModule(testing::Fixture(), options, context,
+                                     workspace, &built, &error));
+  EXPECT_EQ(built.module.get(), module);
+  EXPECT_EQ(built.layout.token_capacity, 37u);
+  EXPECT_EQ(built.source_asset, "original asset");
+  EXPECT_FALSE(error.empty());
+  options.prefill_capacity = 128;
+  options.source_root = (directory / "missing-providers").string();
+  EXPECT_FALSE(BuildLlamaServeModule(testing::Fixture(), options, context,
+                                     workspace, &built, &error));
+  EXPECT_EQ(built.module.get(), module);
+  EXPECT_EQ(built.layout.token_capacity, 37u);
+  EXPECT_EQ(built.source_asset, "original asset");
+  EXPECT_FALSE(error.empty());
+}
+TEST_F(ServingTest, RendererRequiresMatchingAdmittedCapacities) {
+  LinkedConfigurationFacts facts;
+  LinkedConfigurationSettings settings;
+  settings.token_capacity = 128;
+  settings.context_capacity = 513;
+  std::string error;
+  ASSERT_TRUE(DeriveLinkedConfiguration(testing::Fixture(), "asset", settings,
+                                        &facts, &error))
+      << error;
+  ModelPackageOptions options;
+  options.source_root = ".";
+  options.prefill_capacity = 128;
+  options.context_capacity = 513;
+  detail::CompanionSources sources;
+  ASSERT_TRUE(detail::RenderLlamaCompanions(options, *facts.llama_layout,
+                                            &sources, &error))
+      << error;
+  EXPECT_NE(sources.prepare.find("%expected_pool = scalar.constant 576"),
+            std::string::npos);
+  auto previous = sources.prepare;
+  --options.context_capacity;
+  EXPECT_FALSE(detail::RenderLlamaCompanions(options, *facts.llama_layout,
+                                             &sources, &error));
+  EXPECT_EQ(sources.prepare, previous);
 }
 } // namespace
 } // namespace hrx::loomify_gguf
