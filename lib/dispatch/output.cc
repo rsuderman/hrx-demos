@@ -216,15 +216,22 @@ std::vector<Registration> OutputRegistrations() {
                     {"llama.model.hidden_size", "llama.model.rms_epsilon",
                      "qwen38.greedy_argmax.output_capacity"}};
   for (auto n :
-       {"active_rows.loom", "projection/linear_q6k_q8_1_x4.loom",
-        "projection/quantize_q8_1_x4.loom", "output/output.loom",
-        "output/output_norm_last.loom", "output/head_count.loom", "rows.loom",
-        "config.loom", "output/output_config.loom", "output/greedy_argmax.loom",
-        "projection/quantize_q8_1_x4_mmvq_compat.loom",
-        "projection/linear_q6k_q8_1_x4_compat.loom",
-        "projection/linear_qk_mmvq_compat.loom",
-        "projection/linear_qk_common.loom"})
-    head.provider_files.push_back(file(n));
+       {"lib/kernels/llama/active_rows.loom", "lib/kernels/projection/q6k.loom",
+        "lib/kernels/quantization/q8_1_x4.loom",
+        "lib/kernels/llama/output/output.loom",
+        "lib/kernels/llama/output/output_norm_last.loom",
+        "lib/kernels/llama/output/head_count.loom",
+        "lib/kernels/normalization/rmsnorm_row.loom",
+        "lib/kernels/elementwise/residual_row.loom",
+        "lib/kernels/elementwise/swiglu_row.loom",
+        "lib/kernels/llama/config.loom",
+        "lib/kernels/llama/output/output_config.loom",
+        "lib/kernels/selection/greedy_argmax.loom",
+        "lib/kernels/quantization/q8_1_x4_mmvq_compat.loom",
+        "lib/kernels/projection/q6k_compat.loom",
+        "lib/kernels/projection/qk_mmvq_compat.loom",
+        "lib/kernels/projection/qk_common.loom"})
+    head.provider_files.push_back(n);
   head.builder = OutputBuilder();
   head.operands = head.builder.operands;
   head.interface_symbol = head.symbol;

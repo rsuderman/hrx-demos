@@ -223,16 +223,17 @@ void RegisterProjections(Registry *registry) {
                         "ggml.linear_q6k_q8_1_x4.output_capacity",
                         "ggml.quantize_q8_1_x4.group_capacity"}};
     for (const char *file :
-         {"config.loom", "active_rows.loom", "output/head_count.loom",
-          "projection/linear_q4k_q8_1_x4.loom",
-          "projection/linear_q4k_q8_1_x4_compat.loom",
-          "projection/linear_q6k_q8_1_x4.loom",
-          "projection/linear_q6k_q8_1_x4_compat.loom",
-          "projection/linear_qk_common.loom",
-          "projection/linear_qk_mmvq_compat.loom",
-          "projection/quantize_q8_1_x4.loom",
-          "projection/quantize_q8_1_x4_mmvq_compat.loom"})
-      entry.provider_files.push_back(root + file);
+         {"lib/kernels/llama/config.loom", "lib/kernels/llama/active_rows.loom",
+          "lib/kernels/llama/output/head_count.loom",
+          "lib/kernels/projection/q4k.loom",
+          "lib/kernels/projection/q4k_compat.loom",
+          "lib/kernels/projection/q6k.loom",
+          "lib/kernels/projection/q6k_compat.loom",
+          "lib/kernels/projection/qk_common.loom",
+          "lib/kernels/projection/qk_mmvq_compat.loom",
+          "lib/kernels/quantization/q8_1_x4.loom",
+          "lib/kernels/quantization/q8_1_x4_mmvq_compat.loom"})
+      entry.provider_files.push_back(file);
     entry.variant = q4 ? "q4_k" : "q6_k";
     entry.interface_symbol = entry.symbol;
     entry.builder = ProjectionBuilder();

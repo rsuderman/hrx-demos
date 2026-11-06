@@ -1,0 +1,26 @@
+// Copyright 2026 The HRX Authors
+// SPDX-License-Identifier: MIT
+// Curated from loom-pipeline/llm/qwen/kernels/qwen38/layer_decode.loom; independently maintained by Loomify.
+
+template.decl @llm.swiglu_f32.row(%ffn_size0: index, %row_count0: index, %row0: index, %gate: buffer, %up: buffer, %output: buffer)
+
+template.def<@llm.swiglu_f32.row> device @llm_swiglu_f32_row(%ffn_size0: index, %row_count0: index, %row0: index, %gate: buffer, %up: buffer, %output: buffer) {
+  %ffn_size = index.assume %ffn_size0 [range(%ffn_size0, 256, 32768), multiple_of(%ffn_size0, 256)] : index
+  %row_count, %row = index.assume %row_count0, %row0 [range(%row_count0, 1, 512), lt(%row0, %row_count0)] : index, index
+  %workgroup = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %workgroup_size = index.constant 256 : index
+  %c0_offset = index.constant 0 : offset
+  %workgroup_base = index.mul %workgroup, %workgroup_size : index
+  %element0 = index.add %workgroup_base, %lane : index
+  %element = index.assume %element0 [range(%element0, 0, 32767), lt(%element0, %ffn_size)] : index
+  %gate_view = buffer.view %gate[%c0_offset] : buffer -> view<[%row_count]x[%ffn_size]xf32>
+  %up_view = buffer.view %up[%c0_offset] : buffer -> view<[%row_count]x[%ffn_size]xf32>
+  %output_view = buffer.view %output[%c0_offset] : buffer -> view<[%row_count]x[%ffn_size]xf32>
+  %gate_value = view.load %gate_view[%row, %element] : view<[%row_count]x[%ffn_size]xf32> -> f32
+  %up_value = view.load %up_view[%row, %element] : view<[%row_count]x[%ffn_size]xf32> -> f32
+  %activated_gate = scalar.siluf<afn> %gate_value : f32
+  %result = scalar.mulf<nnan|ninf|nsz> %activated_gate, %up_value : f32
+  view.store %result, %output_view[%row, %element] : f32, view<[%row_count]x[%ffn_size]xf32>
+  template.return
+}

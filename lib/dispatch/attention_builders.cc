@@ -179,8 +179,8 @@ std::vector<Registration> AttentionRegistrations() {
                        root + "attention/attention_interface.loom",
                        {root + "attention/attention_dispatch.loom",
                         root + "attention/rotary.loom",
-                        root + "attention/attention_core.loom",
-                        root + "attention/attention_map.loom"},
+                        "lib/kernels/attention/core.loom",
+                        "lib/kernels/attention/kv_position.loom"},
                        {},
                        {}};
     entry.interface_symbol = symbol;

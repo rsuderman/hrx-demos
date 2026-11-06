@@ -72,7 +72,9 @@ cc_binary(
 )
 genrule(
     name = "registered_norm_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+    ],
     outs = ["registered_norm.loombc"],
     cmd = "$(location :emit_registered_norm) . $@",
     tools = [":emit_registered_norm"],
@@ -92,12 +94,14 @@ cc_test(
 )
 loom_test(
     name = "embedding_execution_test",
-    srcs = ["testdata/embedding_checks.loom",
-            "//lib/kernels/llama:embedding/embedding.loom",
-            "//lib/kernels/llama:embedding/embedding_rows.loom",
-            "//lib/kernels/llama:embedding/embedding_config.loom",
-            "//lib/kernels/llama:active_rows.loom",
-            "//lib/kernels/llama:config.loom"],
+    srcs = [
+        "testdata/embedding_checks.loom",
+        "//lib/kernels/llama:embedding/embedding.loom",
+        "//lib/kernels/embedding:q6k_rows.loom",
+        "//lib/kernels/llama:embedding/embedding_config.loom",
+        "//lib/kernels/llama:active_rows.loom",
+        "//lib/kernels/llama:config.loom",
+    ],
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
@@ -118,13 +122,18 @@ cc_test(
 
 loom_test(
     name = "projection_execution_test",
-    srcs = ["testdata/projection_checks.loom"] + [
-        "//lib/kernels/llama:" + name for name in [
-            "config.loom", "active_rows.loom", "projection/linear_q4k_q8_1_x4.loom", "projection/linear_q4k_q8_1_x4_compat.loom",
-            "projection/linear_q6k_q8_1_x4.loom", "projection/linear_q6k_q8_1_x4_compat.loom",
-            "projection/linear_qk_common.loom", "projection/linear_qk_mmvq_compat.loom",
-            "projection/quantize_q8_1_x4.loom", "projection/quantize_q8_1_x4_mmvq_compat.loom",
-        ]
+    srcs = [
+        "testdata/projection_checks.loom",
+        "//lib/kernels/llama:config.loom",
+        "//lib/kernels/llama:active_rows.loom",
+        "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:q4k_compat.loom",
+        "//lib/kernels/projection:q6k.loom",
+        "//lib/kernels/projection:q6k_compat.loom",
+        "//lib/kernels/projection:qk_common.loom",
+        "//lib/kernels/projection:qk_mmvq_compat.loom",
+        "//lib/kernels/quantization:q8_1_x4.loom",
+        "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom",
     ],
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
@@ -165,7 +174,10 @@ cc_binary(
 )
 genrule(
     name = "attention_sequence_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources", "testdata/attention_capacity.loom"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+        "testdata/attention_capacity.loom",
+    ],
     outs = ["attention_sequence.loombc"],
     cmd = "$(location :emit_attention_sequence) . $@",
     tools = [":emit_attention_sequence"],
@@ -190,7 +202,10 @@ cc_binary(
 )
 genrule(
     name = "llama_count_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources", "testdata/count_observe.loom"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+        "testdata/count_observe.loom",
+    ],
     outs = ["llama_count.loombc"],
     cmd = "$(location :emit_llama_count) . $@",
     tools = [":emit_llama_count"],
@@ -210,7 +225,10 @@ cc_binary(
 )
 genrule(
     name = "active_rows_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources", "testdata/active_row_seed.loom"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+        "testdata/active_row_seed.loom",
+    ],
     outs = ["active_rows.loombc"],
     cmd = "$(location :emit_active_rows) . $@",
     tools = [":emit_active_rows"],
@@ -237,7 +255,9 @@ cc_binary(
 
 genrule(
     name = "attention_regions_dense_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+    ],
     outs = ["attention_regions_dense.loombc"],
     cmd = "$(location :emit_attention_regions) . $@ dense",
     tools = [":emit_attention_regions"],
@@ -251,7 +271,9 @@ loom_test(
 
 genrule(
     name = "attention_regions_pooled_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+    ],
     outs = ["attention_regions_pooled.loombc"],
     cmd = "$(location :emit_attention_regions) . $@ pooled",
     tools = [":emit_attention_regions"],
@@ -270,7 +292,9 @@ cc_binary(
 )
 genrule(
     name = "attention_output_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+    ],
     outs = ["attention_output.loombc"],
     cmd = "$(location :emit_attention_output) . $@",
     tools = [":emit_attention_output"],
@@ -289,7 +313,9 @@ cc_binary(
 )
 genrule(
     name = "head_rows_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+    ],
     outs = ["head_rows.loombc", "head_rows.loom"],
     cmd = "$(location :emit_head_rows) . $(location head_rows.loombc) $(location head_rows.loom)",
     tools = [":emit_head_rows"],
@@ -322,7 +348,10 @@ cc_binary(
 )
 genrule(
     name = "joined_adapters_module", testonly = True,
-    srcs = ["//lib/kernels/llama:all_sources", "testdata/joined_adapters.loom"],
+    srcs = [
+        "//lib/kernels/llama:all_sources",
+        "testdata/joined_adapters.loom",
+    ],
     outs = ["joined_adapters.loombc", "joined_adapters.loom"],
     cmd = "$(location :emit_joined_adapters) . $(location joined_adapters.loombc) $(location joined_adapters.loom)",
     tools = [":emit_joined_adapters"],

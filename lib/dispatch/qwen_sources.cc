@@ -4,20 +4,24 @@
 namespace hrx::dispatch {
 std::vector<NativeSource> QwenSharedSources() {
   const std::vector<std::string> files{
-      "lib/kernels/qwen/projection/quantize_q8_1_x4.loom",
-      "lib/kernels/qwen/projection/linear_q4k_q8_1_x4.loom",
-      "lib/kernels/qwen/projection/linear_q5k_q8_1_x4.loom",
-      "lib/kernels/qwen/projection/linear_q6k_q8_1_x4.loom",
+      "lib/kernels/quantization/q8_1_x4_canonical.loom",
+      "lib/kernels/projection/q4k_canonical.loom",
+      "lib/kernels/projection/q5k.loom",
+      "lib/kernels/projection/q6k_canonical.loom",
       "lib/kernels/qwen/common/layer_decode.loom",
       "lib/kernels/qwen/ffn/sequence.loom",
       "lib/kernels/qwen/common/layer_prefill.loom",
       "lib/kernels/qwen/ffn/children.loom",
-      "lib/kernels/llama/projection/linear_q4k_q8_1_x4.loom",
-      "lib/kernels/llama/projection/linear_q6k_q8_1_x4.loom",
-      "lib/kernels/llama/projection/linear_qk_common.loom",
-      "lib/kernels/llama/projection/quantize_q8_1_x4.loom",
-      "lib/kernels/llama/rows.loom",
+      "lib/kernels/elementwise/ffn_launches.loom",
+      "lib/kernels/projection/q4k.loom",
+      "lib/kernels/projection/q6k.loom",
+      "lib/kernels/projection/qk_common.loom",
+      "lib/kernels/quantization/q8_1_x4.loom",
+      "lib/kernels/normalization/rmsnorm_row.loom",
+      "lib/kernels/elementwise/residual_row.loom",
+      "lib/kernels/elementwise/swiglu_row.loom",
       "lib/kernels/qwen/common/spans.loom",
+      "lib/kernels/attention/kv_position.loom",
   };
   const std::vector<std::string> configuration{
       "ggml.linear_q4k_q8_1_x4.output_capacity",

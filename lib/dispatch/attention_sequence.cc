@@ -33,12 +33,18 @@ std::vector<NativeSource> AttentionSequenceSources() {
     e.symbol = e.interface_symbol = symbol;
     e.interface_file = prefix + "attention/attention_native_interface.loom";
     for (const char *file :
-         {"attention/attention_prepare.loom", "attention/attention_native.loom",
-          "attention/rotary.loom", "attention/attention_core.loom",
-          "attention/attention_map.loom",
-          "attention/attention_materialized.loom", "rows.loom", "config.loom",
-          "output/head_count.loom"})
-      e.provider_files.push_back(prefix + file);
+         {"lib/kernels/llama/attention/attention_prepare.loom",
+          "lib/kernels/llama/attention/attention_native.loom",
+          "lib/kernels/llama/attention/rotary.loom",
+          "lib/kernels/attention/core.loom",
+          "lib/kernels/attention/kv_position.loom",
+          "lib/kernels/llama/attention/attention_materialized.loom",
+          "lib/kernels/normalization/rmsnorm_row.loom",
+          "lib/kernels/elementwise/residual_row.loom",
+          "lib/kernels/elementwise/swiglu_row.loom",
+          "lib/kernels/llama/config.loom",
+          "lib/kernels/llama/output/head_count.loom"})
+      e.provider_files.push_back(file);
     e.required_config = {
         "llama.model.layer_count",      "llama.model.query_heads",
         "llama.model.kv_heads",         "llama.model.head_size",

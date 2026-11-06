@@ -58,34 +58,42 @@ const loom_op_t *Symbol(loomc_module_t *module, const std::string &name) {
 Registry Registry::Llama3B() {
   Registry registry;
   registry.entries_.push_back(EmbeddingRegistration());
-  Registration norm{Id::RmsNorm,
-                    OpCode::RmsNorm,
-                    Kind::Kernel,
-                    "llama.rmsnorm",
-                    "llama32_rmsnorm_f32",
-                    File("norm/norm_interface.loom"),
-                    {File("norm/norm.loom"), File("rows.loom"),
-                     File("config.loom"), File("active_rows.loom"),
-                     File("output/head_count.loom")},
-                    {{Port::Input, Access::Read},
-                     {Port::Gamma, Access::Read},
-                     {Port::Output, Access::Write}},
-                    {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
+  Registration norm{
+      Id::RmsNorm,
+      OpCode::RmsNorm,
+      Kind::Kernel,
+      "llama.rmsnorm",
+      "llama32_rmsnorm_f32",
+      File("norm/norm_interface.loom"),
+      {File("norm/norm.loom"), "lib/kernels/normalization/rmsnorm_row.loom",
+       "lib/kernels/elementwise/residual_row.loom",
+       "lib/kernels/elementwise/swiglu_row.loom", File("config.loom"),
+       File("active_rows.loom"), File("output/head_count.loom")},
+      {{Port::Input, Access::Read},
+       {Port::Gamma, Access::Read},
+       {Port::Output, Access::Write}},
+      {"llama.model.hidden_size", "llama.model.rms_epsilon"}};
   norm.interface_symbol = norm.symbol;
   norm.builder = NormBuilder();
   registry.entries_.push_back(std::move(norm));
   std::vector<std::string> files;
   for (const char *file :
-       {"ffn/ffn.loom", "rows.loom", "config.loom", "active_rows.loom",
-        "output/head_count.loom", "projection/linear_q4k_q8_1_x4.loom",
-        "projection/linear_q4k_q8_1_x4_compat.loom",
-        "projection/linear_q6k_q8_1_x4.loom",
-        "projection/linear_q6k_q8_1_x4_compat.loom",
-        "projection/linear_qk_common.loom",
-        "projection/linear_qk_mmvq_compat.loom",
-        "projection/quantize_q8_1_x4.loom",
-        "projection/quantize_q8_1_x4_mmvq_compat.loom"})
-    files.push_back(File(file));
+       {"lib/kernels/llama/ffn/ffn.loom",
+        "lib/kernels/elementwise/ffn_launches.loom",
+        "lib/kernels/normalization/rmsnorm_row.loom",
+        "lib/kernels/elementwise/residual_row.loom",
+        "lib/kernels/elementwise/swiglu_row.loom",
+        "lib/kernels/llama/config.loom", "lib/kernels/llama/active_rows.loom",
+        "lib/kernels/llama/output/head_count.loom",
+        "lib/kernels/projection/q4k.loom",
+        "lib/kernels/projection/q4k_compat.loom",
+        "lib/kernels/projection/q6k.loom",
+        "lib/kernels/projection/q6k_compat.loom",
+        "lib/kernels/projection/qk_common.loom",
+        "lib/kernels/projection/qk_mmvq_compat.loom",
+        "lib/kernels/quantization/q8_1_x4.loom",
+        "lib/kernels/quantization/q8_1_x4_mmvq_compat.loom"})
+    files.push_back(file);
   for (Id id :
        {Id::GateUpPrefill, Id::GateUpDecode, Id::DownPrefill, Id::DownDecode}) {
     bool gate = id == Id::GateUpPrefill || id == Id::GateUpDecode;

@@ -133,19 +133,18 @@ OperationBuilder EmbeddingBuilder() {
 }
 Registration EmbeddingRegistration() {
   const std::string root = "lib/kernels/llama/";
-  Registration r{Id::Embedding,
-                 OpCode::Embedding,
-                 Kind::Kernel,
-                 "llama.embedding",
-                 "llama32_token_embedding_q6k_f32",
-                 root + "embedding/embedding_interface.loom",
-                 {root + "embedding/embedding.loom",
-                  root + "embedding/embedding_rows.loom",
-                  root + "embedding/embedding_config.loom",
-                  root + "active_rows.loom", root + "output/head_count.loom",
-                  root + "config.loom"},
-                 {},
-                 {"llama.model.hidden_size", "llama.model.vocabulary_size"}};
+  Registration r{
+      Id::Embedding,
+      OpCode::Embedding,
+      Kind::Kernel,
+      "llama.embedding",
+      "llama32_token_embedding_q6k_f32",
+      root + "embedding/embedding_interface.loom",
+      {root + "embedding/embedding.loom", "lib/kernels/embedding/q6k_rows.loom",
+       root + "embedding/embedding_config.loom", root + "active_rows.loom",
+       root + "output/head_count.loom", root + "config.loom"},
+      {},
+      {"llama.model.hidden_size", "llama.model.vocabulary_size"}};
   r.interface_symbol = r.symbol;
   r.builder = EmbeddingBuilder();
   r.operands = r.builder.operands;

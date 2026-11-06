@@ -249,7 +249,7 @@ std::vector<Registration> QwenAttentionRegistrations() {
       root + "layer_interface.loom",
       {root + "layer.loom", root + "clear.loom", root + "attention_common.loom",
        root + "attention_prefill.loom", root + "attention_prefill_wmma.loom",
-       root + "attention_spans.loom"},
+       root + "attention_spans.loom", "lib/kernels/attention/core.loom"},
       builder.operands,
       RequiredConfig()};
   entry.interface_symbol = entry.symbol;

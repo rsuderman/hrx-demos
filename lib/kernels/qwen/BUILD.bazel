@@ -3,26 +3,41 @@
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
 package(default_visibility = ["//visibility:public"])
 exports_files(glob(["**/*.loom"]))
-filegroup(name = "all_sources", srcs = glob(["**/*.loom"]))
-loom_library(name = "spans", srcs = ["common/spans.loom"])
+filegroup(
+    name = "all_sources",
+    srcs = glob(["**/*.loom"]) + [
+        "//lib/kernels/normalization:all_sources",
+        "//lib/kernels/elementwise:all_sources",
+        "//lib/kernels/embedding:all_sources",
+        "//lib/kernels/attention:all_sources",
+        "//lib/kernels/selection:all_sources",
+        "//lib/kernels/projection:qwen_sources",
+        "//lib/kernels/quantization:qwen_sources",
+    ],
+)
+loom_library(name = "spans", srcs = ["common/spans.loom"], deps = ["//lib/kernels/attention:kv_position"])
 
 loom_library(
     name = "shared",
     srcs = [
         "common/shared_interface.loom",
-        "projection/quantize_q8_1_x4.loom",
-        "projection/linear_q4k_q8_1_x4.loom",
-        "projection/linear_q5k_q8_1_x4.loom",
-        "projection/linear_q6k_q8_1_x4.loom",
+        "//lib/kernels/quantization:q8_1_x4_canonical.loom",
+        "//lib/kernels/projection:q4k_canonical.loom",
+        "//lib/kernels/projection:q5k.loom",
+        "//lib/kernels/projection:q6k_canonical.loom",
         "common/layer_decode.loom",
         "ffn/sequence.loom",
         "common/layer_prefill.loom",
         "ffn/children.loom",
-        "//lib/kernels/llama:projection/linear_q4k_q8_1_x4.loom",
-        "//lib/kernels/llama:projection/linear_q6k_q8_1_x4.loom",
-        "//lib/kernels/llama:projection/linear_qk_common.loom",
-        "//lib/kernels/llama:projection/quantize_q8_1_x4.loom",
-        "//lib/kernels/llama:rows.loom",
+        "//lib/kernels/elementwise:ffn_launches.loom",
+        "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:q6k.loom",
+        "//lib/kernels/projection:qk_common.loom",
+        "//lib/kernels/quantization:q8_1_x4.loom",
+        "//lib/kernels/normalization:rmsnorm_row.loom",
+        "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
         "common/spans.loom",
+        "//lib/kernels/attention:kv_position.loom",
     ],
 )

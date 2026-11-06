@@ -111,29 +111,31 @@ does not silently infer them from byte counts or redefine the ABI in C++.
 
 ## Owned source and build closure
 
-Files in `lib/kernels/llama` are grouped into shallow operation folders:
-`attention/`, `embedding/`, `ffn/`, `norm/`, `output/`, `projection/`
-and `publication/`. Each operation keeps its interfaces, implementation,
-configuration and private helpers together. Projection owns the linear and
-activation-packing helpers reused by FFN and output. Attention owns rotary and
-KV cache helpers; token publication has its own folder. The root `rows.loom`
-and `config.loom` remain shared across operations.
+Model adapters remain under `lib/kernels/llama` and `lib/kernels/qwen`.
+Shared numerical implementations live in operation folders under `lib/kernels`:
+`normalization/`, `elementwise/`, `embedding/`, `projection/` and `quantization/`.
+RMSNorm, SwiGLU and residual row templates have separate source files. Q6
+embedding decoding is shared while the Qwen adapter retains its F16 rounding.
+Projection and packing files distinguish common numerical helpers, canonical
+launchers and the existing compatibility numerical variants.
 
-One root BUILD package retains the existing library target names; exported source
-labels include their operation path, such as
-`//lib/kernels/llama:embedding/embedding.loom`. Registration provider lists use
-the same paths and explicitly include shared root and projection dependencies.
+Model BUILD packages retain their library targets and include required shared
+sources in `all_sources` runfiles. Registrations explicitly load operation-owned
+providers, such as `lib/kernels/projection/q6k.loom`, alongside their model
+interfaces/configuration. They do not link every model source together.
 
 The curated seed is the repository source at `9045b4b`:
 
 - `norm/norm.loom`: the single `llama32_rmsnorm_f32` kernel from Llama 3B bindings.
-- `rows.loom`: only shared RMSNorm, SwiGLU and residual row implementations from
-  Qwen's `layer_decode.loom`; these are device dependencies, not command entries.
+- `normalization/rmsnorm_row.loom` and `elementwise/{swiglu,residual}_row.loom`:
+  shared row implementations from Qwen's `layer_decode.loom`; these are device
+  dependencies, not command entries.
 - `ffn/ffn.loom`: whole public family bodies from `llm/common/ffn.loom`. Non-admitted
   canonical, Q5, channel8 and Qwen WMMA branches are explicitly removed in source.
   The retained Q4/Q6 QkCompat arithmetic and public family selection are unchanged.
-- `projection/linear_*` and `projection/quantize_*`: selected required native functions, device motifs,
-  kernels, targets and declarations from `llm/motifs/ggml`. Canonical helper
+- Operation-owned `projection/*.loom` and `quantization/*.loom`: selected native
+  functions, device motifs, kernels, targets and declarations from
+  `llm/motifs/ggml`. Canonical helper
   functions used by compatibility kernels remain dependencies; their presence
   does not admit a canonical-packing dispatch.
 - `config.loom`: minimal selected Llama config plus explicit compile capacities.

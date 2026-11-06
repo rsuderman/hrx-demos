@@ -154,11 +154,11 @@ loomc_status_t HeadBuild(const Registration &r, BuildContext &c, Value *out) {
 }
 #undef TRY
 std::vector<std::string> Providers() {
-  std::vector<std::string> result = {
-      "lib/kernels/qwen/output/embedding.loom",
-      "lib/kernels/qwen/output/head.loom",
-      "lib/kernels/qwen/output/publication.loom",
-      "lib/kernels/llama/embedding/embedding_rows.loom"};
+  std::vector<std::string> result = {"lib/kernels/qwen/output/embedding.loom",
+                                     "lib/kernels/qwen/output/head.loom",
+                                     "lib/kernels/qwen/output/publication.loom",
+                                     "lib/kernels/embedding/q6k_rows.loom",
+      "lib/kernels/selection/greedy_argmax.loom"};
   for (const auto &source : QwenSharedSources())
     for (const auto &file : source.provider_files)
       if (std::find(result.begin(), result.end(), file) == result.end())
