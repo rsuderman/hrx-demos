@@ -1,7 +1,12 @@
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+
+package(default_visibility = ["//visibility:public"])
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 
-load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 
 _CXXOPTS = select({
     "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
@@ -18,11 +23,83 @@ cc_test(
     copts = _CXXOPTS,
     linkstatic = True,
     deps = [
-        "//tools/loomify-gguf:source_builder",
-        "//tools/loomify-gguf/authoring/model:embedding_fixture",
+        "//tools/loomify-gguf:embedding",
+        ":embedding_fixture",
         "//tools/model:model_descriptor",
         "@hrx_system//loom/binding/c:loomc",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
     ],
 )
+
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+iree_cc_library(
+    name = "embedding_fixture",
+    testonly = True,
+    srcs = ["embedding_fixture.cc"],
+    hdrs = ["embedding_fixture.h"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//tools/model:model_descriptor",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/io:file_handle",
+        "@hrx_system//runtime/src/iree/io:parameter_index",
+        "@hrx_system//runtime/src/iree/io/formats/gguf:gguf",
+    ],
+)
+cc_binary(
+    name = "emit_embedding_fixture",
+    testonly = True,
+    srcs = ["emit_embedding_fixture.cc"],
+    cxxopts = _CXXOPTS,
+    deps = [":embedding_fixture"],
+)
+genrule(
+    name = "embedding_inputs",
+    testonly = True,
+    outs = ["embedding_fixture.gguf", "embedding_checks.loom"],
+    cmd = "$(location :emit_embedding_fixture) $(location embedding_fixture.gguf) $(location embedding_checks.loom)",
+    tools = [":emit_embedding_fixture"],
+)
+genrule(
+    name = "embedding_program",
+    testonly = True,
+    srcs = ["embedding_fixture.gguf"],
+    outs = ["embedding_program.loombc"],
+    cmd = "$(location //tools/loomify-gguf:loomify-gguf) --gguf=$(location embedding_fixture.gguf) --output=$@ --format=bc --stage=embedding",
+    tools = ["//tools/loomify-gguf:loomify-gguf"],
+)
+loom_test(
+    name = "embedding_execution_test",
+    srcs = ["embedding_program.loombc", "embedding_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+exports_files(["configuration_test.cc", "configuration_fixture.h"])
+
+iree_cc_library(
+    name = "prepare_vm",
+    testonly = True,
+    srcs = ["prepare_vm.cc"],
+    hdrs = ["prepare_vm.h"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
+        "@hrx_system//runtime/src/iree/vm",
+        "@hrx_system//runtime/src/iree/vm/bytecode:module",
+    ],
+)
+
+cc_test(
+    name = "public_builder_test", size = "small", srcs = ["public_builder_test.cc"],
+    copts = _CXXOPTS, linkstatic = True,
+    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation"],
+    deps = ["//tools/loomify-gguf:gguf_model_builder", "@googletest//:gtest_main",
+            "@hrx_system//loom/binding/c/target/amdgpu"],
+)
+
+exports_files(["package_test.cc"])

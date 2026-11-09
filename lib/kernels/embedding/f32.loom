@@ -1,0 +1,27 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+
+kernel.def @loomify.embedding.f32(%width: index, %vocab: index) {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%width, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%width: index, %vocab: index, %token: index,
+         %table: view<[%vocab]x[%width]xf32>, %output: buffer) {
+  %column = kernel.workgroup.id<x> : index
+  %origin = index.constant 0 : offset
+  %target = buffer.view %output[%origin] : buffer -> view<[%width]xf32>
+  %active = index.cmp ult, %column, %width : index
+  scf.if %active {
+  %valid = index.cmp ult, %token, %vocab : index
+  scf.if %valid {
+    %value = view.load %table[%token, %column] : view<[%vocab]x[%width]xf32> -> f32
+    view.store %value, %target[%column] : f32, view<[%width]xf32>
+    scf.yield
+  } else {
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %target[%column] : f32, view<[%width]xf32>
+    scf.yield
+  }
+  scf.yield
+  }
+  kernel.return
+}

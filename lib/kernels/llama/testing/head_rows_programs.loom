@@ -1,0 +1,141 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @llama.model.hidden_size = 3072 : index
+
+config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : %51: index where [range(%51, 1, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %52: index where [range(%52, 1, 2048)]
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %53: index where [range(%53, 1, 524288)]
+
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Snapshot active rows before publication changes the original packet.
+
+config.def @llama.model.vocabulary_size = 128256 : index
+
+config.def @qwen38.greedy_argmax.output_capacity = 128256 : %771: index where [range(%771, 256, 262144)]
+
+// Selects the lowest token ID having the greatest finite logit. The baseline
+// reduction provides a one-workgroup oracle. Command programs use the
+// two-stage tiled reduction to expose vocabulary parallelism while keeping
+// logits and intermediate winners device-local.
+amdgpu.target<gfx11-generic> @qwen38_greedy_argmax_gfx11_wave64 {subgroup_size = 64}
+
+// Generic MMQ active-extent selection, shared by explicit producer/consumer policies.
+
+kernel.decl @llama32_finish_isolated() launch(%kind: index, %raw_token: buffer, %control: buffer, %tokens: buffer, %progress: buffer)
+
+kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
+kernel.decl @llama32_output_norm_last_f32(%token_capacity: index) launch(%token_capacity0: index, %token_begin0: index, %control_origin: offset, %control: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+
+command.program.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 12 : offset
+    %v8 = buffer.alloca<global> align(4) %v7 : buffer
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v9, %v10, %v2, %v8) : (index, offset, buffer, buffer)
+    %v11 = index.constant 0 : index
+    kernel.launch @llama32_finish_isolated(%v11, %v3, %v2, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
+    %v12 = index.constant 8 : index
+    %v13 = index.constant 2 : index
+    %v14 = index.constant 0 : offset
+    kernel.launch @llama32_output_norm_last_f32[%v12](%v12, %v13, %v14, %v8, %v0, %v1, %v6) : [index](index, index, offset, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @head.rows.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 12 : offset
+    %v8 = buffer.alloca<global> align(4) %v7 : buffer
+    %v9 = index.constant 1 : index
+    %v10 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v9, %v10, %v2, %v8) : (index, offset, buffer, buffer)
+    %v11 = index.constant 1 : index
+    kernel.launch @llama32_finish_isolated(%v11, %v3, %v2, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
+    %v12 = index.constant 1 : index
+    %v13 = index.constant 0 : index
+    %v14 = index.constant 0 : offset
+    kernel.launch @llama32_output_norm_last_f32[%v12](%v12, %v13, %v14, %v8, %v0, %v1, %v6) : [index](index, index, offset, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @head.full.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 12 : offset
+    %v8 = buffer.alloca<global> align(4) %v7 : buffer
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v9, %v10, %v3, %v8) : (index, offset, buffer, buffer)
+    %v11 = index.constant 8 : index
+    %v12 = index.constant 323205120 : index
+    %v13 = command.parameter %v0, "token_embd.weight" : view<[%v12]xi8>
+    %v14 = index.constant 2 : index
+    %v15 = index.constant 0 : offset
+    kernel.launch @llama32_token_embedding_active_q6k_f32[%v11](%v11, %v14, %v15, %v8, %v4, %v13, %v1) : [index](index, index, offset, buffer, buffer, view<[%v12]xi8>, buffer)
+    %v16 = index.constant 8 : index
+    %v17 = index.constant 2 : index
+    %v18 = index.constant 0 : offset
+    %v19 = index.constant 3072 : index
+    %v20 = index.constant 128256 : index
+    %v21 = index.constant 323205120 : index
+    %v22 = index.constant 3456 : offset
+    %v23 = index.constant 513024 : offset
+    %v24 = index.constant 128 : offset
+    %v25 = command.parameter %v0, "token_embd.weight" : view<[%v21]xi8>
+    %v26 = index.constant 0 : offset
+    %v27 = buffer.view %v2[%v26] : buffer -> view<[%v19]xf32>
+    %v28 = index.constant 12288 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
+    %v30 = index.constant 0 : index
+    kernel.launch @llama32_finish_isolated(%v30, %v6, %v3, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @head.full.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 12 : offset
+    %v8 = buffer.alloca<global> align(4) %v7 : buffer
+    %v9 = index.constant 1 : index
+    %v10 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v9, %v10, %v3, %v8) : (index, offset, buffer, buffer)
+    %v11 = index.constant 1 : index
+    %v12 = index.constant 323205120 : index
+    %v13 = command.parameter %v0, "token_embd.weight" : view<[%v12]xi8>
+    %v14 = index.constant 0 : index
+    %v15 = index.constant 0 : offset
+    kernel.launch @llama32_token_embedding_active_q6k_f32[%v11](%v11, %v14, %v15, %v8, %v4, %v13, %v1) : [index](index, index, offset, buffer, buffer, view<[%v12]xi8>, buffer)
+    %v16 = index.constant 1 : index
+    %v17 = index.constant 0 : index
+    %v18 = index.constant 0 : offset
+    %v19 = index.constant 3072 : index
+    %v20 = index.constant 128256 : index
+    %v21 = index.constant 323205120 : index
+    %v22 = index.constant 3456 : offset
+    %v23 = index.constant 513024 : offset
+    %v24 = index.constant 128 : offset
+    %v25 = command.parameter %v0, "token_embd.weight" : view<[%v21]xi8>
+    %v26 = index.constant 0 : offset
+    %v27 = buffer.view %v2[%v26] : buffer -> view<[%v19]xf32>
+    %v28 = index.constant 12288 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
+    %v30 = index.constant 1 : index
+    kernel.launch @llama32_finish_isolated(%v30, %v6, %v3, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}

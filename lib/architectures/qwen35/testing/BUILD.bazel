@@ -1,0 +1,45 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+package(default_visibility = ["//visibility:public"])
+cc_test(
+    name = "model_test",
+    size = "large",
+    srcs = ["model_test.cc"],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text"],
+    deps = [
+        "//tools/loomify-gguf:configuration", "//tools/loomify-gguf:configuration_fixture",
+        "//tools/model:qwen_configuration",
+        "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/src/loom/ops/buffer", "@hrx_system//loom/src/loom/ops/command",
+        "@hrx_system//loom/src/loom/ops/index", "@hrx_system//loom/src/loom/ops/kernel",
+        "@hrx_system//loom/src/loom/ir", "@hrx_system//loom/src/loom/ops/scf:op_defs",
+        "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd",
+        "@googletest//:gtest", "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "real_model_test",
+    size = "large",
+    srcs = ["model_test.cc"],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    defines = ["LOOMIFY_QWEN_REAL_GGUF"],
+    tags = ["manual"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text"],
+    deps = [
+        "//tools/loomify-gguf:configuration", "//tools/loomify-gguf:configuration_fixture",
+        "//tools/model:qwen_configuration",
+        "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/src/loom/ops/buffer", "@hrx_system//loom/src/loom/ops/command",
+        "@hrx_system//loom/src/loom/ops/index", "@hrx_system//loom/src/loom/ops/kernel",
+        "@hrx_system//loom/src/loom/ir", "@hrx_system//loom/src/loom/ops/scf:op_defs",
+        "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd",
+        "@googletest//:gtest", "@googletest//:gtest_main",
+    ],
+)
+
+exports_files(["prepare_test.cc"])

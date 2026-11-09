@@ -1,5 +1,0 @@
-// Copyright 2026 AMD ROCm™ Software
-// SPDX-License-Identifier: MIT
-// Same count/scalar kinds as gate_up_decode, but weight views depend on the
-// row-size operand rather than the weight-size operand.
-template.decl @invocation.incompatible_gate(%hidden_size: index, %ffn_size: index, %generic: i1, %compat: i1, %q4: i1, %q6: i1, %weight_bytes: index, %row_bytes: index, %gate: view<[%row_bytes]xi8>, %up: view<[%row_bytes]xi8>, %input: buffer, %output: buffer)

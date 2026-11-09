@@ -1,0 +1,79 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+exports_files(["control.loom", "prepare.loom"])
+
+# Config declarations are intentionally resolved by the final native LINK.
+genrule(
+    name = "prepare_library",
+    srcs = ["prepare.loom"],
+    outs = ["prepare_library.loombc"],
+    tools = ["@hrx_system//loom/src/loom/tools/loom-link"],
+    cmd = "$(location @hrx_system//loom/src/loom/tools/loom-link) --mode=merge $(location prepare.loom) --to=bc --output=$@",
+)
+
+cc_test(
+    name = "prepare_test",
+    size = "small",
+    srcs = ["testing/prepare_test.cc"],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    data = ["prepare.loom", ":prepare_library"],
+    deps = [
+        "//tools/loomify-gguf:configuration",
+        "//tools/loomify-gguf:configuration_fixture",
+        "//tools/loomify-gguf/testing:prepare_vm",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# One exact set drives source-form fixtures and late-configured bytecode.
+_ARCHITECTURE_SOURCES = [
+    "attention.loom", "layer.loom", "ffn_adapter.loom", "model.loom",
+    "epoch.loom", "epoch_kernels.loom",
+    "//lib/programs/ffn:interface.loom", "//lib/programs/ffn:ffn.loom",
+]
+_IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + ["//lib/kernels/llama:configured_provider_sources"]
+exports_files(["attention.loom", "layer.loom", "ffn_adapter.loom", "model.loom", "epoch.loom", "epoch_kernels.loom"])
+filegroup(name = "architecture_sources", srcs = _ARCHITECTURE_SOURCES)
+loom_merge(name = "implementation", srcs = _IMPLEMENTATION_SOURCES)
+loom_merge(name = "implementation_text", srcs = _IMPLEMENTATION_SOURCES, output_format = "text", testonly = True)
+
+loom_merge(name = "layer_fixture", srcs = [":implementation", "testing/configured_layer_roots.loom"], testonly = True)
+cc_binary(
+    name = "emit_layer_validation", testonly = True,
+    srcs = ["testing/emit_layer_validation.cc"], cxxopts = ["-std=c++17"],
+    data = [":layer_fixture"],
+    deps = ["//tools/loomify-gguf:configuration", "//tools/loomify-gguf:native_linking", "//tools/model:llama_configuration", "@hrx_system//loom/binding/c/target/amdgpu"],
+)
+
+loom_merge(
+    name = "epoch_fixture", testonly = True,
+    srcs = ["epoch_kernels.loom", "testing/numerical_fixture.loom", "testing/epoch_fixture.loom"],
+)
+loom_test(
+    name = "epoch_execution_test", srcs = ["testing/epoch_checks.loom", ":epoch_fixture"],
+    benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+cc_test(
+    name = "layer_source_test", size = "small", srcs = ["testing/layer_source_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/architectures/llama:architecture_sources"],
+    deps = ["@hrx_system//loom/binding/c:loomc", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+cc_test(
+    name = "configured_model_test", size = "large", srcs = ["testing/configured_model_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = ["//lib/architectures/llama:architecture_sources", "//lib/architectures/llama:implementation", "//lib/architectures/llama:implementation_text"],
+    deps = ["@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/index", "//tools/loomify-gguf:configuration", "//tools/loomify-gguf:configuration_fixture", "//tools/model:llama_configuration", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)

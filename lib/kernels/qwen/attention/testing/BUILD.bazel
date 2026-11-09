@@ -47,3 +47,15 @@ loom_test(
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
+
+# Full-layer fixtures call the owned numerical layer directly. The independent
+# logical oracle/runner remains beside these maintained call sequences.
+exports_files(["layer_fixture.py", "run_layer_fixture.sh"])
+[genrule(
+    name = "layer_" + encoding,
+    testonly = True,
+    srcs = ["attention_" + encoding + "_programs.loom", "//lib/architectures/qwen35:numerical_sources"],
+    outs = ["layer_" + encoding + ".loombc"],
+    tools = ["@hrx_system//loom/src/loom/tools/loom-link"],
+    cmd = "$(execpath @hrx_system//loom/src/loom/tools/loom-link) $(SRCS) --mode=link --require-resolved-config --root=@attention_layer --to=bc --output=$@",
+) for encoding in ["q5", "q6"]]

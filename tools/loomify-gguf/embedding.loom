@@ -1,0 +1,12 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+config.decl @loomify.embedding.width : index
+config.decl @loomify.embedding.vocabulary : index
+kernel.decl @loomify.embedding.f32(%width: index, %vocab: index) launch(%width: index, %vocab: index, %token: index, %table: view<[%vocab]x[%width]xf32>, %output: buffer)
+command.program.def public @model.embedding(%token: index) launch(%parameters: buffer, %output: buffer) {
+  %width = config.get @loomify.embedding.width : index
+  %vocab = config.get @loomify.embedding.vocabulary : index
+  %table = command.parameter %parameters, "token_embd.weight" : view<[%vocab]x[%width]xf32>
+  kernel.launch @loomify.embedding.f32[%width, %vocab](%width, %vocab, %token, %table, %output) : [index, index](index, index, index, view<[%vocab]x[%width]xf32>, buffer)
+  command.return
+}

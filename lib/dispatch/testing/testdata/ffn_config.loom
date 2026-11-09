@@ -1,6 +1,0 @@
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-config.def @llama.model.ffn_size = 8192 : index
-config.def @llama.model.v_down_q6_layers = 261245223 : i32
-config.def @llama.model.ffn_gate_up_weight_bytes = 14155776 : index
-config.def @llama.model.ffn_down_q4_weight_bytes = 14155776 : index
-config.def @llama.model.ffn_down_q6_weight_bytes = 20643840 : index

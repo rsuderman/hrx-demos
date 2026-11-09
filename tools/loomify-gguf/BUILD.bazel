@@ -3,6 +3,9 @@
 
 load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
 
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
+
 package(default_visibility = ["//visibility:public"])
 
 _CXXOPTS = select({
@@ -12,13 +15,12 @@ _CXXOPTS = select({
 })
 
 iree_cc_library(
-    name = "source_builder",
-    srcs = ["source_builder.cc"],
-    hdrs = ["source_builder.h"],
+    name = "embedding",
+    srcs = ["embedding.cc"],
+    hdrs = ["embedding.h"],
     cxxopts = _CXXOPTS,
     deps = [
-        "//tools/loomify-gguf/authoring/command:command_program_builder",
-        "//tools/loomify-gguf/authoring/commands:command_values",
+        ":embedding_sources",
         "//tools/model:model_descriptor",
         "@hrx_system//loom/binding/c:loomc",
     ],
@@ -29,14 +31,104 @@ iree_cc_library(
 cc_binary(
     name = "loomify-gguf",
     srcs = ["main.cc"],
-    data = ["//tools/loomify-gguf/authoring/model-config:llama_providers", "//lib/kernels/llama:all_sources", "//lib/kernels/qwen:all_sources", "//lib/kernels/qwen/gdn:all_sources", "//lib/kernels/qwen/attention:all_sources", "//tools/loomify-gguf/serving:providers", "//tools/loomify-gguf/serving/qwen:providers"],
+    data = [
+        "//lib/architectures/llama:implementation",
+        "//lib/architectures/llama:prepare_library",
+        "//lib/architectures/llama:control.loom",
+        "//lib/architectures/qwen35:implementation",
+        "//lib/architectures/qwen35:prepare_library",
+        "//lib/architectures/qwen35:control.loom",
+        "//lib/serving:weights.loom",
+    ],
     cxxopts = _CXXOPTS,
     deps = [
-        ":source_builder",
-        "//tools/loomify-gguf/serving:model_export",
-        "//tools/loomify-gguf/serving/qwen:model_export",
+        ":embedding",
+        ":gguf_model_builder",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "//tools/model:model_descriptor",
         "@hrx_system//runtime/src/iree/base/tooling:flags",
     ],
+)
+
+iree_cc_library(
+    name = "configuration",
+    srcs = ["configuration.cc"],
+    hdrs = ["configuration.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/model:model_types"],
+)
+
+iree_cc_library(
+    name = "configuration_fixture",
+    testonly = True,
+    hdrs = ["//tools/loomify-gguf/testing:configuration_fixture.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/model:model_types"],
+)
+
+cc_test(
+    name = "configuration_test",
+    srcs = ["//tools/loomify-gguf/testing:configuration_test.cc"],
+    copts = ["-std=c++17"],
+    deps = [":configuration", ":configuration_fixture", "//tools/model:model_descriptor",
+            "@hrx_system//loom/binding/c:loomc", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "configuration_real_assets_test",
+    srcs = ["//tools/loomify-gguf/testing:configuration_test.cc"],
+    defines = ["LOOMIFY_CONFIGURATION_REAL_ASSETS=1"],
+    tags = ["manual"],
+    copts = ["-std=c++17"],
+    deps = [":configuration", ":configuration_fixture", "//tools/model:model_descriptor",
+            "@hrx_system//loom/binding/c:loomc", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_c_embed_data(
+    name = "embedding_sources",
+    srcs = ["embedding.loom", "//lib/kernels/embedding:f32.loom"],
+    c_file_output = "embedding_sources.c", h_file_output = "embedding_sources.h",
+    identifier = "embedding_sources", flatten = True,
+)
+
+iree_cc_library(
+    name = "gguf_model_builder",
+    srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "architectures.h"],
+    hdrs = ["gguf_model_builder.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":configuration", ":native_linking", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c:loomc"],
+)
+
+# Private operation shared only by the module/package implementation and retained
+# native numerical fixtures. gguf_model_builder.h remains the supported API.
+iree_cc_library(
+    name = "native_linking",
+    srcs = ["linking.cc"], hdrs = ["linking.h"],
+    cxxopts = _CXXOPTS,
+    visibility = [
+        "//tools/loomify-gguf:__pkg__",
+        "//tools/loomify-gguf/testing:__pkg__",
+        "//lib/architectures:__subpackages__",
+        "//lib/programs/ffn/testing:__pkg__",
+    ],
+    deps = ["@hrx_system//loom/binding/c:loomc"],
+)
+
+# Immutable external checkpoints/tokenizers supplied explicitly by the real gate.
+cc_test(
+    name = "package_test",
+    tags = ["manual"],
+    size = "medium",
+    linkstatic = True,
+    srcs = ["//tools/loomify-gguf/testing:package_test.cc"],
+    copts = _CXXOPTS,
+    data = [
+        ":loomify-gguf",
+        "//lib/architectures/llama:implementation", "//lib/architectures/llama:prepare_library",
+        "//lib/architectures/llama:control.loom",
+        "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:prepare_library",
+        "//lib/architectures/qwen35:control.loom", "//lib/serving:weights.loom",
+    ],
+    deps = [":gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
 )

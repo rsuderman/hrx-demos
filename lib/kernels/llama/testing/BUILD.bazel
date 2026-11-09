@@ -1,0 +1,51 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+package(default_visibility = ["//visibility:public"])
+
+# The same owned numerical files back each maintained test call sequence.
+_NUMERICAL = ["//lib/kernels/llama:configured_provider_sources"]
+_CASES = {
+    "registered_norm": [],
+    "attention_sequence": ["attention_capacity.loom"],
+    "attention_regions_dense": [],
+    "attention_regions_pooled": [],
+    "attention_output": [],
+    "llama_count": ["count_observe.loom"],
+    "active_rows": ["active_row_seed.loom"],
+    "head_rows": [],
+    "joined_adapters": ["joined_adapters.loom"],
+}
+[loom_merge(
+    name = case + "_" + format,
+    srcs = [case + "_programs.loom"] + helpers + _NUMERICAL,
+    output_format = format,
+    testonly = True,
+) for case, helpers in _CASES.items() for format in (["text", "bc"] if case in ["head_rows", "joined_adapters"] else ["bc"])]
+
+_DIRECT = {
+    "embedding": ["embedding_checks.loom", "//lib/kernels/llama:embedding/embedding.loom", "//lib/kernels/embedding:q6k_rows.loom", "//lib/kernels/llama:embedding/embedding_config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/llama:config.loom"],
+    "projection": ["projection_checks.loom", "//lib/kernels/llama:config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:q4k_compat.loom", "//lib/kernels/projection:q6k.loom", "//lib/kernels/projection:q6k_compat.loom", "//lib/kernels/projection:qk_common.loom", "//lib/kernels/projection:qk_mmvq_compat.loom", "//lib/kernels/quantization:q8_1_x4.loom", "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom"],
+}
+[loom_test(name = name + "_execution_test", srcs = sources, benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for name, sources in _DIRECT.items()]
+loom_test(name = "output_execution_test", srcs = ["output_checks.loom"], deps = ["//lib/kernels/llama:output", "//lib/kernels/llama:publication"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+_CHECKS = {
+    "registered_norm": ["registered_norm_checks.loom"],
+    "attention_sequence": ["attention_sequence_checks.loom"],
+    "attention_regions_dense": ["attention_regions_reference.loom", "attention_regions_dense_checks.loom"],
+    "attention_regions_pooled": ["attention_regions_reference.loom", "attention_regions_pooled_checks.loom"],
+    "attention_output": ["attention_output_checks.loom"],
+    "llama_count": ["llama_count_checks.loom"],
+    "active_rows": ["active_rows_checks.loom", "projection_checks.loom"],
+    "head_rows": ["head_rows_checks.loom"],
+    "head_publication": ["head_publication_checks.loom"],
+    "joined_adapters": ["joined_adapters_checks.loom"],
+}
+[loom_test(
+    name = case + "_" + format + "_execution_test",
+    srcs = checks + [":" + ("head_rows" if case == "head_publication" else case) + "_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+) for case, checks in _CHECKS.items() for format in (["text", "bc"] if case in ["head_publication", "joined_adapters"] else ["bc"])]

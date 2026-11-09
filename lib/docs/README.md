@@ -1,19 +1,21 @@
 # Library documentation
 
-Reusable code belongs here, with native tests in each library's `testing/`
-subdirectory. Executable tools live under `tools/`, runnable demonstrations
-under `examples/`, and Python tests under `tests/`.
+Loomify reads supported GGUF model facts and links maintained Loom architecture
+and numerical modules. C++ owns configuration, native linking and export; Loom
+owns model sequencing, temporary storage and preparation records.
 
-- [Operations](operations.md): typed operation definitions and graph authoring.
-- [Examples](examples.md): runnable graphs and native test commands.
-- [Llama FFN structure](llama-ffn-structure.md): descriptor-backed normalized FFN
-  region construction, ownership and bounded structural tests.
+- [GGUF export](gguf-export.md): the public module/package builder, CLI and supported profiles.
+- [Examples](examples.md): actual Loomcxx imports and the independent F32 embedding example.
 
-- [Llama structure](llama-structure.md): immutable ownership, parameter identity,
-  runtime inputs and known region cuts.
-- [Dispatch registry](dispatch-registry.md): known typed dispatches and owned native providers.
-- [Dispatch shapes](dispatch-shapes.md): model-derived logical result inference.
-- [Dispatch invocation](dispatch-invocation.md): output-producing native norm and whole FFN authoring.
-- [Selected FFN compilation](llama-ffn-region.md): retained GGUF owner, static
-  one-row region emission and source/bytecode proof boundaries.
-- [GGUF export](gguf-export.md): construct a supported Llama model and its existing Serve package.
+`lib/architectures/{llama,qwen35}` contains maintained model, preparation and
+control programs. Complete Qwen attention/GDN layers retain their internal FFNs.
+`lib/programs/ffn` and `lib/kernels` own reusable numerical sequences and kernels;
+model configuration selects existing qualified encoding/arithmetic policies.
+
+Tests live with their implementation. Architecture tests cover complete command
+roots, parameter identities, preparation records and packet/state behavior.
+Kernel tests retain independent arithmetic/precision/guard expectations, active
+rows and continuation. `tools/loomify-gguf/testing` covers the public builder,
+header-only GGUF facts, relocation and safe package publication. Prompt/decode
+acceptance uses existing Loom Serve; it does not establish independent numerical
+parity for every model.

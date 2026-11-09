@@ -8,5 +8,5 @@ missing/ambiguous roles, unsupported storage, inconsistent extents/dimensions an
 unsupported architectures.
 
 The actual CLI and generated command execute through
-`//tools/loomify-gguf/authoring/model:embedding_execution_test`; its independent
+`//tools/loomify-gguf/testing:embedding_execution_test`; its independent
 oracle and guarded parameter/output owners test the numerical stage.

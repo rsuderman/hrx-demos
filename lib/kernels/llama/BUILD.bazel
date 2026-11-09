@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//loom/build_tools/bazel:loom_binary.bzl", "loom_kernel_binary")
 package(default_visibility = ["//visibility:public"])
 exports_files(glob(["**/*.loom"]))
@@ -144,4 +145,5 @@ _CONFIGURED_PROVIDER_SOURCES = [
 ]
 
 filegroup(name = "configured_provider_sources", srcs = _CONFIGURED_PROVIDER_SOURCES)
-loom_library(name = "configured_providers", srcs = _CONFIGURED_PROVIDER_SOURCES)
+loom_merge(name = "configured_providers", srcs = _CONFIGURED_PROVIDER_SOURCES)
+loom_merge(name = "configured_provider_text", srcs = _CONFIGURED_PROVIDER_SOURCES, output_format = "text", testonly = True)

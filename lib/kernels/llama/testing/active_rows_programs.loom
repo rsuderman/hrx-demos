@@ -1,0 +1,1907 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @llama.model.hidden_size = 3072 : index
+
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+
+config.def @llama.model.vocabulary_size = 128256 : index
+
+config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
+
+// GGUF Q/K rows are already permuted for adjacent-pair RoPE.
+// rope_freqs.weight supplies 64 F32 divisors; the base alone is insufficient.
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : %173: index where [range(%173, 1, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : %174: index where [range(%174, 1, 262144)]
+
+// Capacity of the existing shared greedy implementation (historical symbol).
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : %175: index where [range(%175, 1, 2048)]
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %176: index where [range(%176, 1, 2048)]
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %177: index where [range(%177, 1, 524288)]
+
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Test setup copies compact defined rows into otherwise uninitialized native
+// storage. No padding is initialized to make the numerical providers safe.
+
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+
+kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
+kernel.decl @llama32_rmsnorm_active_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @test.compare_ffn(%rows0: index, %capacity0: index) launch(%rows0: index, %capacity0: index, %begin0: index, %actual_residual: buffer, %actual_swiglu: buffer, %compact_residual: buffer, %compact_swiglu: buffer, %initial: buffer, %status: buffer)
+
+kernel.decl @test.seed_active_f32(%rows0: index, %width0: index) launch(%rows: index, %width: index, %capacity: index, %begin: index, %compact: buffer, %padded: buffer)
+
+kernel.decl @test.seed_active_i32(%rows0: index) launch(%rows: index, %capacity: index, %begin: index, %compact: buffer, %padded: buffer)
+
+template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
+
+template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
+
+template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+
+template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+
+command.program.def public retain @active.projection.q4.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 1 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 8192 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 2304 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 8192 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 2304 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 4 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 8192 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 2304 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 8 : index
+    %v5 = index.constant 12 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 12288 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 12 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 3456 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 9 : index
+    %v5 = index.constant 13 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 13312 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 13 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 3744 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 16 : index
+    %v5 = index.constant 20 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 20480 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 20 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 5760 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 17 : index
+    %v5 = index.constant 21 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 21504 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 21 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 6048 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 1 : index
+    %v5 = index.constant 1 : index
+    %v6 = index.constant 0 : index
+    %v7 = index.constant 1024 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 1 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 1 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 0 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 288 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 5 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 5120 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 5 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 1872 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 1440 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 1 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 8192 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 2304 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 8192 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 2304 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 4 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 8192 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 2304 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 8 : index
+    %v5 = index.constant 12 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 12288 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 12 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 3456 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 9 : index
+    %v5 = index.constant 13 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 13312 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 13 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 3744 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 16 : index
+    %v5 = index.constant 20 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 20480 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 20 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 5760 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 17 : index
+    %v5 = index.constant 21 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 21504 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 21 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 6048 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 1 : index
+    %v5 = index.constant 1 : index
+    %v6 = index.constant 0 : index
+    %v7 = index.constant 1024 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 1 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 1 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 0 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 288 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 5 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 5120 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 256 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 5 : index
+    %v15 = index.constant 256 : index
+    %v16 = index.constant 13 : index
+    %v17 = index.constant 2 : index
+    %v18 = scalar.constant -1 : i32
+    %v19 = index.constant 0 : offset
+    %v20 = index.constant 2730 : index
+    %v21 = command.parameter %v1, "weight" : view<[%v20]xi8>
+    %v22 = index.constant 1440 : offset
+    %v23 = buffer.alloca<global> align(256) %v22 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v14, %v15](%v14, %v15, %v17, %v18, %v19, %v11, %v8, %v23) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v14, %v15, %v16](%v14, %v15, %v16, %v17, %v18, %v19, %v11, %v23, %v21, %v3) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v20]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 1 : index
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 98304 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 8 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 262144 : index
+    %v31 = index.constant 98304 : index
+    %v32 = index.constant 27648 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 8 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 262144 : index
+    %v47 = index.constant 98304 : index
+    %v48 = index.constant 27648 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 3 : index
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 98304 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 8 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 262144 : index
+    %v31 = index.constant 98304 : index
+    %v32 = index.constant 27648 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 8 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 262144 : index
+    %v47 = index.constant 98304 : index
+    %v48 = index.constant 27648 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 4 : index
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 98304 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 8 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 262144 : index
+    %v31 = index.constant 98304 : index
+    %v32 = index.constant 27648 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 8 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 262144 : index
+    %v47 = index.constant 98304 : index
+    %v48 = index.constant 27648 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 8 : index
+    %v8 = index.constant 12 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 147456 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 12 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 393216 : index
+    %v31 = index.constant 147456 : index
+    %v32 = index.constant 41472 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 12 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 393216 : index
+    %v47 = index.constant 147456 : index
+    %v48 = index.constant 41472 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 9 : index
+    %v8 = index.constant 13 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 159744 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 13 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 425984 : index
+    %v31 = index.constant 159744 : index
+    %v32 = index.constant 44928 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 13 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 425984 : index
+    %v47 = index.constant 159744 : index
+    %v48 = index.constant 44928 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 16 : index
+    %v8 = index.constant 20 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 245760 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 20 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 655360 : index
+    %v31 = index.constant 245760 : index
+    %v32 = index.constant 69120 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 20 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 655360 : index
+    %v47 = index.constant 245760 : index
+    %v48 = index.constant 69120 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 17 : index
+    %v8 = index.constant 21 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 258048 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 21 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 688128 : index
+    %v31 = index.constant 258048 : index
+    %v32 = index.constant 72576 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 21 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 688128 : index
+    %v47 = index.constant 258048 : index
+    %v48 = index.constant 72576 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 1 : index
+    %v8 = index.constant 1 : index
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 12288 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 1 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 1 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 0 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 3456 : offset
+    %v31 = buffer.alloca<global> align(256) %v30 : buffer
+    %v32 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v17, %v18](%v17, %v18, %v24, %v32, %v25, %v11, %v11, %v31) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v18, %v19, %v20, %v20, %v20, %v21, %v27, %v22, %v28, %v29, %v31, %v6) : (index, index, i1, i1, i1, i1, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer)
+    %v33 = index.constant 1 : index
+    %v34 = index.constant 3072 : index
+    %v35 = index.constant 8192 : index
+    %v36 = scalar.constant 1 : i1
+    %v37 = scalar.constant 0 : i1
+    %v38 = index.constant 32768 : index
+    %v39 = index.constant 12288 : index
+    %v40 = index.constant 0 : index
+    %v41 = index.constant 0 : offset
+    %v42 = index.constant 4 : index
+    %v43 = index.constant 14155776 : index
+    %v44 = command.parameter %v2, "down.weight" : view<[%v43]xi8>
+    template.apply<@llm.ffn.down_decode>(%v34, %v35, %v36, %v36, %v36, %v37, %v43, %v38, %v39, %v44, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v43]xi8>, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 3 : index
+    %v8 = index.constant 5 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 61440 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 5 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 163840 : index
+    %v31 = index.constant 61440 : index
+    %v32 = index.constant 17280 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 5 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 163840 : index
+    %v47 = index.constant 61440 : index
+    %v48 = index.constant 17280 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 1 : index
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 98304 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 8 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 262144 : index
+    %v31 = index.constant 98304 : index
+    %v32 = index.constant 27648 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 8 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 262144 : index
+    %v47 = index.constant 98304 : index
+    %v48 = index.constant 27648 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 3 : index
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 98304 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 8 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 262144 : index
+    %v31 = index.constant 98304 : index
+    %v32 = index.constant 27648 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 8 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 262144 : index
+    %v47 = index.constant 98304 : index
+    %v48 = index.constant 27648 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 4 : index
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 98304 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 8 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 262144 : index
+    %v31 = index.constant 98304 : index
+    %v32 = index.constant 27648 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 8 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 262144 : index
+    %v47 = index.constant 98304 : index
+    %v48 = index.constant 27648 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 8 : index
+    %v8 = index.constant 12 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 147456 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 12 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 393216 : index
+    %v31 = index.constant 147456 : index
+    %v32 = index.constant 41472 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 12 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 393216 : index
+    %v47 = index.constant 147456 : index
+    %v48 = index.constant 41472 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 9 : index
+    %v8 = index.constant 13 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 159744 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 13 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 425984 : index
+    %v31 = index.constant 159744 : index
+    %v32 = index.constant 44928 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 13 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 425984 : index
+    %v47 = index.constant 159744 : index
+    %v48 = index.constant 44928 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 16 : index
+    %v8 = index.constant 20 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 245760 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 20 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 655360 : index
+    %v31 = index.constant 245760 : index
+    %v32 = index.constant 69120 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 20 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 655360 : index
+    %v47 = index.constant 245760 : index
+    %v48 = index.constant 69120 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 17 : index
+    %v8 = index.constant 21 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 258048 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 21 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 688128 : index
+    %v31 = index.constant 258048 : index
+    %v32 = index.constant 72576 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 21 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 688128 : index
+    %v47 = index.constant 258048 : index
+    %v48 = index.constant 72576 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 1 : index
+    %v8 = index.constant 1 : index
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 12288 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 1 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 1 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 0 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 3456 : offset
+    %v31 = buffer.alloca<global> align(256) %v30 : buffer
+    %v32 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v17, %v18](%v17, %v18, %v24, %v32, %v25, %v11, %v11, %v31) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v18, %v19, %v20, %v20, %v20, %v21, %v27, %v22, %v28, %v29, %v31, %v6) : (index, index, i1, i1, i1, i1, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer)
+    %v33 = index.constant 1 : index
+    %v34 = index.constant 3072 : index
+    %v35 = index.constant 8192 : index
+    %v36 = scalar.constant 1 : i1
+    %v37 = scalar.constant 0 : i1
+    %v38 = index.constant 32768 : index
+    %v39 = index.constant 12288 : index
+    %v40 = index.constant 0 : index
+    %v41 = index.constant 0 : offset
+    %v42 = index.constant 4 : index
+    %v43 = index.constant 20643840 : index
+    %v44 = command.parameter %v2, "down.weight" : view<[%v43]xi8>
+    template.apply<@llm.ffn.down_decode>(%v34, %v35, %v36, %v36, %v37, %v36, %v43, %v38, %v39, %v44, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v43]xi8>, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 3 : index
+    %v8 = index.constant 5 : index
+    %v9 = index.constant 2 : index
+    %v10 = index.constant 61440 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 5 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 2 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 163840 : index
+    %v31 = index.constant 61440 : index
+    %v32 = index.constant 17280 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 5 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 2 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 163840 : index
+    %v47 = index.constant 61440 : index
+    %v48 = index.constant 17280 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 98304 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 8 : index
+    %v15 = index.constant 2 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v14](%v14, %v15, %v16, %v11, %v8, %v1, %v3) : [index](index, index, offset, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.norm.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 1 : index
+    %v5 = index.constant 1 : index
+    %v6 = index.constant 0 : index
+    %v7 = index.constant 12288 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 1 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 1 : index
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v14](%v14, %v15, %v16, %v11, %v8, %v1, %v3) : [index](index, index, offset, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.norm.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 5 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 61440 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    %v9 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v4, %v9](%v4, %v9, %v5, %v6, %v0, %v8) : [index, index](index, index, index, index, buffer, buffer)
+    %v10 = index.constant 12 : offset
+    %v11 = buffer.alloca<global> align(4) %v10 : buffer
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    %v14 = index.constant 5 : index
+    %v15 = index.constant 2 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v14](%v14, %v15, %v16, %v11, %v8, %v1, %v3) : [index](index, index, offset, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.embedding() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 8 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 32 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    kernel.launch @test.seed_active_i32[%v4](%v4, %v5, %v6, %v0, %v8) : [index](index, index, index, buffer, buffer)
+    %v9 = index.constant 12 : offset
+    %v10 = buffer.alloca<global> align(4) %v9 : buffer
+    %v11 = index.constant 0 : index
+    %v12 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
+    %v13 = index.constant 8 : index
+    %v14 = index.constant 323205120 : index
+    %v15 = command.parameter %v1, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 2 : index
+    %v17 = index.constant 0 : offset
+    kernel.launch @llama32_token_embedding_active_q6k_f32[%v13](%v13, %v16, %v17, %v10, %v8, %v15, %v3) : [index](index, index, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.embedding.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 1 : index
+    %v5 = index.constant 1 : index
+    %v6 = index.constant 0 : index
+    %v7 = index.constant 4 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    kernel.launch @test.seed_active_i32[%v4](%v4, %v5, %v6, %v0, %v8) : [index](index, index, index, buffer, buffer)
+    %v9 = index.constant 12 : offset
+    %v10 = buffer.alloca<global> align(4) %v9 : buffer
+    %v11 = index.constant 1 : index
+    %v12 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
+    %v13 = index.constant 1 : index
+    %v14 = index.constant 323205120 : index
+    %v15 = command.parameter %v1, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 0 : index
+    %v17 = index.constant 0 : offset
+    kernel.launch @llama32_token_embedding_active_q6k_f32[%v13](%v13, %v16, %v17, %v10, %v8, %v15, %v3) : [index](index, index, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.embedding.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 3 : index
+    %v5 = index.constant 5 : index
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 20 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    kernel.launch @test.seed_active_i32[%v4](%v4, %v5, %v6, %v0, %v8) : [index](index, index, index, buffer, buffer)
+    %v9 = index.constant 12 : offset
+    %v10 = buffer.alloca<global> align(4) %v9 : buffer
+    %v11 = index.constant 0 : index
+    %v12 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
+    %v13 = index.constant 5 : index
+    %v14 = index.constant 323205120 : index
+    %v15 = command.parameter %v1, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 2 : index
+    %v17 = index.constant 0 : offset
+    kernel.launch @llama32_token_embedding_active_q6k_f32[%v13](%v13, %v16, %v17, %v10, %v8, %v15, %v3) : [index](index, index, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 3 : index
+    %v8 = index.constant 3 : index
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 36864 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 3 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 0 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 98304 : index
+    %v31 = index.constant 36864 : index
+    %v32 = index.constant 10368 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 3 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 0 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 14155776 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 98304 : index
+    %v47 = index.constant 36864 : index
+    %v48 = index.constant 10368 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.prefill.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+  command.serial {
+    %v9 = index.constant 3 : index
+    %v10 = index.constant 8 : index
+    %v11 = index.constant 2 : index
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 3072 : index
+    %v14 = index.constant 98304 : offset
+    %v15 = index.constant 36864 : offset
+    %v16 = buffer.alloca<global> align(256) %v15 : buffer
+    %v17 = buffer.alloca<global> align(256) %v14 : buffer
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
+    command.program.launch @active.ffn.q4.n3(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @active.ffn.q4.compact(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q4.decode.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+  command.serial {
+    %v9 = index.constant 1 : index
+    %v10 = index.constant 1 : index
+    %v11 = index.constant 0 : index
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 3072 : index
+    %v14 = index.constant 32768 : offset
+    %v15 = index.constant 12288 : offset
+    %v16 = buffer.alloca<global> align(256) %v15 : buffer
+    %v17 = buffer.alloca<global> align(256) %v14 : buffer
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
+    command.program.launch @active.ffn.q4.decode(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @active.ffn.q4.decode(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+  command.serial {
+    %v7 = index.constant 3 : index
+    %v8 = index.constant 3 : index
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 36864 : offset
+    %v11 = buffer.alloca<global> align(256) %v10 : buffer
+    %v12 = index.constant 3072 : index
+    kernel.launch @test.seed_active_f32[%v7, %v12](%v7, %v12, %v8, %v9, %v3, %v11) : [index, index](index, index, index, index, buffer, buffer)
+    %v13 = index.constant 12 : offset
+    %v14 = buffer.alloca<global> align(4) %v13 : buffer
+    %v15 = index.constant 0 : index
+    %v16 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    %v17 = index.constant 3 : index
+    %v18 = index.constant 3072 : index
+    %v19 = index.constant 8192 : index
+    %v20 = scalar.constant 1 : i1
+    %v21 = scalar.constant 0 : i1
+    %v22 = index.constant 32768 : index
+    %v23 = index.constant 12288 : index
+    %v24 = index.constant 0 : index
+    %v25 = index.constant 0 : offset
+    %v26 = index.constant 4 : index
+    %v27 = index.constant 14155776 : index
+    %v28 = command.parameter %v0, "gate.weight" : view<[%v27]xi8>
+    %v29 = command.parameter %v1, "up.weight" : view<[%v27]xi8>
+    %v30 = index.constant 98304 : index
+    %v31 = index.constant 36864 : index
+    %v32 = index.constant 10368 : index
+    %v33 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v18, %v19, %v20, %v20, %v20, %v21, %v17, %v17, %v17, %v24, %v25, %v21, %v26, %v30, %v27, %v32, %v33, %v28, %v29, %v11, %v14, %v6) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v27]xi8>, view<[%v27]xi8>, buffer, buffer, buffer)
+    %v34 = index.constant 3 : index
+    %v35 = index.constant 3072 : index
+    %v36 = index.constant 8192 : index
+    %v37 = scalar.constant 1 : i1
+    %v38 = scalar.constant 0 : i1
+    %v39 = index.constant 32768 : index
+    %v40 = index.constant 12288 : index
+    %v41 = index.constant 0 : index
+    %v42 = index.constant 0 : offset
+    %v43 = index.constant 4 : index
+    %v44 = index.constant 20643840 : index
+    %v45 = command.parameter %v2, "down.weight" : view<[%v44]xi8>
+    %v46 = index.constant 98304 : index
+    %v47 = index.constant 36864 : index
+    %v48 = index.constant 10368 : index
+    %v49 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.prefill.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+  command.serial {
+    %v9 = index.constant 3 : index
+    %v10 = index.constant 8 : index
+    %v11 = index.constant 2 : index
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 3072 : index
+    %v14 = index.constant 98304 : offset
+    %v15 = index.constant 36864 : offset
+    %v16 = buffer.alloca<global> align(256) %v15 : buffer
+    %v17 = buffer.alloca<global> align(256) %v14 : buffer
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
+    command.program.launch @active.ffn.q6.n3(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @active.ffn.q6.compact(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.ffn.q6.decode.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+  command.serial {
+    %v9 = index.constant 1 : index
+    %v10 = index.constant 1 : index
+    %v11 = index.constant 0 : index
+    %v12 = index.constant 0 : index
+    %v13 = index.constant 3072 : index
+    %v14 = index.constant 32768 : offset
+    %v15 = index.constant 12288 : offset
+    %v16 = buffer.alloca<global> align(256) %v15 : buffer
+    %v17 = buffer.alloca<global> align(256) %v14 : buffer
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
+    kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
+    command.program.launch @active.ffn.q6.decode(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @active.ffn.q6.decode(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n1.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+  command.serial {
+    command.program.launch @active.projection.q4.n1(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n3.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+  command.serial {
+    command.program.launch @active.projection.q4.n3(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q4.n9.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+  command.serial {
+    command.program.launch @active.projection.q4.n9(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n1.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+  command.serial {
+    command.program.launch @active.projection.q6.n1(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n3.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+  command.serial {
+    command.program.launch @active.projection.q6.n3(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @active.projection.q6.n9.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+  command.serial {
+    command.program.launch @active.projection.q6.n9(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+  }
+  command.return
+}

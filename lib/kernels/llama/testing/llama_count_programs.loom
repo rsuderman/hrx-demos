@@ -1,0 +1,33 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Snapshot count before publication mutates the packet, then replay the call.
+kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llama32_finish_isolated() launch(%kind: index, %raw: buffer, %packet: buffer, %history: buffer, %progress: buffer)
+kernel.decl @test.observe_count() launch(%count: buffer, %output: buffer)
+kernel.decl @test.init_prefill() launch(%packet: buffer)
+kernel.decl @test.init_decode() launch(%packet: buffer)
+kernel.decl @test.reset_prefill() launch(%packet: buffer)
+command.program.def @native.count.step(%kind: index) launch(%raw: buffer, %packet: buffer, %history: buffer, %progress: buffer, %observed: buffer) {
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(4) %bytes : buffer
+  %origin = index.constant 0 : offset
+  kernel.launch @llama32_head_count[](%kind, %origin, %packet, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llama32_finish_isolated[](%kind, %raw, %packet, %history, %progress) : [](index, buffer, buffer, buffer, buffer)
+  kernel.launch @test.observe_count[](%count, %observed) : [](buffer, buffer)
+  command.return
+}
+command.program.def public @native.count.prefill() launch(%raw: buffer, %packet: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer) {
+  %kind = index.constant 0 : index
+  kernel.launch @test.init_prefill[](%packet) : [](buffer)
+  command.program.launch @native.count.step[%kind](%raw, %packet, %history, %progress, %first) : [index](buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.reset_prefill[](%packet) : [](buffer)
+  command.program.launch @native.count.step[%kind](%raw, %packet, %history, %progress, %second) : [index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+command.program.def public @native.count.decode() launch(%raw: buffer, %packet: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer) {
+  %kind = index.constant 1 : index
+  kernel.launch @test.init_decode[](%packet) : [](buffer)
+  command.program.launch @native.count.step[%kind](%raw, %packet, %history, %progress, %first) : [index](buffer, buffer, buffer, buffer, buffer)
+  command.program.launch @native.count.step[%kind](%raw, %packet, %history, %progress, %second) : [index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}

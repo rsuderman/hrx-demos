@@ -1,0 +1,77 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @qwen.model.hidden_size = 1024 : index
+
+config.def @qwen.model.rms_epsilon = 9.999999975e-07 : f32
+
+config.def @qwen.model.hidden_divisor = 1024.0 : f32
+
+config.def @qwen.model.hidden_row_bytes = 4096 : index
+
+config.def @qwen.model.embedding_row_bytes = 840 : index
+
+config.def @qwen38.greedy_argmax.output_capacity = 248320 : %5: index where [range(%5, 256, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 248320 : %6: index where [range(%6, 1, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %7: index where [range(%7, 1, 2048)]
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %8: index where [range(%8, 1, 524288)]
+
+kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%token_count0: index) launch(%token_ids: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @qwen_output_init_tied_bank() launch(%weight: buffer, %gamma: buffer)
+
+command.program.decl @qwen08_epoch_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer)
+
+command.program.def public retain @qwen.output.init() launch(%v0: buffer) {
+  command.serial {
+    %v1 = index.constant 1024 : index
+    %v2 = index.constant 208588800 : index
+    %v3 = command.parameter %v0, "output_norm.weight" : view<[%v1]xf32>
+    %v4 = command.parameter %v0, "token_embd.weight" : view<[%v2]xi8>
+    kernel.launch @qwen_output_init_tied_bank(%v4, %v3) : (view<[%v2]xi8>, view<[%v1]xf32>)
+  }
+  command.return
+}
+
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Known tied rows1=[+1,+1 halves],2=[+1,-1 halves], others zero.
+// Gamma=[+1,-2 halves]. Thus embeddingID1 predicts2, ID2 predicts1.
+
+command.program.def public retain @qwen.output.embedding.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
+  command.serial {
+    %v3 = index.constant 4 : index
+    %v4 = index.constant 208588800 : index
+    %v5 = command.parameter %v0, "token_embd.weight" : view<[%v4]xi8>
+    kernel.launch @qwen38_token_embedding_q6k_f16_prefill[%v3](%v1, %v5, %v2) : [index](buffer, view<[%v4]xi8>, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @qwen.output.head.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 4 : index
+    %v5 = index.constant 1 : index
+    command.program.launch @qwen08_epoch_head[%v4, %v5](%v0, %v1, %v2, %v3) : [index, index](buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @qwen.output.chain.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 4 : index
+    %v5 = index.constant 208588800 : index
+    %v6 = command.parameter %v0, "token_embd.weight" : view<[%v5]xi8>
+    %v7 = index.constant 2097152 : offset
+    %v8 = buffer.alloca<global> align(256) %v7 : buffer
+    kernel.launch @qwen38_token_embedding_q6k_f16_prefill[%v4](%v1, %v6, %v8) : [index](buffer, view<[%v5]xi8>, buffer)
+    %v9 = index.constant 4 : index
+    %v10 = index.constant 1 : index
+    command.program.launch @qwen08_epoch_head[%v9, %v10](%v0, %v8, %v2, %v3) : [index, index](buffer, buffer, buffer, buffer)
+  }
+  command.return
+}

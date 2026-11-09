@@ -1,0 +1,175 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+#ifndef HRX_SOLUTIONS_LOOMIFY_CONFIGURATION_TEST_FIXTURE_H_
+#define HRX_SOLUTIONS_LOOMIFY_CONFIGURATION_TEST_FIXTURE_H_
+#include "tools/model/model_descriptor.h"
+namespace hrx::loomify_gguf::testing {
+// Plain admitted full-profile descriptors. No native/compiler/graph objects.
+inline model::ModelDescriptor LlamaModelFacts() {
+  constexpr bool llama = true;
+  constexpr size_t layers = 28;
+  model::ModelDescriptor m;
+  m.family = llama ? "llama" : "qwen35";
+  m.embedding_width = llama ? 3072 : 1024;
+  m.vocabulary_size = 128256;
+  m.key_head_width = m.value_head_width = 128;
+  m.rms_epsilon = llama ? 1e-5 : 1e-6;
+  m.rope.width = 128;
+  m.rope.base = 500000;
+  m.output_tied_to_embedding = true;
+  uint64_t offset = 4096;
+  auto tensor = [&](std::string role, std::string key, uint32_t tag, uint64_t a,
+                    uint64_t b = 1) {
+    model::TensorRecord t;
+    t.name = key;
+    t.rank = b == 1 ? 1 : 2;
+    t.normalized_extents = {int64_t(a), int64_t(b), 1, 1};
+    t.storage_type = tag;
+    t.byte_size = tag == 0 ? a * b * 4
+                           : a / 256 * b *
+                                 (tag == 12   ? 144
+                                  : tag == 13 ? 176
+                                              : 210);
+    t.absolute_offset = offset;
+    offset += (t.byte_size + 255) / 256 * 256;
+    return model::TensorBinding{role, t};
+  };
+  const uint64_t E = m.embedding_width, F = llama ? 8192 : 3584;
+  if (llama) {
+    m.globals = {tensor("token_embedding", "token_embd.weight", 14, E, 128256),
+                 tensor("output_norm", "output_norm.weight", 0, E),
+                 tensor("rope_frequencies", "rope_freqs.weight", 0, 64)};
+    auto output = m.globals[0];
+    output.role = "output";
+    m.globals.push_back(output);
+  }
+  for (size_t i = 0; i < layers; ++i) {
+    model::LayerDescriptor l;
+    l.index = i;
+    l.feed_forward_width = F;
+    l.query_heads = 24;
+    l.kv_heads = 8;
+    auto prefix = "blk." + std::to_string(i) + ".";
+    const auto gate = llama ? 12u : 12u + uint32_t(i % 3);
+    l.tensors = {tensor("post_norm",
+                        prefix + (llama ? "ffn_norm.weight"
+                                        : "post_attention_norm.weight"),
+                        0, E),
+                 tensor("ffn_gate", prefix + "ffn_gate.weight", gate, E, F),
+                 tensor("ffn_up", prefix + "ffn_up.weight", gate, E, F),
+                 tensor("ffn_down", prefix + "ffn_down.weight",
+                        llama ? 12 : 13 + i % 2, F, E)};
+    if (llama) {
+      l.tensors.push_back(
+          tensor("input_norm", prefix + "attn_norm.weight", 0, E));
+      l.tensors.push_back(
+          tensor("query", prefix + "attn_q.weight", i % 2 ? 14 : 12, E, E));
+      l.tensors.push_back(tensor("key", prefix + "attn_k.weight", 14, E, 1024));
+      l.tensors.push_back(
+          tensor("value", prefix + "attn_v.weight", 12, E, 1024));
+      l.tensors.push_back(
+          tensor("attention_output", prefix + "attn_output.weight", 12, E, E));
+    }
+    m.layers.push_back(l);
+  }
+  return m;
+}
+inline model::ModelDescriptor QwenModelFacts() {
+  constexpr size_t layers = 24;
+  constexpr bool small = false;
+  model::ModelDescriptor f;
+  f.family = "qwen35";
+  f.name = "Qwen structural fixture";
+  f.embedding_width = small ? 256 : 1024;
+  f.vocabulary_size = small ? 256 : 248320;
+  f.training_context = 262144;
+  f.key_head_width = f.value_head_width = small ? 64 : 256;
+  f.rms_epsilon = 1e-6;
+  f.rope.width = small ? 32 : 64;
+  f.rope.sections = small ? std::array<uint64_t, 4>{6, 5, 5, 0}
+                          : std::array<uint64_t, 4>{11, 11, 10, 0};
+  f.rope.base = 1e7;
+  model::SsmDescriptor s;
+  s.convolution_kernel = 4;
+  s.state_width = small ? 64 : 128;
+  s.key_heads = small ? 2 : 16;
+  s.value_heads = small ? 4 : 16;
+  s.inner_width = s.state_width * s.value_heads;
+  auto channels = s.state_width * (2 * s.key_heads + s.value_heads);
+  s.convolution_history_elements = 3 * channels;
+  s.recurrent_state_elements = s.state_width * s.inner_width;
+  f.ssm = s;
+  uint64_t next = 4096;
+  auto tensor = [&](std::string role, std::string name, uint32_t storage,
+                    uint64_t a, uint64_t b = 1) {
+    model::TensorBinding t;
+    t.role = role;
+    t.tensor.name = name;
+    t.tensor.storage_type = storage;
+    t.tensor.rank = b == 1 ? 1 : 2;
+    t.tensor.normalized_extents = {int64_t(a), int64_t(b), 1, 1};
+    t.tensor.byte_size = storage == 0 ? a * b * 4
+                                      : a / 256 * b *
+                                            (storage == 12   ? 144
+                                             : storage == 13 ? 176
+                                                             : 210);
+    t.tensor.absolute_offset = next;
+    next += (t.tensor.byte_size + 255) / 256 * 256;
+    return t;
+  };
+  f.globals = {
+      tensor("token_embedding", "token_embd.weight", 14, f.embedding_width,
+             f.vocabulary_size),
+      tensor("output_norm", "output_norm.weight", 0, f.embedding_width)};
+  auto output = f.globals[0];
+  output.role = "output";
+  f.globals.push_back(output);
+  f.output_tied_to_embedding = true;
+  uint32_t attention = 0, gdn = 0;
+  for (size_t i = 0; i < layers; ++i) {
+    model::LayerDescriptor l;
+    l.index = i;
+    l.feed_forward_width = small ? 512 : 3584;
+    l.query_heads = 8;
+    l.kv_heads = 2;
+    auto p = "blk." + std::to_string(i) + ".";
+    auto h = f.embedding_width, ff = l.feed_forward_width;
+    l.tensors = {tensor("input_norm", p + "attn_norm.weight", 0, h),
+                 tensor("post_norm", p + "post_attention_norm.weight", 0, h),
+                 tensor("ffn_gate", p + "ffn_gate.weight", 12 + i % 3, h, ff),
+                 tensor("ffn_up", p + "ffn_up.weight", 12 + i % 3, h, ff),
+                 tensor("ffn_down", p + "ffn_down.weight", 13 + i % 2, ff, h)};
+    auto add = [&](model::TensorBinding t) {
+      l.tensors.push_back(std::move(t));
+    };
+    if ((i + 1) % 4) {
+      l.kind = model::LayerKind::kGatedDeltaNet;
+      l.recurrent_ordinal = gdn++;
+      add(tensor("recurrent_qkv", p + "attn_qkv.weight", 14, h, channels));
+      add(tensor("recurrent_gate", p + "attn_gate.weight", 14, h,
+                 s.inner_width));
+      add(tensor("convolution", p + "ssm_conv1d.weight", 0, 4, channels));
+      add(tensor("dt_bias", p + "ssm_dt.bias", 0, s.value_heads));
+      add(tensor("decay", p + "ssm_a", 0, s.value_heads));
+      add(tensor("alpha", p + "ssm_alpha.weight", 13, h, s.value_heads));
+      add(tensor("beta", p + "ssm_beta.weight", 13, h, s.value_heads));
+      add(tensor("recurrent_norm", p + "ssm_norm.weight", 0, s.state_width));
+      add(tensor("recurrent_output", p + "ssm_out.weight", 13, s.inner_width,
+                 h));
+    } else {
+      l.attention_ordinal = attention++;
+      auto q = l.query_heads * f.key_head_width,
+           k = l.kv_heads * f.key_head_width;
+      add(tensor("query", p + "attn_q.weight", 14, h, 2 * q));
+      add(tensor("key", p + "attn_k.weight", 14, h, k));
+      add(tensor("value", p + "attn_v.weight", 14, h, k));
+      add(tensor("attention_output", p + "attn_output.weight", 13, q, h));
+      add(tensor("query_norm", p + "attn_q_norm.weight", 0, f.key_head_width));
+      add(tensor("key_norm", p + "attn_k_norm.weight", 0, f.key_head_width));
+    }
+    f.layers.push_back(std::move(l));
+  }
+  return f;
+}
+} // namespace hrx::loomify_gguf::testing
+#endif

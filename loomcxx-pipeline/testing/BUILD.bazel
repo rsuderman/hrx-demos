@@ -21,8 +21,7 @@ cc_test(
     linkstatic = True,
     deps = [
         ":consumer_modules",
-        "//tools/loomify-gguf/authoring/command:command_program_builder",
-        "//tools/loomify-gguf/authoring/model-full:llama_step",
+        ":consumer_wrappers",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
         "@hrx_system//loom/binding/c:loomc",
@@ -41,4 +40,11 @@ cc_test(
         "//loomcxx-pipeline/llm:normalization_abi",
     ],
     deps = ["@googletest//:gtest_main"],
+)
+
+iree_c_embed_data(
+    name = "consumer_wrappers", testonly = True,
+    srcs = ["consumer_commands.loom", "consumer_model_norm.loom"],
+    c_file_output = "consumer_wrappers.c", h_file_output = "consumer_wrappers.h",
+    identifier = "consumer_wrappers", flatten = True,
 )

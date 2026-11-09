@@ -1,0 +1,156 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @llama.attention.cache_capacity = 512 : %0: index where [range(%0, 1, 131072), range(%0, 1, 131072)]
+
+// The residual provider permits lhs/output aliasing. Guard each selected row;
+// caller-owned padded rows and rows of other packed spans remain untouched.
+
+config.def @llama.model.hidden_size = 3072 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : %138: index where [range(%138, 1, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : %139: index where [range(%139, 1, 262144)]
+
+// Capacity of the existing shared greedy implementation (historical symbol).
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : %140: index where [range(%140, 1, 2048)]
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %141: index where [range(%141, 1, 2048)]
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %142: index where [range(%142, 1, 524288)]
+
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Snapshot active rows before publication changes the original packet.
+
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+
+kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
+
+kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
+command.program.def public retain @attention.output.q4.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 12 : offset
+    %v5 = buffer.alloca<global> align(4) %v4 : buffer
+    %v6 = index.constant 0 : index
+    %v7 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 3072 : index
+    %v10 = index.constant 3072 : index
+    %v11 = index.constant 2 : index
+    %v12 = scalar.constant -1 : i32
+    %v13 = index.constant 0 : offset
+    %v14 = index.constant 5308416 : index
+    %v15 = command.parameter %v0, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 27648 : offset
+    %v17 = buffer.alloca<global> align(256) %v16 : buffer
+    %v18 = index.constant 98304 : offset
+    %v19 = buffer.alloca<global> align(256) %v18 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v8, %v9](%v8, %v9, %v11, %v12, %v13, %v5, %v1, %v17) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v8, %v9, %v10](%v8, %v9, %v10, %v11, %v12, %v13, %v5, %v17, %v15, %v19) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+    %v20 = index.constant 8 : index
+    %v21 = index.constant 0 : index
+    %v22 = index.constant 0 : offset
+    %v23 = index.constant 2 : index
+    kernel.launch @llama32_attention_residual[%v20](%v21, %v22, %v23, %v2, %v19, %v3) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @attention.output.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 12 : offset
+    %v5 = buffer.alloca<global> align(4) %v4 : buffer
+    %v6 = index.constant 1 : index
+    %v7 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    %v8 = index.constant 1 : index
+    %v9 = index.constant 3072 : index
+    %v10 = index.constant 3072 : index
+    %v11 = index.constant 0 : index
+    %v12 = scalar.constant -1 : i32
+    %v13 = index.constant 0 : offset
+    %v14 = index.constant 5308416 : index
+    %v15 = command.parameter %v0, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 3456 : offset
+    %v17 = buffer.alloca<global> align(256) %v16 : buffer
+    %v18 = index.constant 12288 : offset
+    %v19 = buffer.alloca<global> align(256) %v18 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v8, %v9](%v8, %v9, %v11, %v12, %v13, %v5, %v1, %v17) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v8, %v9, %v10](%v8, %v9, %v10, %v11, %v12, %v13, %v5, %v17, %v15, %v19) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+    %v20 = index.constant 1 : index
+    %v21 = index.constant 1 : index
+    %v22 = index.constant 0 : offset
+    %v23 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v20](%v21, %v22, %v23, %v2, %v19, %v3) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @attention.output.q6.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 12 : offset
+    %v5 = buffer.alloca<global> align(4) %v4 : buffer
+    %v6 = index.constant 0 : index
+    %v7 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    %v8 = index.constant 8 : index
+    %v9 = index.constant 3072 : index
+    %v10 = index.constant 3072 : index
+    %v11 = index.constant 2 : index
+    %v12 = scalar.constant -1 : i32
+    %v13 = index.constant 0 : offset
+    %v14 = index.constant 7741440 : index
+    %v15 = command.parameter %v0, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 27648 : offset
+    %v17 = buffer.alloca<global> align(256) %v16 : buffer
+    %v18 = index.constant 98304 : offset
+    %v19 = buffer.alloca<global> align(256) %v18 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v8, %v9](%v8, %v9, %v11, %v12, %v13, %v5, %v1, %v17) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v8, %v9, %v10](%v8, %v9, %v10, %v11, %v12, %v13, %v5, %v17, %v15, %v19) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+    %v20 = index.constant 8 : index
+    %v21 = index.constant 0 : index
+    %v22 = index.constant 0 : offset
+    %v23 = index.constant 2 : index
+    kernel.launch @llama32_attention_residual[%v20](%v21, %v22, %v23, %v2, %v19, %v3) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @attention.output.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+  command.serial {
+    %v4 = index.constant 12 : offset
+    %v5 = buffer.alloca<global> align(4) %v4 : buffer
+    %v6 = index.constant 1 : index
+    %v7 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    %v8 = index.constant 1 : index
+    %v9 = index.constant 3072 : index
+    %v10 = index.constant 3072 : index
+    %v11 = index.constant 0 : index
+    %v12 = scalar.constant -1 : i32
+    %v13 = index.constant 0 : offset
+    %v14 = index.constant 7741440 : index
+    %v15 = command.parameter %v0, "weight" : view<[%v14]xi8>
+    %v16 = index.constant 3456 : offset
+    %v17 = buffer.alloca<global> align(256) %v16 : buffer
+    %v18 = index.constant 12288 : offset
+    %v19 = buffer.alloca<global> align(256) %v18 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v8, %v9](%v8, %v9, %v11, %v12, %v13, %v5, %v1, %v17) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v8, %v9, %v10](%v8, %v9, %v10, %v11, %v12, %v13, %v5, %v17, %v15, %v19) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v14]xi8>, buffer)
+    %v20 = index.constant 1 : index
+    %v21 = index.constant 1 : index
+    %v22 = index.constant 0 : offset
+    %v23 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v20](%v21, %v22, %v23, %v2, %v19, %v3) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}

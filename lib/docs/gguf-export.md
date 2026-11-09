@@ -1,7 +1,7 @@
 # GGUF model export
 
 `loomify-gguf --stage=model` constructs the supported Llama3.2 3B Q4_K_M
-architecture by deriving data-only configuration and parameter bindings from the
+and Qwen3.5 0.8B UD-Q5_K_XL architectures by deriving data-only configuration and parameter bindings from the
 GGUF descriptor, selecting a config-free numerical provider closure, and linking
 maintained Loom programs. It writes the model document and source providers
 consumed by existing Loom Serve. GGUF weights and matching tokenizer JSON remain
@@ -39,7 +39,7 @@ mapping. Isolated Serve step execution is explicitly unsupported by this package
 the generated numerical prefill/decode roots remain usable through their direct
 seven-buffer interface with the exported offsets and requirements.
 
-The maintained programs in `lib/llama/programs` own embedding, repeated decoder
+The maintained programs in `lib/architectures/llama` own embedding, repeated decoder
 layers, normalized vocabulary selection and publication. `lib/programs/ffn`
 contains their shared FFN sequence; each profile selects its numerical packing
 and normalization providers. Generated configuration supplies tensor bindings,
@@ -47,9 +47,10 @@ layer extents/quantization and capacities, without generating command order.
 The maintained epoch translates one-span packets, invokes prefill at the maximum
 configured row capacity, and scatters the selected token. Active count masks
 unused rows; one-token continuation follows the same path. The model build
-returns its owned module together with the admitted storage layout. Preparation
-copies that layout's cold allocation, row-view, origin and KV geometry records;
-it does not independently recalculate model extents. Named immutable parameters
+returns its owned numerical module and configuration source. Maintained preparation
+reads the same configuration to construct native cold allocation, row-view, origin
+and KV geometry records. The exporter links that preparation module and writes its
+native text serialization; no C++ geometry object or template rendering is involved. Named immutable parameters
 preserve canonical GGUF keys; compiler-reflected packed root offsets are distinct
 from file offsets.
 
@@ -60,20 +61,39 @@ bazel-bin/tools/loomify-gguf/loomify-gguf \
   --stage=embedding --gguf=/path/to/f32-model.gguf --output=embedding.loombc
 ```
 
-Host/provider/package and CLI failure tests are in
-`//tools/loomify-gguf/serving:serving_test` and `:cli_test`. The packet replay
-`:epoch_execution_test` covers consecutive spans, inactive storage, selected and
-unselected results, EOS and capacities below/above129 history words on native
-AMDGPU. `:prepare_execution_test` evaluates production preparation and compares every cold
-record to the admitted layout. `:model_export_test` is an explicit manual gate using
-`--test_env=LOOMIFY_TEST_GGUF=/path/to/the/supported.gguf` and
-`--test_env=LOOMIFY_TEST_TOKENIZER=/path/to/tokenizer.json`; it constructs the full
-model, writes and relocates both package formats, reloads all providers and plans
-all three command roots from the moved package.
-The manual `:cli_model_test` also requires `LOOMIFY_TEST_TOKENIZER` and exports
-both formats outside the checkout before relocating the generated package.
-Existing Serve is the end-to-end consumer. Successful generation/loading alone
-does not establish numerical parity or resolve independent model-fidelity work.
+The public C++ interface is `tools/loomify-gguf/gguf_model_builder.h`:
+
+```cpp
+std::unique_ptr<GgufModelBuilder> builder;
+if (!GgufModelBuilder::Open(gguf_path, &builder, &error)) return false;
+GgufBuildOptions build;
+build.library_root = library_root;  // explicit declared products/runfiles
+build.prefill_capacity = 128;
+build.context_capacity = 512;
+GgufPackageOptions package;
+package.output_directory = new_directory;
+package.tokenizer = tokenizer_path;
+return builder->WritePackage(context, workspace, build, package, &error);
+```
+
+Call `BuildModule` instead to obtain a move-only `BuiltGgufModule`, then use
+`WriteModule` for a new text/bytecode file. Numerical-only builds need no Serve
+companions or tokenizer. The caller supplies its configured native context and
+workspace; the owned module retains its native dependencies. Package writing calls
+the same numerical construction routine and links preparation from its exact saved
+configuration. The CLI reads declared bytecode products and companions from its
+runfiles; it does not search the current checkout for model sources.
+
+`//tools/loomify-gguf:package_test` is the explicit real-asset source/bytecode,
+relocation, missing-provider and safe-publication gate. It requires
+`LOOMIFY_TEST_GGUF`, `LOOMIFY_TEST_TOKENIZER`, `LOOMIFY_TEST_QWEN_GGUF` and
+`LOOMIFY_TEST_QWEN_TOKENIZER`. The maintained preparation tests are
+`//lib/architectures/llama:prepare_test` and
+`//lib/architectures/qwen35:prepare_test`; they invoke actual preparation through
+observing native VM imports and inspect records, registrations and rejected
+requests. Existing Serve is the end-to-end consumer for prompt/decode/replay and
+real registration failure checks. Generation/loading alone does not establish
+numerical parity or resolve independent model-fidelity work.
 
 The same model mode also accepts the known Qwen3.5 0.8B UD-Q5_K_XL checkpoint.
 It selects the architecture from the owned GGUF descriptor, not the filename:
@@ -87,13 +107,14 @@ loom-serve --device=amdgpu --model=/path/to/exported-qwen/model.json \
   --listen=127.0.0.1:18081
 ```
 
-Qwen full-model export retains its existing C++ recipe; the shared configuration-
-linked Qwen FFN proof does not convert its complete hybrid architecture.
+Qwen orchestration is maintained in `lib/architectures/qwen35/model.loom`.
+Complete GDN/attention layer bundles retain their internal FFNs and qualified
+numerical policies; the exporter selects and links the maintained product.
 
 The generated Qwen model name is `loomify-qwen-08b`. It uses ordinary greedy text,
 one active row/span, no MTP/vision or retained/prefix caches, T in1..512 and C from
-T through262144. Its sole `generated.qwen_epoch` entry is built by the descriptor
-recipe in `lib/qwen/program.h`: embedding, all24 registered hybrid layer bundles,
+T through262144. Its sole `generated.qwen_epoch` entry invokes
+embedding, all24 configured hybrid layer bundles,
 then selected-row normalized vocabulary head. It directly accepts the existing
 epoch buffers; a one-token continuation uses the same entry. The owned prepare
 program reports the complete convolution/recurrent GDN slot and paged KV geometry
@@ -102,13 +123,19 @@ Qwen control policy keeps Qwen framing/EOS behavior and requires ordinary infere
 it does not use Llama's terminal mapping or an isolated numerical buffer shim.
 For the ordinary chat profile, pass `enable_thinking:false` and `temperature:0`.
 
-Qwen companion tests are in `//tools/loomify-gguf/serving/qwen:package_test`,
-`:prepare_execution_test` and `:packet_execution_test`. The VM component tests run
-production preparation/packet bodies with valid-input test callbacks for server
-imports; they inspect all cold geometry records and replay increasing/decreasing
-active token counts while checking the whole token-envelope zero fill. The manual
-`:model_export_test` and `:cli_model_test` require explicit
-`LOOMIFY_TEST_QWEN_GGUF` and `LOOMIFY_TEST_QWEN_TOKENIZER` fixtures. They exercise
-complete generated source/bytecode packages, command products and relocation, plus
-actual CLI conversion outside the checkout with owned provider runfiles. End-to-end
-Serve acceptance and independent numerical fidelity remain distinct checks.
+Source/bytecode export, relocation and failure tests share the package gate above.
+Qwen preparation retains its distinct native state layout and registration policy.
+End-to-end Serve acceptance and independent numerical fidelity remain distinct checks.
+
+
+The retained layer state gate lives in
+`lib/architectures/llama/testing/run_layer_validation.py`. It executes the actual
+maintained layer wrappers and checks finite/nontrivial active output, exact
+inactive residuals, reflected weight ranges, permuted cache-page crossings,
+other-plane/prefix/suffix guards, continuation and reset. It is a state/ABI test;
+independent arithmetic expectations remain in the operation/kernel suites.
+Old-versus-new bitwise equality is temporary external migration evidence and is
+not maintained as an independent numerical oracle. Real-weight FFN wrappers
+still select actual Llama Q6-down layers0/1 and Q4-down layer3, and Qwen layers0/1.
+The epoch packet tests now link maintained commands and the real relocated
+unpack/scatter helpers, retaining their exact packet/token/cache expectations.

@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: MIT
 
 #include <memory>
+#include <vector>
 #include <string>
 #include <string_view>
 
 #include "loomc/module.h"
 #include "loomc/target/amdgpu.h"
 #include "loomcxx-pipeline/testing/consumer_modules.h"
-#include "tools/loomify-gguf/authoring/command/command_program_builder.h"
-#include "tools/loomify-gguf/authoring/model-full/llama_step.h"
+#include "loomc/link.h"
+#include "loomcxx-pipeline/testing/consumer_wrappers.h"
+
 #include "gtest/gtest.h"
 
 namespace hrx::loomify_gguf {
@@ -90,6 +92,66 @@ protected:
     return {};
   }
 
+  ModuleOwner Link(const char *provider_name, const char *wrapper_name,
+                   const std::vector<const char *> &root_names,
+                   const std::string &replacement = {}) {
+    auto provider = Load(provider_name);
+    if (!provider) return {};
+    const auto *wrappers = consumer_wrappers_create();
+    std::string text;
+    for (size_t i = 0; i < consumer_wrappers_size(); ++i)
+      if (std::string_view(wrappers[i].name) == wrapper_name)
+        text.assign(reinterpret_cast<const char *>(wrappers[i].data), wrappers[i].size);
+    EXPECT_FALSE(text.empty());
+    if (!replacement.empty()) text = replacement;
+    loomc_source_options_t source_options{};
+    source_options.contents = loomc_make_byte_span(text.data(), text.size());
+    source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
+    loomc_source_t *source = nullptr;
+    EXPECT_TRUE(Ok(loomc_source_create(&source_options, loomc_allocator_system(), &source)));
+    Owner<loomc_source_t, loomc_source_release> source_owner(source);
+    loomc_module_t *wrapper = nullptr;
+    loomc_result_t *result = nullptr;
+    auto parse = loomc_module_deserialize_from_source(context_.get(), workspace_.get(), source,
+        nullptr, loomc_allocator_system(), &wrapper, &result);
+    ModuleOwner wrapper_owner(wrapper);
+    EXPECT_TRUE(Ok(parse));
+    EXPECT_TRUE(Succeeded(result));
+    if (!result || !loomc_result_succeeded(result)) {
+      if (result) loomc_result_release(result);
+      return {};
+    }
+    loomc_result_release(result);
+    loomc_linker_t *linker = nullptr;
+    EXPECT_TRUE(Ok(loomc_linker_create(context_.get(), nullptr, loomc_allocator_system(), &linker)));
+    Owner<loomc_linker_t, loomc_linker_release> linker_owner(linker);
+    loomc_link_module_provider_t providers[] = {
+        {wrapper, {}, LOOMC_LINK_PROVIDER_ROLE_INPUT},
+        {provider.get(), {}, LOOMC_LINK_PROVIDER_ROLE_LIBRARY}};
+    std::vector<loomc_string_view_t> roots;
+    for (auto name : root_names) roots.push_back(loomc_make_cstring_view(name));
+    loomc_link_options_t options{};
+    options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
+    options.structure_size = sizeof(options);
+    options.mode = LOOMC_LINK_MODE_LINK;
+    options.module_providers = providers;
+    options.module_provider_count = 2;
+    options.root_symbols = roots.data();
+    options.root_symbol_count = roots.size();
+    loomc_module_t *linked = nullptr;
+    result = nullptr;
+    auto status = loomc_link_module(linker, workspace_.get(), &options, &linked, &result);
+    Owner<loomc_result_t, loomc_result_release> result_owner(result);
+    if (replacement.empty()) {
+      EXPECT_TRUE(Ok(status));
+      EXPECT_TRUE(Succeeded(result));
+    } else {
+      EXPECT_TRUE(!loomc_status_is_ok(status) || !result || !loomc_result_succeeded(result));
+      loomc_status_free(status);
+    }
+    return ModuleOwner(linked);
+  }
+
   // The output belongs to Loom, independent of the source module and mutable
   // authoring owner. Check that it remains a verified ordinary Loom module.
   std::string Roundtrip(const loomc_module_t *module) {
@@ -119,98 +181,44 @@ protected:
   Owner<loomc_workspace_t, loomc_workspace_release> workspace_;
 };
 
-TEST_F(LoomifyConsumerTest, ImportedKernelRefAuthorsCommandsWithOwnedClosure) {
-  auto definitions = Load("normalization.loombc");
-  ASSERT_NE(definitions, nullptr);
-  std::unique_ptr<ModuleBuilder> module, other;
-  ASSERT_TRUE(Ok(ModuleBuilder::Create(context_.get(), workspace_.get(),
-                                       definitions.get(), &module)));
-  ASSERT_TRUE(Ok(ModuleBuilder::Create(context_.get(), workspace_.get(),
-                                       definitions.get(), &other)));
-  definitions.reset();
-  KernelRef kernel, foreign;
-  ASSERT_TRUE(Ok(module->Kernel("qwen38_rmsnorm_f32_prefill", &kernel)));
-  ASSERT_TRUE(Ok(other->Kernel("qwen38_rmsnorm_f32_prefill", &foreign)));
-  const auto index = module->Scalar(LOOM_SCALAR_TYPE_INDEX);
-  const auto f32 = module->Scalar(LOOM_SCALAR_TYPE_F32);
-  const auto buffer = module->Buffer();
-  ASSERT_TRUE(Ok(module->CheckKernelInterface(
-      kernel, {index}, {index, f32, buffer, buffer, buffer})));
-  EXPECT_EQ(loomc_status_consume_code(module->CheckKernelInterface(
-                kernel, {}, {buffer, buffer, buffer})),
-            LOOMC_STATUS_INVALID_ARGUMENT);
-  EXPECT_EQ(loomc_status_consume_code(module->CheckKernelInterface(
-                kernel, {f32}, {index, f32, buffer, buffer, buffer})),
-            LOOMC_STATUS_INVALID_ARGUMENT);
-  EXPECT_EQ(loomc_status_consume_code(module->CheckKernelInterface(
-                kernel, {index}, {index, index, buffer, buffer, buffer})),
-            LOOMC_STATUS_INVALID_ARGUMENT);
-  EXPECT_EQ(loomc_status_consume_code(module->CheckKernelInterface(
-                foreign, {index}, {index, f32, buffer, buffer, buffer})),
-            LOOMC_STATUS_INVALID_ARGUMENT);
-  std::unique_ptr<CommandProgramBuilder> first, second;
-  ASSERT_TRUE(Ok(module->DefineProgram(
-      "consumer.first", {LOOM_SCALAR_TYPE_INDEX, LOOM_SCALAR_TYPE_F32}, 3,
-      &first)));
-  ASSERT_TRUE(Ok(module->DefineProgram(
-      "consumer.second", {LOOM_SCALAR_TYPE_INDEX, LOOM_SCALAR_TYPE_F32}, 3,
-      &second)));
-  for (auto *program : {first.get(), second.get()}) {
-    ASSERT_TRUE(Ok(program->Invoke(
-        kernel, {program->Specialization(0)},
-        {program->Specialization(0), program->Specialization(1),
-         program->Binding(0), program->Binding(1), program->Binding(2)})));
-    ASSERT_TRUE(Ok(program->Finish()));
-  }
-  loomc_module_t *linked = nullptr;
-  loomc_result_t *result = nullptr;
-  ASSERT_TRUE(Ok(
-      module->LinkAndVerify({first->Ref(), second->Ref()}, &linked, &result)));
-  ModuleOwner linked_owner(linked);
-  Owner<loomc_result_t, loomc_result_release> result_owner(result);
-  ASSERT_TRUE(Succeeded(result));
-  first.reset();
-  second.reset();
-  module.reset();
-  const auto text = Roundtrip(linked);
+TEST_F(LoomifyConsumerTest, ImportedKernelLinksMaintainedCommandsWithOwnedClosure) {
+  auto linked = Link("normalization.loombc", "consumer_commands.loom",
+                     {"consumer.first", "consumer.second"});
+  ASSERT_TRUE(linked);
+  const auto text = Roundtrip(linked.get());
   EXPECT_NE(text.find("@consumer.first"), std::string::npos);
   EXPECT_NE(text.find("@consumer.second"), std::string::npos);
-  EXPECT_NE(text.find("kernel.launch @qwen38_rmsnorm_f32_prefill"),
-            std::string::npos);
+  EXPECT_NE(text.find("kernel.launch @qwen38_rmsnorm_f32_prefill"), std::string::npos);
   EXPECT_NE(text.find("scalar.rsqrtf"), std::string::npos);
   EXPECT_NE(text.find("kernel.workgroup.reduce"), std::string::npos);
 }
-
-TEST_F(LoomifyConsumerTest, ProvidersOnlyFeedCurrentModelRmsNormAdapter) {
-  auto definitions = Load("normalization_providers.loombc");
-  ASSERT_NE(definitions, nullptr);
-  std::unique_ptr<ModuleBuilder> module;
-  ASSERT_TRUE(Ok(ModuleBuilder::Create(context_.get(), workspace_.get(),
-                                       definitions.get(), &module)));
-  definitions.reset();
-  KernelRef kernel;
-  ASSERT_TRUE(Ok(DefineLlamaRmsNorm(*module, "consumer.llama_norm", &kernel)));
-  const auto index = module->Scalar(LOOM_SCALAR_TYPE_INDEX);
-  const auto buffer = module->Buffer();
-  ASSERT_TRUE(Ok(module->CheckKernelInterface(
-      kernel, {index}, {index, buffer, buffer, buffer})));
-  std::unique_ptr<CommandProgramBuilder> program;
-  ASSERT_TRUE(Ok(module->DefineProgram("consumer.model_norm",
-                                       {LOOM_SCALAR_TYPE_INDEX}, 3, &program)));
-  ASSERT_TRUE(
-      Ok(program->Invoke(kernel, {program->Specialization(0)},
-                         {program->Specialization(0), program->Binding(0),
-                          program->Binding(1), program->Binding(2)})));
-  ASSERT_TRUE(Ok(program->Finish()));
-  loomc_module_t *linked = nullptr;
-  loomc_result_t *result = nullptr;
-  ASSERT_TRUE(Ok(module->LinkAndVerify({program->Ref()}, &linked, &result)));
-  ModuleOwner linked_owner(linked);
-  Owner<loomc_result_t, loomc_result_release> result_owner(result);
-  ASSERT_TRUE(Succeeded(result));
-  program.reset();
-  module.reset();
-  const auto text = Roundtrip(linked);
+TEST_F(LoomifyConsumerTest, NativeLinkRejectsMismatchedImportedKernelAbi) {
+  // Every negative wrapper is internally well typed. Rejection therefore
+  // checks its declared ABI against the actual imported numerical provider.
+  for (const char *wrapper : {
+      R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill() launch(%input: buffer, %weight: buffer, %output: buffer)
+command.program.def public @consumer.first() launch(%input: buffer, %weight: buffer, %output: buffer) {
+  kernel.launch @qwen38_rmsnorm_f32_prefill[](%input, %weight, %output) : [](buffer, buffer, buffer)
+  command.return
+})loom",
+      R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%n: f32) launch(%rows: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+command.program.def public @consumer.first(%rows: index, %n: f32, %epsilon: f32) launch(%input: buffer, %weight: buffer, %output: buffer) {
+  kernel.launch @qwen38_rmsnorm_f32_prefill[%n](%rows, %epsilon, %input, %weight, %output) : [f32](index, f32, buffer, buffer, buffer)
+  command.return
+})loom",
+      R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%rows: index) launch(%rows: index, %epsilon: index, %input: buffer, %weight: buffer, %output: buffer)
+command.program.def public @consumer.first(%rows: index, %epsilon: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
+  kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, index, buffer, buffer, buffer)
+  command.return
+})loom"}) {
+    auto linked = Link("normalization.loombc", "consumer_commands.loom", {"consumer.first"}, wrapper);
+    EXPECT_FALSE(linked);
+  }
+}
+TEST_F(LoomifyConsumerTest, ProvidersOnlyFeedMaintainedModelRmsNormAdapter) {
+  auto linked = Link("normalization_providers.loombc", "consumer_model_norm.loom", {"consumer.model_norm"});
+  ASSERT_TRUE(linked);
+  const auto text = Roundtrip(linked.get());
   EXPECT_NE(text.find("kernel.launch @consumer.llama_norm"), std::string::npos);
   EXPECT_NE(text.find("scalar.rsqrtf"), std::string::npos);
   EXPECT_NE(text.find("kernel.workgroup.reduce"), std::string::npos);

@@ -1,0 +1,127 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @qwen.model.hidden_size = 1024 : index
+
+config.def @qwen.model.ffn_size = 3584 : index
+
+config.def @qwen.model.attention_heads = 8 : index
+
+config.def @qwen.model.kv_heads = 2 : index
+
+config.def @qwen.model.head_size = 256 : index
+
+config.def @qwen.model.attention_width = 2048 : index
+
+config.def @qwen.model.kv_size = 512 : index
+
+config.def @qwen.model.query_gate_size = 4096 : index
+
+config.def @qwen.model.rope_size = 64 : index
+
+config.def @qwen.model.rope_half = 32 : index
+
+config.def @qwen.model.rope_log_step = -0.50369048120000004 : f32
+
+config.def @qwen.model.rms_epsilon = 9.999999975e-07 : f32
+
+config.def @qwen.model.attention_scale = 0.0625 : f32
+
+config.def @qwen.model.head_divisor = 256.0 : f32
+
+config.def @qwen.model.hidden_divisor = 1024.0 : f32
+
+config.def @qwen.model.query_gate_row_bytes = 16384 : index
+
+config.def @qwen.model.kv_plane_token_bytes = 1024 : index
+
+config.def @qwen.model.kv_row_bytes = 2048 : index
+
+config.def @qwen.model.head_gate_size = 512 : index
+
+config.def @qwen.model.hidden_q8_depth4_bytes = 4608 : index
+
+config.def @qwen.model.ffn_gate_q4_weight_bytes = 2064384 : index
+
+config.def @qwen.model.ffn_gate_q5_weight_bytes = 2523136 : index
+
+config.def @qwen.model.ffn_gate_q6_weight_bytes = 3010560 : index
+
+config.def @qwen.model.ffn_down_q5_weight_bytes = 2523136 : index
+
+config.def @qwen.model.ffn_down_q6_weight_bytes = 3010560 : index
+
+config.def @qwen.model.ffn_gate_weight_bytes = 2523136 : index
+
+config.def @qwen.model.ffn_down_weight_bytes = 3010560 : index
+
+config.def @qwen.model.query_q5_weight_bytes = 2883584 : index
+
+config.def @qwen.model.query_q6_weight_bytes = 3440640 : index
+
+config.def @qwen.model.key_q5_weight_bytes = 360448 : index
+
+config.def @qwen.model.key_q6_weight_bytes = 430080 : index
+
+config.def @qwen.model.value_weight_bytes = 430080 : index
+
+config.def @qwen.model.projection_weight_bytes = 1441792 : index
+
+config.def @qwen.model.ffn_gate_q4_layers = 2396745 : i32
+
+config.def @qwen.model.ffn_gate_q6_layers = 9586980 : i32
+
+config.def @qwen.model.ffn_down_q6_layers = 11184810 : i32
+
+config.def @qwen.model.attention_q6_layers = 0 : i32
+
+config.def @qwen.model.projection_implementation = 1 : index
+
+config.def @qwen.model.hidden_capacity_bytes = 2097152 : index
+
+config.def @qwen.model.ffn_capacity_bytes = 7340032 : index
+
+config.def @qwen.model.hidden_q8_capacity_bytes = 589824 : index
+
+config.def @qwen.model.kv_capacity_bytes = 1048576 : index
+
+config.def @qwen.model.projection_capacity_bytes = 4194304 : index
+
+config.def @qwen.model.query_gate_capacity_bytes = 8388608 : index
+
+config.def @qwen.model.head_scratch_bytes = 1024 : index
+
+config.def @qwen38.attention.cache_capacity = 96 : %45: index where [range(%45, 1, 262144), range(%45, 1, 262144), range(%45, 1, 262144)]
+
+config.def @qwen38.attention.pool_capacity = 128 : %46: index where [range(%46, 0, 4194304)]
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 3584 : %47: index where [range(%47, 1, 262144)]
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 6144 : %48: index where [range(%48, 1, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 248320 : %49: index where [range(%49, 1, 262144)]
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : %50: index where [range(%50, 1, 2048)]
+
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 512 : %51: index where [range(%51, 1, 2048)]
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %52: index where [range(%52, 1, 2048)]
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %53: index where [range(%53, 1, 524288)]
+
+command.program.decl @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer)
+
+command.program.def public retain @attention_layer() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer) {
+  command.serial {
+    %v6 = index.constant 4194304 : offset
+    %v7 = buffer.alloca<global> align(256) %v6 : buffer
+    %v8 = index.constant 4 : index
+    %v9 = index.constant 3 : index
+    %v10 = index.constant 0 : index
+    %v11 = index.constant 0 : index
+    %v12 = index.constant 1 : index
+    command.program.launch @qwen38_attention_layer_prefill[%v8, %v8, %v9, %v10, %v11, %v12](%v0, %v2, %v5, %v3, %v7, %v4) : [index, index, index, index, index, index](buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}

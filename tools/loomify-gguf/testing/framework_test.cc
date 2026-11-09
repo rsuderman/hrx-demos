@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/authoring/model/embedding_fixture.h"
-#include "tools/loomify-gguf/source_builder.h"
+#include "tools/loomify-gguf/testing/embedding_fixture.h"
+#include "tools/loomify-gguf/embedding.h"
 #include "gtest/gtest.h"
 #include <memory>
 #include <string>
@@ -73,7 +73,7 @@ TEST_F(EmbeddingBuilderTest, RealGgufRolesDriveCompleteProgramAndDimensions) {
         EXPECT_NE(text.find("token_embd.weight"), std::string::npos);
         EXPECT_EQ(text.find("output_norm.weight"), std::string::npos);
         EXPECT_NE(
-            text.find("index.constant " + std::to_string(width) + " : index"),
+            text.find("config.def @loomify.embedding.width = " + std::to_string(width) + " : index"),
             std::string::npos);
         EXPECT_NE(text.find("kernel.launch @loomify.embedding.f32"),
                   std::string::npos);

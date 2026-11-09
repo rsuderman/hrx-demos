@@ -1,0 +1,1804 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @llama.model.layer_count = 2 : index
+
+config.def @llama.model.query_heads = 24 : index
+
+config.def @llama.model.kv_heads = 8 : index
+
+config.def @llama.model.head_size = 128 : index
+
+config.def @llama.model.kv_size = 1024 : index
+
+config.def @llama.attention.cache_capacity = 512 : %5: index where [range(%5, 1, 131072), range(%5, 1, 131072)]
+
+config.def @llama.attention.pool_capacity = 0 : %6: index where [range(%6, 0, 4194304), multiple_of(%6, 64), range(%6, 0, 4194304), multiple_of(%6, 64)]
+
+config.def @llama.model.hidden_size = 3072 : index
+
+config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
+
+// GGUF Q/K rows are already permuted for adjacent-pair RoPE.
+// rope_freqs.weight supplies 64 F32 divisors; the base alone is insufficient.
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : %1005: index where [range(%1005, 1, 262144)]
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : %1006: index where [range(%1006, 1, 262144)]
+
+// Capacity of the existing shared greedy implementation (historical symbol).
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : %1007: index where [range(%1007, 1, 2048)]
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %1008: index where [range(%1008, 1, 2048)]
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %1009: index where [range(%1009, 1, 524288)]
+
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Snapshot active rows before publication changes the original packet.
+
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+
+kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
+
+kernel.decl @llama32_attention_rows(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
+kernel.decl @llama32_publish_kv(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
+kernel.decl @llama32_rmsnorm_active_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llama32_rotary_query(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %factors: buffer, %projection: buffer, %query: buffer)
+
+kernel.decl @test.join_compare(%capacity: index, %compact_capacity: index) launch(%capacity: index, %compact_capacity: index, %begin: index, %decode: index, %layers: index, %ordinal: index, %packet: buffer, %residual: buffer, %before: buffer, %compact: buffer, %cache: buffer, %before_cache: buffer, %compact_cache: buffer, %status: buffer)
+
+kernel.decl @test.join_packet() launch(%decode: index, %ordinal: index, %packet: buffer)
+
+kernel.decl @test.join_seed(%capacity: index, %compact_capacity: index) launch(%capacity: index, %compact_capacity: index, %begin: index, %residual: buffer, %before: buffer, %compact: buffer, %cache: buffer, %before_cache: buffer, %compact_cache: buffer)
+
+template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
+
+template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
+
+template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+
+template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+
+command.program.def public retain @joined.1.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 0 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 98304 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 8 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 2 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 8 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 2 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 27648 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 98304 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 8 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 2 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 27648 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 32768 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 8 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 2 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 27648 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 32768 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 8 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 0 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 2 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 98304 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 8 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 2 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 27648 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 98304 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 8 : index
+    %v96 = index.constant 0 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 2 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 98304 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 8 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 2 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 262144 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 8 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 2 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 262144 : index
+    %v122 = index.constant 98304 : index
+    %v123 = index.constant 27648 : index
+    %v124 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    %v125 = index.constant 8 : index
+    %v126 = index.constant 3072 : index
+    %v127 = index.constant 8192 : index
+    %v128 = scalar.constant 1 : i1
+    %v129 = scalar.constant 0 : i1
+    %v130 = index.constant 32768 : index
+    %v131 = index.constant 12288 : index
+    %v132 = index.constant 2 : index
+    %v133 = index.constant 0 : offset
+    %v134 = index.constant 4 : index
+    %v135 = index.constant 14155776 : index
+    %v136 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v135]xi8>
+    %v137 = index.constant 262144 : index
+    %v138 = index.constant 98304 : index
+    %v139 = index.constant 27648 : index
+    %v140 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.1.prefill.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 0 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 36864 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 3 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 0 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 3 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 0 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 10368 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 36864 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 3 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 0 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 10368 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 12288 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 3 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 0 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 10368 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 12288 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 3 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 0 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 0 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 36864 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 3 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 0 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 10368 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 36864 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 3 : index
+    %v96 = index.constant 0 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 36864 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 3 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 0 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 98304 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 3 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 0 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 98304 : index
+    %v122 = index.constant 36864 : index
+    %v123 = index.constant 10368 : index
+    %v124 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    %v125 = index.constant 3 : index
+    %v126 = index.constant 3072 : index
+    %v127 = index.constant 8192 : index
+    %v128 = scalar.constant 1 : i1
+    %v129 = scalar.constant 0 : i1
+    %v130 = index.constant 32768 : index
+    %v131 = index.constant 12288 : index
+    %v132 = index.constant 0 : index
+    %v133 = index.constant 0 : offset
+    %v134 = index.constant 4 : index
+    %v135 = index.constant 14155776 : index
+    %v136 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v135]xi8>
+    %v137 = index.constant 98304 : index
+    %v138 = index.constant 36864 : index
+    %v139 = index.constant 10368 : index
+    %v140 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.1.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 8 : index
+    %v25 = index.constant 3 : index
+    %v26 = index.constant 2 : index
+    %v27 = index.constant 0 : index
+    %v28 = index.constant 1 : index
+    %v29 = index.constant 98304 : offset
+    %v30 = index.constant 36864 : offset
+    %v31 = index.constant 4194368 : offset
+    %v32 = buffer.alloca<global> align(256) %v29 : buffer
+    %v33 = buffer.alloca<global> align(256) %v30 : buffer
+    %v34 = buffer.alloca<global> align(256) %v31 : buffer
+    %v35 = buffer.alloca<global> align(256) %v31 : buffer
+    %v36 = index.constant 0 : index
+    kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    %v37 = index.constant 1 : index
+    kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.1.decode.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 1 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 12288 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 1 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 0 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 1 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 0 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 3456 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 12288 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 1 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 0 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 3456 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 4096 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 1 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 0 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 3456 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 4096 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 1 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 1 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 0 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 12288 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 1 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 0 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 3456 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 12288 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 1 : index
+    %v96 = index.constant 1 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 12288 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 1 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 0 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 32768 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 1 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 0 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 3456 : offset
+    %v122 = buffer.alloca<global> align(256) %v121 : buffer
+    %v123 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    %v124 = index.constant 1 : index
+    %v125 = index.constant 3072 : index
+    %v126 = index.constant 8192 : index
+    %v127 = scalar.constant 1 : i1
+    %v128 = scalar.constant 0 : i1
+    %v129 = index.constant 32768 : index
+    %v130 = index.constant 12288 : index
+    %v131 = index.constant 0 : index
+    %v132 = index.constant 0 : offset
+    %v133 = index.constant 4 : index
+    %v134 = index.constant 14155776 : index
+    %v135 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v134]xi8>
+    template.apply<@llm.ffn.down_decode>(%v125, %v126, %v127, %v127, %v127, %v128, %v134, %v129, %v130, %v135, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v134]xi8>, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.1.decode.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 1 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 12288 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 1 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 0 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 1 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 0 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 3456 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 12288 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 1 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 0 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 3456 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 4096 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 1 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 0 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 3456 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 4096 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 1 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 1 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 0 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 12288 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 1 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 0 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 3456 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 12288 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 1 : index
+    %v96 = index.constant 1 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 12288 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 1 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 0 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 32768 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 1 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 0 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 3456 : offset
+    %v122 = buffer.alloca<global> align(256) %v121 : buffer
+    %v123 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    %v124 = index.constant 1 : index
+    %v125 = index.constant 3072 : index
+    %v126 = index.constant 8192 : index
+    %v127 = scalar.constant 1 : i1
+    %v128 = scalar.constant 0 : i1
+    %v129 = index.constant 32768 : index
+    %v130 = index.constant 12288 : index
+    %v131 = index.constant 0 : index
+    %v132 = index.constant 0 : offset
+    %v133 = index.constant 4 : index
+    %v134 = index.constant 14155776 : index
+    %v135 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v134]xi8>
+    template.apply<@llm.ffn.down_decode>(%v125, %v126, %v127, %v127, %v127, %v128, %v134, %v129, %v130, %v135, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v134]xi8>, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.1.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 1 : index
+    %v25 = index.constant 1 : index
+    %v26 = index.constant 0 : index
+    %v27 = index.constant 1 : index
+    %v28 = index.constant 1 : index
+    %v29 = index.constant 12288 : offset
+    %v30 = index.constant 12288 : offset
+    %v31 = index.constant 4194368 : offset
+    %v32 = buffer.alloca<global> align(256) %v29 : buffer
+    %v33 = buffer.alloca<global> align(256) %v30 : buffer
+    %v34 = buffer.alloca<global> align(256) %v31 : buffer
+    %v35 = buffer.alloca<global> align(256) %v31 : buffer
+    %v36 = index.constant 0 : index
+    kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    %v37 = index.constant 1 : index
+    kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.1.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.2.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 0 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 98304 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 8 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 2 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 8 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 2 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 27648 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 98304 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 8 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 2 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 27648 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 32768 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 8 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 2 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 27648 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 32768 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 8 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 0 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 2 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 98304 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 8 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 2 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 27648 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 98304 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 8 : index
+    %v96 = index.constant 0 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 2 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 98304 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 8 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 2 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 262144 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 8 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 2 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 262144 : index
+    %v122 = index.constant 98304 : index
+    %v123 = index.constant 27648 : index
+    %v124 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    %v125 = index.constant 8 : index
+    %v126 = index.constant 3072 : index
+    %v127 = index.constant 8192 : index
+    %v128 = scalar.constant 1 : i1
+    %v129 = scalar.constant 0 : i1
+    %v130 = index.constant 32768 : index
+    %v131 = index.constant 12288 : index
+    %v132 = index.constant 2 : index
+    %v133 = index.constant 0 : offset
+    %v134 = index.constant 4 : index
+    %v135 = index.constant 14155776 : index
+    %v136 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v135]xi8>
+    %v137 = index.constant 262144 : index
+    %v138 = index.constant 98304 : index
+    %v139 = index.constant 27648 : index
+    %v140 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+    %v141 = index.constant 98304 : offset
+    %v142 = buffer.alloca<global> align(256) %v141 : buffer
+    %v143 = index.constant 8 : index
+    %v144 = index.constant 3072 : index
+    %v145 = command.parameter %v10, "blk.11.attn_norm.weight" : view<[%v144]xf32>
+    %v146 = index.constant 2 : index
+    %v147 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v143](%v143, %v146, %v147, %v25, %v19, %v145, %v142) : [index](index, index, offset, buffer, buffer, view<[%v144]xf32>, buffer)
+    %v148 = index.constant 8 : index
+    %v149 = index.constant 3072 : index
+    %v150 = index.constant 3072 : index
+    %v151 = index.constant 2 : index
+    %v152 = scalar.constant -1 : i32
+    %v153 = index.constant 0 : offset
+    %v154 = index.constant 5308416 : index
+    %v155 = command.parameter %v11, "blk.11.attn_q.weight" : view<[%v154]xi8>
+    %v156 = index.constant 27648 : offset
+    %v157 = buffer.alloca<global> align(256) %v156 : buffer
+    %v158 = index.constant 98304 : offset
+    %v159 = buffer.alloca<global> align(256) %v158 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v148, %v149](%v148, %v149, %v151, %v152, %v153, %v25, %v142, %v157) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v148, %v149, %v150](%v148, %v149, %v150, %v151, %v152, %v153, %v25, %v157, %v155, %v159) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v154]xi8>, buffer)
+    %v160 = index.constant 8 : index
+    %v161 = index.constant 3072 : index
+    %v162 = index.constant 1024 : index
+    %v163 = index.constant 2 : index
+    %v164 = scalar.constant -1 : i32
+    %v165 = index.constant 0 : offset
+    %v166 = index.constant 2580480 : index
+    %v167 = command.parameter %v12, "blk.11.attn_k.weight" : view<[%v166]xi8>
+    %v168 = index.constant 27648 : offset
+    %v169 = buffer.alloca<global> align(256) %v168 : buffer
+    %v170 = index.constant 32768 : offset
+    %v171 = buffer.alloca<global> align(256) %v170 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v160, %v161](%v160, %v161, %v163, %v164, %v165, %v25, %v142, %v169) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v160, %v161, %v162](%v160, %v161, %v162, %v163, %v164, %v165, %v25, %v169, %v167, %v171) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v166]xi8>, buffer)
+    %v172 = index.constant 8 : index
+    %v173 = index.constant 3072 : index
+    %v174 = index.constant 1024 : index
+    %v175 = index.constant 2 : index
+    %v176 = scalar.constant -1 : i32
+    %v177 = index.constant 0 : offset
+    %v178 = index.constant 2580480 : index
+    %v179 = command.parameter %v13, "blk.11.attn_v.weight" : view<[%v178]xi8>
+    %v180 = index.constant 27648 : offset
+    %v181 = buffer.alloca<global> align(256) %v180 : buffer
+    %v182 = index.constant 32768 : offset
+    %v183 = buffer.alloca<global> align(256) %v182 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v172, %v173](%v172, %v173, %v175, %v176, %v177, %v25, %v142, %v181) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v172, %v173, %v174](%v172, %v173, %v174, %v175, %v176, %v177, %v25, %v181, %v179, %v183) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v178]xi8>, buffer)
+    %v184 = index.constant 64 : index
+    %v185 = command.parameter %v0, "rope_freqs.weight" : view<[%v184]xf32>
+    %v186 = index.constant 8 : index
+    %v187 = index.constant 1 : index
+    %v188 = index.constant 0 : index
+    %v189 = index.constant 0 : offset
+    %v190 = index.constant 2 : index
+    %v191 = index.constant 16 : offset
+    %v192 = index.constant 0 : offset
+    %v193 = index.constant 98304 : offset
+    %v194 = buffer.alloca<global> align(256) %v193 : buffer
+    %v195 = buffer.alloca<global> align(256) %v193 : buffer
+    kernel.launch @llama32_rotary_query[%v186](%v188, %v189, %v190, %v20, %v185, %v159, %v194) : [index](index, offset, index, buffer, view<[%v184]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v186](%v187, %v191, %v188, %v189, %v190, %v192, %v20, %v21, %v185, %v171, %v183, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v184]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v186](%v187, %v191, %v188, %v189, %v190, %v192, %v20, %v21, %v194, %v22, %v195) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v196 = index.constant 8 : index
+    %v197 = index.constant 3072 : index
+    %v198 = index.constant 3072 : index
+    %v199 = index.constant 2 : index
+    %v200 = scalar.constant -1 : i32
+    %v201 = index.constant 0 : offset
+    %v202 = index.constant 5308416 : index
+    %v203 = command.parameter %v14, "blk.11.attn_output.weight" : view<[%v202]xi8>
+    %v204 = index.constant 27648 : offset
+    %v205 = buffer.alloca<global> align(256) %v204 : buffer
+    %v206 = index.constant 98304 : offset
+    %v207 = buffer.alloca<global> align(256) %v206 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v196, %v197](%v196, %v197, %v199, %v200, %v201, %v25, %v195, %v205) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v196, %v197, %v198](%v196, %v197, %v198, %v199, %v200, %v201, %v25, %v205, %v203, %v207) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v202]xi8>, buffer)
+    %v208 = index.constant 8 : index
+    %v209 = index.constant 0 : index
+    %v210 = index.constant 0 : offset
+    %v211 = index.constant 2 : index
+    kernel.launch @llama32_attention_residual[%v208](%v209, %v210, %v211, %v20, %v207, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v212 = index.constant 98304 : offset
+    %v213 = buffer.alloca<global> align(256) %v212 : buffer
+    %v214 = index.constant 8 : index
+    %v215 = index.constant 3072 : index
+    %v216 = command.parameter %v15, "blk.11.ffn_norm.weight" : view<[%v215]xf32>
+    %v217 = index.constant 2 : index
+    %v218 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v214](%v214, %v217, %v218, %v25, %v19, %v216, %v213) : [index](index, index, offset, buffer, buffer, view<[%v215]xf32>, buffer)
+    %v219 = index.constant 262144 : offset
+    %v220 = buffer.alloca<global> align(256) %v219 : buffer
+    %v221 = index.constant 8 : index
+    %v222 = index.constant 3072 : index
+    %v223 = index.constant 8192 : index
+    %v224 = scalar.constant 1 : i1
+    %v225 = scalar.constant 0 : i1
+    %v226 = index.constant 32768 : index
+    %v227 = index.constant 12288 : index
+    %v228 = index.constant 2 : index
+    %v229 = index.constant 0 : offset
+    %v230 = index.constant 4 : index
+    %v231 = index.constant 14155776 : index
+    %v232 = command.parameter %v16, "blk.11.ffn_gate.weight" : view<[%v231]xi8>
+    %v233 = command.parameter %v17, "blk.11.ffn_up.weight" : view<[%v231]xi8>
+    %v234 = index.constant 262144 : index
+    %v235 = index.constant 98304 : index
+    %v236 = index.constant 27648 : index
+    %v237 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v222, %v223, %v224, %v224, %v224, %v225, %v221, %v221, %v221, %v228, %v229, %v225, %v230, %v234, %v231, %v236, %v237, %v232, %v233, %v213, %v25, %v220) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v231]xi8>, view<[%v231]xi8>, buffer, buffer, buffer)
+    %v238 = index.constant 8 : index
+    %v239 = index.constant 3072 : index
+    %v240 = index.constant 8192 : index
+    %v241 = scalar.constant 1 : i1
+    %v242 = scalar.constant 0 : i1
+    %v243 = index.constant 32768 : index
+    %v244 = index.constant 12288 : index
+    %v245 = index.constant 2 : index
+    %v246 = index.constant 0 : offset
+    %v247 = index.constant 4 : index
+    %v248 = index.constant 14155776 : index
+    %v249 = command.parameter %v18, "blk.11.ffn_down.weight" : view<[%v248]xi8>
+    %v250 = index.constant 262144 : index
+    %v251 = index.constant 98304 : index
+    %v252 = index.constant 27648 : index
+    %v253 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v239, %v240, %v241, %v241, %v241, %v242, %v238, %v238, %v238, %v245, %v246, %v242, %v247, %v250, %v248, %v251, %v249, %v25, %v220, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v248]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.2.prefill.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 0 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 36864 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 3 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 0 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 3 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 0 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 10368 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 36864 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 3 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 0 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 10368 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 12288 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 3 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 0 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 10368 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 12288 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 3 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 0 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 0 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 36864 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 3 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 0 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 10368 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 36864 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 3 : index
+    %v96 = index.constant 0 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 36864 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 3 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 0 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 98304 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 3 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 0 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 98304 : index
+    %v122 = index.constant 36864 : index
+    %v123 = index.constant 10368 : index
+    %v124 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    %v125 = index.constant 3 : index
+    %v126 = index.constant 3072 : index
+    %v127 = index.constant 8192 : index
+    %v128 = scalar.constant 1 : i1
+    %v129 = scalar.constant 0 : i1
+    %v130 = index.constant 32768 : index
+    %v131 = index.constant 12288 : index
+    %v132 = index.constant 0 : index
+    %v133 = index.constant 0 : offset
+    %v134 = index.constant 4 : index
+    %v135 = index.constant 14155776 : index
+    %v136 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v135]xi8>
+    %v137 = index.constant 98304 : index
+    %v138 = index.constant 36864 : index
+    %v139 = index.constant 10368 : index
+    %v140 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+    %v141 = index.constant 36864 : offset
+    %v142 = buffer.alloca<global> align(256) %v141 : buffer
+    %v143 = index.constant 3 : index
+    %v144 = index.constant 3072 : index
+    %v145 = command.parameter %v10, "blk.11.attn_norm.weight" : view<[%v144]xf32>
+    %v146 = index.constant 0 : index
+    %v147 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v143](%v143, %v146, %v147, %v25, %v19, %v145, %v142) : [index](index, index, offset, buffer, buffer, view<[%v144]xf32>, buffer)
+    %v148 = index.constant 3 : index
+    %v149 = index.constant 3072 : index
+    %v150 = index.constant 3072 : index
+    %v151 = index.constant 0 : index
+    %v152 = scalar.constant -1 : i32
+    %v153 = index.constant 0 : offset
+    %v154 = index.constant 5308416 : index
+    %v155 = command.parameter %v11, "blk.11.attn_q.weight" : view<[%v154]xi8>
+    %v156 = index.constant 10368 : offset
+    %v157 = buffer.alloca<global> align(256) %v156 : buffer
+    %v158 = index.constant 36864 : offset
+    %v159 = buffer.alloca<global> align(256) %v158 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v148, %v149](%v148, %v149, %v151, %v152, %v153, %v25, %v142, %v157) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v148, %v149, %v150](%v148, %v149, %v150, %v151, %v152, %v153, %v25, %v157, %v155, %v159) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v154]xi8>, buffer)
+    %v160 = index.constant 3 : index
+    %v161 = index.constant 3072 : index
+    %v162 = index.constant 1024 : index
+    %v163 = index.constant 0 : index
+    %v164 = scalar.constant -1 : i32
+    %v165 = index.constant 0 : offset
+    %v166 = index.constant 2580480 : index
+    %v167 = command.parameter %v12, "blk.11.attn_k.weight" : view<[%v166]xi8>
+    %v168 = index.constant 10368 : offset
+    %v169 = buffer.alloca<global> align(256) %v168 : buffer
+    %v170 = index.constant 12288 : offset
+    %v171 = buffer.alloca<global> align(256) %v170 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v160, %v161](%v160, %v161, %v163, %v164, %v165, %v25, %v142, %v169) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v160, %v161, %v162](%v160, %v161, %v162, %v163, %v164, %v165, %v25, %v169, %v167, %v171) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v166]xi8>, buffer)
+    %v172 = index.constant 3 : index
+    %v173 = index.constant 3072 : index
+    %v174 = index.constant 1024 : index
+    %v175 = index.constant 0 : index
+    %v176 = scalar.constant -1 : i32
+    %v177 = index.constant 0 : offset
+    %v178 = index.constant 2580480 : index
+    %v179 = command.parameter %v13, "blk.11.attn_v.weight" : view<[%v178]xi8>
+    %v180 = index.constant 10368 : offset
+    %v181 = buffer.alloca<global> align(256) %v180 : buffer
+    %v182 = index.constant 12288 : offset
+    %v183 = buffer.alloca<global> align(256) %v182 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v172, %v173](%v172, %v173, %v175, %v176, %v177, %v25, %v142, %v181) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v172, %v173, %v174](%v172, %v173, %v174, %v175, %v176, %v177, %v25, %v181, %v179, %v183) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v178]xi8>, buffer)
+    %v184 = index.constant 64 : index
+    %v185 = command.parameter %v0, "rope_freqs.weight" : view<[%v184]xf32>
+    %v186 = index.constant 3 : index
+    %v187 = index.constant 1 : index
+    %v188 = index.constant 0 : index
+    %v189 = index.constant 0 : offset
+    %v190 = index.constant 0 : index
+    %v191 = index.constant 16 : offset
+    %v192 = index.constant 0 : offset
+    %v193 = index.constant 36864 : offset
+    %v194 = buffer.alloca<global> align(256) %v193 : buffer
+    %v195 = buffer.alloca<global> align(256) %v193 : buffer
+    kernel.launch @llama32_rotary_query[%v186](%v188, %v189, %v190, %v20, %v185, %v159, %v194) : [index](index, offset, index, buffer, view<[%v184]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v186](%v187, %v191, %v188, %v189, %v190, %v192, %v20, %v21, %v185, %v171, %v183, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v184]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v186](%v187, %v191, %v188, %v189, %v190, %v192, %v20, %v21, %v194, %v22, %v195) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v196 = index.constant 3 : index
+    %v197 = index.constant 3072 : index
+    %v198 = index.constant 3072 : index
+    %v199 = index.constant 0 : index
+    %v200 = scalar.constant -1 : i32
+    %v201 = index.constant 0 : offset
+    %v202 = index.constant 5308416 : index
+    %v203 = command.parameter %v14, "blk.11.attn_output.weight" : view<[%v202]xi8>
+    %v204 = index.constant 10368 : offset
+    %v205 = buffer.alloca<global> align(256) %v204 : buffer
+    %v206 = index.constant 36864 : offset
+    %v207 = buffer.alloca<global> align(256) %v206 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v196, %v197](%v196, %v197, %v199, %v200, %v201, %v25, %v195, %v205) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v196, %v197, %v198](%v196, %v197, %v198, %v199, %v200, %v201, %v25, %v205, %v203, %v207) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v202]xi8>, buffer)
+    %v208 = index.constant 3 : index
+    %v209 = index.constant 0 : index
+    %v210 = index.constant 0 : offset
+    %v211 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v208](%v209, %v210, %v211, %v20, %v207, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v212 = index.constant 36864 : offset
+    %v213 = buffer.alloca<global> align(256) %v212 : buffer
+    %v214 = index.constant 3 : index
+    %v215 = index.constant 3072 : index
+    %v216 = command.parameter %v15, "blk.11.ffn_norm.weight" : view<[%v215]xf32>
+    %v217 = index.constant 0 : index
+    %v218 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v214](%v214, %v217, %v218, %v25, %v19, %v216, %v213) : [index](index, index, offset, buffer, buffer, view<[%v215]xf32>, buffer)
+    %v219 = index.constant 98304 : offset
+    %v220 = buffer.alloca<global> align(256) %v219 : buffer
+    %v221 = index.constant 3 : index
+    %v222 = index.constant 3072 : index
+    %v223 = index.constant 8192 : index
+    %v224 = scalar.constant 1 : i1
+    %v225 = scalar.constant 0 : i1
+    %v226 = index.constant 32768 : index
+    %v227 = index.constant 12288 : index
+    %v228 = index.constant 0 : index
+    %v229 = index.constant 0 : offset
+    %v230 = index.constant 4 : index
+    %v231 = index.constant 14155776 : index
+    %v232 = command.parameter %v16, "blk.11.ffn_gate.weight" : view<[%v231]xi8>
+    %v233 = command.parameter %v17, "blk.11.ffn_up.weight" : view<[%v231]xi8>
+    %v234 = index.constant 98304 : index
+    %v235 = index.constant 36864 : index
+    %v236 = index.constant 10368 : index
+    %v237 = index.constant 13824 : index
+    template.apply<@llm.ffn.gate_up_prefill>(%v222, %v223, %v224, %v224, %v224, %v225, %v221, %v221, %v221, %v228, %v229, %v225, %v230, %v234, %v231, %v236, %v237, %v232, %v233, %v213, %v25, %v220) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v231]xi8>, view<[%v231]xi8>, buffer, buffer, buffer)
+    %v238 = index.constant 3 : index
+    %v239 = index.constant 3072 : index
+    %v240 = index.constant 8192 : index
+    %v241 = scalar.constant 1 : i1
+    %v242 = scalar.constant 0 : i1
+    %v243 = index.constant 32768 : index
+    %v244 = index.constant 12288 : index
+    %v245 = index.constant 0 : index
+    %v246 = index.constant 0 : offset
+    %v247 = index.constant 4 : index
+    %v248 = index.constant 14155776 : index
+    %v249 = command.parameter %v18, "blk.11.ffn_down.weight" : view<[%v248]xi8>
+    %v250 = index.constant 98304 : index
+    %v251 = index.constant 36864 : index
+    %v252 = index.constant 10368 : index
+    %v253 = index.constant 13824 : index
+    template.apply<@llm.ffn.down_prefill>(%v239, %v240, %v241, %v241, %v241, %v242, %v238, %v238, %v238, %v245, %v246, %v242, %v247, %v250, %v248, %v251, %v249, %v25, %v220, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v248]xi8>, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.2.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 8 : index
+    %v25 = index.constant 3 : index
+    %v26 = index.constant 2 : index
+    %v27 = index.constant 0 : index
+    %v28 = index.constant 2 : index
+    %v29 = index.constant 98304 : offset
+    %v30 = index.constant 36864 : offset
+    %v31 = index.constant 4194368 : offset
+    %v32 = buffer.alloca<global> align(256) %v29 : buffer
+    %v33 = buffer.alloca<global> align(256) %v30 : buffer
+    %v34 = buffer.alloca<global> align(256) %v31 : buffer
+    %v35 = buffer.alloca<global> align(256) %v31 : buffer
+    %v36 = index.constant 0 : index
+    kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    %v37 = index.constant 1 : index
+    kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.2.decode.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 1 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 12288 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 1 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 0 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 1 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 0 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 3456 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 12288 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 1 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 0 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 3456 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 4096 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 1 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 0 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 3456 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 4096 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 1 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 1 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 0 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 12288 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 1 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 0 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 3456 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 12288 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 1 : index
+    %v96 = index.constant 1 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 12288 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 1 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 0 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 32768 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 1 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 0 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 3456 : offset
+    %v122 = buffer.alloca<global> align(256) %v121 : buffer
+    %v123 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    %v124 = index.constant 1 : index
+    %v125 = index.constant 3072 : index
+    %v126 = index.constant 8192 : index
+    %v127 = scalar.constant 1 : i1
+    %v128 = scalar.constant 0 : i1
+    %v129 = index.constant 32768 : index
+    %v130 = index.constant 12288 : index
+    %v131 = index.constant 0 : index
+    %v132 = index.constant 0 : offset
+    %v133 = index.constant 4 : index
+    %v134 = index.constant 14155776 : index
+    %v135 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v134]xi8>
+    template.apply<@llm.ffn.down_decode>(%v125, %v126, %v127, %v127, %v127, %v128, %v134, %v129, %v130, %v135, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v134]xi8>, buffer, buffer)
+    %v136 = index.constant 12288 : offset
+    %v137 = buffer.alloca<global> align(256) %v136 : buffer
+    %v138 = index.constant 1 : index
+    %v139 = index.constant 3072 : index
+    %v140 = command.parameter %v10, "blk.11.attn_norm.weight" : view<[%v139]xf32>
+    %v141 = index.constant 0 : index
+    %v142 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v138](%v138, %v141, %v142, %v25, %v19, %v140, %v137) : [index](index, index, offset, buffer, buffer, view<[%v139]xf32>, buffer)
+    %v143 = index.constant 1 : index
+    %v144 = index.constant 3072 : index
+    %v145 = index.constant 3072 : index
+    %v146 = index.constant 0 : index
+    %v147 = scalar.constant -1 : i32
+    %v148 = index.constant 0 : offset
+    %v149 = index.constant 5308416 : index
+    %v150 = command.parameter %v11, "blk.11.attn_q.weight" : view<[%v149]xi8>
+    %v151 = index.constant 3456 : offset
+    %v152 = buffer.alloca<global> align(256) %v151 : buffer
+    %v153 = index.constant 12288 : offset
+    %v154 = buffer.alloca<global> align(256) %v153 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v143, %v144](%v143, %v144, %v146, %v147, %v148, %v25, %v137, %v152) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v143, %v144, %v145](%v143, %v144, %v145, %v146, %v147, %v148, %v25, %v152, %v150, %v154) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v149]xi8>, buffer)
+    %v155 = index.constant 1 : index
+    %v156 = index.constant 3072 : index
+    %v157 = index.constant 1024 : index
+    %v158 = index.constant 0 : index
+    %v159 = scalar.constant -1 : i32
+    %v160 = index.constant 0 : offset
+    %v161 = index.constant 2580480 : index
+    %v162 = command.parameter %v12, "blk.11.attn_k.weight" : view<[%v161]xi8>
+    %v163 = index.constant 3456 : offset
+    %v164 = buffer.alloca<global> align(256) %v163 : buffer
+    %v165 = index.constant 4096 : offset
+    %v166 = buffer.alloca<global> align(256) %v165 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v155, %v156](%v155, %v156, %v158, %v159, %v160, %v25, %v137, %v164) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v155, %v156, %v157](%v155, %v156, %v157, %v158, %v159, %v160, %v25, %v164, %v162, %v166) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v161]xi8>, buffer)
+    %v167 = index.constant 1 : index
+    %v168 = index.constant 3072 : index
+    %v169 = index.constant 1024 : index
+    %v170 = index.constant 0 : index
+    %v171 = scalar.constant -1 : i32
+    %v172 = index.constant 0 : offset
+    %v173 = index.constant 2580480 : index
+    %v174 = command.parameter %v13, "blk.11.attn_v.weight" : view<[%v173]xi8>
+    %v175 = index.constant 3456 : offset
+    %v176 = buffer.alloca<global> align(256) %v175 : buffer
+    %v177 = index.constant 4096 : offset
+    %v178 = buffer.alloca<global> align(256) %v177 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v167, %v168](%v167, %v168, %v170, %v171, %v172, %v25, %v137, %v176) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v167, %v168, %v169](%v167, %v168, %v169, %v170, %v171, %v172, %v25, %v176, %v174, %v178) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v173]xi8>, buffer)
+    %v179 = index.constant 64 : index
+    %v180 = command.parameter %v0, "rope_freqs.weight" : view<[%v179]xf32>
+    %v181 = index.constant 1 : index
+    %v182 = index.constant 1 : index
+    %v183 = index.constant 1 : index
+    %v184 = index.constant 0 : offset
+    %v185 = index.constant 0 : index
+    %v186 = index.constant 16 : offset
+    %v187 = index.constant 0 : offset
+    %v188 = index.constant 12288 : offset
+    %v189 = buffer.alloca<global> align(256) %v188 : buffer
+    %v190 = buffer.alloca<global> align(256) %v188 : buffer
+    kernel.launch @llama32_rotary_query[%v181](%v183, %v184, %v185, %v20, %v180, %v154, %v189) : [index](index, offset, index, buffer, view<[%v179]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v181](%v182, %v186, %v183, %v184, %v185, %v187, %v20, %v21, %v180, %v166, %v178, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v179]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v181](%v182, %v186, %v183, %v184, %v185, %v187, %v20, %v21, %v189, %v22, %v190) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v191 = index.constant 1 : index
+    %v192 = index.constant 3072 : index
+    %v193 = index.constant 3072 : index
+    %v194 = index.constant 0 : index
+    %v195 = scalar.constant -1 : i32
+    %v196 = index.constant 0 : offset
+    %v197 = index.constant 5308416 : index
+    %v198 = command.parameter %v14, "blk.11.attn_output.weight" : view<[%v197]xi8>
+    %v199 = index.constant 3456 : offset
+    %v200 = buffer.alloca<global> align(256) %v199 : buffer
+    %v201 = index.constant 12288 : offset
+    %v202 = buffer.alloca<global> align(256) %v201 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v191, %v192](%v191, %v192, %v194, %v195, %v196, %v25, %v190, %v200) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v191, %v192, %v193](%v191, %v192, %v193, %v194, %v195, %v196, %v25, %v200, %v198, %v202) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v197]xi8>, buffer)
+    %v203 = index.constant 1 : index
+    %v204 = index.constant 1 : index
+    %v205 = index.constant 0 : offset
+    %v206 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v203](%v204, %v205, %v206, %v20, %v202, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v207 = index.constant 12288 : offset
+    %v208 = buffer.alloca<global> align(256) %v207 : buffer
+    %v209 = index.constant 1 : index
+    %v210 = index.constant 3072 : index
+    %v211 = command.parameter %v15, "blk.11.ffn_norm.weight" : view<[%v210]xf32>
+    %v212 = index.constant 0 : index
+    %v213 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v209](%v209, %v212, %v213, %v25, %v19, %v211, %v208) : [index](index, index, offset, buffer, buffer, view<[%v210]xf32>, buffer)
+    %v214 = index.constant 32768 : offset
+    %v215 = buffer.alloca<global> align(256) %v214 : buffer
+    %v216 = index.constant 1 : index
+    %v217 = index.constant 3072 : index
+    %v218 = index.constant 8192 : index
+    %v219 = scalar.constant 1 : i1
+    %v220 = scalar.constant 0 : i1
+    %v221 = index.constant 32768 : index
+    %v222 = index.constant 12288 : index
+    %v223 = index.constant 0 : index
+    %v224 = index.constant 0 : offset
+    %v225 = index.constant 4 : index
+    %v226 = index.constant 14155776 : index
+    %v227 = command.parameter %v16, "blk.11.ffn_gate.weight" : view<[%v226]xi8>
+    %v228 = command.parameter %v17, "blk.11.ffn_up.weight" : view<[%v226]xi8>
+    %v229 = index.constant 3456 : offset
+    %v230 = buffer.alloca<global> align(256) %v229 : buffer
+    %v231 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v216, %v217](%v216, %v217, %v223, %v231, %v224, %v208, %v208, %v230) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v217, %v218, %v219, %v219, %v219, %v220, %v226, %v221, %v227, %v228, %v230, %v215) : (index, index, i1, i1, i1, i1, index, index, view<[%v226]xi8>, view<[%v226]xi8>, buffer, buffer)
+    %v232 = index.constant 1 : index
+    %v233 = index.constant 3072 : index
+    %v234 = index.constant 8192 : index
+    %v235 = scalar.constant 1 : i1
+    %v236 = scalar.constant 0 : i1
+    %v237 = index.constant 32768 : index
+    %v238 = index.constant 12288 : index
+    %v239 = index.constant 0 : index
+    %v240 = index.constant 0 : offset
+    %v241 = index.constant 4 : index
+    %v242 = index.constant 14155776 : index
+    %v243 = command.parameter %v18, "blk.11.ffn_down.weight" : view<[%v242]xi8>
+    template.apply<@llm.ffn.down_decode>(%v233, %v234, %v235, %v235, %v235, %v236, %v242, %v237, %v238, %v243, %v215, %v19) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v242]xi8>, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.2.decode.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 12 : offset
+    %v25 = buffer.alloca<global> align(4) %v24 : buffer
+    %v26 = index.constant 1 : index
+    %v27 = index.constant 0 : offset
+    kernel.launch @llama32_head_count(%v26, %v27, %v20, %v25) : (index, offset, buffer, buffer)
+    %v28 = index.constant 12288 : offset
+    %v29 = buffer.alloca<global> align(256) %v28 : buffer
+    %v30 = index.constant 1 : index
+    %v31 = index.constant 3072 : index
+    %v32 = command.parameter %v1, "blk.7.attn_norm.weight" : view<[%v31]xf32>
+    %v33 = index.constant 0 : index
+    %v34 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v30](%v30, %v33, %v34, %v25, %v19, %v32, %v29) : [index](index, index, offset, buffer, buffer, view<[%v31]xf32>, buffer)
+    %v35 = index.constant 1 : index
+    %v36 = index.constant 3072 : index
+    %v37 = index.constant 3072 : index
+    %v38 = index.constant 0 : index
+    %v39 = scalar.constant -1 : i32
+    %v40 = index.constant 0 : offset
+    %v41 = index.constant 5308416 : index
+    %v42 = command.parameter %v2, "blk.7.attn_q.weight" : view<[%v41]xi8>
+    %v43 = index.constant 3456 : offset
+    %v44 = buffer.alloca<global> align(256) %v43 : buffer
+    %v45 = index.constant 12288 : offset
+    %v46 = buffer.alloca<global> align(256) %v45 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v35, %v36](%v35, %v36, %v38, %v39, %v40, %v25, %v29, %v44) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v35, %v36, %v37](%v35, %v36, %v37, %v38, %v39, %v40, %v25, %v44, %v42, %v46) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v41]xi8>, buffer)
+    %v47 = index.constant 1 : index
+    %v48 = index.constant 3072 : index
+    %v49 = index.constant 1024 : index
+    %v50 = index.constant 0 : index
+    %v51 = scalar.constant -1 : i32
+    %v52 = index.constant 0 : offset
+    %v53 = index.constant 2580480 : index
+    %v54 = command.parameter %v3, "blk.7.attn_k.weight" : view<[%v53]xi8>
+    %v55 = index.constant 3456 : offset
+    %v56 = buffer.alloca<global> align(256) %v55 : buffer
+    %v57 = index.constant 4096 : offset
+    %v58 = buffer.alloca<global> align(256) %v57 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v47, %v48](%v47, %v48, %v50, %v51, %v52, %v25, %v29, %v56) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v47, %v48, %v49](%v47, %v48, %v49, %v50, %v51, %v52, %v25, %v56, %v54, %v58) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v53]xi8>, buffer)
+    %v59 = index.constant 1 : index
+    %v60 = index.constant 3072 : index
+    %v61 = index.constant 1024 : index
+    %v62 = index.constant 0 : index
+    %v63 = scalar.constant -1 : i32
+    %v64 = index.constant 0 : offset
+    %v65 = index.constant 2580480 : index
+    %v66 = command.parameter %v4, "blk.7.attn_v.weight" : view<[%v65]xi8>
+    %v67 = index.constant 3456 : offset
+    %v68 = buffer.alloca<global> align(256) %v67 : buffer
+    %v69 = index.constant 4096 : offset
+    %v70 = buffer.alloca<global> align(256) %v69 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v59, %v60](%v59, %v60, %v62, %v63, %v64, %v25, %v29, %v68) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v59, %v60, %v61](%v59, %v60, %v61, %v62, %v63, %v64, %v25, %v68, %v66, %v70) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v65]xi8>, buffer)
+    %v71 = index.constant 64 : index
+    %v72 = command.parameter %v0, "rope_freqs.weight" : view<[%v71]xf32>
+    %v73 = index.constant 1 : index
+    %v74 = index.constant 0 : index
+    %v75 = index.constant 1 : index
+    %v76 = index.constant 0 : offset
+    %v77 = index.constant 0 : index
+    %v78 = index.constant 16 : offset
+    %v79 = index.constant 0 : offset
+    %v80 = index.constant 12288 : offset
+    %v81 = buffer.alloca<global> align(256) %v80 : buffer
+    %v82 = buffer.alloca<global> align(256) %v80 : buffer
+    kernel.launch @llama32_rotary_query[%v73](%v75, %v76, %v77, %v20, %v72, %v46, %v81) : [index](index, offset, index, buffer, view<[%v71]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v72, %v58, %v70, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v71]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v73](%v74, %v78, %v75, %v76, %v77, %v79, %v20, %v21, %v81, %v22, %v82) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v83 = index.constant 1 : index
+    %v84 = index.constant 3072 : index
+    %v85 = index.constant 3072 : index
+    %v86 = index.constant 0 : index
+    %v87 = scalar.constant -1 : i32
+    %v88 = index.constant 0 : offset
+    %v89 = index.constant 5308416 : index
+    %v90 = command.parameter %v5, "blk.7.attn_output.weight" : view<[%v89]xi8>
+    %v91 = index.constant 3456 : offset
+    %v92 = buffer.alloca<global> align(256) %v91 : buffer
+    %v93 = index.constant 12288 : offset
+    %v94 = buffer.alloca<global> align(256) %v93 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v83, %v84](%v83, %v84, %v86, %v87, %v88, %v25, %v82, %v92) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v83, %v84, %v85](%v83, %v84, %v85, %v86, %v87, %v88, %v25, %v92, %v90, %v94) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v89]xi8>, buffer)
+    %v95 = index.constant 1 : index
+    %v96 = index.constant 1 : index
+    %v97 = index.constant 0 : offset
+    %v98 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v95](%v96, %v97, %v98, %v20, %v94, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v99 = index.constant 12288 : offset
+    %v100 = buffer.alloca<global> align(256) %v99 : buffer
+    %v101 = index.constant 1 : index
+    %v102 = index.constant 3072 : index
+    %v103 = command.parameter %v6, "blk.7.ffn_norm.weight" : view<[%v102]xf32>
+    %v104 = index.constant 0 : index
+    %v105 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v101](%v101, %v104, %v105, %v25, %v19, %v103, %v100) : [index](index, index, offset, buffer, buffer, view<[%v102]xf32>, buffer)
+    %v106 = index.constant 32768 : offset
+    %v107 = buffer.alloca<global> align(256) %v106 : buffer
+    %v108 = index.constant 1 : index
+    %v109 = index.constant 3072 : index
+    %v110 = index.constant 8192 : index
+    %v111 = scalar.constant 1 : i1
+    %v112 = scalar.constant 0 : i1
+    %v113 = index.constant 32768 : index
+    %v114 = index.constant 12288 : index
+    %v115 = index.constant 0 : index
+    %v116 = index.constant 0 : offset
+    %v117 = index.constant 4 : index
+    %v118 = index.constant 14155776 : index
+    %v119 = command.parameter %v7, "blk.7.ffn_gate.weight" : view<[%v118]xi8>
+    %v120 = command.parameter %v8, "blk.7.ffn_up.weight" : view<[%v118]xi8>
+    %v121 = index.constant 3456 : offset
+    %v122 = buffer.alloca<global> align(256) %v121 : buffer
+    %v123 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    %v124 = index.constant 1 : index
+    %v125 = index.constant 3072 : index
+    %v126 = index.constant 8192 : index
+    %v127 = scalar.constant 1 : i1
+    %v128 = scalar.constant 0 : i1
+    %v129 = index.constant 32768 : index
+    %v130 = index.constant 12288 : index
+    %v131 = index.constant 0 : index
+    %v132 = index.constant 0 : offset
+    %v133 = index.constant 4 : index
+    %v134 = index.constant 14155776 : index
+    %v135 = command.parameter %v9, "blk.7.ffn_down.weight" : view<[%v134]xi8>
+    template.apply<@llm.ffn.down_decode>(%v125, %v126, %v127, %v127, %v127, %v128, %v134, %v129, %v130, %v135, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v134]xi8>, buffer, buffer)
+    %v136 = index.constant 12288 : offset
+    %v137 = buffer.alloca<global> align(256) %v136 : buffer
+    %v138 = index.constant 1 : index
+    %v139 = index.constant 3072 : index
+    %v140 = command.parameter %v10, "blk.11.attn_norm.weight" : view<[%v139]xf32>
+    %v141 = index.constant 0 : index
+    %v142 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v138](%v138, %v141, %v142, %v25, %v19, %v140, %v137) : [index](index, index, offset, buffer, buffer, view<[%v139]xf32>, buffer)
+    %v143 = index.constant 1 : index
+    %v144 = index.constant 3072 : index
+    %v145 = index.constant 3072 : index
+    %v146 = index.constant 0 : index
+    %v147 = scalar.constant -1 : i32
+    %v148 = index.constant 0 : offset
+    %v149 = index.constant 5308416 : index
+    %v150 = command.parameter %v11, "blk.11.attn_q.weight" : view<[%v149]xi8>
+    %v151 = index.constant 3456 : offset
+    %v152 = buffer.alloca<global> align(256) %v151 : buffer
+    %v153 = index.constant 12288 : offset
+    %v154 = buffer.alloca<global> align(256) %v153 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v143, %v144](%v143, %v144, %v146, %v147, %v148, %v25, %v137, %v152) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v143, %v144, %v145](%v143, %v144, %v145, %v146, %v147, %v148, %v25, %v152, %v150, %v154) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v149]xi8>, buffer)
+    %v155 = index.constant 1 : index
+    %v156 = index.constant 3072 : index
+    %v157 = index.constant 1024 : index
+    %v158 = index.constant 0 : index
+    %v159 = scalar.constant -1 : i32
+    %v160 = index.constant 0 : offset
+    %v161 = index.constant 2580480 : index
+    %v162 = command.parameter %v12, "blk.11.attn_k.weight" : view<[%v161]xi8>
+    %v163 = index.constant 3456 : offset
+    %v164 = buffer.alloca<global> align(256) %v163 : buffer
+    %v165 = index.constant 4096 : offset
+    %v166 = buffer.alloca<global> align(256) %v165 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v155, %v156](%v155, %v156, %v158, %v159, %v160, %v25, %v137, %v164) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v155, %v156, %v157](%v155, %v156, %v157, %v158, %v159, %v160, %v25, %v164, %v162, %v166) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v161]xi8>, buffer)
+    %v167 = index.constant 1 : index
+    %v168 = index.constant 3072 : index
+    %v169 = index.constant 1024 : index
+    %v170 = index.constant 0 : index
+    %v171 = scalar.constant -1 : i32
+    %v172 = index.constant 0 : offset
+    %v173 = index.constant 2580480 : index
+    %v174 = command.parameter %v13, "blk.11.attn_v.weight" : view<[%v173]xi8>
+    %v175 = index.constant 3456 : offset
+    %v176 = buffer.alloca<global> align(256) %v175 : buffer
+    %v177 = index.constant 4096 : offset
+    %v178 = buffer.alloca<global> align(256) %v177 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v167, %v168](%v167, %v168, %v170, %v171, %v172, %v25, %v137, %v176) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%v167, %v168, %v169](%v167, %v168, %v169, %v170, %v171, %v172, %v25, %v176, %v174, %v178) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v173]xi8>, buffer)
+    %v179 = index.constant 64 : index
+    %v180 = command.parameter %v0, "rope_freqs.weight" : view<[%v179]xf32>
+    %v181 = index.constant 1 : index
+    %v182 = index.constant 1 : index
+    %v183 = index.constant 1 : index
+    %v184 = index.constant 0 : offset
+    %v185 = index.constant 0 : index
+    %v186 = index.constant 16 : offset
+    %v187 = index.constant 0 : offset
+    %v188 = index.constant 12288 : offset
+    %v189 = buffer.alloca<global> align(256) %v188 : buffer
+    %v190 = buffer.alloca<global> align(256) %v188 : buffer
+    kernel.launch @llama32_rotary_query[%v181](%v183, %v184, %v185, %v20, %v180, %v154, %v189) : [index](index, offset, index, buffer, view<[%v179]xf32>, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v181](%v182, %v186, %v183, %v184, %v185, %v187, %v20, %v21, %v180, %v166, %v178, %v22) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%v179]xf32>, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v181](%v182, %v186, %v183, %v184, %v185, %v187, %v20, %v21, %v189, %v22, %v190) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v191 = index.constant 1 : index
+    %v192 = index.constant 3072 : index
+    %v193 = index.constant 3072 : index
+    %v194 = index.constant 0 : index
+    %v195 = scalar.constant -1 : i32
+    %v196 = index.constant 0 : offset
+    %v197 = index.constant 5308416 : index
+    %v198 = command.parameter %v14, "blk.11.attn_output.weight" : view<[%v197]xi8>
+    %v199 = index.constant 3456 : offset
+    %v200 = buffer.alloca<global> align(256) %v199 : buffer
+    %v201 = index.constant 12288 : offset
+    %v202 = buffer.alloca<global> align(256) %v201 : buffer
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v191, %v192](%v191, %v192, %v194, %v195, %v196, %v25, %v190, %v200) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%v191, %v192, %v193](%v191, %v192, %v193, %v194, %v195, %v196, %v25, %v200, %v198, %v202) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%v197]xi8>, buffer)
+    %v203 = index.constant 1 : index
+    %v204 = index.constant 1 : index
+    %v205 = index.constant 0 : offset
+    %v206 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v203](%v204, %v205, %v206, %v20, %v202, %v19) : [index](index, offset, index, buffer, buffer, buffer)
+    %v207 = index.constant 12288 : offset
+    %v208 = buffer.alloca<global> align(256) %v207 : buffer
+    %v209 = index.constant 1 : index
+    %v210 = index.constant 3072 : index
+    %v211 = command.parameter %v15, "blk.11.ffn_norm.weight" : view<[%v210]xf32>
+    %v212 = index.constant 0 : index
+    %v213 = index.constant 0 : offset
+    kernel.launch @llama32_rmsnorm_active_f32[%v209](%v209, %v212, %v213, %v25, %v19, %v211, %v208) : [index](index, index, offset, buffer, buffer, view<[%v210]xf32>, buffer)
+    %v214 = index.constant 32768 : offset
+    %v215 = buffer.alloca<global> align(256) %v214 : buffer
+    %v216 = index.constant 1 : index
+    %v217 = index.constant 3072 : index
+    %v218 = index.constant 8192 : index
+    %v219 = scalar.constant 1 : i1
+    %v220 = scalar.constant 0 : i1
+    %v221 = index.constant 32768 : index
+    %v222 = index.constant 12288 : index
+    %v223 = index.constant 0 : index
+    %v224 = index.constant 0 : offset
+    %v225 = index.constant 4 : index
+    %v226 = index.constant 14155776 : index
+    %v227 = command.parameter %v16, "blk.11.ffn_gate.weight" : view<[%v226]xi8>
+    %v228 = command.parameter %v17, "blk.11.ffn_up.weight" : view<[%v226]xi8>
+    %v229 = index.constant 3456 : offset
+    %v230 = buffer.alloca<global> align(256) %v229 : buffer
+    %v231 = scalar.constant 1 : i32
+    kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v216, %v217](%v216, %v217, %v223, %v231, %v224, %v208, %v208, %v230) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v217, %v218, %v219, %v219, %v219, %v220, %v226, %v221, %v227, %v228, %v230, %v215) : (index, index, i1, i1, i1, i1, index, index, view<[%v226]xi8>, view<[%v226]xi8>, buffer, buffer)
+    %v232 = index.constant 1 : index
+    %v233 = index.constant 3072 : index
+    %v234 = index.constant 8192 : index
+    %v235 = scalar.constant 1 : i1
+    %v236 = scalar.constant 0 : i1
+    %v237 = index.constant 32768 : index
+    %v238 = index.constant 12288 : index
+    %v239 = index.constant 0 : index
+    %v240 = index.constant 0 : offset
+    %v241 = index.constant 4 : index
+    %v242 = index.constant 14155776 : index
+    %v243 = command.parameter %v18, "blk.11.ffn_down.weight" : view<[%v242]xi8>
+    template.apply<@llm.ffn.down_decode>(%v233, %v234, %v235, %v235, %v235, %v236, %v242, %v237, %v238, %v243, %v215, %v19) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v242]xi8>, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @joined.2.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+  command.serial {
+    %v24 = index.constant 1 : index
+    %v25 = index.constant 1 : index
+    %v26 = index.constant 0 : index
+    %v27 = index.constant 1 : index
+    %v28 = index.constant 2 : index
+    %v29 = index.constant 12288 : offset
+    %v30 = index.constant 12288 : offset
+    %v31 = index.constant 4194368 : offset
+    %v32 = buffer.alloca<global> align(256) %v29 : buffer
+    %v33 = buffer.alloca<global> align(256) %v30 : buffer
+    %v34 = buffer.alloca<global> align(256) %v31 : buffer
+    %v35 = buffer.alloca<global> align(256) %v31 : buffer
+    %v36 = index.constant 0 : index
+    kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    %v37 = index.constant 1 : index
+    kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
+    kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.program.launch @joined.2.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  }
+  command.return
+}

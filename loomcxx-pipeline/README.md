@@ -2,7 +2,7 @@
 
 This tree provides editable C++ authoring for numerical kernels, motifs and
 families. Its outputs are ordinary verified Loom modules, consumed by existing
-compiler and [Loomify authoring APIs](../tools/loomify-gguf/authoring/command/command_program_builder.h).
+compiler and [Loomify maintained-module assembly](../lib/docs/gguf-export.md).
 The production `.loom` catalog stays in [loom-pipeline](../loom-pipeline/llm/README.md).
 Import, linking and compilation use the current HRX pin.
 
@@ -82,25 +82,16 @@ families implement the computation and are not caller dispatch shortcuts.
 
 ## Loomify consumers
 
-Create an owned `ModuleBuilder` from verified definitions, resolve a `KernelRef`,
-preflight its interface, invoke it from `CommandProgramBuilder`, then finish with
-`LinkAndVerify`. Imported Qwen F32 prefill has `(index)` workload and
-`(index, f32, buffer, buffer, buffer)` device arguments, including explicit epsilon.
-The current fixed-epsilon Llama model recipe instead consumes the existing
-[`DefineLlamaRmsNorm`](../tools/loomify-gguf/authoring/model-full/README.md)
-adapter over providers-only output:
-
-```cpp
-KernelRef norm;
-DefineLlamaRmsNorm(*module, "my.llama_norm", &norm);
-```
-
-Its supported width3072/epsilon1e-5 configuration yields the model-compatible
-`(index)` workload and `(index, buffer, buffer, buffer)` device interface accepted
-by `DefineLlamaStep`. The shared `testing:loomify_consumer_test` checks both paths,
-source/builder lifetime independence, owned output roundtrip, exact interface and
-owner rejection, and actual numerical closure. This is bounded authoring
-integration evidence, not full GGUF/model generation or serving qualification.
+Import numerical definitions through the existing source provider, then native-link
+maintained Loom commands that invoke those definitions. The public Qwen F32
+prefill interface has `(index)` workload and
+`(index, f32, buffer, buffer, buffer)` launch arguments, including epsilon.
+`testing/consumer_commands.loom` and `testing/consumer_model_norm.loom` demonstrate
+ordinary calls and a width3072/epsilon1e-5 Llama adapter. The native consumer test
+checks source/module lifetime, serialization and mismatched interface rejection.
+Its execution test retains independent arithmetic, guard and immutable-input
+assertions. These are imported-kernel tests; full GGUF module/package assembly
+uses the separate public builder described in the library guide.
 
 ## Validation
 

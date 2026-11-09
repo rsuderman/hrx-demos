@@ -1,13 +1,6 @@
 load(":bytecode.bzl", "bytecode_catalogs")
 load(":catalog_sources.bzl", "CATALOG_BUILDS")
 
-exports_files(
-    [
-        "llm/qwen/kernels/qwen38/decode_control.loom",
-        "llm/motifs/ggml/linear_qk_common.loom",
-    ],
-    visibility = ["//tools/loomify-gguf/registry/loading/testdata:__pkg__"],
-)
 
 exports_files(
     [

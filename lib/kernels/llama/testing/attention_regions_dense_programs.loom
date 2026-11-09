@@ -1,0 +1,145 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @llama.model.layer_count = 2 : index
+
+config.def @llama.model.query_heads = 24 : index
+
+config.def @llama.model.kv_heads = 8 : index
+
+config.def @llama.model.head_size = 128 : index
+
+config.def @llama.model.kv_size = 1024 : index
+
+config.def @llama.attention.cache_capacity = 512 : %5: index where [range(%5, 1, 131072), range(%5, 1, 131072)]
+
+config.def @llama.attention.pool_capacity = 0 : %6: index where [range(%6, 0, 4194304), multiple_of(%6, 64), range(%6, 0, 4194304), multiple_of(%6, 64)]
+
+config.def @llama.model.hidden_size = 3072 : index
+
+kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
+
+kernel.decl @llama32_attention_rows(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
+kernel.decl @llama32_publish_kv(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
+kernel.decl @llama32_rotary_query(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %factors: buffer, %projection: buffer, %query: buffer)
+
+command.program.def public retain @region.dense.partial0() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer) {
+  command.serial {
+    %v8 = index.constant 12 : offset
+    %v9 = buffer.alloca<global> align(4) %v8 : buffer
+    %v10 = index.constant 0 : index
+    %v11 = index.constant 8 : offset
+    kernel.launch @llama32_head_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
+    %v12 = index.constant 8 : index
+    %v13 = index.constant 0 : index
+    %v14 = index.constant 0 : index
+    %v15 = index.constant 8 : offset
+    %v16 = index.constant 2 : index
+    %v17 = index.constant 16 : offset
+    %v18 = index.constant 4 : offset
+    %v19 = index.constant 98304 : offset
+    %v20 = buffer.alloca<global> align(256) %v19 : buffer
+    %v21 = buffer.alloca<global> align(256) %v19 : buffer
+    kernel.launch @llama32_rotary_query[%v12](%v14, %v15, %v16, %v0, %v3, %v4, %v20) : [index](index, offset, index, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v3, %v5, %v6, %v2) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v20, %v2, %v21) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v22 = index.constant 8 : index
+    %v23 = index.constant 2 : index
+    %v24 = index.constant 8 : offset
+    %v25 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v22](%v25, %v24, %v23, %v0, %v21, %v7) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @region.dense.partial1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer) {
+  command.serial {
+    %v8 = index.constant 12 : offset
+    %v9 = buffer.alloca<global> align(4) %v8 : buffer
+    %v10 = index.constant 0 : index
+    %v11 = index.constant 8 : offset
+    kernel.launch @llama32_head_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
+    %v12 = index.constant 8 : index
+    %v13 = index.constant 1 : index
+    %v14 = index.constant 0 : index
+    %v15 = index.constant 8 : offset
+    %v16 = index.constant 2 : index
+    %v17 = index.constant 16 : offset
+    %v18 = index.constant 4 : offset
+    %v19 = index.constant 98304 : offset
+    %v20 = buffer.alloca<global> align(256) %v19 : buffer
+    %v21 = buffer.alloca<global> align(256) %v19 : buffer
+    kernel.launch @llama32_rotary_query[%v12](%v14, %v15, %v16, %v0, %v3, %v4, %v20) : [index](index, offset, index, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v3, %v5, %v6, %v2) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v20, %v2, %v21) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v22 = index.constant 8 : index
+    %v23 = index.constant 2 : index
+    %v24 = index.constant 8 : offset
+    %v25 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v22](%v25, %v24, %v23, %v0, %v21, %v7) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @region.dense.large() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer) {
+  command.serial {
+    %v8 = index.constant 12 : offset
+    %v9 = buffer.alloca<global> align(4) %v8 : buffer
+    %v10 = index.constant 0 : index
+    %v11 = index.constant 8 : offset
+    kernel.launch @llama32_head_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
+    %v12 = index.constant 20 : index
+    %v13 = index.constant 1 : index
+    %v14 = index.constant 0 : index
+    %v15 = index.constant 8 : offset
+    %v16 = index.constant 2 : index
+    %v17 = index.constant 16 : offset
+    %v18 = index.constant 4 : offset
+    %v19 = index.constant 245760 : offset
+    %v20 = buffer.alloca<global> align(256) %v19 : buffer
+    %v21 = buffer.alloca<global> align(256) %v19 : buffer
+    kernel.launch @llama32_rotary_query[%v12](%v14, %v15, %v16, %v0, %v3, %v4, %v20) : [index](index, offset, index, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v3, %v5, %v6, %v2) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v20, %v2, %v21) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v22 = index.constant 20 : index
+    %v23 = index.constant 2 : index
+    %v24 = index.constant 8 : offset
+    %v25 = index.constant 0 : index
+    kernel.launch @llama32_attention_residual[%v22](%v25, %v24, %v23, %v0, %v21, %v7) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}
+
+command.program.def public retain @region.dense.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer) {
+  command.serial {
+    %v8 = index.constant 12 : offset
+    %v9 = buffer.alloca<global> align(4) %v8 : buffer
+    %v10 = index.constant 1 : index
+    %v11 = index.constant 8 : offset
+    kernel.launch @llama32_head_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
+    %v12 = index.constant 1 : index
+    %v13 = index.constant 1 : index
+    %v14 = index.constant 1 : index
+    %v15 = index.constant 8 : offset
+    %v16 = index.constant 0 : index
+    %v17 = index.constant 16 : offset
+    %v18 = index.constant 4 : offset
+    %v19 = index.constant 12288 : offset
+    %v20 = buffer.alloca<global> align(256) %v19 : buffer
+    %v21 = buffer.alloca<global> align(256) %v19 : buffer
+    kernel.launch @llama32_rotary_query[%v12](%v14, %v15, %v16, %v0, %v3, %v4, %v20) : [index](index, offset, index, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_publish_kv[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v3, %v5, %v6, %v2) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_attention_rows[%v12](%v13, %v17, %v14, %v15, %v16, %v18, %v0, %v1, %v20, %v2, %v21) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+    %v22 = index.constant 1 : index
+    %v23 = index.constant 0 : index
+    %v24 = index.constant 8 : offset
+    %v25 = index.constant 1 : index
+    kernel.launch @llama32_attention_residual[%v22](%v25, %v24, %v23, %v0, %v21, %v7) : [index](index, offset, index, buffer, buffer, buffer)
+  }
+  command.return
+}

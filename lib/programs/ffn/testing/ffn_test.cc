@@ -1,9 +1,8 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/authoring/model-config/configuration.h"
-#include "tools/loomify-gguf/authoring/model-config/providers.h"
-#include "lib/llama/testing/model_fixture.h"
-#include "lib/qwen/testing/model_fixture.h"
+#include "tools/loomify-gguf/configuration.h"
+#include "tools/loomify-gguf/linking.h"
+#include "tools/loomify-gguf/testing/configuration_fixture.h"
 #include "loomc/compile.h"
 #include "loomc/source.h"
 #include "loomc/target/amdgpu.h"
@@ -120,23 +119,13 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
 // Synthetic descriptor metadata exercises both native provider closures. Actual
 // checkpoint bytes and active-row numerics are a separate bounded manual gate.
 model::ModelDescriptor Facts(bool llama) {
-  if (!llama) return qwen::testing::ModelFacts(3);
-  auto facts = llama::testing::ModelFacts(2);
-  for (size_t i = 0; i < facts.layers.size(); ++i) {
-    auto &layer = facts.layers[i];
-    const auto old = "blk." + std::to_string(layer.index) + ".";
-    const auto name = "blk." + std::to_string(i) + ".";
-    layer.index = i;
-    for (auto &binding : layer.tensors) {
-      binding.tensor.name.replace(0, old.size(), name);
-      // Mixed encodings keep the lookup result nonuniform across layers.
-      // Uniform metadata alone can hide premature family selection.
-      if (i == 1 && binding.role == "ffn_down") {
+  auto facts = llama ? testing::LlamaModelFacts() : testing::QwenModelFacts();
+  if (llama)
+    for (auto &binding : facts.layers[1].tensors)
+      if (binding.role == "ffn_down") {
         binding.tensor.storage_type = 14;
         binding.tensor.byte_size = 8192 / 256 * 3072 * 210;
       }
-    }
-  }
   return facts;
 }
 class ConfiguredFfnTest : public ::testing::TestWithParam<bool> {
@@ -165,30 +154,14 @@ class ConfiguredFfnTest : public ::testing::TestWithParam<bool> {
     const bool llama = GetParam();
     const std::string family = llama ? "llama" : "qwen";
     auto facts = Facts(llama);
-    LinkedConfigurationSettings settings;
-    settings.profile = llama ? LinkedProfile::Llama3BModel : LinkedProfile::Qwen08BFfn;
-    settings.token_capacity = 4;
-    LinkedConfiguration config;
-    loomc_result_t *result = nullptr;
-    ASSERT_TRUE(Ok(CreateLinkedConfiguration(context, workspace, facts,
-        "synthetic-descriptor", settings, &config, &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
-    loomc_result_release(result);
-    auto request = llama ? MakeLlamaLinkedProviders(root, relocatable)
-                         : MakeQwenFfnLinkedProviders(root, relocatable);
-    request.providers.push_back({"lib/programs/ffn/ffn.loom"});
-    request.providers.push_back({"lib/" + family + "/programs/ffn_adapter.loom"});
-    request.providers.push_back({"lib/programs/ffn/testing/" + family + "_roots.loom"});
-    request.roots.push_back({"test." + family + ".ffn." + suffix,
-        ConfiguredCallableKind::CommandProgram, {},
-        {loom_type_buffer(), loom_type_buffer(), loom_type_buffer()}});
-    request.required_configuration = {"loomify.ffn.profile"};
-    request.required_definitions = {"loomify_ffn"};
-    result = nullptr;
-    ASSERT_TRUE(Ok(LinkConfiguredModules(context, workspace, config.module.get(),
-        request, module, &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
-    loomc_result_release(result);
+    ConfigurationFacts config;
+    std::string error;
+    ASSERT_TRUE(DeriveConfiguration(facts, "synthetic-descriptor", {4,512}, &config, &error)) << error;
+    const auto product = root + "/lib/programs/ffn/testing/" + family +
+        (relocatable ? "_fixture.loombc" : "_fixture_text.loom");
+    const auto symbol = "test." + family + ".ffn." + suffix;
+    ASSERT_TRUE(LinkConfiguredProduct(context, workspace, config.source, product,
+        {symbol.c_str()}, true, module, &error)) << error;
     ASSERT_NE(*module, nullptr);
   }
   loomc_target_environment_t *environment = nullptr;

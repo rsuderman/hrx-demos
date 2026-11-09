@@ -1,0 +1,7 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+loom_library(name = "profile", srcs = ["gdn_config.loom"])
+loom_test(name = "gdn_core_execution_test", srcs = ["core_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", "//lib/kernels/qwen:spans", ":profile"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])

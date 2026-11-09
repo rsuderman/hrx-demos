@@ -1,0 +1,24 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Maintained test call wiring; numerical bodies are linked from owned kernels.
+
+config.def @llama.model.hidden_size = 3072 : index
+
+config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
+
+kernel.decl @llama32_rmsnorm_f32(%token_count0: index) launch(%token_count0: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size: index) launch(%token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
+command.program.def public retain @registered.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
+  command.serial {
+    %v3 = index.constant 24576 : offset
+    %v4 = buffer.alloca<global> align(256) %v3 : buffer
+    %v5 = index.constant 2 : index
+    kernel.launch @llama32_rmsnorm_f32[%v5](%v5, %v0, %v1, %v4) : [index](index, buffer, buffer, buffer)
+    %v6 = index.constant 2 : index
+    %v7 = index.constant 3072 : index
+    kernel.launch @llm_ffn_residual_add_f32_prefill[%v6, %v7](%v6, %v0, %v4, %v2) : [index, index](index, buffer, buffer, buffer)
+  }
+  command.return
+}

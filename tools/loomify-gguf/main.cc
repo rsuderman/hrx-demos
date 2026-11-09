@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "iree/base/tooling/flags.h"
 #include "loomc/target/amdgpu.h"
-#include "tools/loomify-gguf/serving/model_export.h"
-#include "tools/loomify-gguf/serving/qwen/model_export.h"
-#include "tools/loomify-gguf/source_builder.h"
+#include "tools/loomify-gguf/gguf_model_builder.h"
+#include "tools/loomify-gguf/embedding.h"
 #include "tools/model/model_descriptor.h"
 #include <cstdio>
 #include <cstdlib>
@@ -43,15 +42,14 @@ bool Check(loomc_status_t status) {
   loomc_status_free(status);
   return ok;
 }
-std::filesystem::path SourceRoot(const char *executable) {
+std::filesystem::path LibraryRoot(const char *executable) {
   std::vector<std::filesystem::path> candidates;
   if (const char *runfiles = std::getenv("RUNFILES_DIR"))
     candidates.emplace_back(std::filesystem::path(runfiles) / "_main");
   candidates.emplace_back(
       std::filesystem::path(std::string(executable) + ".runfiles") / "_main");
-  candidates.emplace_back(std::filesystem::current_path());
   for (const auto &path : candidates)
-    if (std::filesystem::exists(path / "lib/llama/programs/model.loom"))
+    if (std::filesystem::is_directory(path / "lib/architectures"))
       return path;
   return {};
 }
@@ -66,44 +64,23 @@ int ExportModel(const char *executable) {
                          "valid capacities; use --output only for embedding\n");
     return 1;
   }
-  hrx::loomify_gguf::ModelPackageOptions options;
-  options.source_root = SourceRoot(executable);
-  options.output_directory = FLAG_output_dir;
-  options.gguf = FLAG_gguf;
-  options.tokenizer = FLAG_tokenizer;
-  options.prefill_capacity = FLAG_prefill_capacity;
-  options.context_capacity = FLAG_context_capacity;
-  options.format = std::strcmp(FLAG_format, "bc") == 0
-                       ? LOOMC_SOURCE_FORMAT_BYTECODE
-                       : LOOMC_SOURCE_FORMAT_TEXT;
-  if (options.source_root.empty() ||
-      !std::filesystem::is_regular_file(options.tokenizer) ||
-      std::filesystem::exists(options.output_directory)) {
-    std::fprintf(stderr, "loomify-gguf: model providers/tokenizer must exist "
-                         "and output directory must be new\n");
-    return 1;
-  }
-  FILE *input = std::fopen(FLAG_gguf, "rb");
-  if (!input) {
-    std::perror("loomify-gguf: opening GGUF");
-    return 1;
-  }
-  std::unique_ptr<FILE, decltype(&std::fclose)> file(input, &std::fclose);
-  if (std::setvbuf(input, nullptr, _IONBF, 0) != 0) {
-    std::fprintf(stderr, "loomify-gguf: unable to disable input buffering\n");
-    return 1;
-  }
-  hrx::model::ModelDescriptor model;
+  std::unique_ptr<hrx::loomify_gguf::GgufModelBuilder> builder;
   std::string error;
-  hrx::model::GgufCatalog catalog;
-  if (!hrx::model::ReadGgufCatalog(input, &catalog, &error) ||
-      !hrx::model::LoadModelDescriptor(catalog, &model, &error)) {
+  if (!hrx::loomify_gguf::GgufModelBuilder::Open(FLAG_gguf, &builder, &error)) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
     return 1;
   }
-  file.reset();
-  if (model.family != "llama" && model.family != "qwen35") {
-    std::fprintf(stderr, "loomify-gguf: unsupported model family\n");
+  hrx::loomify_gguf::GgufBuildOptions build;
+  build.library_root = LibraryRoot(executable).string();
+  build.prefill_capacity = FLAG_prefill_capacity;
+  build.context_capacity = FLAG_context_capacity;
+  hrx::loomify_gguf::GgufPackageOptions package;
+  package.output_directory = FLAG_output_dir;
+  package.tokenizer = FLAG_tokenizer;
+  package.format = std::strcmp(FLAG_format, "bc") == 0
+      ? LOOMC_SOURCE_FORMAT_BYTECODE : LOOMC_SOURCE_FORMAT_TEXT;
+  if (build.library_root.empty()) {
+    std::fprintf(stderr, "loomify-gguf: declared model products are missing from runfiles\n");
     return 1;
   }
   loomc_target_environment_t *environment = nullptr;
@@ -127,27 +104,7 @@ int ExportModel(const char *executable) {
                                     &workspace)))
     return 1;
   Owner<loomc_workspace_t, loomc_workspace_release> workspace_owner(workspace);
-  loomc_module_t *module = nullptr;
-  hrx::dispatch::QwenNativeGeometry qwen_geometry;
-  hrx::loomify_gguf::ConfiguredLlamaModel llama_model;
-  const bool qwen = model.family == "qwen35";
-  const bool built =
-      qwen ? hrx::loomify_gguf::BuildQwenServeModule(model, options, context,
-                                                     workspace, &module,
-                                                     &qwen_geometry, &error)
-           : hrx::loomify_gguf::BuildLlamaServeModule(
-                 model, options, context, workspace, &llama_model, &error);
-  if (!built) {
-    std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
-    return 1;
-  }
-  if (!qwen) module = llama_model.module.get();
-  Owner<loomc_module_t, loomc_module_release> module_owner(qwen ? module : nullptr);
-  const bool written = qwen ? hrx::loomify_gguf::WriteQwenPackage(
-                                  model, options, qwen_geometry, module, &error)
-                            : hrx::loomify_gguf::WriteLlamaPackage(
-                                  model, options, llama_model, &error);
-  if (!written) {
+  if (!builder->WritePackage(context, workspace, build, package, &error)) {
     std::fprintf(stderr, "loomify-gguf: %s\n", error.c_str());
     return 1;
   }

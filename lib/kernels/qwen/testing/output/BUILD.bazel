@@ -1,0 +1,9 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+package(default_visibility = ["//visibility:public"])
+_NUMERICAL = ["//lib/kernels/qwen:configured_provider_sources", "//lib/kernels/qwen:output/interface.loom", "//lib/kernels/qwen:output/embedding.loom", "//lib/kernels/qwen:output/head.loom", "//lib/kernels/qwen:output/publication.loom", "//lib/kernels/embedding:q6k_rows.loom", "//lib/kernels/selection:greedy_argmax.loom"]
+[loom_merge(name = "output_t%d_%s" % (t, format), srcs = ["output_t%d_programs.loom" % t, "nontrivial.loom"] + _NUMERICAL, output_format = format, testonly = True) for t in [1,4] for format in ["text","bc"]]
+[loom_test(name = "execution_t%d_%s" % (t, format), srcs = ["checks_t%d.loom" % t, ":output_t%d_%s" % (t, format)], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for t in [1,4] for format in ["text","bc"]]
