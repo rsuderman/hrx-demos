@@ -11,7 +11,7 @@ config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : %value: index where [range
 
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
 
-amdgpu.target<gfx11-generic> @ggml_q6k_compat_wave32 {subgroup_size = 32}
+target.decl @llm.platform.projection.q6k.compatible.wave32
 
 func.decl @ggml_qk_mmvq_compat_select(%capacity: index, %token: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer) -> (i1, i1, i1)
 
@@ -119,7 +119,7 @@ func.def inline @ggml_q6k_compat_row(%input_size: index, %weight: buffer, %weigh
   func.return %result : f32
 }
 
-kernel.def target(@ggml_q6k_compat_wave32) export("ggml_linear_q6k_q8_1_x4_compat") @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) {
+kernel.def target(@llm.platform.projection.q6k.compatible.wave32) export("ggml_linear_q6k_q8_1_x4_compat") @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048)] : index
   %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144)] : index
   %subgroup_size = target.subgroup.size : index

@@ -21,7 +21,7 @@ cc_test(
     ],
 )
 
-[loom_merge(name = "provider_" + format, srcs = ["//lib/programs/projection:implementation_sources"], output_format = format, testonly = True) for format in ["text", "bc"]]
+[loom_merge(name = "provider_" + format, srcs = ["//lib/programs/projection:implementation_sources", "//lib/platforms/amdgpu/gfx11:targets.loom"], output_format = format, testonly = True) for format in ["text", "bc"]]
 
 # Exercise the same actual operation closure in source and serialized form.
 [loom_test(

@@ -124,14 +124,16 @@ class QwenModelTest : public ::testing::Test {
   Module Link(loomc_module_t *config, loomc_module_t *implementation, bool succeeds = true) {
     loomc_linker_t *linker = nullptr;
     EXPECT_TRUE(Ok(loomc_linker_create(context, nullptr, loomc_allocator_system(), &linker)));
+    auto targets = Load(root + "/lib/platforms/amdgpu/gfx11/targets.loombc");
     loomc_link_module_provider_t providers[] = {
         {config, loomc_make_cstring_view("configuration"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
-        {implementation, loomc_make_cstring_view("implementation"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
+        {implementation, loomc_make_cstring_view("implementation"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
+        {targets.get(), loomc_make_cstring_view("platform"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
     const auto symbol = loomc_make_cstring_view("generated.qwen_epoch");
     loomc_link_options_t options{};
     options.mode = LOOMC_LINK_MODE_LINK;
     options.module_providers = providers;
-    options.module_provider_count = 2;
+    options.module_provider_count = 3;
     options.root_symbols = &symbol;
     options.root_symbol_count = 1;
     options.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
@@ -567,7 +569,7 @@ TEST_F(QwenModelTest, ChangedGgufFactsReachTheNormalConstructor) {
       // The product path used by the public builder must actually materialize
       // operation predicates; plain LINK alone is insufficient admission.
       loomc_module_t *raw = nullptr;
-      ASSERT_TRUE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name},
+      ASSERT_TRUE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
           {"generated.qwen_epoch"}, true, &raw, &error)) << error;
       Module constructed(raw, loomc_module_release);
       ASSERT_TRUE(constructed);
@@ -587,7 +589,7 @@ TEST_F(QwenModelTest, UnsupportedQueryEncodingFailsBeforeNumericalPublication) {
                                   &configuration, &error)) << error;
   for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
     loomc_module_t *raw = nullptr;
-    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name},
+    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
         {"generated.qwen_epoch"}, true, &raw, &error));
     EXPECT_EQ(raw, nullptr);
     EXPECT_FALSE(error.empty());
@@ -607,11 +609,24 @@ TEST_F(QwenModelTest, UnsupportedConvolutionKeyHeadCountFailsBeforePublication) 
                                prefix + "8 : index");
   for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
     loomc_module_t *raw = nullptr;
-    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name},
+    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
         {"generated.qwen_epoch"}, true, &raw, &error));
     EXPECT_EQ(raw, nullptr);
     EXPECT_FALSE(error.empty());
   }
+}
+TEST_F(QwenModelTest, MissingPlatformScheduleFailsFinalMaterialization) {
+  ConfigurationFacts configuration;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "immutable-gguf", {}, &configuration, &error)) << error;
+  loomc_module_t* raw = nullptr;
+  EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source,
+      {root + "/lib/architectures/qwen35/incomplete_schedule_fixture.loombc",
+       root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
+      {"generated.qwen_epoch"}, true, &raw, &error));
+  Module module(raw, loomc_module_release);
+  EXPECT_FALSE(module);
+  EXPECT_NE(error.find("llm.attention.prefill_wmma_h256"), std::string::npos) << error;
 }
 TEST_F(QwenModelTest, MissingLiveConfigurationAndProvidersFailStrictLink) {
   ConfigurationFacts configuration;

@@ -1,0 +1,37 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Deliberately separate authored requirements from their concrete provider.
+target.decl @platform_test_wave32
+target.decl @platform_test_wave64
+
+kernel.def target(@platform_test_wave32) @platform_test_kernel32() {
+  %one = index.constant 1 : index
+  %size = target.subgroup.size : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%size, %one, %one) : index
+} launch(%output: buffer) {
+  %zero = index.constant 0 : index
+  %size = target.subgroup.size : index
+  %value = index.cast %size : index to i32
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<1xi32>
+  view.store %value, %view[%zero] : i32, view<1xi32>
+  kernel.return
+}
+kernel.def target(@platform_test_wave64) @platform_test_kernel64() {
+  %one = index.constant 1 : index
+  %size = target.subgroup.size : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%size, %one, %one) : index
+} launch(%output: buffer) {
+  %zero = index.constant 0 : index
+  %size = target.subgroup.size : index
+  %value = index.cast %size : index to i32
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<1xi32>
+  view.store %value, %view[%zero] : i32, view<1xi32>
+  kernel.return
+}
+command.program.def public @platform_test() launch(%output32: buffer, %output64: buffer) {
+  kernel.launch @platform_test_kernel32[](%output32) : [](buffer)
+  kernel.launch @platform_test_kernel64[](%output64) : [](buffer)
+  command.return
+}

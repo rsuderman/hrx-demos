@@ -1,5 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
+#include "loomc/source.h"
 #include "lib/loomify/gguf_model_builder.h"
 #include "gtest/gtest.h"
 #include "lib/loomify/testing/package_buffer_vm.h"
@@ -112,6 +113,19 @@ class GgufPackageTest : public ::testing::Test {
         EXPECT_EQ(function.kind, LOOMC_MODULE_FUNCTION_KIND_FUNCTION) << name;
         EXPECT_TRUE(function.flags & LOOMC_MODULE_FUNCTION_FLAG_PUBLIC) << name;
       }
+    }
+    if (module && (path.filename() == "model.loom" || path.filename() == "model.loombc")) {
+      loomc_module_serialize_options_t inspect{}; inspect.format = LOOMC_SOURCE_FORMAT_TEXT;
+      loomc_source_t* source = nullptr;
+      ASSERT_TRUE(Ok(loomc_module_serialize_to_source(module, &inspect, loomc_allocator_system(), &source)));
+      const auto contents = loomc_source_contents(source);
+      const std::string text(reinterpret_cast<const char*>(contents.data), contents.data_length);
+      EXPECT_EQ(text.find("target.decl"), std::string::npos) << path;
+      EXPECT_NE(text.find("subgroup_size = 32"), std::string::npos) << path;
+      EXPECT_NE(text.find("subgroup_size = 64"), std::string::npos) << path;
+      EXPECT_NE(text.find("target(@llm.platform.selection.greedy.wave64)"), std::string::npos) << path;
+      EXPECT_NE(text.find("amdgpu.target<gfx11-generic> @llm.platform.selection.greedy.wave64"), std::string::npos) << path;
+      loomc_source_release(source);
     }
     if (result) loomc_result_release(result);
     if (module) loomc_module_release(module);
@@ -265,6 +279,7 @@ TEST_F(GgufPackageTest, ConfigurationCliWorksWithoutProductsAndRetainsSuccessful
       {input}, {input, "--output="}, {input, "--configuration-output="},
       {input, "--output=x", "--output-dir=y", "--tokenizer=z"},
       {input, "--output=x", "--tokenizer=z"},
+      {input, "--output=x", "--platform=amdgpu:gfx942"},
       {input, "--configuration-output=x", "--chat-template=default"}})
     EXPECT_NE(RunCli(executable, absent_runfiles, flags), 0);
 }
@@ -276,6 +291,13 @@ TEST_F(GgufPackageTest, NumericalCliExportsBothFormatsUsingInspectedSource) {
   const auto relative = fs::path("lib/architectures/llama/implementation.loombc");
   fs::create_directories((runfiles / "_main" / relative).parent_path());
   fs::copy_file(root_ / relative, runfiles / "_main" / relative);
+  const auto missing_output = scratch_ / "missing-platform.loombc";
+  EXPECT_NE(RunCli(executable, runfiles, {"--gguf=" + std::string(Asset(false)),
+      "--output=" + missing_output.string()}), 0);
+  EXPECT_FALSE(fs::exists(missing_output));
+  const auto target_path = fs::path("lib/platforms/amdgpu/gfx11/targets.loombc");
+  fs::create_directories((runfiles / "_main" / target_path).parent_path());
+  fs::copy_file(root_ / target_path, runfiles / "_main" / target_path);
   EXPECT_FALSE(fs::exists(runfiles / "_main/lib/text"));
   EXPECT_FALSE(fs::exists(runfiles / "_main/lib/architectures/qwen35"));
   for (const char* format : {"loom", "bc"}) {
@@ -384,7 +406,8 @@ TEST_F(GgufPackageTest, MissingCompanionsAndBadInputsPublishNothing) {
     const auto library = scratch_ / profile;
     const auto copied = CopyRuntimeProducts(library);
     ASSERT_FALSE(copied.empty());
-    const std::array<fs::path,7> files = {
+    const std::array<fs::path,8> files = {
+      fs::path("lib/platforms/amdgpu/gfx11/targets.loombc"),
       fs::path("lib/architectures") / profile / "implementation.loombc",
       fs::path("lib/architectures") / profile / "prepare_library.loombc",
       fs::path("lib/architectures") / profile / "execution.loombc",
@@ -585,7 +608,8 @@ TEST_F(GgufPackageTest, GemmaCliUsesOnlySelectedDeclaredProductsOutsideCheckout)
   fs::copy_file(root_ / "tools/loomify-gguf/loomify-gguf", executable);
   const auto runfiles = fs::path(executable.string() + ".runfiles");
   const auto library = runfiles / "_main";
-  const std::array<fs::path,7> products = {
+  const std::array<fs::path,8> products = {
+    "lib/platforms/amdgpu/gfx11/targets.loombc",
     "lib/architectures/gemma3/implementation.loombc",
     "lib/architectures/gemma3/prepare_library.loombc",
     "lib/architectures/gemma3/execution.loombc",

@@ -20,13 +20,13 @@ template.decl @llm.attention.row_f16_pv_small(%query_heads: index, %key_heads: i
 template.decl @llm.attention.row_f16_pv_blas_boundary(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
 template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
-amdgpu.target<gfx11-generic> @llama32_attention_wave32 {subgroup_size = 32}
+target.decl @llm.platform.attention.llama_rows.wave32
 
 // One head/token workgroup consumes exactly128 lanes. Publish all active K/V
 // first, then traverse only [0,absolute_position] for each query. Padded and
 // nonselected rows are zeroed in this transient attention matrix, ensuring
 // the following full-capacity packing/projection never reads stale scratch.
-kernel.def target(@llama32_attention_wave32) @llama32_attention_rows(%token_capacity0: index) {
+kernel.def target(@llm.platform.attention.llama_rows.wave32) @llama32_attention_rows(%token_capacity0: index) {
   %tokens = index.assume %token_capacity0 [range(%token_capacity0, 1, 512)] : index
   %heads = config.get @llama.model.query_heads : index
   %width = config.get @llama.model.head_size : index
@@ -121,7 +121,7 @@ kernel.def target(@llama32_attention_wave32) @llama32_attention_rows(%token_capa
 
 // The residual provider permits lhs/output aliasing. Guard each selected row;
 // caller-owned padded rows and rows of other packed spans remain untouched.
-kernel.def target(@llama32_attention_wave32) @llama32_attention_residual(%token_capacity0: index) {
+kernel.def target(@llm.platform.attention.llama_rows.wave32) @llama32_attention_residual(%token_capacity0: index) {
   %tokens = index.assume %token_capacity0 [range(%token_capacity0, 1, 512)] : index
   %hidden = config.get @llama.model.hidden_size : index
   %tile = index.constant 1024 : index

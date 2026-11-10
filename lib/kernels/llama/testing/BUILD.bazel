@@ -8,7 +8,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files(["checkpoint_config.loom", "embedding_config.loom", "output_config.loom"], visibility = ["//visibility:private"])
 
 # The same owned numerical files back each maintained test call sequence.
-_NUMERICAL = ["//lib/kernels/llama:configured_provider_sources", "//lib/programs/llama:output.loom", "//lib/programs/llama:output_interface.loom"]
+_NUMERICAL = ["//lib/platforms/amdgpu/gfx11:targets.loom", "//lib/kernels/llama:configured_provider_sources", "//lib/programs/llama:output.loom", "//lib/programs/llama:output_interface.loom"]
 _CASES = {
     "registered_norm": [],
     "attention_sequence": ["attention_capacity.loom"],
@@ -31,8 +31,8 @@ _DIRECT = {
     "embedding": ["embedding_checks.loom", "//lib/kernels/epoch:count.loom", "//lib/kernels/llama:embedding/embedding.loom", "//lib/kernels/embedding:q6k_rows.loom", "embedding_config.loom", "//lib/kernels/llama:active_rows.loom", "checkpoint_config.loom"],
     "projection": ["projection_checks.loom", "checkpoint_config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:q4k_compat.loom", "//lib/kernels/projection:q6k.loom", "//lib/kernels/projection:q6k_compat.loom", "//lib/kernels/projection:qk_common.loom", "//lib/kernels/projection:qk_mmvq_compat.loom", "//lib/kernels/quantization:q8_1_x4.loom", "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom"],
 }
-[loom_test(name = name + "_execution_test", srcs = sources, benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for name, sources in _DIRECT.items()]
-loom_test(name = "output_execution_test", srcs = ["output_checks.loom", "checkpoint_config.loom", "output_config.loom"], deps = ["//lib/kernels/llama:output", "//lib/kernels/llama:publication"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+[loom_test(name = name + "_execution_test", srcs = sources + ["//lib/platforms/amdgpu/gfx11:targets.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for name, sources in _DIRECT.items()]
+loom_test(name = "output_execution_test", srcs = ["//lib/platforms/amdgpu/gfx11:targets.loom", "output_checks.loom", "checkpoint_config.loom", "output_config.loom"], deps = ["//lib/kernels/llama:output", "//lib/kernels/llama:publication"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
 _CHECKS = {
     "registered_norm": ["registered_norm_checks.loom"],
     "attention_sequence": ["attention_sequence_checks.loom"],
@@ -72,4 +72,4 @@ loom_test(
     execution_profiles = [VM_REFERENCE_PROFILE],
 )
 
-loom_test(name = "scalar_data_execution_test", srcs = ["scalar_data_checks.loom", "//lib/kernels/llama:attention/attention_prepare.loom", "//lib/kernels/llama:attention/attention_native.loom", "//lib/kernels/llama:attention/rotary.loom", "//lib/kernels/llama:attention/attention_materialized.loom", "//lib/kernels/attention:core.loom", "//lib/kernels/attention:kv_position.loom", "//lib/kernels/elementwise:residual_row.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+loom_test(name = "scalar_data_execution_test", srcs = ["//lib/platforms/amdgpu/gfx11:targets.loom", "scalar_data_checks.loom", "//lib/kernels/llama:attention/attention_prepare.loom", "//lib/kernels/llama:attention/attention_native.loom", "//lib/kernels/llama:attention/rotary.loom", "//lib/kernels/llama:attention/attention_materialized.loom", "//lib/kernels/attention:core.loom", "//lib/kernels/attention:kv_position.loom", "//lib/kernels/elementwise:residual_row.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])

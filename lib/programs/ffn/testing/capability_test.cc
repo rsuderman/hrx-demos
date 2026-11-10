@@ -140,6 +140,10 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
            << "_q8_1_x4.token_capacity = 512 : index\n"
            << "config.def @ggml.linear_" << format
            << "_q8_1_x4.output_capacity = 262144 : index\n";
+  // Q5_0 is an unused provider in these Q4/Q5_K/Q6 capability cases.
+  // Match Producer's unobserved-format facts, without enabling a Q5_0 FFN.
+  source << "config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index\n"
+         << "config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index\n";
   source << "config.def @ggml.quantize_q8_1_x4.group_capacity = 524288 : index\n"
          << "config.def @" << family << ".model.hidden_size = " << v.hidden << " : index\n"
          << "config.def @" << family << ".model.rms_epsilon = 0.000001 : f32\n";

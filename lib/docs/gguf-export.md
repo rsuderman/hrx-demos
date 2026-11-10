@@ -236,3 +236,24 @@ SOURCE/BC component and direct epoch tests cover numerical anchors, inactive
 scratch initialization, offsets, state ownership, dependent decode and local/global
 window sensitivity. These bounded checks do not establish independent full-model
 numerical fidelity or qualify every admitted context size.
+
+## Generation platform
+
+`--platform=amdgpu:gfx11-generic` selects the maintained generation recipe and is
+also the default. The C++ equivalent is `GgufBuildOptions::platform`; prepared
+configurations and built modules expose `platform()`. Configuration inspection
+records the selection without loading numerical products. Unknown recipes fail
+before native generation or output publication.
+
+The chosen BUILD-produced target resource is a mandatory numerical LINK input.
+Exported SOURCE and bytecode retain the concrete wave32/wave64 requirements; a
+missing selected resource fails rather than falling back to abstract targets.
+Native LINK itself permits abstract `target.decl` inputs, so it does not certify
+arbitrary modified provider blobs. Use the version-matched maintained resources.
+
+This option does not choose a physical device. Serve still uses `--device` and
+specializes kernels for its actual HAL profile, subject to the exported target
+requirements. Exact gfx1100/gfx1151 compatibility tests do not add another
+architecture. Other hardware-family recipes require implemented, qualified
+providers; changing a target name alone does not supply them. GGUF extraction,
+model configuration, text selection and numerical policy remain shared.

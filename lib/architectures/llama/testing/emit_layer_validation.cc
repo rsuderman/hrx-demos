@@ -45,7 +45,7 @@ int main(int argc,char **argv) {
                                    "validated.layer1.prefill","validated.layer1.decode"};
   auto product=(std::filesystem::path(argv[1])/"lib/architectures/llama/layer_fixture.loombc").string();
   loomc_module_t *module=nullptr;
-  if (!LinkConfiguredProducts(context,workspace,config.source, {product},roots,true,&module,&error)) {
+  if (!LinkConfiguredProducts(context,workspace,config.source, {product, (std::filesystem::path(argv[1])/"lib/platforms/amdgpu/gfx11/targets.loombc").string()},roots,true,&module,&error)) {
     std::fprintf(stderr,"%s\n",error.c_str());return 1;
   }
   bool ok=true;

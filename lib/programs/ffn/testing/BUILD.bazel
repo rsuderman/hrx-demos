@@ -38,19 +38,20 @@ cc_binary(
     ],
 )
 
-_LLAMA_FIXTURE = ["llama_roots.loom", "real_llama_roots.loom", "//lib/architectures/llama:implementation"]
-_QWEN_FIXTURE = ["qwen_roots.loom", "real_qwen_roots.loom", "//lib/programs/qwen35:ffn_adapter.loom", "//lib/programs/ffn:interface.loom", "//lib/architectures/qwen35:implementation"]
+_LLAMA_FIXTURE = ["//lib/platforms/amdgpu/gfx11:targets.loom", "llama_roots.loom", "real_llama_roots.loom", "//lib/architectures/llama:implementation"]
+_QWEN_FIXTURE = ["//lib/platforms/amdgpu/gfx11:targets.loom", "qwen_roots.loom", "real_qwen_roots.loom", "//lib/programs/qwen35:ffn_adapter.loom", "//lib/programs/ffn:interface.loom", "//lib/architectures/qwen35:implementation"]
 loom_merge(name = "llama_fixture", srcs = _LLAMA_FIXTURE, testonly = True)
 loom_merge(name = "llama_fixture_text", srcs = _LLAMA_FIXTURE, output_format = "text", testonly = True)
 loom_merge(name = "qwen_fixture", srcs = _QWEN_FIXTURE, testonly = True)
 loom_merge(name = "qwen_fixture_text", srcs = _QWEN_FIXTURE, output_format = "text", testonly = True)
 
-_FFN27_SOURCES = ["ffn27_config.loom", "ffn27_programs.loom", "//lib/programs/qwen35:ffn.loom", "//lib/kernels/qwen:configured_provider_sources"]
+_FFN27_SOURCES = ["//lib/platforms/amdgpu/gfx11:targets.loom", "ffn27_config.loom", "ffn27_programs.loom", "//lib/programs/qwen35:ffn.loom", "//lib/kernels/qwen:configured_provider_sources"]
 [loom_merge(name = "ffn27_" + format, srcs = _FFN27_SOURCES, output_format = format, testonly = True) for format in ["text", "bc"]]
 [loom_test(name = "ffn27_" + format + "_test", srcs = ["ffn27_checks.loom", ":ffn27_" + format], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for format in ["text", "bc"]]
 
 # Add to lib/programs/ffn/testing/BUILD.bazel; shared BUILD owned by I.
 _CAPABILITY_COMMON = [
+    "//lib/platforms/amdgpu/gfx11:targets.loom",
     "//lib/programs/ffn:interface.loom",
     "//lib/programs/ffn:ffn.loom",
     "//lib/programs/projection:implementation_sources",

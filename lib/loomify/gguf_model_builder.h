@@ -13,6 +13,8 @@ struct GgufBuildOptions {
   std::string library_root;
   uint64_t prefill_capacity = 128;
   uint64_t context_capacity = 512;
+  // Maintained generation recipe; Serve independently selects its live device.
+  std::string platform = "amdgpu:gfx11-generic";
 };
 struct GgufPackageOptions {
   std::string output_directory;
@@ -30,6 +32,7 @@ public:
   BuiltGgufModule(const BuiltGgufModule &) = delete;
   BuiltGgufModule &operator=(const BuiltGgufModule &) = delete;
   const std::string &configuration_source() const;
+  const std::string &platform() const;
   const loomc_module_t *module() const;
   // Only a new file is accepted. Failure removes this call's partial output;
   // existing files and input assets remain untouched, and this result is usable.
@@ -51,6 +54,7 @@ public:
   GgufConfiguration(const GgufConfiguration &) = delete;
   GgufConfiguration &operator=(const GgufConfiguration &) = delete;
   const std::string &configuration_source() const;
+  const std::string &platform() const;
   // Supplemental definitions only; join with configuration_source for serving.
   const std::string &package_data_source() const;
   bool has_package_configuration() const;

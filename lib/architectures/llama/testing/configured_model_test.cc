@@ -340,6 +340,14 @@ protected:
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
     loomc_result_release(result);
+    loomc_module_t* raw_targets = nullptr;
+    result = nullptr;
+    const auto target_path = root + "/lib/platforms/amdgpu/gfx11/targets.loombc";
+    ASSERT_TRUE(Ok(loomc_module_deserialize_from_path(context, workspace,
+        loomc_make_cstring_view(target_path.c_str()), nullptr, loomc_allocator_system(), &raw_targets, &result)));
+    Module targets(raw_targets, loomc_module_release);
+    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    loomc_result_release(result);
     loomc_linker_t *raw_linker = nullptr;
     ASSERT_TRUE(Ok(loomc_linker_create(context, nullptr,
                                        loomc_allocator_system(), &raw_linker)));
@@ -349,7 +357,8 @@ protected:
         {config.get(), loomc_make_cstring_view("configuration"),
          LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {implementation.get(), loomc_make_cstring_view("implementation"),
-         LOOMC_LINK_PROVIDER_ROLE_INPUT}};
+         LOOMC_LINK_PROVIDER_ROLE_INPUT},
+        {targets.get(), loomc_make_cstring_view("platform"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
     const loomc_string_view_t roots[] = {
         loomc_make_cstring_view("generated.llama_epoch")};
     loomc_link_options_t options{};
@@ -357,7 +366,7 @@ protected:
     options.structure_size = sizeof(options);
     options.mode = LOOMC_LINK_MODE_LINK;
     options.module_providers = providers;
-    options.module_provider_count = 2;
+    options.module_provider_count = 3;
     options.root_symbols = roots;
     options.root_symbol_count = 1;
     options.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;

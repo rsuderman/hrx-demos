@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+IREE_FLAG(string, platform, "amdgpu:gfx11-generic", "Maintained generation platform recipe (not a live device selector).");
 IREE_FLAG(string, gguf, nullptr, "Input GGUF checkpoint (weights remain external).");
 IREE_FLAG(string, output, nullptr, "New numerical .loombc or .loom output file.");
 IREE_FLAG(string, format, "bc", "Module serialization: bc or loom; inspection is always text.");
@@ -87,7 +88,7 @@ bool SameDestination(const char* a, const char* b, std::string* error) {
 
 int main(int argc, char** argv) {
   iree_flags_set_usage("loomify-gguf",
-      "Generate a supported complete model from GGUF using maintained Loom products.\n"
+      "Generate a supported complete model from GGUF using maintained Loom products.\n      Platform recipe: --platform=amdgpu:gfx11-generic (default); Serve chooses the live device.\n"
       "  --gguf=MODEL --output=NEW_FILE [--format=bc|loom]\n"
       "  --gguf=MODEL --tokenizer=JSON --output-dir=NEW_DIRECTORY\n"
       "  --gguf=MODEL --configuration-output=NEW_DIRECTORY [--tokenizer=JSON]\n"
@@ -116,6 +117,7 @@ int main(int argc, char** argv) {
   std::unique_ptr<GgufModelBuilder> builder;
   if (!GgufModelBuilder::Open(FLAG_gguf, &builder, &error)) return Error(error);
   GgufBuildOptions build;
+  build.platform = FLAG_platform;
   build.prefill_capacity = FLAG_prefill_capacity;
   build.context_capacity = FLAG_context_capacity;
   // Copy the conventional resource root without reading any model products.

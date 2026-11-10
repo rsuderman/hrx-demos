@@ -4,6 +4,7 @@
 #define HRX_SOLUTIONS_LIB_LOOMIFY_GGUF_MODEL_BUILDER_INTERNAL_H_
 #include "lib/loomify/gguf_model_builder.h"
 #include "lib/loomify/architectures.h"
+#include "lib/loomify/platforms.h"
 #include "lib/loomify/chat_policy.h"
 #include "lib/loomify/configuration.h"
 #include "lib/loomify/token_policy.h"
@@ -29,12 +30,14 @@ struct GgufModelBuilder::Impl {
 struct BuiltGgufModule::Impl {
   std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> module{nullptr, loomc_module_release};
   std::string configuration_source;
+  std::string platform;
 };
 struct GgufConfiguration::Impl {
   ConfigurationFacts numerical;
   std::string source_asset;
   GgufBuildOptions options;
   const ArchitectureFiles *architecture = nullptr;
+  const PlatformFiles *platform = nullptr;
   std::optional<PackageConfiguration> package;
 };
 } // namespace hrx::loomify_gguf

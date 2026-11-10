@@ -4,6 +4,7 @@
 #include "lib/loomify/gguf_model_builder.h"
 #include "gtest/gtest.h"
 #include "loomc/target/amdgpu.h"
+#include "loomc/source.h"
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -92,13 +93,14 @@ TEST(PublicGgufBuilder, InvalidOpenPreservesExistingOutput) {
 TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
   const auto *llama = std::getenv("LOOMIFY_TEST_GGUF");
   const auto *qwen = std::getenv("LOOMIFY_TEST_QWEN_GGUF");
-  if (!llama || !qwen) GTEST_SKIP() << "explicit immutable real-model gate";
+  const auto *gemma = std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
+  if (!llama || !qwen || !gemma) GTEST_SKIP() << "explicit immutable three-family gate";
   const auto *runfiles = std::getenv("TEST_SRCDIR");
   const auto *workspace_name = std::getenv("TEST_WORKSPACE");
   const auto *temporary = std::getenv("TEST_TMPDIR");
   ASSERT_TRUE(runfiles && workspace_name && temporary);
   const auto root = std::filesystem::path(runfiles) / workspace_name;
-  for (const char *asset : {llama, qwen}) {
+  for (const char *asset : {llama, qwen, gemma}) {
     std::unique_ptr<GgufModelBuilder> builder;
     std::string error = "stale";
     ASSERT_TRUE(GgufModelBuilder::Open(asset, &builder, &error)) << error;
@@ -110,7 +112,7 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     auto *previous = builder.get();
     EXPECT_FALSE(GgufModelBuilder::Open("/nonexistent-loomify-test.gguf", &builder, &error));
     EXPECT_EQ(builder.get(), previous);
-    const std::string architecture = builder->descriptor().family == "llama" ? "llama" : "qwen35";
+    const std::string architecture = builder->descriptor().family;
     auto directory = std::filesystem::path(temporary) / architecture;
     std::filesystem::create_directories(directory / "lib/architectures" / architecture);
     // Deliberately copy only the actual numerical product, with all Serve-only
@@ -124,6 +126,40 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     GgufBuildOptions options;
     options.library_root = directory.string();
     options.context_capacity = 513;
+    // Configuration/selector admission is product-independent and preserves out.
+    std::unique_ptr<GgufConfiguration> selected;
+    ASSERT_TRUE(builder->Configure(options, nullptr, &selected, &error)) << error;
+    EXPECT_EQ(selected->platform(), "amdgpu:gfx11-generic");
+    const auto default_source = selected->configuration_source();
+    options.platform = "amdgpu:gfx11-generic";
+    ASSERT_TRUE(builder->Configure(options, nullptr, &selected, &error)) << error;
+    EXPECT_EQ(selected->configuration_source(), default_source);
+    auto* saved_selection = selected.get();
+    options.platform = "amdgpu:gfx942";
+    EXPECT_FALSE(builder->Configure(options, nullptr, &selected, &error));
+    EXPECT_EQ(selected.get(), saved_selection);
+    EXPECT_NE(error.find("unsupported generation platform: amdgpu:gfx942"), std::string::npos);
+    options.platform = "amdgpu:gfx11-generic";
+    std::unique_ptr<BuiltGgufModule> no_provider;
+    EXPECT_FALSE(selected->BuildModule(context, workspace, &no_provider, &error));
+    EXPECT_FALSE(no_provider);
+    EXPECT_NE(error.find("targets.loombc"), std::string::npos) << error;
+    const auto target_path = std::filesystem::path("lib/platforms/amdgpu/gfx11/targets.loombc");
+    std::filesystem::create_directories((directory / target_path).parent_path());
+    std::filesystem::copy_file(root / target_path, directory / target_path);
+    // This sparse root has only this family product and its chosen targets;
+    // Llama/Gemma neither load Qwen schedule nor require its resource.
+    if (architecture != "qwen35") {
+      EXPECT_FALSE(std::filesystem::exists(directory / "lib/architectures/qwen35"));
+      std::unique_ptr<GgufModelBuilder> qwen_builder;
+      ASSERT_TRUE(GgufModelBuilder::Open(qwen, &qwen_builder, &error)) << error;
+      std::unique_ptr<GgufConfiguration> qwen_configuration;
+      ASSERT_TRUE(qwen_builder->Configure(options, nullptr, &qwen_configuration, &error)) << error;
+      std::unique_ptr<BuiltGgufModule> missing_qwen;
+      EXPECT_FALSE(qwen_configuration->BuildModule(context, workspace, &missing_qwen, &error));
+      EXPECT_FALSE(missing_qwen);
+      EXPECT_NE(error.find("lib/architectures/qwen35/implementation.loombc"), std::string::npos) << error;
+    }
     const auto malformed_path = directory / "unlisted-template.gguf";
     ASSERT_TRUE(HeaderWithUnlistedTemplate(asset, malformed_path));
     std::unique_ptr<GgufModelBuilder> malformed;
@@ -160,6 +196,7 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     std::unique_ptr<BuiltGgufModule> first, second;
     ASSERT_TRUE(prepared->BuildModule(context, workspace, &first, &error)) << error;
     EXPECT_EQ(first->configuration_source(), configuration);
+    EXPECT_EQ(first->platform(), "amdgpu:gfx11-generic");
     ASSERT_TRUE(other->BuildModule(context, workspace, &second, &error)) << error;
     auto* saved = first.get();
     EXPECT_FALSE(missing->BuildModule(context, workspace, &first, &error));
@@ -215,6 +252,17 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
           loomc_make_cstring_view(path.c_str()), nullptr, loomc_allocator_system(), &module, &result)));
       ASSERT_TRUE(result && loomc_result_succeeded(result));
       loomc_result_release(result);
+      loomc_module_serialize_options_t inspect{}; inspect.format = LOOMC_SOURCE_FORMAT_TEXT;
+      loomc_source_t* source = nullptr;
+      ASSERT_TRUE(Ok(loomc_module_serialize_to_source(module, &inspect, loomc_allocator_system(), &source)));
+      const auto contents = loomc_source_contents(source);
+      const std::string text(reinterpret_cast<const char*>(contents.data), contents.data_length);
+      EXPECT_EQ(text.find("target.decl"), std::string::npos) << path;
+      EXPECT_NE(text.find("subgroup_size = 32"), std::string::npos) << path;
+      EXPECT_NE(text.find("subgroup_size = 64"), std::string::npos) << path;
+      EXPECT_NE(text.find("target(@llm.platform.selection.greedy.wave64)"), std::string::npos) << path;
+      EXPECT_NE(text.find("amdgpu.target<gfx11-generic> @llm.platform.selection.greedy.wave64"), std::string::npos) << path;
+      loomc_source_release(source);
       loomc_module_release(module);
     }
     loomc_workspace_release(workspace);

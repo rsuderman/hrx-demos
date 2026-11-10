@@ -12,6 +12,22 @@ qualification. Tests show concrete coverage, not a universal guarantee. Check
 the caller's packing, precision, row/origin and state requirements before reuse.
 Other branches and downloaded reference packages are not current coverage.
 
+## Platform ownership
+
+The maintained generation recipe is `amdgpu:gfx11-generic`. Its concrete target
+requirements live in `lib/platforms/amdgpu/gfx11/targets.loom`; shared kernels
+reference abstract schedule targets and need the selected provider when linked.
+The Qwen H256/F16 wave64 implementation lives in that platform's
+`attention_h256_schedule.loom` and is included only by Qwen's numerical BUILD
+closure. Its family adapter still supplies model configuration. Llama and Gemma
+do not load Qwen's schedule or configuration.
+
+The public builder and CLI select the recipe during generation; Serve selects
+its actual device later. Component fixtures explicitly include the maintained
+target provider. Model/configuration, codecs, arithmetic policy and other shared
+numerical helpers are not duplicated per platform. These source boundaries enable
+later providers; they do not qualify an unimplemented GPU family or backend.
+
 ## Shared numerical pieces
 
 Use the owning operation/interface and its declared dependencies; do not import

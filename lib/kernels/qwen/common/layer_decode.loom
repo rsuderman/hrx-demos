@@ -12,7 +12,7 @@ template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %i
 
 template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
-kernel.def target(@qwen38_layer_gfx11_wave32) export("qwen38_rmsnorm_f32_decode") @qwen38_rmsnorm_f32_decode() {
+kernel.def target(@llm.platform.normalization.decode.wave32) export("qwen38_rmsnorm_f32_decode") @qwen38_rmsnorm_f32_decode() {
   %unit = index.constant 1 : index
   %workgroup_size = index.constant 256 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
@@ -27,7 +27,7 @@ kernel.def target(@qwen38_layer_gfx11_wave32) export("qwen38_rmsnorm_f32_decode"
 // Selects the final active prefill row from control[0] without baking a
 // prompt-specific residual offset into the reusable command buffer.
 
-amdgpu.target<gfx11-generic> @qwen38_layer_gfx11_wave32 {subgroup_size = 32}
+target.decl @llm.platform.normalization.decode.wave32
 
 // Callers provide a contiguous F32 row domain, its F32 width divisor, and
 // disjoint input/weight/output buffers. All 256 threads participate in the
@@ -44,7 +44,7 @@ template.def<@qwen38.rmsnorm_f32.row> device @qwen38_rmsnorm_f32_row(%input_row_
 // Contiguous rows, complete 1024-channel tiles, four F32 values per lane.
 // No noalias promise: the output may update either input in place.
 
-kernel.def target(@qwen38_layer_gfx11_wave32) export("qwen38_rmsnorm_f32_prefill_last") @qwen38_rmsnorm_f32_prefill_last() {
+kernel.def target(@llm.platform.normalization.decode.wave32) export("qwen38_rmsnorm_f32_prefill_last") @qwen38_rmsnorm_f32_prefill_last() {
   %unit = index.constant 1 : index
   %workgroup_size = index.constant 256 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index

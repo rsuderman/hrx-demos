@@ -22,6 +22,7 @@ GgufConfiguration::~GgufConfiguration() = default;
 GgufConfiguration::GgufConfiguration(GgufConfiguration &&) noexcept = default;
 GgufConfiguration &GgufConfiguration::operator=(GgufConfiguration &&) noexcept = default;
 const std::string &GgufConfiguration::configuration_source() const { return impl_->numerical.source; }
+const std::string &GgufConfiguration::platform() const { return impl_->options.platform; }
 const std::string &GgufConfiguration::package_data_source() const {
   static const std::string empty;
   return impl_->package ? impl_->package->source : empty;
@@ -34,6 +35,7 @@ BuiltGgufModule &BuiltGgufModule::operator=(BuiltGgufModule &&) noexcept = defau
 const model::ModelDescriptor &GgufModelBuilder::descriptor() const { return impl_->descriptor; }
 const model::TextMetadata &GgufModelBuilder::text_metadata() const { return impl_->text_metadata; }
 const std::string &BuiltGgufModule::configuration_source() const { return impl_->configuration_source; }
+const std::string &BuiltGgufModule::platform() const { return impl_->platform; }
 const loomc_module_t *BuiltGgufModule::module() const { return impl_->module.get(); }
 bool GgufModelBuilder::Open(const std::string &path,
                            std::unique_ptr<GgufModelBuilder> *out, std::string *error) {
@@ -72,6 +74,9 @@ bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
   std::string ignored_error;
   if (!error) error = &ignored_error;
   if (!out) return Fail(error, "configuration output is required");
+  const auto *platform = SelectPlatform(options.platform);
+  if (!platform) return Fail(error, "unsupported generation platform: " + options.platform +
+      "; maintained platform: amdgpu:gfx11-generic");
   const auto *architecture = SelectArchitecture(impl_->descriptor.family);
   if (!architecture) return Fail(error, "unsupported numerical architecture");
   if (!impl_->publication_token_error.empty())
@@ -82,9 +87,11 @@ bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
                            &prepared->numerical, error)) return false;
   if (impl_->publication_tokens)
     prepared->numerical.source += impl_->publication_tokens->configuration_source;
+  prepared->numerical.source.insert(0, "// loomify platform: " + options.platform + "\n");
   prepared->source_asset = impl_->source_asset;
   prepared->options = options;
   prepared->architecture = architecture;
+  prepared->platform = platform;
   if (package) {
     PackageConfiguration data;
     if (!ConfigurePackageData(impl_->source_asset, impl_->text_metadata,
@@ -107,11 +114,16 @@ bool GgufConfiguration::BuildModule(loomc_context_t *context, loomc_workspace_t 
   const auto product = (std::filesystem::path(impl_->options.library_root) /
                         architecture.implementation).string();
   loomc_module_t *module = nullptr;
-  if (!LinkConfiguredProducts(context, workspace, impl_->numerical.source, {product},
+  // Registered BUILD-produced platform resources are mandatory construction
+  // inputs. Native LINK permits abstract targets and cannot replace this load.
+  const auto targets = (std::filesystem::path(impl_->options.library_root) /
+                        impl_->platform->targets).string();
+  if (!LinkConfiguredProducts(context, workspace, impl_->numerical.source, {product, targets},
                               architecture.roots, true, &module, error)) return false;
   auto built_impl = std::make_unique<BuiltGgufModule::Impl>();
   built_impl->module.reset(module);
   built_impl->configuration_source = impl_->numerical.source;
+  built_impl->platform = impl_->options.platform;
   auto built = std::unique_ptr<BuiltGgufModule>(new BuiltGgufModule(std::move(built_impl)));
   *out = std::move(built);
   error->clear();

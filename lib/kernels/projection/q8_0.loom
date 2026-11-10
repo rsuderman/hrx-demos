@@ -16,12 +16,12 @@ config.decl @ggml.linear_q8_0_q8_1_x4.token_capacity : %value: index where [rang
 
 config.decl @ggml.linear_q8_0_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
 
-amdgpu.target<gfx11-generic> @ggml_q8_gfx11_wave32 {subgroup_size = 32}
+target.decl @llm.platform.projection.q8_0.wave32
 
 func.decl pure @ggml_block32_q8_1_x4_output_tiles(%output_size: index, %subgroup_size: index) -> (index)
 func.decl @ggml_block32_q8_1_x4_project(%weight_tag: index, %weight_row_bytes: offset, %token_capacity: index, %output_capacity: index, %token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.def target(@ggml_q8_gfx11_wave32) export("ggml_linear_q8_0_q8_1_x4") @ggml_linear_q8_0_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
+kernel.def target(@llm.platform.projection.q8_0.wave32) export("ggml_linear_q8_0_q8_1_x4") @ggml_linear_q8_0_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048)] : index
   %c1 = index.constant 1 : index
   %workgroup_size = index.constant 256 : index

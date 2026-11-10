@@ -7,6 +7,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom", "ordinary_control.loom"])
 loom_merge(name = "greedy", srcs = ["greedy.loom", "request_check.loom"])
 _PRODUCTS = {
+    "//lib/platforms/amdgpu/gfx11:targets": "kGfx11Targets",
     "//lib/architectures/gemma3:implementation": "kGemmaImplementation",
     "//lib/architectures/gemma3:prepare_library": "kGemmaPreparation",
     "//lib/architectures/gemma3:execution": "kGemmaExecution",

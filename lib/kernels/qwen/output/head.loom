@@ -16,7 +16,7 @@ config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : index
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : index
 func.decl @ggml_q6k_q8_1_x4_block_lane(%weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %q6_block: index, %lane: index) -> (f32)
 template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
-amdgpu.target<gfx11-generic> @qwen38_output_spans_gfx11_wave32 {subgroup_size = 32}
+target.decl @llm.platform.normalization.output_spans.wave32
 func.def inline @ggml_q6k_q8_1_x4_row_lane_m4(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row0_byte_base: offset, %q8_row1_byte_base: offset, %q8_row2_byte_base: offset, %q8_row3_byte_base: offset, %lane: index) -> (f32, f32, f32, f32) {
   %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
   %c0 = index.constant 0 : index
@@ -113,7 +113,7 @@ kernel.def export("ggml_linear_q6k_q8_1_x4_m4") @ggml_linear_q6k_q8_1_x4_m4(%tok
   }
   kernel.return
 }
-kernel.def target(@qwen38_output_spans_gfx11_wave32) export("qwen38_output_normalize_spans") @qwen38_output_normalize_spans(%output_capacity: index) {
+kernel.def target(@llm.platform.normalization.output_spans.wave32) export("qwen38_output_normalize_spans") @qwen38_output_normalize_spans(%output_capacity: index) {
   %outputs = index.assume %output_capacity [range(%output_capacity, 1, 64)] : index
   %one = index.constant 1 : index
   %threads = index.constant 256 : index

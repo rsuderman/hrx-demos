@@ -12,7 +12,7 @@ cc_test(
     srcs = ["model_test.cc"],
     copts = ["-std=c++17"],
     linkstatic = True,
-    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/architectures/qwen35:incomplete_schedule_fixture"],
     deps = [
         "//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture",
         "//tools/model:model_descriptor",
@@ -33,7 +33,7 @@ cc_test(
     linkstatic = True,
     defines = ["LOOMIFY_QWEN_REAL_GGUF"],
     tags = ["manual"],
-    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/architectures/qwen35:incomplete_schedule_fixture"],
     deps = [
         "//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture",
         "//tools/model:model_descriptor",
@@ -54,7 +54,7 @@ cc_test(
     linkstatic = True,
     defines = ["LOOMIFY_QWEN_REAL_GGUF", "LOOMIFY_QWEN_LARGE_GGUF"],
     tags = ["manual"],
-    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/architectures/qwen35:incomplete_schedule_fixture"],
     deps = [
         "//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture",
         "//tools/model:model_descriptor",

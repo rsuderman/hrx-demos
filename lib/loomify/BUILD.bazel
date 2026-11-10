@@ -67,7 +67,7 @@ cc_test(
 iree_cc_library(
     name = "gguf_model_builder",
     visibility = ["//visibility:public"],
-    srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "architectures.h"],
+    srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "architectures.h", "platforms.cc", "platforms.h"],
     hdrs = ["gguf_model_builder.h"],
     cxxopts = _CXXOPTS,
     deps = ["//lib/serving:library_resources", ":configuration", ":native_linking", ":token_policy", ":chat_policy", "//tools/model:model_descriptor", "//tools/model:text_metadata", "@hrx_system//loom/binding/c:loomc"],
@@ -81,6 +81,7 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     visibility = [
         "//lib/loomify:__pkg__",
+        "//lib/loomify/testing/platform:__pkg__",
         "//lib/loomify/testing:__pkg__",
         "//lib/architectures:__subpackages__",
         "//lib/programs/ffn/testing:__pkg__",
