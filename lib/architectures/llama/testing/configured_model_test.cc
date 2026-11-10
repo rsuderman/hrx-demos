@@ -11,9 +11,9 @@
 #include "loomc/source.h"
 #include "loomc/target/amdgpu.h"
 #include "loomc/target/cmd/program.h"
-#include "tools/loomify-gguf/configuration.h"
-#include "tools/loomify-gguf/testing/configuration_fixture.h"
-#include "tools/model/llama_configuration.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/testing/configuration_fixture.h"
+#include "tools/model/model_descriptor.h"
 #include "gtest/gtest.h"
 #include <algorithm>
 #include <cstdio>
@@ -412,8 +412,10 @@ TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndThreeRoots) {
   ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
   model::ModelDescriptor descriptor;
   std::string error;
-  ASSERT_TRUE(model::ExtractLlamaConfiguration(file.get(), &descriptor, &error))
-      << error;
+  model::GgufCatalog catalog;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error)) << error;
+  ASSERT_EQ(descriptor.family, "llama");
   file.reset();
   ASSERT_EQ(descriptor.layers.size(), 28u);
   auto down = [&](size_t layer) {

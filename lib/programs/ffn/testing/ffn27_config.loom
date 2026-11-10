@@ -1,0 +1,8 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Private provider limits for the existing T<=512, E=5120, F=17408 fixture.
+// The configured numerical closure includes Q8_0 even though these anchors
+// select Q4_K gate/up/down. Resolve its original required bounds without
+// changing the selected formats or the generated arithmetic expectations.
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : %value: index where [range(%value, 1, 2048)]
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 17408 : %value: index where [range(%value, 1, 262144)]

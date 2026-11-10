@@ -1,10 +1,10 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/configuration.h"
-#include "tools/loomify-gguf/linking.h"
-#include "tools/loomify-gguf/testing/configuration_fixture.h"
-#include "tools/loomify-gguf/testing/alternating_qwen_fixture.h"
-#include "tools/model/qwen_configuration.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/linking.h"
+#include "lib/loomify/testing/configuration_fixture.h"
+#include "lib/loomify/testing/alternating_qwen_fixture.h"
+#include "tools/model/model_descriptor.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/command/ops.h"
 #include "loom/ops/index/ops.h"
@@ -436,7 +436,10 @@ TEST_F(QwenModelTest, CompleteSequenceSurvivesBothProviderEncodings) {
   ASSERT_TRUE(file);
   std::setvbuf(file.get(), nullptr, _IONBF, 0);
   std::string extraction_error;
-  ASSERT_TRUE(model::ExtractQwenConfiguration(file.get(), &facts, &extraction_error)) << extraction_error;
+  model::GgufCatalog catalog;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &extraction_error)) << extraction_error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &facts, &extraction_error)) << extraction_error;
+  ASSERT_EQ(facts.family, "qwen35");
 #endif
   ConfigurationSettings settings;
   settings.token_capacity = 4;

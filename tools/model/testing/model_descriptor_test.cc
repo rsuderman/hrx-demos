@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/model/llama_configuration.h"
 #include "tools/model/model_descriptor.h"
+#include "tools/model/testing/f32_gguf_fixture.h"
 #include <algorithm>
 #include <cstring>
 #include <gtest/gtest.h>
@@ -471,8 +471,10 @@ TEST(LlamaConfiguration,
             bytes.size());
   ModelDescriptor extracted;
   std::string error;
-  ASSERT_TRUE(ExtractLlamaConfiguration(file.get(), &extracted, &error))
-      << error;
+  GgufCatalog parsed;
+  ASSERT_TRUE(ReadGgufCatalog(file.get(), &parsed, &error)) << error;
+  ASSERT_TRUE(LoadModelDescriptor(parsed, &extracted, &error)) << error;
+  EXPECT_EQ(parsed.architecture, "llama");
   EXPECT_EQ(std::fseek(file.get(), 0, SEEK_SET),
             0); // Extractor does not close it.
   file.reset();
@@ -485,8 +487,29 @@ TEST(LlamaConfiguration,
                                                     &std::fclose);
   ASSERT_TRUE(bad);
   ASSERT_EQ(std::setvbuf(bad.get(), nullptr, _IONBF, 0), 0);
-  EXPECT_FALSE(ExtractLlamaConfiguration(bad.get(), &extracted, &error));
+  EXPECT_FALSE(ReadGgufCatalog(bad.get(), &parsed, &error));
   EXPECT_EQ(extracted.globals.size(), saved.globals.size());
   EXPECT_EQ(extracted.globals[0].tensor.name, saved.globals[0].tensor.name);
+}
+TEST(ModelDescriptor, F32PayloadRangesAgreeWithNativeNamedIndex) {
+  for (const uint32_t width : {4, 8}) {
+    GgufCatalog catalog;
+    ModelDescriptor descriptor;
+    std::string error;
+    const auto bytes = testing::EmbeddingGguf(width, 3);
+    ASSERT_TRUE(testing::ReadFixture(bytes, &catalog, &descriptor, &error)) << error;
+    ASSERT_EQ(descriptor.family, "llama");
+    EXPECT_EQ(descriptor.embedding_width, width);
+    EXPECT_EQ(descriptor.vocabulary_size, 3u);
+    const auto* tensor = FindTensor(catalog, "token_embd.weight");
+    ASSERT_NE(tensor, nullptr);
+    EXPECT_GT(tensor->absolute_offset, catalog.data_offset);
+    EXPECT_EQ(tensor->byte_size, width * 3 * sizeof(float));
+    std::vector<float> payload;
+    ASSERT_TRUE(testing::ReadNamedF32(bytes, "token_embd.weight", &payload, &error)) << error;
+    ASSERT_EQ(payload.size(), width * 3);
+    EXPECT_EQ(payload[width], 110);
+    EXPECT_EQ(payload[2 * width + width - 1], 210 + width - 1);
+  }
 }
 } // namespace hrx::model

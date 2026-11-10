@@ -1,9 +1,9 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/configuration.h"
-#include "tools/loomify-gguf/token_policy.h"
-#include "tools/loomify-gguf/testing/configuration_fixture.h"
-#include "tools/loomify-gguf/testing/prepare_vm.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/token_policy.h"
+#include "lib/loomify/testing/configuration_fixture.h"
+#include "lib/loomify/testing/prepare_vm.h"
 #include "loomc/link.h"
 #include "loomc/source.h"
 #include "loomc/target/vm.h"

@@ -19,4 +19,9 @@ operation-owned `lib/kernels/embedding/f32.loom` and two generated shape facts.
 Its `model.embedding(token:index)` command retains two buffer bindings, named
 external weights and zero output for an out-of-vocabulary index. Tiny GGUF fixture
 and independent row/guard/alias checks live beside `framework_test.cc` in
-`tools/loomify-gguf/testing`; these fixtures do not qualify complete model math.
+`lib/loomify/testing`; these fixtures do not qualify complete model math.
+
+The retained F32 embedding primitive has a focused independent numerical/guard
+fixture at `//lib/kernels/embedding/testing:f32_execution_test`. It invokes the
+actual primitive directly and does not depend on the GGUF converter. Source
+GGUF payload/range assertions are maintained in the shared model descriptor tests.

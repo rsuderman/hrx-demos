@@ -1,0 +1,88 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Same known mathematical table/oracle and exterior guards as the former
+// converter fixture; actual work is the retained F32 kernel.
+command.program.decl @embedding.f32(%token: index) launch(%parameters: buffer, %output: buffer)
+func.def @initialize_embedding_parameters(%case: index, %parameters: buffer) {
+  %negative = index.constant -1 : index
+  %four = index.constant 4 : index
+  %is_negative = index.cmp eq, %case, %four : index
+  %token = scf.select %is_negative, %negative, %case : index
+  %base = index.constant 0 : offset
+  %table = buffer.view %parameters[%base] : buffer -> view<64xf32>
+  %v0 = scalar.constant 10.0 : f32
+  view.store %v0, %table[0] : f32, view<64xf32>
+  %v1 = scalar.constant 11.0 : f32
+  view.store %v1, %table[1] : f32, view<64xf32>
+  %v2 = scalar.constant 12.0 : f32
+  view.store %v2, %table[2] : f32, view<64xf32>
+  %v3 = scalar.constant 13.0 : f32
+  view.store %v3, %table[3] : f32, view<64xf32>
+  %v4 = scalar.constant 110.0 : f32
+  view.store %v4, %table[4] : f32, view<64xf32>
+  %v5 = scalar.constant 111.0 : f32
+  view.store %v5, %table[5] : f32, view<64xf32>
+  %v6 = scalar.constant 112.0 : f32
+  view.store %v6, %table[6] : f32, view<64xf32>
+  %v7 = scalar.constant 113.0 : f32
+  view.store %v7, %table[7] : f32, view<64xf32>
+  %v8 = scalar.constant 210.0 : f32
+  view.store %v8, %table[8] : f32, view<64xf32>
+  %v9 = scalar.constant 211.0 : f32
+  view.store %v9, %table[9] : f32, view<64xf32>
+  %v10 = scalar.constant 212.0 : f32
+  view.store %v10, %table[10] : f32, view<64xf32>
+  %v11 = scalar.constant 213.0 : f32
+  view.store %v11, %table[11] : f32, view<64xf32>
+  %token_i32 = index.cast %token : index to i32
+  %token_f32 = scalar.sitofp %token_i32 : i32 to f32
+  view.store %token_f32, %table[63] : f32, view<64xf32>
+  func.return
+}
+// Independent oracle uses a known mathematical fixture, never the parameter
+// tensor, generated kernel, table lookup, GGUF parser or emitter's loaded values.
+func.def @embedding_oracle(%parameters: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %configuration = buffer.view %parameters[%base] : buffer -> view<64xf32>
+  %token_f32 = view.load %configuration[63] : view<64xf32> -> f32
+  %token_i32 = scalar.fptosi %token_f32 : f32 to i32
+  %token = index.cast %token_i32 : i32 to index
+  %target = buffer.view %output[%base] : buffer -> view<4xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %vocab = index.constant 3 : index
+  %valid = index.cmp ult, %token, %vocab : index
+  scf.for %column = [%begin to %end step %step] {
+    %expected = scf.if %valid -> (f32) {
+      %hundred = index.constant 100 : index
+      %ten = index.constant 10 : index
+      %row = index.mul %token, %hundred : index
+      %first = index.add %row, %column : index
+      %integer = index.add %first, %ten : index
+      %i32 = index.cast %integer : index to i32
+      %value = scalar.sitofp %i32 : i32 to f32
+      scf.yield %value : f32
+    } else {
+      %zero = scalar.constant 0.0 : f32
+      scf.yield %zero : f32
+    }
+    view.store %expected, %target[%column] : f32, view<4xf32>
+    scf.yield
+  }
+  func.return
+}
+check.scenario public @f32_embedding_rows configure[6](%token: index, %configuration_entropy: check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %parameter_owner = check.generate.fill value(-777.0) : tensor<144xf32>
+    %parameters = check.tensor.view %parameter_owner offset(256) : tensor<144xf32> -> tensor<64xf32>
+    check.generate<@initialize_embedding_parameters>(%token, %parameters) : (index, tensor<64xf32>) -> ()
+    %output_owner = check.generate.fill value(-999.0) : tensor<8xf32>
+    %output = check.tensor.view %output_owner offset(8) : tensor<8xf32> -> tensor<4xf32>
+    check.compare<@embedding.f32, @embedding_oracle>[%token](%parameters, %output) : [index](tensor<64xf32>, tensor<4xf32>) -> () {
+      check.expect.bitwise actual(%parameter_owner) expected(%parameter_owner) : tensor<144xf32>
+      check.expect.bitwise actual(%output_owner) expected(%output_owner) : tensor<8xf32>
+    }
+  }
+  check.return
+}

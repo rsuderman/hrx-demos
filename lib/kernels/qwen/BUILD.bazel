@@ -30,7 +30,6 @@ _CONFIGURED_PROVIDER_SOURCES = [
     "//lib/kernels/projection:q8_0.loom",
     "//lib/kernels/projection:q6k_canonical.loom",
     "common/layer_decode.loom",
-    "ffn/sequence.loom",
     "common/layer_prefill.loom",
     "ffn/children.loom",
     "//lib/kernels/elementwise:ffn_launches.loom",

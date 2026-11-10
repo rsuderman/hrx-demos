@@ -1,0 +1,155 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
+
+package(default_visibility = ["//visibility:private"])
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+iree_cc_library(
+    name = "configuration",
+    visibility = [
+        "//lib/loomify/testing:__pkg__",
+        "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/qwen35:__pkg__",
+        "//lib/architectures/qwen35/testing:__pkg__",
+        "//lib/serving/testing:__pkg__",
+        "//lib/programs/ffn/testing:__pkg__",
+    ],
+    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc"],
+    hdrs = ["configuration.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
+)
+
+iree_cc_library(
+    name = "configuration_fixture",
+    visibility = [
+        "//lib/loomify/testing:__pkg__",
+        "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/qwen35:__pkg__",
+        "//lib/architectures/qwen35/testing:__pkg__",
+        "//lib/serving/testing:__pkg__",
+        "//lib/programs/ffn/testing:__pkg__",
+    ],
+    testonly = True,
+    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
+)
+
+cc_test(
+    name = "configuration_test",
+    srcs = ["//lib/loomify/testing:configuration_test.cc"],
+    copts = ["-std=c++17"],
+    deps = [":configuration", ":configuration_fixture", "//tools/model:model_descriptor",
+            "@hrx_system//loom/binding/c:loomc", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "configuration_real_assets_test",
+    srcs = ["//lib/loomify/testing:configuration_test.cc"],
+    defines = ["LOOMIFY_CONFIGURATION_REAL_ASSETS=1"],
+    tags = ["manual"],
+    copts = ["-std=c++17"],
+    deps = [":configuration", ":configuration_fixture", "//tools/model:model_descriptor",
+            "@hrx_system//loom/binding/c:loomc", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_cc_library(
+    name = "gguf_model_builder",
+    visibility = ["//visibility:public"],
+    srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "architectures.h"],
+    hdrs = ["gguf_model_builder.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//lib/serving:library_resources", ":configuration", ":native_linking", ":token_policy", ":chat_policy", "//tools/model:model_descriptor", "//tools/model:text_metadata", "@hrx_system//loom/binding/c:loomc"],
+)
+
+# Private operation shared only by the module/package implementation and retained
+# native numerical fixtures. gguf_model_builder.h remains the supported API.
+iree_cc_library(
+    name = "native_linking",
+    srcs = ["linking.cc"], hdrs = ["linking.h"],
+    cxxopts = _CXXOPTS,
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/loomify/testing:__pkg__",
+        "//lib/architectures:__subpackages__",
+        "//lib/programs/ffn/testing:__pkg__",
+        "//lib/programs/projection/testing:__pkg__",
+        "//lib/serving/testing:__pkg__",
+    ],
+    deps = [":materialize_source", "@hrx_system//loom/binding/c:loomc"],
+)
+
+# Immutable external checkpoints/tokenizers supplied explicitly by the real gate.
+cc_test(
+    name = "package_test",
+    tags = ["manual"],
+    size = "medium",
+    linkstatic = True,
+    srcs = ["//lib/loomify/testing:package_test.cc"],
+    copts = _CXXOPTS,
+    data = ["//tools/loomify-gguf:loomify-gguf", "//lib/serving:export_products"],
+    deps = ["//lib/loomify/testing:package_buffer_vm", ":gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_cc_library(
+    name = "token_policy",
+    visibility = [
+        "//lib/loomify/testing:__pkg__",
+        "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/qwen35:__pkg__",
+        "//lib/serving/testing:__pkg__",
+    ],
+    srcs = ["token_policy.cc"],
+    hdrs = ["token_policy.h"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//tools/model:text_metadata",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/tokenizer:tokenizer",
+        "@hrx_system//runtime/src/iree/tokenizer/vocab",
+        "@hrx_system//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+    ],
+)
+
+iree_c_embed_data(
+    name = "chat_templates",
+    srcs = ["//lib/text/llama:templates/5816fce1.jinja",
+            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja"],
+    c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
+    identifier = "chat_templates", flatten = True,
+)
+iree_cc_library(
+    name = "chat_policy",
+    visibility = ["//lib/loomify:__subpackages__", "//lib/serving/testing:__pkg__"],
+    srcs = ["chat_policy.cc"], hdrs = ["chat_policy.h"],
+    cxxopts = _CXXOPTS,
+    deps = ["//lib/serving:library_resources", ":chat_templates", "//tools/model:text_metadata"],
+)
+cc_test(
+    name = "chat_policy_test", size = "small", linkstatic = True,
+    srcs = ["//lib/loomify/testing:chat_policy_test.cc"], copts = _CXXOPTS,
+    data = ["//lib/text/llama:templates/5816fce1.jinja",
+            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja"],
+    deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_c_embed_data(
+    name = "materialize_source",
+    srcs = ["materialize.loom"],
+    c_file_output = "materialize_source.c",
+    h_file_output = "materialize_source.h",
+    identifier = "materialize_source",
+    flatten = True,
+)

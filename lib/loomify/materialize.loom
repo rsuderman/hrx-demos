@@ -1,0 +1,23 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+pass.pipeline<module> @materialize pipeline {
+  for func { canonicalize }
+  inline-callables
+  for func {
+    canonicalize
+    unroll-scf-for
+    canonicalize
+  }
+  repeat until_converged(max_iterations = 32) {
+    select-templates(mode = "early", rewrite = "inline")
+    inline-callables
+    for func {
+      canonicalize
+      unroll-scf-for
+      canonicalize
+    }
+  }
+  select-templates(mode = "final", rewrite = "inline")
+  for func { canonicalize }
+  symbol-dce
+}

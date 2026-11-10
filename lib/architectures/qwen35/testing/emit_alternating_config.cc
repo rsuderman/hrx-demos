@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/configuration.h"
-#include "tools/loomify-gguf/testing/alternating_qwen_fixture.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/testing/alternating_qwen_fixture.h"
 #include <fstream>
 #include <iostream>
 int main(int argc, char **argv) {

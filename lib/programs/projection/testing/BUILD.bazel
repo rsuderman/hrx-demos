@@ -13,7 +13,7 @@ cc_test(
     linkstatic = True,
     data = [":provider_text", ":provider_bc", "//lib/programs/projection:interface.loom"],
     deps = [
-        "//tools/loomify-gguf:native_linking",
+        "//lib/loomify:native_linking",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "@googletest//:gtest",

@@ -1,3 +1,0 @@
-// Copyright 2026 AMD ROCm™ Software
-// SPDX-License-Identifier: MIT
-config.def @llama.model.vocabulary_size = 128256 : index

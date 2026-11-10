@@ -5,9 +5,10 @@ load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 package(default_visibility = ["//visibility:public"])
+exports_files(["checkpoint_config.loom", "embedding_config.loom", "output_config.loom"], visibility = ["//visibility:private"])
 
 # The same owned numerical files back each maintained test call sequence.
-_NUMERICAL = ["//lib/kernels/llama:configured_provider_sources"]
+_NUMERICAL = ["//lib/kernels/llama:configured_provider_sources", "//lib/programs/llama:output.loom", "//lib/programs/llama:output_interface.loom"]
 _CASES = {
     "registered_norm": [],
     "attention_sequence": ["attention_capacity.loom"],
@@ -27,11 +28,11 @@ _CASES = {
 ) for case, helpers in _CASES.items() for format in (["text", "bc"] if case in ["head_rows", "joined_adapters"] else ["bc"])]
 
 _DIRECT = {
-    "embedding": ["embedding_checks.loom", "//lib/kernels/llama:embedding/embedding.loom", "//lib/kernels/embedding:q6k_rows.loom", "//lib/kernels/llama:embedding/embedding_config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/llama:config.loom"],
-    "projection": ["projection_checks.loom", "//lib/kernels/llama:config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:q4k_compat.loom", "//lib/kernels/projection:q6k.loom", "//lib/kernels/projection:q6k_compat.loom", "//lib/kernels/projection:qk_common.loom", "//lib/kernels/projection:qk_mmvq_compat.loom", "//lib/kernels/quantization:q8_1_x4.loom", "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom"],
+    "embedding": ["embedding_checks.loom", "//lib/kernels/llama:embedding/embedding.loom", "//lib/kernels/embedding:q6k_rows.loom", "embedding_config.loom", "//lib/kernels/llama:active_rows.loom", "checkpoint_config.loom"],
+    "projection": ["projection_checks.loom", "checkpoint_config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:q4k_compat.loom", "//lib/kernels/projection:q6k.loom", "//lib/kernels/projection:q6k_compat.loom", "//lib/kernels/projection:qk_common.loom", "//lib/kernels/projection:qk_mmvq_compat.loom", "//lib/kernels/quantization:q8_1_x4.loom", "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom"],
 }
 [loom_test(name = name + "_execution_test", srcs = sources, benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for name, sources in _DIRECT.items()]
-loom_test(name = "output_execution_test", srcs = ["output_checks.loom"], deps = ["//lib/kernels/llama:output", "//lib/kernels/llama:publication"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+loom_test(name = "output_execution_test", srcs = ["output_checks.loom", "checkpoint_config.loom", "output_config.loom"], deps = ["//lib/kernels/llama:output", "//lib/kernels/llama:publication"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
 _CHECKS = {
     "registered_norm": ["registered_norm_checks.loom"],
     "attention_sequence": ["attention_sequence_checks.loom"],
@@ -55,8 +56,8 @@ genrule(
     name = "token_control_data",
     testonly = True,
     outs = ["token_control_data.loom"],
-    tools = ["//tools/loomify-gguf/testing:emit_token_marker"],
-    cmd = "$(location //tools/loomify-gguf/testing:emit_token_marker) $@",
+    tools = ["//lib/loomify/testing:emit_token_marker"],
+    cmd = "$(location //lib/loomify/testing:emit_token_marker) $@",
 )
 loom_merge(
     name = "token_control",

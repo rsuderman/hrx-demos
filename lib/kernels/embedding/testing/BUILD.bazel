@@ -11,3 +11,10 @@ loom_test(
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
+
+loom_test(
+    name = "f32_execution_test",
+    srcs = ["f32_programs.loom", "f32_checks.loom", "//lib/kernels/embedding:f32.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)

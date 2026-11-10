@@ -11,7 +11,7 @@
 #include "loomc/target/amdgpu.h"
 #include "loomc/workspace.h"
 #include "gtest/gtest.h"
-#include "tools/loomify-gguf/linking.h"
+#include "lib/loomify/linking.h"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>

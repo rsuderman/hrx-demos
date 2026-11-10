@@ -1,0 +1,16 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Test-owned call wiring for the retained F32 primitive, independent of GGUF
+// conversion, model products and the retired embedding demonstration.
+kernel.decl @loomify.embedding.f32(%width: index, %vocab: index) launch(%width: index, %vocab: index, %token: index, %table: view<[%vocab]x[%width]xf32>, %output: buffer)
+command.program.def public @embedding.f32(%case: index) launch(%parameters: buffer, %output: buffer) {
+  %width = index.constant 4 : index
+  %vocab = index.constant 3 : index
+  %negative = index.constant -1 : index
+  %four = index.constant 4 : index
+  %is_negative = index.cmp eq, %case, %four : index
+  %token = scf.select %is_negative, %negative, %case : index
+  %table = command.parameter %parameters, "token_embd.weight" : view<[%vocab]x[%width]xf32>
+  kernel.launch @loomify.embedding.f32[%width, %vocab](%width, %vocab, %token, %table, %output) : [index, index](index, index, index, view<[%vocab]x[%width]xf32>, buffer)
+  command.return
+}

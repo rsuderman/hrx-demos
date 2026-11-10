@@ -1,16 +1,29 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:loom_resources.bzl", "loom_resources")
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:public"])
 exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom"])
 loom_merge(name = "greedy", srcs = ["greedy.loom", "request_check.loom"])
-filegroup(
-    name = "export_products",
-    srcs = [
-        "//lib/architectures/llama:implementation", "//lib/architectures/llama:prepare_library", "//lib/architectures/llama:execution",
-        "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:prepare_library", "//lib/architectures/qwen35:execution",
-        "//lib/text/common:implementation", "//lib/text/protocols/llama_headers:implementation",
-        "//lib/text/protocols/chatml_thinking:inline_history", "//lib/text/protocols/chatml_thinking:explicit_reasoning",
-        ":greedy", ":weights.loom",
-    ],
+_PRODUCTS = {
+    "//lib/architectures/llama:implementation": "kLlamaImplementation",
+    "//lib/architectures/llama:prepare_library": "kLlamaPreparation",
+    "//lib/architectures/llama:execution": "kLlamaExecution",
+    "//lib/architectures/qwen35:implementation": "kQwenImplementation",
+    "//lib/architectures/qwen35:prepare_library": "kQwenPreparation",
+    "//lib/architectures/qwen35:execution": "kQwenExecution",
+    "//lib/text/common:implementation": "kTextCommon",
+    "//lib/text/protocols/llama_headers:implementation": "kLlamaText",
+    "//lib/text/protocols/chatml_thinking:inline_history": "kChatmlInlineHistory",
+    "//lib/text/protocols/chatml_thinking:explicit_reasoning": "kChatmlExplicitReasoning",
+    ":greedy": "kGreedy",
+    ":weights.loom": "kWeights",
+}
+filegroup(name = "export_products", srcs = _PRODUCTS.keys())
+loom_resources(name = "library_resources_header", products = _PRODUCTS, out = "library_resources.h")
+iree_cc_library(
+    name = "library_resources",
+    hdrs = [":library_resources_header"],
+    visibility = ["//lib/loomify:__pkg__", "//tools/loomify-gguf:__pkg__"],
 )

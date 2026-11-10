@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Actual GGUF facts plus maintained wrappers; arithmetic/state oracles live in
 // the existing kernel tests. Old-versus-new parity is external migration evidence.
-#include "tools/loomify-gguf/configuration.h"
-#include "tools/loomify-gguf/linking.h"
-#include "tools/model/llama_configuration.h"
-#include "tools/model/qwen_configuration.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/linking.h"
+#include "tools/model/model_descriptor.h"
 #include "loomc/target/amdgpu.h"
 #include <cstdio>
 #include <filesystem>
@@ -26,8 +25,10 @@ int main(int argc,char **argv) {
   std::unique_ptr<FILE,decltype(&std::fclose)> input(std::fopen(argv[2],"rb"),std::fclose);
   if (!input || std::setvbuf(input.get(),nullptr,_IONBF,0)) return 1;
   model::ModelDescriptor descriptor;std::string error;
-  if (!(family=="llama" ? model::ExtractLlamaConfiguration(input.get(),&descriptor,&error)
-                         : model::ExtractQwenConfiguration(input.get(),&descriptor,&error))) {
+  model::GgufCatalog catalog;
+  if (!model::ReadGgufCatalog(input.get(), &catalog, &error) ||
+      !model::LoadModelDescriptor(catalog, &descriptor, &error) ||
+      descriptor.family != (family == "llama" ? "llama" : "qwen35")) {
     std::fprintf(stderr,"%s\n",error.c_str());return 1;
   }
   ConfigurationFacts config;

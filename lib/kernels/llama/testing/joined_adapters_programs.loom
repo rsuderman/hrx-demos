@@ -65,7 +65,7 @@ kernel.decl @test.join_seed(%capacity: index, %compact_capacity: index) launch(%
 
 template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
 
-template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
+template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
 template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
 
@@ -206,7 +206,7 @@ command.program.def public retain @joined.1.prefill.active() launch(%v0: buffer,
     %v138 = index.constant 98304 : index
     %v139 = index.constant 27648 : index
     %v140 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v132, %v133, %v129, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -346,7 +346,7 @@ command.program.def public retain @joined.1.prefill.compact() launch(%v0: buffer
     %v138 = index.constant 36864 : index
     %v139 = index.constant 10368 : index
     %v140 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v132, %v133, %v129, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -818,7 +818,7 @@ command.program.def public retain @joined.2.prefill.active() launch(%v0: buffer,
     %v138 = index.constant 98304 : index
     %v139 = index.constant 27648 : index
     %v140 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v132, %v133, %v129, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
     %v141 = index.constant 98304 : offset
     %v142 = buffer.alloca<global> align(256) %v141 : buffer
     %v143 = index.constant 8 : index
@@ -947,7 +947,7 @@ command.program.def public retain @joined.2.prefill.active() launch(%v0: buffer,
     %v251 = index.constant 98304 : index
     %v252 = index.constant 27648 : index
     %v253 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v239, %v240, %v241, %v241, %v241, %v242, %v238, %v238, %v238, %v245, %v246, %v242, %v247, %v250, %v248, %v251, %v249, %v25, %v220, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v248]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v239, %v240, %v241, %v241, %v241, %v242, %v238, %v238, %v245, %v246, %v242, %v250, %v248, %v251, %v249, %v25, %v220, %v19) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v248]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1087,7 +1087,7 @@ command.program.def public retain @joined.2.prefill.compact() launch(%v0: buffer
     %v138 = index.constant 36864 : index
     %v139 = index.constant 10368 : index
     %v140 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v125, %v132, %v133, %v129, %v134, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v126, %v127, %v128, %v128, %v128, %v129, %v125, %v125, %v132, %v133, %v129, %v137, %v135, %v138, %v136, %v25, %v107, %v19) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v135]xi8>, buffer, buffer, buffer)
     %v141 = index.constant 36864 : offset
     %v142 = buffer.alloca<global> align(256) %v141 : buffer
     %v143 = index.constant 3 : index
@@ -1216,7 +1216,7 @@ command.program.def public retain @joined.2.prefill.compact() launch(%v0: buffer
     %v251 = index.constant 36864 : index
     %v252 = index.constant 10368 : index
     %v253 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v239, %v240, %v241, %v241, %v241, %v242, %v238, %v238, %v238, %v245, %v246, %v242, %v247, %v250, %v248, %v251, %v249, %v25, %v220, %v19) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v248]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v239, %v240, %v241, %v241, %v241, %v242, %v238, %v238, %v245, %v246, %v242, %v250, %v248, %v251, %v249, %v25, %v220, %v19) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v248]xi8>, buffer, buffer, buffer)
   }
   command.return
 }

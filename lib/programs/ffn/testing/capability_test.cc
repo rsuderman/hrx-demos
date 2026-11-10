@@ -5,7 +5,7 @@
 #include "loomc/status.h"
 #include "loomc/target/amdgpu.h"
 #include "loomc/workspace.h"
-#include "tools/loomify-gguf/linking.h"
+#include "lib/loomify/linking.h"
 #include "gtest/gtest.h"
 #include <cstdlib>
 #include <fstream>

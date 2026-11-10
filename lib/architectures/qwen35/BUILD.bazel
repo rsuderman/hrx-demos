@@ -12,14 +12,11 @@ filegroup(
     name = "numerical_sources",
     srcs = [
         "//lib/kernels/qwen:configured_provider_sources",
-        "//lib/kernels/qwen/gdn:interface.loom",
-        "//lib/kernels/qwen/gdn:layer.loom",
+        "//lib/programs/qwen35:implementation_sources",
         "//lib/kernels/qwen/gdn:common.loom",
         "//lib/kernels/qwen/gdn:prefill.loom",
         "//lib/kernels/qwen/gdn:spans.loom",
         "//lib/kernels/qwen/gdn:clear.loom",
-        "//lib/kernels/qwen/attention:layer_interface.loom",
-        "//lib/kernels/qwen/attention:layer.loom",
         "//lib/kernels/qwen/attention:clear.loom",
         "//lib/kernels/qwen/attention:attention_common.loom",
         "//lib/kernels/qwen/attention:attention_prefill.loom",
@@ -48,10 +45,10 @@ cc_test(
     linkstatic = True,
     data = ["prepare.loom", ":prepare_library"],
     deps = [
-        "//tools/loomify-gguf:configuration",
-        "//tools/loomify-gguf:configuration_fixture",
-        "//tools/loomify-gguf:token_policy",
-        "//tools/loomify-gguf/testing:prepare_vm",
+        "//lib/loomify:configuration",
+        "//lib/loomify:configuration_fixture",
+        "//lib/loomify:token_policy",
+        "//lib/loomify/testing:prepare_vm",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/vm",
         "@googletest//:gtest",
@@ -67,7 +64,7 @@ cc_binary(
     name = "emit_block_validation", testonly = True,
     srcs = ["//lib/architectures/qwen35/testing:emit_block_validation.cc"], copts = ["-std=c++17"],
     data = [":block_fixture"],
-    deps = ["//tools/loomify-gguf:configuration", "//tools/loomify-gguf:native_linking", "//tools/model:qwen_configuration", "@hrx_system//loom/binding/c/target/amdgpu"],
+    deps = ["//lib/loomify:configuration", "//lib/loomify:native_linking", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c/target/amdgpu"],
 )
 
 loom_merge(name = "execution", srcs = ["control_core.loom"])

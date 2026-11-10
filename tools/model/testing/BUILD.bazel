@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 
 _CXXOPTS = select({
     "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
@@ -30,7 +31,7 @@ cc_test(
     linkstatic = True,
     deps = [
         "//tools/model:model_descriptor",
-        "//tools/model:llama_configuration",
+        ":f32_gguf_fixture",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
     ],
@@ -51,4 +52,19 @@ cc_test(
     defines = ["LOOMIFY_TEXT_REAL_ASSETS=1"],
     copts = _CXXOPTS,
     deps = ["//tools/model:text_metadata", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_cc_library(
+    name = "f32_gguf_fixture",
+    testonly = True,
+    srcs = ["f32_gguf_fixture.cc"],
+    hdrs = ["f32_gguf_fixture.h"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//tools/model:model_descriptor",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/io:file_handle",
+        "@hrx_system//runtime/src/iree/io:parameter_index",
+        "@hrx_system//runtime/src/iree/io/formats/gguf:gguf",
+    ],
 )

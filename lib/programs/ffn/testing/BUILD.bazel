@@ -15,9 +15,9 @@ cc_test(
     linkstatic = True,
     data = [":llama_fixture", ":llama_fixture_text", ":qwen_fixture", ":qwen_fixture_text"],
     deps = [
-        "//tools/loomify-gguf:configuration",
-        "//tools/loomify-gguf:native_linking",
-        "//tools/loomify-gguf:configuration_fixture",
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//lib/loomify:configuration_fixture",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "@hrx_system//loom/binding/c/target/cmd",
         "@googletest//:gtest", "@googletest//:gtest_main",
@@ -31,21 +31,21 @@ cc_binary(
     data = [":llama_fixture", ":qwen_fixture"],
     cxxopts = ["-std=c++17"],
     deps = [
-        "//tools/loomify-gguf:configuration",
-        "//tools/loomify-gguf:native_linking",
-        "//tools/model:llama_configuration", "//tools/model:qwen_configuration",
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//tools/model:model_descriptor",
         "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
 
 _LLAMA_FIXTURE = ["llama_roots.loom", "real_llama_roots.loom", "//lib/architectures/llama:implementation"]
-_QWEN_FIXTURE = ["qwen_roots.loom", "real_qwen_roots.loom", "//lib/programs/ffn:qwen_adapter.loom", "//lib/programs/ffn:interface.loom", "//lib/programs/ffn:ffn.loom", "//lib/architectures/qwen35:implementation"]
+_QWEN_FIXTURE = ["qwen_roots.loom", "real_qwen_roots.loom", "//lib/programs/qwen35:ffn_adapter.loom", "//lib/programs/ffn:interface.loom", "//lib/architectures/qwen35:implementation"]
 loom_merge(name = "llama_fixture", srcs = _LLAMA_FIXTURE, testonly = True)
 loom_merge(name = "llama_fixture_text", srcs = _LLAMA_FIXTURE, output_format = "text", testonly = True)
 loom_merge(name = "qwen_fixture", srcs = _QWEN_FIXTURE, testonly = True)
 loom_merge(name = "qwen_fixture_text", srcs = _QWEN_FIXTURE, output_format = "text", testonly = True)
 
-_FFN27_SOURCES = ["ffn27_programs.loom", "//lib/kernels/qwen:configured_provider_sources"]
+_FFN27_SOURCES = ["ffn27_config.loom", "ffn27_programs.loom", "//lib/programs/qwen35:ffn.loom", "//lib/kernels/qwen:configured_provider_sources"]
 [loom_merge(name = "ffn27_" + format, srcs = _FFN27_SOURCES, output_format = format, testonly = True) for format in ["text", "bc"]]
 [loom_test(name = "ffn27_" + format + "_test", srcs = ["ffn27_checks.loom", ":ffn27_" + format], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for format in ["text", "bc"]]
 
@@ -62,13 +62,13 @@ _CAPABILITY_COMMON = [
 _CAPABILITY_COMPATIBLE = [
     "//lib/kernels/llama:ffn/ffn.loom",
     "//lib/kernels/llama:norm/norm.loom",
-    "//lib/architectures/llama:ffn_adapter.loom",
+    "//lib/programs/llama:ffn_adapter.loom",
 ]
 _CAPABILITY_CANONICAL = [
     "//lib/kernels/qwen:ffn/children.loom",
     "//lib/kernels/qwen:common/layer_decode.loom",
     "//lib/kernels/qwen:common/layer_prefill.loom",
-    "//lib/programs/ffn:qwen_adapter.loom",
+    "//lib/programs/qwen35:ffn_adapter.loom",
 ]
 [loom_merge(
     name = "capability_" + name + "_" + format,
@@ -104,7 +104,7 @@ cc_test(
         ":capability_compatible_provider_text", ":capability_compatible_provider_bc",
     ],
     deps = [
-        "//tools/loomify-gguf:native_linking",
+        "//lib/loomify:native_linking",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "@googletest//:gtest", "@googletest//:gtest_main",

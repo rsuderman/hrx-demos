@@ -1,0 +1,12 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Private facts for the existing E=1024, V=248320 tied-Q6 output fixture.
+// These keys were already required by the original combined head provider.
+config.def @qwen.model.tie_word_embeddings = 1 : index
+config.def @qwen.model.vocabulary_size = 248320 : index
+// ceil(V / 4096) * sizeof(f32); V * sizeof(f32).
+config.def @qwen.model.argmax_partial_row_bytes = 244 : index
+config.def @qwen.model.logits_row_bytes = 993280 : index
+// V * (E / 256) * 210 Q6_K bytes; (E / 128) * 144 Q8_1_x4 bytes.
+config.def @qwen.model.output_weight_bytes = 208588800 : index
+config.def @qwen.model.hidden_q8_row_bytes = 1152 : index

@@ -50,7 +50,7 @@ TEST(LayerSourceTest, MaintainedSourcesReloadAsTextAndBytecode) {
                            std::getenv("TEST_WORKSPACE");
   for (const char *file : {"attention.loom", "layer.loom"}) {
     SCOPED_TRACE(file);
-    const auto path = root + "/lib/architectures/llama/" + file;
+    const auto path = root + "/lib/programs/llama/" + file;
     std::ifstream input(path);
     ASSERT_TRUE(input.is_open()) << path;
     const std::string text((std::istreambuf_iterator<char>(input)), {});

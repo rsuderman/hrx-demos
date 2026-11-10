@@ -1,6 +1,6 @@
 # GGUF model export
 
-`loomify-gguf --stage=model` constructs the supported Llama3.2 3B Q4_K_M
+`loomify-gguf` constructs the supported Llama3.2 3B Q4_K_M
 and qualified Qwen3.5 0.8B UD-Q5_K_XL / 27B Q4_K_M architectures by deriving data-only configuration and parameter bindings from the
 GGUF descriptor, selecting a config-free numerical provider closure, and linking
 maintained Loom programs. It writes the model document and source providers
@@ -14,7 +14,7 @@ directory:
 ```sh
 bazel build //tools/loomify-gguf:loomify-gguf
 bazel-bin/tools/loomify-gguf/loomify-gguf \
-  --stage=model --gguf=/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
+  --gguf=/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
   --tokenizer=/path/to/tokenizer.json --output-dir=/path/to/exported-llama \
   --context-capacity=512 --prefill-capacity=128 --format=bc
 loom-serve --device=amdgpu --model=/path/to/exported-llama/model.json \
@@ -39,9 +39,10 @@ mapping. Isolated Serve step execution is explicitly unsupported by this package
 the generated numerical prefill/decode roots remain usable through their direct
 seven-buffer interface with the exported offsets and requirements.
 
-The maintained programs in `lib/architectures/llama` own embedding, repeated decoder
-layers, normalized vocabulary selection and publication. `lib/programs/ffn`
-contains their shared FFN sequence; each profile selects its numerical packing
+The maintained model in `lib/architectures/llama` owns embedding, repeated decoder
+ordering and publication. `lib/programs/llama` contains its complete layer, attention,
+FFN adapter and normalized vocabulary-selection programs. `lib/programs/ffn`
+contains the shared FFN sequence; each profile selects its numerical packing
 and normalization providers. Generated configuration supplies tensor bindings,
 layer extents/quantization and capacities, without generating command order.
 The maintained epoch translates one-span packets, invokes prefill at the maximum
@@ -54,14 +55,29 @@ native text serialization; no C++ geometry object or template rendering is invol
 preserve canonical GGUF keys; compiler-reflected packed root offsets are distinct
 from file offsets.
 
-The converter still supports its independent F32 embedding demonstration:
+The same converter can write a numerical module without a tokenizer, or inspect
+configuration without loading maintained Loom products or creating a compiler context:
 
 ```sh
 bazel-bin/tools/loomify-gguf/loomify-gguf \
-  --stage=embedding --gguf=/path/to/f32-model.gguf --output=embedding.loombc
+  --gguf=/path/to/model.gguf --output=/path/to/model.loombc
+bazel-bin/tools/loomify-gguf/loomify-gguf \
+  --gguf=/path/to/model.gguf --configuration-output=/path/to/new-inspection
 ```
 
-The public C++ interface is `tools/loomify-gguf/gguf_model_builder.h`:
+Inspection writes `numeric.loom`: the exact numerical configuration, including
+publication token IDs and pure per-layer lookup functions. Adding `--tokenizer`
+prepares package data and writes supplemental `serve-data.loom`. That file is joined
+with the numerical source for preparation/control; it contains no second numerical
+configuration. Inspection is output-only, and does not certify native materialization
+or inference. It can accompany either export. Successful requested inspection remains
+available if later native export fails; partial failed inspection is cleaned up.
+Inspection and native destinations must be distinct, and existing paths are refused.
+`--output` and `--output-dir` conflict; numerical module export rejects tokenizer/chat
+flags. `--chat-template` requires a tokenizer. Serialization `--format` affects the
+module only; inspection is always text and stays outside the five-file package.
+
+The public C++ interface is `lib/loomify/gguf_model_builder.h`:
 
 ```cpp
 std::unique_ptr<GgufModelBuilder> builder;
@@ -73,18 +89,39 @@ build.context_capacity = 512;
 GgufPackageOptions package;
 package.output_directory = new_directory;
 package.tokenizer = tokenizer_path;
-return builder->WritePackage(context, workspace, build, package, &error);
+std::unique_ptr<GgufConfiguration> configured;
+if (!builder->Configure(build, &package, &configured, &error)) return false;
+// These strings are precisely what the native construction consumes.
+const auto& numerical_source = configured->configuration_source();
+const auto& supplemental_source = configured->package_data_source();
+return configured->WritePackage(context, workspace, &error);
 ```
 
-Call `BuildModule` instead to obtain a move-only `BuiltGgufModule`, then use
-`WriteModule` for a new text/bytecode file. Numerical-only builds need no Serve
-companions or tokenizer. The caller supplies its configured native context and
-workspace; the owned module retains its native dependencies. Package writing calls
-the same numerical construction routine and links preparation from its exact saved
-configuration. The CLI reads declared bytecode products and companions from its
-runfiles; it does not search the current checkout for model sources.
+For numerical-only construction, pass `nullptr` instead of package options to
+`Configure`, then call `configured->BuildModule` and `BuiltGgufModule::WriteModule`
+for a new text/bytecode file. Numerical configuration needs no tokenizer or supported
+chat template. Configure performs no Loom product reads, parsing or linking; package
+preparation still uses the existing native tokenizer parser and bounded GGUF marker
+scan. Empty resource/output roots are permitted for inspection. The result owns
+copied facts, generated strings, options and resource root, and survives builder or
+option destruction. Failed configuration preserves the caller's previous result.
 
-`//tools/loomify-gguf:package_test` is the explicit real-asset source/bytecode,
+The caller supplies native context/workspace synchronously when constructing the
+module or package. The owned module retains its native dependencies. Both native
+paths consume the prepared sources directly; they do not regenerate numerical
+configuration. The library is `//lib/loomify:gguf_model_builder`, independent of the
+CLI target and flags. Its finite host mappers live in `lib/loomify/architectures`;
+model command order remains authored in Loom, while `tools/model` stays the shared
+fact-reader library also used by the inspector.
+
+The CLI selects its conventional runfiles-root string for native exports, and
+loads only the selected BUILD-declared products after successful optional inspection. It
+does not search the checkout or current directory. The library accepts an explicit
+resource root without performing discovery. Private generated resource paths and
+runfiles share one BUILD inventory. Native normalization uses the maintained embedded
+`lib/loomify/materialize.loom` asset through the existing native pass API.
+
+`//lib/loomify:package_test` is the explicit real-asset source/bytecode,
 relocation, missing-provider and safe-publication gate. It requires
 `LOOMIFY_TEST_GGUF`, `LOOMIFY_TEST_TOKENIZER`, `LOOMIFY_TEST_QWEN_GGUF` and
 `LOOMIFY_TEST_QWEN_TOKENIZER`. The maintained preparation tests are
@@ -95,12 +132,12 @@ requests. Existing Serve is the end-to-end consumer for prompt/decode/replay and
 real registration failure checks. Generation/loading alone does not establish
 numerical parity or resolve independent model-fidelity work.
 
-The same model mode also accepts the known Qwen3.5 0.8B UD-Q5_K_XL checkpoint.
+The converter also accepts the known Qwen3.5 0.8B UD-Q5_K_XL checkpoint.
 It selects the architecture from the owned GGUF descriptor, not the filename:
 
 ```sh
 bazel-bin/tools/loomify-gguf/loomify-gguf \
-  --stage=model --gguf=/path/to/Qwen3.5-0.8B-UD-Q5_K_XL.gguf \
+  --gguf=/path/to/Qwen3.5-0.8B-UD-Q5_K_XL.gguf \
   --tokenizer=/path/to/qwen/tokenizer.json --output-dir=/path/to/exported-qwen \
   --context-capacity=512 --prefill-capacity=128 --format=bc
 loom-serve --device=amdgpu --model=/path/to/exported-qwen/model.json \

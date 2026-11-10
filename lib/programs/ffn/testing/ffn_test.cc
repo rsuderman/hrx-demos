@@ -1,8 +1,8 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-#include "tools/loomify-gguf/configuration.h"
-#include "tools/loomify-gguf/linking.h"
-#include "tools/loomify-gguf/testing/configuration_fixture.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/linking.h"
+#include "lib/loomify/testing/configuration_fixture.h"
 #include "loomc/compile.h"
 #include "loomc/source.h"
 #include "loomc/target/amdgpu.h"

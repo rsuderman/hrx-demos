@@ -17,7 +17,7 @@ model configuration selects existing qualified encoding/arithmetic policies.
 Tests live with their implementation. Architecture tests cover complete command
 roots, parameter identities, preparation records and packet/state behavior.
 Kernel tests retain independent arithmetic/precision/guard expectations, active
-rows and continuation. `tools/loomify-gguf/testing` covers the public builder,
+rows and continuation. `lib/loomify/testing` covers the public builder,
 header-only GGUF facts, relocation and safe package publication. Prompt/decode
 acceptance uses existing Loom Serve; it does not establish independent numerical
 parity for every model.

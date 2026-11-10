@@ -51,7 +51,7 @@ kernel.decl @test.seed_active_i32(%rows0: index) launch(%rows: index, %capacity:
 
 template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
 
-template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
+template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
 template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
 
@@ -645,7 +645,7 @@ command.program.def public retain @active.ffn.q4.n1() launch(%v0: buffer, %v1: b
     %v47 = index.constant 98304 : index
     %v48 = index.constant 27648 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -698,7 +698,7 @@ command.program.def public retain @active.ffn.q4.n3() launch(%v0: buffer, %v1: b
     %v47 = index.constant 98304 : index
     %v48 = index.constant 27648 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -751,7 +751,7 @@ command.program.def public retain @active.ffn.q4.n4() launch(%v0: buffer, %v1: b
     %v47 = index.constant 98304 : index
     %v48 = index.constant 27648 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -804,7 +804,7 @@ command.program.def public retain @active.ffn.q4.n8() launch(%v0: buffer, %v1: b
     %v47 = index.constant 147456 : index
     %v48 = index.constant 41472 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -857,7 +857,7 @@ command.program.def public retain @active.ffn.q4.n9() launch(%v0: buffer, %v1: b
     %v47 = index.constant 159744 : index
     %v48 = index.constant 44928 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -910,7 +910,7 @@ command.program.def public retain @active.ffn.q4.n16() launch(%v0: buffer, %v1: 
     %v47 = index.constant 245760 : index
     %v48 = index.constant 69120 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -963,7 +963,7 @@ command.program.def public retain @active.ffn.q4.n17() launch(%v0: buffer, %v1: 
     %v47 = index.constant 258048 : index
     %v48 = index.constant 72576 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1065,7 +1065,7 @@ command.program.def public retain @active.ffn.q4.tail() launch(%v0: buffer, %v1:
     %v47 = index.constant 61440 : index
     %v48 = index.constant 17280 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1118,7 +1118,7 @@ command.program.def public retain @active.ffn.q6.n1() launch(%v0: buffer, %v1: b
     %v47 = index.constant 98304 : index
     %v48 = index.constant 27648 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1171,7 +1171,7 @@ command.program.def public retain @active.ffn.q6.n3() launch(%v0: buffer, %v1: b
     %v47 = index.constant 98304 : index
     %v48 = index.constant 27648 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1224,7 +1224,7 @@ command.program.def public retain @active.ffn.q6.n4() launch(%v0: buffer, %v1: b
     %v47 = index.constant 98304 : index
     %v48 = index.constant 27648 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1277,7 +1277,7 @@ command.program.def public retain @active.ffn.q6.n8() launch(%v0: buffer, %v1: b
     %v47 = index.constant 147456 : index
     %v48 = index.constant 41472 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1330,7 +1330,7 @@ command.program.def public retain @active.ffn.q6.n9() launch(%v0: buffer, %v1: b
     %v47 = index.constant 159744 : index
     %v48 = index.constant 44928 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1383,7 +1383,7 @@ command.program.def public retain @active.ffn.q6.n16() launch(%v0: buffer, %v1: 
     %v47 = index.constant 245760 : index
     %v48 = index.constant 69120 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1436,7 +1436,7 @@ command.program.def public retain @active.ffn.q6.n17() launch(%v0: buffer, %v1: 
     %v47 = index.constant 258048 : index
     %v48 = index.constant 72576 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1538,7 +1538,7 @@ command.program.def public retain @active.ffn.q6.tail() launch(%v0: buffer, %v1:
     %v47 = index.constant 61440 : index
     %v48 = index.constant 17280 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1726,7 +1726,7 @@ command.program.def public retain @active.ffn.q4.compact() launch(%v0: buffer, %
     %v47 = index.constant 36864 : index
     %v48 = index.constant 10368 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v37, %v38, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
@@ -1819,7 +1819,7 @@ command.program.def public retain @active.ffn.q6.compact() launch(%v0: buffer, %
     %v47 = index.constant 36864 : index
     %v48 = index.constant 10368 : index
     %v49 = index.constant 13824 : index
-    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v34, %v41, %v42, %v38, %v43, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.down_prefill>(%v35, %v36, %v37, %v37, %v38, %v37, %v34, %v34, %v41, %v42, %v38, %v46, %v44, %v47, %v45, %v14, %v6, %v5) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%v44]xi8>, buffer, buffer, buffer)
   }
   command.return
 }
