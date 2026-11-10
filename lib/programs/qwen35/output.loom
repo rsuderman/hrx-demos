@@ -18,12 +18,11 @@ template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index
 kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count0: index, %output_size: index) launch(%token_count0: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
 kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count0: index, %output_size: index) launch(%token_count0: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
 kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width: index) launch(%rows: index, %width: index, %input: buffer, %output: buffer)
-kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch: buffer, %private_ids: buffer, %output: buffer)
 kernel.decl @qwen38_output_normalize_spans(%output_capacity: index) launch(%epoch: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 // Four private projection rows preserve the existing ordinary canonical Q6 route.
-// Public selected capacity remains1; publication consumes only epoch output_count.
-command.program.def @qwen08_epoch_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
+// Selected capacity remains1; the epoch owns all public output publication.
+command.program.def @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
   %four = index.constant 4 : index
   %hidden = config.get @qwen.model.hidden_size : index
   %vocab = config.get @qwen.model.vocabulary_size : index
@@ -40,13 +39,11 @@ command.program.def @qwen08_epoch_head(%token_capacity: index, %output_capacity:
   %q8_bytes = index.cast %q8_size : index to offset
   %logit_bytes = index.cast %logits_size : index to offset
   %partial_bytes = index.cast %partial_size : index to offset
-  %id_bytes = index.constant 16 : offset
   %normalized = buffer.alloca<global> align(256) %norm_bytes : buffer
   %q8 = buffer.alloca<global> align(256) %q8_bytes : buffer
   %logits = buffer.alloca<global> align(256) %logit_bytes : buffer
   %partial_logits = buffer.alloca<global> align(256) %partial_bytes : buffer
   %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
-  %private_ids = buffer.alloca<global> align(256) %id_bytes : buffer
   %epsilon = config.get @qwen.model.rms_epsilon : f32
   %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
   %output_bytes = config.get @qwen.model.output_weight_bytes : index
@@ -66,7 +63,6 @@ command.program.def @qwen08_epoch_head(%token_capacity: index, %output_capacity:
   template.apply<@llm.projection.pack_input>(%canonical, %four, %four, %hidden, %zero, %fixed_count, %origin, %epoch, %normalized, %q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
   kernel.launch @ggml_linear_q6k_q8_1_x4_m4[%four, %hidden, %vocab](%four, %hidden, %vocab, %q8, %weight, %logits) : [index, index, index](index, index, index, buffer, view<[%output_bytes]xi8>, buffer)
   kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%four, %vocab](%four, %vocab, %logits, %partial_logits, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
-  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%four, %vocab](%four, %vocab, %partial_logits, %partial_ids, %private_ids) : [index, index](index, index, buffer, buffer, buffer)
-  kernel.launch @qwen08_publish_selected_ids[%output_capacity](%epoch, %private_ids, %output) : [index](buffer, buffer, buffer)
+  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%four, %vocab](%four, %vocab, %partial_logits, %partial_ids, %selected_ids) : [index, index](index, index, buffer, buffer, buffer)
   command.return
 }

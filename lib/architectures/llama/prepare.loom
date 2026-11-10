@@ -22,10 +22,6 @@ func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
 
 
-// llama32_prefill
-global.rodata.def @prefill_root = bytes("67656e6572617465642e6c6c616d615f70726566696c6c")
-// llama32_text_decode_greedy
-global.rodata.def @decode_root = bytes("67656e6572617465642e6c6c616d615f6465636f6465")
 // llama32_epoch
 global.rodata.def @epoch_root = bytes("67656e6572617465642e6c6c616d615f65706f6368")
 // weights.loom
@@ -35,7 +31,7 @@ global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
 global.rodata.def @empty = bytes("")
 // Llama 3B requires target-only greedy stages, empty model options and valid bounded capacities
 global.rodata.def @unsupported = bytes("4c6c616d61203342207265717569726573207461726765742d6f6e6c7920677265656479207374616765732c20656d707479206d6f64656c206f7074696f6e7320616e642076616c696420626f756e6465642063617061636974696573")
-// Root order is isolated prefill/decode followed by native packed shapes.
+// Reserved slots0/1 retain T/1 tags; all slots register the same epoch root.
 // Each complete command has one immutable weight root followed by six native
 // issue bindings. No proposal, catch-up, verifier or continuation is declared.
 func.def @llama32_declare_stage(%root: buffer, %tokens: i64, %weights: buffer) -> (i32) {
@@ -248,11 +244,9 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %bounded = scalar.assume %shape_count [range(%shape_count, 0, 2147483645)] : i64
   %count = index.cast %bounded : i64 to index
   %view = buffer.view %shapes[%origin] : buffer -> view<[%count]x2xi64>
-  %prefill_root = global.load @prefill_root : buffer
-  %decode_root = global.load @decode_root : buffer
   %epoch_root = global.load @epoch_root : buffer
-  %prefill_stage = func.call @llama32_declare_stage(%prefill_root, %prefill, %weights) : (buffer, i64, buffer) -> (i32)
-  %decode_stage = func.call @llama32_declare_stage(%decode_root, %one64, %weights) : (buffer, i64, buffer) -> (i32)
+  %prefill_stage = func.call @llama32_declare_stage(%epoch_root, %prefill, %weights) : (buffer, i64, buffer) -> (i32)
+  %decode_stage = func.call @llama32_declare_stage(%epoch_root, %one64, %weights) : (buffer, i64, buffer) -> (i32)
   %maximum = scf.for %i = [%zero to %count step %one](%previous = %zero64 : i64) -> (i64) {
     %tokens = view.load %view[%i, 0] : view<[%count]x2xi64> -> i64
     %spans = view.load %view[%i, 1] : view<[%count]x2xi64> -> i64

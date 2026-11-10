@@ -35,19 +35,32 @@ context C between T and131072. It uses Serve's existing packed-epoch path with
 one span. Physical KV pool capacity rounds C up to64 tokens. The native prepare
 program checks that requested capacities match the generated program. The text
 control policy retains the existing Llama chat framing and end-of-generation
-mapping. Isolated Serve step execution is explicitly unsupported by this package;
-the generated numerical prefill/decode roots remain usable through their direct
-seven-buffer interface with the exported offsets and requirements.
+mapping. Isolated Serve step execution is explicitly rejected. Its sole numerical
+request root is `generated.llama_epoch`, with the same seven-buffer request role
+as `generated.qwen_epoch`. Both retain reserved native stage slots0/1 with T/1
+tags, followed by shape stages at2+shape; every stage registers its family epoch
+root. Existing cold allocation, view/origin and cache geometry are retained.
 
-The maintained model in `lib/architectures/llama` owns embedding, repeated decoder
-ordering and publication. `lib/programs/llama` contains its complete layer, attention,
+Each `lib/architectures/<family>/epoch.loom` owns the public numerical epoch root,
+a16-byte private selected-ID buffer, its private model invocation and final
+publication to the request output. Each `model.loom` owns the private embedding,
+repeated-layer and head sequence, writing only private selected IDs. The Qwen
+head retains all four private projection/argmax rows; only result0 is published.
+Host encode/issue/progress hooks remain in `control_core.loom`. `lib/programs/llama` contains its complete layer, attention,
 FFN adapter and normalized vocabulary-selection programs. `lib/programs/ffn`
 contains the shared FFN sequence; each profile selects its numerical packing
 and normalization providers. Generated configuration supplies tensor bindings,
 layer extents/quantization and capacities, without generating command order.
-The maintained epoch translates one-span packets, invokes prefill at the maximum
-configured row capacity, and scatters the selected token. Active count masks
-unused rows; one-token continuation follows the same path. The model build
+The epoch passes the existing ordinary packet directly to its model, without a
+legacy control/history bridge, input token copy or private progress allocation.
+One-token continuation uses the same root. For active input interval[B,B+N),
+Llama writes compact activations0..N-1 and uses the descriptor's absolute position;
+Qwen retains its packed activation placement. Llama snapshots descriptor.length
+once in model-owned count scratch for all layers/FFNs. Public output_count0
+preserves all16 output words; output_count1 writes only descriptor0's physical
+slot0..15, independently of selected_rows[0]'s logical activation-row selection.
+Canonical host encoding remains one resident row/span with compact output slot0;
+unsupported batching, media, proposal and verification modes are rejected. The model build
 returns its owned numerical module and configuration source. Maintained preparation
 reads the same configuration to construct native cold allocation, row-view, origin
 and KV geometry records. The exporter links that preparation module and writes its
@@ -144,15 +157,16 @@ loom-serve --device=amdgpu --model=/path/to/exported-qwen/model.json \
   --listen=127.0.0.1:18081
 ```
 
-Qwen orchestration is maintained in `lib/architectures/qwen35/model.loom`.
+Qwen numerical orchestration is maintained privately in
+`lib/architectures/qwen35/model.loom`, behind the public root in `epoch.loom`.
 Complete GDN/attention layer bundles retain their internal FFNs and qualified
 numerical policies; the exporter selects and links the maintained product.
 
 The generated Qwen model name is `loomify-qwen35`. It uses ordinary greedy text,
 one active row/span, no MTP/vision or retained/prefix caches, T in1..512 and C from
-T through262144. Its sole `generated.qwen_epoch` entry invokes
-embedding, all configured hybrid layer bundles,
-then selected-row normalized vocabulary head. It directly accepts the existing
+T through262144. Its sole `generated.qwen_epoch` entry invokes the private model's
+embedding, all configured hybrid layer bundles and selected-row normalized
+vocabulary head, then publishes the selected private ID to the requested slot. It directly accepts the existing
 epoch buffers; a one-token continuation uses the same entry. The owned prepare
 program reports the complete convolution/recurrent GDN slot and paged KV geometry
 so native request reset clears fresh state and subsequent chunks retain it. The

@@ -1,8 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-// Snapshot stress only: publication precedes the head-norm leaf here to prove
-// its private count survives original-packet mutation. Production orders the
-// registered full OutputHead before publication (composition milestone).
+// Numerical snapshot/norm witnesses preserve the source packet and unrelated
+// history/progress storage; direct epoch publication is tested separately.
 command.program.decl @head.rows.prefill() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer)
 func.def @norm_prefill(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
@@ -63,24 +62,6 @@ command.program.def public @actual_prefill_63() launch(%input: buffer, %gamma: b
 func.def @reference_prefill_63(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   func.call @init_prefill_63(%control) : (buffer) -> ()
   func.call @norm_prefill(%input, %gamma, %control, %output) : (buffer, buffer, buffer, buffer) -> ()
-  %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %next = scalar.constant 66 : i32
-  %generated = scalar.constant 1 : i32
-  %winner = scalar.constant 7 : i32
-  %done = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %winner, %h[%i0] : i32, view<129xi32>
-  view.store %winner, %h[%i1] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %done, %p[%i7] : i32, view<8xi32>
   func.return
 }
 check.scenario @snapshot_prefill_63 {
@@ -165,24 +146,6 @@ command.program.def public @actual_decode_0() launch(%input: buffer, %gamma: buf
 func.def @reference_decode_0(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   func.call @init_decode_0(%control) : (buffer) -> ()
   func.call @norm_decode(%input, %gamma, %control, %output) : (buffer, buffer, buffer, buffer) -> ()
-  %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %next = scalar.constant 1 : i32
-  %generated = scalar.constant 8 : i32
-  %winner = scalar.constant 7 : i32
-  %done = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %winner, %h[%i0] : i32, view<129xi32>
-  view.store %winner, %h[%i8] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %done, %p[%i7] : i32, view<8xi32>
   func.return
 }
 check.scenario @snapshot_decode_0 {
@@ -236,24 +199,6 @@ command.program.def public @actual_decode_1() launch(%input: buffer, %gamma: buf
 func.def @reference_decode_1(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   func.call @init_decode_1(%control) : (buffer) -> ()
   func.call @norm_decode(%input, %gamma, %control, %output) : (buffer, buffer, buffer, buffer) -> ()
-  %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %next = scalar.constant 2 : i32
-  %generated = scalar.constant 8 : i32
-  %winner = scalar.constant 7 : i32
-  %done = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %winner, %h[%i0] : i32, view<129xi32>
-  view.store %winner, %h[%i8] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %done, %p[%i7] : i32, view<8xi32>
   func.return
 }
 check.scenario @snapshot_decode_1 {
@@ -307,24 +252,6 @@ command.program.def public @actual_decode_63() launch(%input: buffer, %gamma: bu
 func.def @reference_decode_63(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   func.call @init_decode_63(%control) : (buffer) -> ()
   func.call @norm_decode(%input, %gamma, %control, %output) : (buffer, buffer, buffer, buffer) -> ()
-  %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %next = scalar.constant 64 : i32
-  %generated = scalar.constant 8 : i32
-  %winner = scalar.constant 7 : i32
-  %done = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %winner, %h[%i0] : i32, view<129xi32>
-  view.store %winner, %h[%i8] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %done, %p[%i7] : i32, view<8xi32>
   func.return
 }
 check.scenario @snapshot_decode_63 {
@@ -378,24 +305,6 @@ command.program.def public @actual_decode_255() launch(%input: buffer, %gamma: b
 func.def @reference_decode_255(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   func.call @init_decode_255(%control) : (buffer) -> ()
   func.call @norm_decode(%input, %gamma, %control, %output) : (buffer, buffer, buffer, buffer) -> ()
-  %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %next = scalar.constant 256 : i32
-  %generated = scalar.constant 8 : i32
-  %winner = scalar.constant 7 : i32
-  %done = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %winner, %h[%i0] : i32, view<129xi32>
-  view.store %winner, %h[%i8] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %done, %p[%i7] : i32, view<8xi32>
   func.return
 }
 check.scenario @snapshot_decode_255 {
@@ -449,24 +358,6 @@ command.program.def public @actual_decode_256() launch(%input: buffer, %gamma: b
 func.def @reference_decode_256(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   func.call @init_decode_256(%control) : (buffer) -> ()
   func.call @norm_decode(%input, %gamma, %control, %output) : (buffer, buffer, buffer, buffer) -> ()
-  %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %next = scalar.constant 257 : i32
-  %generated = scalar.constant 8 : i32
-  %winner = scalar.constant 7 : i32
-  %done = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %winner, %h[%i0] : i32, view<129xi32>
-  view.store %winner, %h[%i8] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %done, %p[%i7] : i32, view<8xi32>
   func.return
 }
 check.scenario @snapshot_decode_256 {

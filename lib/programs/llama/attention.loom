@@ -16,7 +16,7 @@ kernel.decl @llama32_publish_kv(%token_capacity0: index) launch(%layer0: index, 
 kernel.decl @llama32_attention_rows(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
 kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
 
-command.program.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+command.program.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @llama.model.hidden_size : index
   %kv = config.get @llama.model.kv_size : index
   %cache_base = config.get @llama.attention.cache_base : offset
@@ -53,12 +53,12 @@ command.program.def @loomify.llama.attention(%layer: index, %phase: index, %rows
   template.apply<@llm.projection.project_packed>(%zero, %k_tag, %rows, %rows, %hidden, %kv, %k_bytes, %zero, %dynamic, %origin, %count, %packed, %k_weight, %k) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%k_bytes]xi8>, buffer)
   template.apply<@llm.projection.project_packed>(%zero, %v_tag, %rows, %rows, %hidden, %kv, %v_bytes, %zero, %dynamic, %origin, %count, %packed, %v_weight, %v) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%v_bytes]xi8>, buffer)
   // Position-bearing operations retain the original runtime control packet.
-  kernel.launch @llama32_rotary_query[%rows](%phase, %origin, %zero, %control, %factors, %q, %query) : [index](index, offset, index, buffer, view<64xf32>, buffer, buffer)
-  kernel.launch @llama32_publish_kv[%rows](%layer, %cache_base, %phase, %origin, %zero, %map_origin, %control, %map, %factors, %k, %v, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<64xf32>, buffer, buffer, buffer)
+  kernel.launch @llama32_rotary_query[%rows](%phase, %control_origin, %zero, %control, %factors, %q, %query) : [index](index, offset, index, buffer, view<64xf32>, buffer, buffer)
+  kernel.launch @llama32_publish_kv[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %factors, %k, %v, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<64xf32>, buffer, buffer, buffer)
   // Publication precedes causal consumption; the provider clears inactive rows.
-  kernel.launch @llama32_attention_rows[%rows](%layer, %cache_base, %phase, %origin, %zero, %map_origin, %control, %map, %query, %cache, %attended) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @llama32_attention_rows[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %query, %cache, %attended) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
   template.apply<@llm.projection.pack_input>(%zero, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %attended, %attention_packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
   template.apply<@llm.projection.project_packed>(%zero, %o_tag, %rows, %rows, %hidden, %hidden, %o_bytes, %zero, %dynamic, %origin, %count, %attention_packed, %o_weight, %projected) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%o_bytes]xi8>, buffer)
-  kernel.launch @llama32_attention_residual[%rows](%phase, %origin, %zero, %control, %projected, %residual) : [index](index, offset, index, buffer, buffer, buffer)
+  kernel.launch @llama32_attention_residual[%rows](%phase, %control_origin, %zero, %control, %projected, %residual) : [index](index, offset, index, buffer, buffer, buffer)
   command.return
 }

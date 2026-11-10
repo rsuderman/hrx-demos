@@ -1,57 +1,64 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Actual registered full head then publication; equal nonzero Q6 vocabulary
-// rows independently imply greedy token zero. Embedding reads token IDs from
-// the same physical history buffer that publication later updates; the logical
-// token-ID and history identities remain distinct. M3 tests row selection numerically.
-command.program.decl @head.full.prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer)
-func.def @init_prefill(%control: buffer) {
+// rows independently imply greedy token zero. Embedding reads immutable IDs;
+// the private raw winner and selected public output are distinct guarded buffers.
+// M3 tests row selection numerically. No isolated history/progress mutation remains.
+command.program.decl @head.full.prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
+func.def @init_prefill(%epoch: buffer) {
   %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %i0 = index.constant 0 : index
-  %v0 = scalar.constant 3 : i32
-  view.store %v0, %c[%i0] : i32, view<3xi32>
-  %i1 = index.constant 1 : index
-  %v1 = scalar.constant 63 : i32
-  view.store %v1, %c[%i1] : i32, view<3xi32>
-  %i2 = index.constant 2 : index
-  %v2 = scalar.constant 128001 : i32
-  view.store %v2, %c[%i2] : i32, view<3xi32>
+  %descriptor_origin = index.constant 12 : offset
+  %eos_origin = index.constant 2060 : offset
+  %selection_origin = index.constant 1292 : offset
+  %options_origin = index.constant 1548 : offset
+  %header = buffer.view %epoch[%origin] : buffer -> view<3xi32>
+  %descriptor = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %terminal = buffer.view %epoch[%eos_origin] : buffer -> view<1xi32>
+  %selection = buffer.view %epoch[%selection_origin] : buffer -> view<64xi32>
+  %options = buffer.view %epoch[%options_origin] : buffer -> view<2xi32>
+  %extent = scalar.constant 5 : i32
+  %one = scalar.constant 1 : i32
+  %length = scalar.constant 3 : i32
+  %position = scalar.constant 63 : i32
+  %begin = scalar.constant 2 : i32
+  %zero = scalar.constant 0 : i32
+  %slot = scalar.constant 2 : i32
+  %eos = scalar.constant 128001 : i32
+  view.store %extent, %header[0] : i32, view<3xi32>
+  view.store %one, %header[1] : i32, view<3xi32>
+  view.store %one, %header[2] : i32, view<3xi32>
+  view.store %length, %descriptor[0] : i32, view<5xi32>
+  view.store %position, %descriptor[1] : i32, view<5xi32>
+  view.store %begin, %descriptor[2] : i32, view<5xi32>
+  view.store %zero, %descriptor[3] : i32, view<5xi32>
+  view.store %slot, %descriptor[4] : i32, view<5xi32>
+  view.store %eos, %terminal[0] : i32, view<1xi32>
+  %last = scalar.constant 4 : i32
+  view.store %last, %selection[0] : i32, view<64xi32>
+  view.store %zero, %options[0] : i32, view<2xi32>
+  view.store %zero, %options[1] : i32, view<2xi32>
   func.return
 }
 kernel.def @init_kernel_prefill() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
-} launch(%control: buffer) {
-  func.call @init_prefill(%control) : (buffer) -> ()
+} launch(%epoch: buffer) {
+  func.call @init_prefill(%epoch) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
-  kernel.launch @init_kernel_prefill[](%control) : [](buffer)
-  command.program.launch @head.full.prefill[](%weights, %input, %gamma, %control, %history, %progress, %token) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+command.program.def public @actual_prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
+  kernel.launch @init_kernel_prefill[](%epoch) : [](buffer)
+  command.program.launch @head.full.prefill[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
-  func.call @init_prefill(%control) : (buffer) -> ()
+func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
+  func.call @init_prefill(%epoch) : (buffer) -> ()
   %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %t = buffer.view %token[%origin] : buffer -> view<1xi32>
-  %next = scalar.constant 66 : i32
-  %generated = scalar.constant 1 : i32
-  %zero = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %zero, %h[%i0] : i32, view<129xi32>
-  view.store %zero, %h[%i1] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %zero, %p[%i7] : i32, view<8xi32>
-  view.store %zero, %t[%i0] : i32, view<1xi32>
+  %public = buffer.view %output_ids[%origin] : buffer -> view<20xi32>
+  %private = buffer.view %selected_ids[%origin] : buffer -> view<8xi32>
+  %winner = scalar.constant 0 : i32
+  view.store %winner, %public[2] : i32, view<20xi32>
+  view.store %winner, %private[0] : i32, view<8xi32>
   %input_view = buffer.view %input[%origin] : buffer -> view<8x3072xf32>
   %begin = index.constant 2 : index
   %end = index.constant 5 : index
@@ -83,70 +90,77 @@ check.scenario @registered_head_then_publication_prefill {
     %weights = check.generate.fill value(1) : tensor<323205120xi8>
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<8x3072xf32>
     %gamma = check.generate.fill value(1.0) : tensor<3072xf32>
-    %control = check.generate.fill value(-99) : tensor<3xi32>
-    %history = check.generate.fill value(1) : tensor<129xi32>
-    %progress = check.generate.fill value(-99) : tensor<8xi32>
-    %token = check.generate.fill value(-99) : tensor<1xi32>
-    check.compare<@actual_prefill, @reference_prefill>(%weights, %input, %gamma, %control, %history, %progress, %token) : (tensor<323205120xi8>, tensor<8x3072xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<129xi32>, tensor<8xi32>, tensor<1xi32>) -> () {
+    %epoch = check.generate.fill value(-99) : tensor<1048xi32>
+    %input_ids = check.generate.fill value(1) : tensor<129xi32>
+    %output_ids = check.generate.fill value(-99) : tensor<20xi32>
+    %selected_ids = check.generate.fill value(-99) : tensor<8xi32>
+    check.compare<@actual_prefill, @reference_prefill>(%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : (tensor<323205120xi8>, tensor<8x3072xf32>, tensor<3072xf32>, tensor<1048xi32>, tensor<129xi32>, tensor<20xi32>, tensor<8xi32>) -> () {
       check.expect.bitwise actual(%weights) expected(%weights) : tensor<323205120xi8>
       check.expect.bitwise actual(%input) expected(%input) : tensor<8x3072xf32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
-      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
-      check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
-      check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.bitwise actual(%token) expected(%token) : tensor<1xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%input_ids) expected(%input_ids) : tensor<129xi32>
+      check.expect.bitwise actual(%output_ids) expected(%output_ids) : tensor<20xi32>
+      check.expect.bitwise actual(%selected_ids) expected(%selected_ids) : tensor<8xi32>
     }
   }
   check.return
 }
-command.program.decl @head.full.decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer)
-func.def @init_decode(%control: buffer) {
+command.program.decl @head.full.decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
+func.def @init_decode(%epoch: buffer) {
   %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %i0 = index.constant 0 : index
-  %v0 = scalar.constant 256 : i32
-  view.store %v0, %c[%i0] : i32, view<3xi32>
-  %i1 = index.constant 1 : index
-  %v1 = scalar.constant 7 : i32
-  view.store %v1, %c[%i1] : i32, view<3xi32>
-  %i2 = index.constant 2 : index
-  %v2 = scalar.constant 128001 : i32
-  view.store %v2, %c[%i2] : i32, view<3xi32>
+  %descriptor_origin = index.constant 12 : offset
+  %eos_origin = index.constant 2060 : offset
+  %selection_origin = index.constant 1292 : offset
+  %options_origin = index.constant 1548 : offset
+  %header = buffer.view %epoch[%origin] : buffer -> view<3xi32>
+  %descriptor = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %terminal = buffer.view %epoch[%eos_origin] : buffer -> view<1xi32>
+  %selection = buffer.view %epoch[%selection_origin] : buffer -> view<64xi32>
+  %options = buffer.view %epoch[%options_origin] : buffer -> view<2xi32>
+  %extent = scalar.constant 1 : i32
+  %one = scalar.constant 1 : i32
+  %length = scalar.constant 1 : i32
+  %position = scalar.constant 256 : i32
+  %begin = scalar.constant 0 : i32
+  %zero = scalar.constant 0 : i32
+  %slot = scalar.constant 7 : i32
+  %eos = scalar.constant 128001 : i32
+  view.store %extent, %header[0] : i32, view<3xi32>
+  view.store %one, %header[1] : i32, view<3xi32>
+  view.store %one, %header[2] : i32, view<3xi32>
+  view.store %length, %descriptor[0] : i32, view<5xi32>
+  view.store %position, %descriptor[1] : i32, view<5xi32>
+  view.store %begin, %descriptor[2] : i32, view<5xi32>
+  view.store %zero, %descriptor[3] : i32, view<5xi32>
+  view.store %slot, %descriptor[4] : i32, view<5xi32>
+  view.store %eos, %terminal[0] : i32, view<1xi32>
+  %last = scalar.constant 0 : i32
+  view.store %last, %selection[0] : i32, view<64xi32>
+  view.store %zero, %options[0] : i32, view<2xi32>
+  view.store %zero, %options[1] : i32, view<2xi32>
   func.return
 }
 kernel.def @init_kernel_decode() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
-} launch(%control: buffer) {
-  func.call @init_decode(%control) : (buffer) -> ()
+} launch(%epoch: buffer) {
+  func.call @init_decode(%epoch) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
-  kernel.launch @init_kernel_decode[](%control) : [](buffer)
-  command.program.launch @head.full.decode[](%weights, %input, %gamma, %control, %history, %progress, %token) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+command.program.def public @actual_decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
+  kernel.launch @init_kernel_decode[](%epoch) : [](buffer)
+  command.program.launch @head.full.decode[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %control: buffer, %history: buffer, %progress: buffer, %token: buffer) {
-  func.call @init_decode(%control) : (buffer) -> ()
+func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
+  func.call @init_decode(%epoch) : (buffer) -> ()
   %origin = index.constant 0 : offset
-  %c = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %h = buffer.view %history[%origin] : buffer -> view<129xi32>
-  %p = buffer.view %progress[%origin] : buffer -> view<8xi32>
-  %t = buffer.view %token[%origin] : buffer -> view<1xi32>
-  %next = scalar.constant 257 : i32
-  %generated = scalar.constant 8 : i32
-  %zero = scalar.constant 0 : i32
-  %i0 = index.constant 0 : index
-  %i1 = index.constant 1 : index
-  %i7 = index.constant 7 : index
-  %i8 = index.constant 8 : index
-  view.store %next, %c[%i0] : i32, view<3xi32>
-  view.store %generated, %c[%i1] : i32, view<3xi32>
-  view.store %zero, %h[%i0] : i32, view<129xi32>
-  view.store %zero, %h[%i8] : i32, view<129xi32>
-  view.store %generated, %p[%i0] : i32, view<8xi32>
-  view.store %zero, %p[%i7] : i32, view<8xi32>
-  view.store %zero, %t[%i0] : i32, view<1xi32>
+  %public = buffer.view %output_ids[%origin] : buffer -> view<20xi32>
+  %private = buffer.view %selected_ids[%origin] : buffer -> view<8xi32>
+  %winner = scalar.constant 0 : i32
+  view.store %winner, %public[7] : i32, view<20xi32>
+  view.store %winner, %private[0] : i32, view<8xi32>
   %input_view = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
   %begin = index.constant 0 : index
   %end = index.constant 1 : index
@@ -178,18 +192,18 @@ check.scenario @registered_head_then_publication_decode {
     %weights = check.generate.fill value(1) : tensor<323205120xi8>
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<1x3072xf32>
     %gamma = check.generate.fill value(1.0) : tensor<3072xf32>
-    %control = check.generate.fill value(-99) : tensor<3xi32>
-    %history = check.generate.fill value(1) : tensor<129xi32>
-    %progress = check.generate.fill value(-99) : tensor<8xi32>
-    %token = check.generate.fill value(-99) : tensor<1xi32>
-    check.compare<@actual_decode, @reference_decode>(%weights, %input, %gamma, %control, %history, %progress, %token) : (tensor<323205120xi8>, tensor<1x3072xf32>, tensor<3072xf32>, tensor<3xi32>, tensor<129xi32>, tensor<8xi32>, tensor<1xi32>) -> () {
+    %epoch = check.generate.fill value(-99) : tensor<1048xi32>
+    %input_ids = check.generate.fill value(1) : tensor<129xi32>
+    %output_ids = check.generate.fill value(-99) : tensor<20xi32>
+    %selected_ids = check.generate.fill value(-99) : tensor<8xi32>
+    check.compare<@actual_decode, @reference_decode>(%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : (tensor<323205120xi8>, tensor<1x3072xf32>, tensor<3072xf32>, tensor<1048xi32>, tensor<129xi32>, tensor<20xi32>, tensor<8xi32>) -> () {
       check.expect.bitwise actual(%weights) expected(%weights) : tensor<323205120xi8>
       check.expect.bitwise actual(%input) expected(%input) : tensor<1x3072xf32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
-      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
-      check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
-      check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.bitwise actual(%token) expected(%token) : tensor<1xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%input_ids) expected(%input_ids) : tensor<129xi32>
+      check.expect.bitwise actual(%output_ids) expected(%output_ids) : tensor<20xi32>
+      check.expect.bitwise actual(%selected_ids) expected(%selected_ids) : tensor<8xi32>
     }
   }
   check.return

@@ -1,28 +1,38 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-// Deterministic packet-bridge unit fixture, not a substitute model recipe.
+// Independent direct-packet observer, not a substitute model recipe.
 kernel.def @test.epoch_compute(%capacity0: index) {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
-} launch(%capacity0: index, %residual: buffer, %control: buffer, %arena: buffer, %history: buffer) {
+} launch(%capacity0: index, %residual: buffer, %epoch: buffer, %count: buffer, %arena: buffer, %input: buffer, %selected: buffer) {
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 512)] : index
   %origin = index.constant 0 : offset
   %cache_origin = index.constant 512 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  %words = buffer.view %control[%origin] : buffer -> view<3xi32>
-  %tokens = buffer.view %history[%origin] : buffer -> view<[%capacity]xi32>
+  %descriptor_origin = index.constant 12 : offset
+  %eos_origin = index.constant 2060 : offset
+  %words = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %counts = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %tokens = buffer.view %input[%origin] : buffer -> view<[%capacity]xi32>
+  %winner = buffer.view %selected[%origin] : buffer -> view<4xi32>
+  %terminal_ids = buffer.view %epoch[%eos_origin] : buffer -> view<1xi32>
+  %begin32 = view.load %words[2] : view<5xi32> -> i32
+  %begin_value = index.cast %begin32 : i32 to index
+  %begin = index.assume %begin_value [range(%begin_value, 0, 511), lt(%begin_value, %capacity)] : index
   %cache = buffer.view %arena[%cache_origin] : buffer -> view<32xi32>
   %result = buffer.view %residual[%origin] : buffer -> view<[%capacity]xi32>
-  %n32 = view.load %words[0] : view<3xi32> -> i32
-  %p32 = view.load %words[1] : view<3xi32> -> i32
+  %n32 = view.load %counts[0] : view<3xi32> -> i32
+  %p32 = view.load %words[1] : view<5xi32> -> i32
   %n_value = index.cast %n32 : i32 to index
   %n = index.assume %n_value [range(%n_value, 1, 512)] : index
   %position_value = index.cast %p32 : i32 to index
   %position = index.assume %position_value [range(%position_value, 0, 28)] : index
   scf.for %i = [%zero to %n step %one] {
     %row = index.assume %i [range(%i, 0, 511), lt(%i, %capacity)] : index
-    %v = view.load %tokens[%row] : view<[%capacity]xi32> -> i32
+    %input_row_value = index.add %begin, %row : index
+    %input_row = index.assume %input_row_value [range(%input_row_value, 0, 511), lt(%input_row_value, %capacity)] : index
+    %v = view.load %tokens[%input_row] : view<[%capacity]xi32> -> i32
     %slot_value = index.add %position, %row : index
     %slot = index.assume %slot_value [range(%slot_value, 0, 31)] : index
     view.store %v, %cache[%slot] : i32, view<32xi32>
@@ -33,14 +43,16 @@ kernel.def @test.epoch_compute(%capacity0: index) {
   }
   %last_value = index.sub %n, %one : index
   %last = index.assume %last_value [range(%last_value, 0, 511), lt(%last_value, %capacity)] : index
-  %v = view.load %tokens[%last] : view<[%capacity]xi32> -> i32
+  %input_last_value = index.add %begin, %last : index
+  %input_last = index.assume %input_last_value [range(%input_last_value, 0, 511), lt(%input_last_value, %capacity)] : index
+  %v = view.load %tokens[%input_last] : view<[%capacity]xi32> -> i32
   %one32 = scalar.constant 1 : i32
   %next = scalar.addi %v, %one32 : i32
   %stop = scalar.constant 99 : i32
   %terminal = scalar.cmpi eq, %next, %stop : i32
-  %eos = view.load %words[2] : view<3xi32> -> i32
+  %eos = view.load %terminal_ids[0] : view<1xi32> -> i32
   %token = scf.select %terminal, %eos, %next : i32
-  view.store %token, %tokens[0] : i32, view<[%capacity]xi32>
+  view.store %token, %winner[0] : i32, view<4xi32>
   kernel.return
 }
 kernel.def @test.epoch_continue() {
@@ -55,6 +67,9 @@ kernel.def @test.epoch_continue() {
   %eight = scalar.constant 8 : i32
   %zero = scalar.constant 0 : i32
   %pending = scalar.constant 13 : i32
+  %header = buffer.view %metadata[%origin] : buffer -> view<3xi32>
+  view.store %one, %header[0] : i32, view<3xi32>
+  view.store %one, %header[2] : i32, view<3xi32>
   view.store %one, %words[0] : i32, view<5xi32>
   view.store %eight, %words[1] : i32, view<5xi32>
   view.store %zero, %words[2] : i32, view<5xi32>
@@ -103,5 +118,42 @@ kernel.def @test.epoch_initialize() {
   view.store %ten, %tokens[0] : i32, view<3xi32>
   view.store %eleven, %tokens[1] : i32, view<3xi32>
   view.store %last, %tokens[2] : i32, view<3xi32>
+  kernel.return
+}
+
+// Combined H/N/B/P/S witness; distinct row-table entries catch ordinal mistakes.
+kernel.def @test.epoch_initialize_offset() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
+} launch(%epoch:buffer,%input:buffer) {
+  %origin = index.constant 0 : offset
+  %meta = buffer.view %epoch[%origin] : buffer -> view<516xi32>
+  %ids = buffer.view %input[%origin] : buffer -> view<8xi32>
+  %h = scalar.constant 5 : i32
+  %n = scalar.constant 3 : i32
+  %p = scalar.constant 11 : i32
+  %b = scalar.constant 2 : i32
+  %slot = scalar.constant 7 : i32
+  %one = scalar.constant 1 : i32
+  %zero = scalar.constant 0 : i32
+  %last = scalar.constant 4 : i32
+  %wrong = scalar.constant 99 : i32
+  %eos = scalar.constant 127 : i32
+  %a = scalar.constant 10 : i32
+  %c = scalar.constant 12 : i32
+  view.store %h, %meta[0] : i32, view<516xi32>
+  view.store %one, %meta[1] : i32, view<516xi32>
+  view.store %one, %meta[2] : i32, view<516xi32>
+  view.store %n, %meta[3] : i32, view<516xi32>
+  view.store %p, %meta[4] : i32, view<516xi32>
+  view.store %b, %meta[5] : i32, view<516xi32>
+  view.store %zero, %meta[6] : i32, view<516xi32>
+  view.store %slot, %meta[7] : i32, view<516xi32>
+  view.store %last, %meta[323] : i32, view<516xi32>
+  view.store %wrong, %meta[330] : i32, view<516xi32>
+  view.store %eos, %meta[515] : i32, view<516xi32>
+  view.store %a, %ids[2] : i32, view<8xi32>
+  view.store %p, %ids[3] : i32, view<8xi32>
+  view.store %c, %ids[4] : i32, view<8xi32>
   kernel.return
 }

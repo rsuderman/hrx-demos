@@ -1,5 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
+#include "loom/ops/buffer/ops.h"
 #include "loom/ops/command/ops.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/kernel/ops.h"
@@ -164,11 +165,44 @@ protected:
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
     loomc_result_release(result);
+    const auto *epoch = Definition(view.module, "generated.llama_epoch");
+    ASSERT_TRUE(epoch && loom_command_program_def_isa(epoch));
+    const auto *epoch_body = loom_region_const_entry_block(
+        loom_command_program_def_body(epoch));
+    ASSERT_EQ(epoch_body->arg_count, 7u);
+    std::vector<const loom_op_t *> boundary;
+    for (const auto *op = epoch_body->first_op; op; op = op->next_op)
+      if (loom_buffer_alloca_isa(op) || loom_command_program_launch_isa(op) ||
+          loom_kernel_launch_isa(op))
+        boundary.push_back(op);
+    ASSERT_EQ(boundary.size(), 3u);
+    ASSERT_TRUE(loom_buffer_alloca_isa(boundary[0]));
+    EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 16);
+    const auto selected_ids = loom_op_const_results(boundary[0])[0];
+    ASSERT_TRUE(loom_command_program_launch_isa(boundary[1]));
+    EXPECT_EQ(Text(view.module, view.module->symbols.entries[
+        loom_command_program_launch_callee(boundary[1]).symbol_id].name_id),
+        "loomify.llama.model");
+    const auto model_args = loom_command_program_launch_bindings(boundary[1]);
+    ASSERT_EQ(model_args.count, 7u);
+    for (size_t j = 0; j < 6; ++j)
+      EXPECT_EQ(model_args.values[j], epoch_body->arg_ids[j]);
+    EXPECT_EQ(model_args.values[6], selected_ids);
+    ASSERT_TRUE(loom_kernel_launch_isa(boundary[2]));
+    EXPECT_EQ(Text(view.module, view.module->symbols.entries[
+        loom_kernel_launch_callee(boundary[2]).symbol_id].name_id),
+        "llama32_publish_epoch_id");
+    const auto publication_args = loom_kernel_launch_arguments(boundary[2]);
+    ASSERT_EQ(publication_args.count, 3u);
+    EXPECT_EQ(publication_args.values[0], epoch_body->arg_ids[2]);
+    EXPECT_EQ(publication_args.values[1], selected_ids);
+    EXPECT_EQ(publication_args.values[2], epoch_body->arg_ids[6]);
     const auto *model = Definition(view.module, "loomify.llama.model");
     ASSERT_TRUE(model && loom_command_program_def_isa(model));
     const auto *body =
         loom_region_const_entry_block(loom_command_program_def_body(model));
-    ASSERT_EQ(body->arg_count, 9u);
+    ASSERT_EQ(body->arg_count, 7u);
+    loom_value_id_t count_value = 0;
     size_t layer = 0;
     for (const auto *op = body->first_op; op; op = op->next_op) {
       if (!loom_command_program_launch_isa(op))
@@ -179,15 +213,23 @@ protected:
                      view.module->symbols.entries[callee.symbol_id].name_id),
                 "loomify.llama.layer");
       auto specializations = loom_command_program_launch_specializations(op);
-      ASSERT_EQ(specializations.count, 3u);
+      ASSERT_EQ(specializations.count, 4u);
       EXPECT_EQ(Constant(view.module, specializations.values[0]),
                 int64_t(layer));
-      EXPECT_EQ(specializations.values[1], body->arg_ids[0]);
-      EXPECT_EQ(specializations.values[2], body->arg_ids[1]);
+      EXPECT_EQ(Constant(view.module, specializations.values[1]), 0);
+      EXPECT_GT(Constant(view.module, specializations.values[2]), 0);
+      EXPECT_LE(Constant(view.module, specializations.values[2]), 512);
+      EXPECT_EQ(Constant(view.module, specializations.values[3]), 12);
       auto bindings = loom_command_program_launch_bindings(op);
-      ASSERT_EQ(bindings.count, 5u);
+      ASSERT_EQ(bindings.count, 6u);
       for (size_t j = 0; j < 5; ++j)
-        EXPECT_EQ(bindings.values[j], body->arg_ids[j + 2]);
+        EXPECT_EQ(bindings.values[j], body->arg_ids[j]);
+      const auto *count_alloc = loom_value_def_op(
+          loom_module_value(view.module, bindings.values[5]));
+      ASSERT_TRUE(count_alloc && loom_buffer_alloca_isa(count_alloc));
+      EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(count_alloc)), 12);
+      if (count_value != 0) EXPECT_EQ(bindings.values[5], count_value);
+      count_value = bindings.values[5];
       ++layer;
     }
     EXPECT_EQ(layer, layers);
@@ -221,7 +263,7 @@ protected:
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
     loomc_result_release(result);
-    const auto *root = Definition(view.module, "generated.llama_prefill");
+    const auto *root = Definition(view.module, "generated.llama_epoch");
     ASSERT_TRUE(root && loom_command_program_def_isa(root));
     std::vector<std::string> keys;
     std::function<void(const loom_region_t *)> collect =
@@ -309,8 +351,6 @@ protected:
         {implementation.get(), loomc_make_cstring_view("implementation"),
          LOOMC_LINK_PROVIDER_ROLE_INPUT}};
     const loomc_string_view_t roots[] = {
-        loomc_make_cstring_view("generated.llama_prefill"),
-        loomc_make_cstring_view("generated.llama_decode"),
         loomc_make_cstring_view("generated.llama_epoch")};
     loomc_link_options_t options{};
     options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
@@ -319,7 +359,7 @@ protected:
     options.module_providers = providers;
     options.module_provider_count = 2;
     options.root_symbols = roots;
-    options.root_symbol_count = 3;
+    options.root_symbol_count = 1;
     options.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
     loomc_module_t *raw = nullptr;
     result = nullptr;
@@ -389,10 +429,6 @@ protected:
       loomc_source_release(source);
       if (materialize && format == LOOMC_SOURCE_FORMAT_BYTECODE) {
         Compile(context, workspace, environment, loaded,
-                "generated.llama_prefill");
-        Compile(context, workspace, environment, loaded,
-                "generated.llama_decode");
-        Compile(context, workspace, environment, loaded,
                 "generated.llama_epoch");
       }
     }
@@ -402,7 +438,7 @@ protected:
   loomc_workspace_t *workspace = nullptr;
   std::string root;
 };
-TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndThreeRoots) {
+TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndEpochRoot) {
   const char *path = std::getenv("LOOMIFY_TEST_GGUF");
   if (!path)
     GTEST_SKIP() << "requires explicit immutable Llama GGUF gate";

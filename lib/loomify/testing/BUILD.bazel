@@ -92,3 +92,13 @@ iree_cc_library(
 )
 
 cc_binary(name = "mutate_text_gguf", testonly = True, srcs = ["mutate_text_gguf.cc"], copts = _CXXOPTS, deps = ["//tools/model:gguf_catalog"])
+
+# Manual actual-GGUF direct epoch contract gate; GPU scheduling is external.
+cc_binary(
+    name = "emit_epoch_validation",
+    testonly = True,
+    srcs = ["emit_epoch_validation.cc"],
+    copts = _CXXOPTS,
+    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation"],
+    deps = ["//lib/loomify:gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu"],
+)

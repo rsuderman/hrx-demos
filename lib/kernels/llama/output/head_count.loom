@@ -1,6 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-// Snapshot active rows before publication changes the original packet.
+// Snapshot the descriptor count once for zero-origin numerical consumers.
 kernel.def @llama32_head_count() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index

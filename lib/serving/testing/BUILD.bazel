@@ -33,3 +33,6 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+# Executed with the pinned SDK native input.require and recording runner.
+exports_files(["epoch_control_test.cc"], visibility = ["//visibility:public"])

@@ -41,7 +41,6 @@ cc_test(
 _ARCHITECTURE_SOURCES = [
     "model.loom", "epoch.loom",
     "//lib/programs/llama:implementation_sources",
-    "//lib/kernels/llama:epoch/epoch.loom",
     "//lib/programs/ffn:interface.loom", "//lib/programs/ffn:ffn.loom",
 ]
 _IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + ["//lib/kernels/llama:configured_provider_sources"]
@@ -60,7 +59,7 @@ cc_binary(
 
 loom_merge(
     name = "epoch_fixture", testonly = True,
-    srcs = ["//lib/kernels/llama:epoch/epoch.loom", "testing/numerical_fixture.loom", "testing/epoch_fixture.loom"],
+    srcs = ["//lib/kernels/llama:output/head_count.loom", "//lib/kernels/llama:publication/publication.loom", "testing/numerical_fixture.loom", "testing/epoch_fixture.loom"],
 )
 loom_test(
     name = "epoch_execution_test", srcs = ["testing/epoch_checks.loom", ":epoch_fixture"],
@@ -77,7 +76,7 @@ cc_test(
     name = "configured_model_test", size = "large", srcs = ["testing/configured_model_test.cc"],
     copts = ["-std=c++17"], linkstatic = True,
     data = ["//lib/architectures/llama:architecture_sources", "//lib/architectures/llama:implementation", "//lib/architectures/llama:implementation_text"],
-    deps = ["@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/index", "@hrx_system//loom/src/loom/ops/scalar", "@hrx_system//loom/src/loom/ops/kernel", "//lib/loomify:configuration", "//lib/loomify:configuration_fixture", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+    deps = ["@hrx_system//loom/src/loom/ops/buffer", "@hrx_system//loom/binding/c:interop", "@hrx_system//loom/src/loom/ops/command", "@hrx_system//loom/src/loom/ops/index", "@hrx_system//loom/src/loom/ops/scalar", "@hrx_system//loom/src/loom/ops/kernel", "//lib/loomify:configuration", "//lib/loomify:configuration_fixture", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
 loom_merge(name = "execution", srcs = ["control_core.loom"])

@@ -1,26 +1,25 @@
-// Copyright 2026 AMD ROCm Software
+// Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-// Packet unit fixture calls the production unpack/scatter kernels. The small
-// deterministic compute is an independent packet observer, not a model oracle.
-kernel.decl @loomify_epoch_unpack(%capacity:index) launch(%capacity:index,%metadata:buffer,%input:buffer,%control:buffer,%history:buffer,%progress:buffer)
-kernel.decl @loomify_epoch_scatter() launch(%metadata:buffer,%history:buffer,%output:buffer)
-kernel.decl @test.epoch_compute(%capacity:index) launch(%capacity:index,%residual:buffer,%control:buffer,%arena:buffer,%history:buffer)
+// Direct packet unit fixture: production count and publication, independent
+// deterministic compute observer. This is not a full-model numerical oracle.
+config.def @llama.publication.end_text_id = 128001 : i32
+config.def @llama.publication.end_message_id = 128008 : i32
+config.def @llama.publication.end_turn_id = 128009 : i32
+kernel.decl @llama32_head_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
+kernel.decl @llama32_publish_epoch_id() launch(%epoch:buffer,%selected:buffer,%output:buffer)
+kernel.decl @test.epoch_compute(%capacity:index) launch(%capacity:index,%residual:buffer,%epoch:buffer,%count:buffer,%arena:buffer,%input:buffer,%selected:buffer)
 kernel.decl @test.epoch_initialize() launch(%kind:index,%metadata:buffer,%input:buffer)
 kernel.decl @test.epoch_continue() launch(%metadata:buffer,%input:buffer)
 command.program.def @test.epoch.single(%capacity:index) launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %minimum = index.constant 129 : index
-  %large = index.cmp ugt, %capacity, %minimum : index
-  %history_capacity = scf.select %large, %capacity, %minimum : index
-  %word = index.constant 4 : offset
-  %history_bytes = index.scale %history_capacity, %word : index, offset -> offset
-  %control_bytes = index.constant 12 : offset
-  %progress_bytes = index.constant 32 : offset
-  %control = buffer.alloca<global> align(256) %control_bytes : buffer
-  %history = buffer.alloca<global> align(256) %history_bytes : buffer
-  %progress = buffer.alloca<global> align(256) %progress_bytes : buffer
-  kernel.launch @loomify_epoch_unpack[%capacity](%capacity,%metadata,%input,%control,%history,%progress) : [index](index,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_compute[%capacity](%capacity,%residual,%control,%arena,%history) : [index](index,buffer,buffer,buffer,buffer)
-  kernel.launch @loomify_epoch_scatter[](%metadata,%history,%output) : [](buffer,buffer,buffer)
+  %count_bytes = index.constant 12 : offset
+  %selected_bytes = index.constant 16 : offset
+  %count = buffer.alloca<global> align(256) %count_bytes : buffer
+  %selected = buffer.alloca<global> align(256) %selected_bytes : buffer
+  %prefill = index.constant 0 : index
+  %descriptor_origin = index.constant 12 : offset
+  kernel.launch @llama32_head_count[](%prefill,%descriptor_origin,%metadata,%count) : [](index,offset,buffer,buffer)
+  kernel.launch @test.epoch_compute[%capacity](%capacity,%residual,%metadata,%count,%arena,%input,%selected) : [index](index,buffer,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @llama32_publish_epoch_id[](%metadata,%selected,%output) : [](buffer,buffer,buffer)
   command.return
 }
 command.program.def public @test.epoch8.0() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
@@ -74,6 +73,14 @@ command.program.def public @test.epoch256.2() launch(%parameters:buffer,%residua
   kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
   command.program.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
   kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
+  command.program.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
+  command.return
+}
+
+kernel.decl @test.epoch_initialize_offset() launch(%epoch:buffer,%input:buffer)
+command.program.def public @test.epoch.offset8() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
+  %capacity = index.constant 8 : index
+  kernel.launch @test.epoch_initialize_offset[](%metadata,%input) : [](buffer,buffer)
   command.program.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
   command.return
 }

@@ -28,7 +28,7 @@ _CASES = {
 ) for case, helpers in _CASES.items() for format in (["text", "bc"] if case in ["head_rows", "joined_adapters"] else ["bc"])]
 
 _DIRECT = {
-    "embedding": ["embedding_checks.loom", "//lib/kernels/llama:embedding/embedding.loom", "//lib/kernels/embedding:q6k_rows.loom", "embedding_config.loom", "//lib/kernels/llama:active_rows.loom", "checkpoint_config.loom"],
+    "embedding": ["embedding_checks.loom", "//lib/kernels/llama:output/head_count.loom", "//lib/kernels/llama:embedding/embedding.loom", "//lib/kernels/embedding:q6k_rows.loom", "embedding_config.loom", "//lib/kernels/llama:active_rows.loom", "checkpoint_config.loom"],
     "projection": ["projection_checks.loom", "checkpoint_config.loom", "//lib/kernels/llama:active_rows.loom", "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:q4k_compat.loom", "//lib/kernels/projection:q6k.loom", "//lib/kernels/projection:q6k_compat.loom", "//lib/kernels/projection:qk_common.loom", "//lib/kernels/projection:qk_mmvq_compat.loom", "//lib/kernels/quantization:q8_1_x4.loom", "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom"],
 }
 [loom_test(name = name + "_execution_test", srcs = sources, benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE]) for name, sources in _DIRECT.items()]

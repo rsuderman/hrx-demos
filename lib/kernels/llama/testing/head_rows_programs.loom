@@ -19,7 +19,7 @@ config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %53: index where [ran
 
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-// Snapshot active rows before publication changes the original packet.
+// Snapshot active rows for the numerical head; the source packet remains immutable.
 
 config.def @llama.model.vocabulary_size = 128256 : index
 
@@ -33,7 +33,7 @@ amdgpu.target<gfx11-generic> @qwen38_greedy_argmax_gfx11_wave64 {subgroup_size =
 
 // Generic MMQ active-extent selection, shared by explicit producer/consumer policies.
 
-kernel.decl @llama32_finish_isolated() launch(%kind: index, %raw_token: buffer, %control: buffer, %tokens: buffer, %progress: buffer)
+kernel.decl @llama32_publish_epoch_id() launch(%epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
 
 kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
@@ -50,8 +50,6 @@ command.program.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: 
     %v9 = index.constant 0 : index
     %v10 = index.constant 0 : offset
     kernel.launch @llama32_head_count(%v9, %v10, %v2, %v8) : (index, offset, buffer, buffer)
-    %v11 = index.constant 0 : index
-    kernel.launch @llama32_finish_isolated(%v11, %v3, %v2, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
     %v12 = index.constant 8 : index
     %v13 = index.constant 2 : index
     %v14 = index.constant 0 : offset
@@ -67,8 +65,6 @@ command.program.def public retain @head.rows.decode() launch(%v0: buffer, %v1: b
     %v9 = index.constant 1 : index
     %v10 = index.constant 0 : offset
     kernel.launch @llama32_head_count(%v9, %v10, %v2, %v8) : (index, offset, buffer, buffer)
-    %v11 = index.constant 1 : index
-    kernel.launch @llama32_finish_isolated(%v11, %v3, %v2, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
     %v12 = index.constant 1 : index
     %v13 = index.constant 0 : index
     %v14 = index.constant 0 : offset
@@ -82,7 +78,7 @@ command.program.def public retain @head.full.prefill() launch(%v0: buffer, %v1: 
     %v7 = index.constant 12 : offset
     %v8 = buffer.alloca<global> align(4) %v7 : buffer
     %v9 = index.constant 0 : index
-    %v10 = index.constant 0 : offset
+    %v10 = index.constant 12 : offset
     kernel.launch @llama32_head_count(%v9, %v10, %v3, %v8) : (index, offset, buffer, buffer)
     %v11 = index.constant 8 : index
     %v12 = index.constant 323205120 : index
@@ -105,8 +101,7 @@ command.program.def public retain @head.full.prefill() launch(%v0: buffer, %v1: 
     %v28 = index.constant 12288 : offset
     %v29 = buffer.alloca<global> align(256) %v28 : buffer
     template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
-    %v30 = index.constant 0 : index
-    kernel.launch @llama32_finish_isolated(%v30, %v6, %v3, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_publish_epoch_id(%v3, %v6, %v5) : (buffer, buffer, buffer)
   }
   command.return
 }
@@ -115,8 +110,8 @@ command.program.def public retain @head.full.decode() launch(%v0: buffer, %v1: b
   command.serial {
     %v7 = index.constant 12 : offset
     %v8 = buffer.alloca<global> align(4) %v7 : buffer
-    %v9 = index.constant 1 : index
-    %v10 = index.constant 0 : offset
+    %v9 = index.constant 0 : index
+    %v10 = index.constant 12 : offset
     kernel.launch @llama32_head_count(%v9, %v10, %v3, %v8) : (index, offset, buffer, buffer)
     %v11 = index.constant 1 : index
     %v12 = index.constant 323205120 : index
@@ -139,8 +134,7 @@ command.program.def public retain @head.full.decode() launch(%v0: buffer, %v1: b
     %v28 = index.constant 12288 : offset
     %v29 = buffer.alloca<global> align(256) %v28 : buffer
     template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
-    %v30 = index.constant 1 : index
-    kernel.launch @llama32_finish_isolated(%v30, %v6, %v3, %v4, %v5) : (index, buffer, buffer, buffer, buffer)
+    kernel.launch @llama32_publish_epoch_id(%v3, %v6, %v5) : (buffer, buffer, buffer)
   }
   command.return
 }

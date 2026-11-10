@@ -189,9 +189,9 @@ class LlamaPreparationTest : public ::testing::Test {
     EXPECT_EQ(observed.effective_prefill, std::min(t, maximum));
     EXPECT_EQ(observed.shared, int32_t(2 + request.shapes.size()));
     ASSERT_EQ(observed.stages.size(), 2 + request.shapes.size());
-    EXPECT_EQ(observed.stages[0].root, "generated.llama_prefill");
+    EXPECT_EQ(observed.stages[0].root, "generated.llama_epoch");
     EXPECT_EQ(observed.stages[0].tag, t);
-    EXPECT_EQ(observed.stages[1].root, "generated.llama_decode");
+    EXPECT_EQ(observed.stages[1].root, "generated.llama_epoch");
     EXPECT_EQ(observed.stages[1].tag, 1);
     for (size_t i = 0; i < request.shapes.size(); ++i) {
       EXPECT_EQ(observed.stages[2+i].root, "generated.llama_epoch");

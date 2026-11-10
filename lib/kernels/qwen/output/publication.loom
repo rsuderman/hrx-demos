@@ -15,9 +15,15 @@ kernel.def @qwen08_publish_selected_ids(%output_capacity: index) {
   %active = index.cmp ult, %lane, %count : index
   scf.if %active {
     %source = buffer.view %private_ids[%origin] : buffer -> view<4xi32>
-    %target = buffer.view %output[%origin] : buffer -> view<1xi32>
-    %value = view.load %source[%lane] : view<4xi32> -> i32
-    view.store %value, %target[%lane] : i32, view<1xi32>
+    %slot_origin = index.constant 28 : offset
+    %slot_view = buffer.view %epoch[%slot_origin] : buffer -> view<1xi32>
+    %slot_word = view.load %slot_view[0] : view<1xi32> -> i32
+    %slot_value = index.cast %slot_word : i32 to index
+    %slot = index.assume %slot_value [range(%slot_value, 0, 15)] : index
+    %target = buffer.view %output[%origin] : buffer -> view<16xi32>
+    // Logical selection ordinal0 is independent of the physical destination.
+    %value = view.load %source[0] : view<4xi32> -> i32
+    view.store %value, %target[%slot] : i32, view<16xi32>
   }
   kernel.return
 }

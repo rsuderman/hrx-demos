@@ -1,3 +1,3 @@
 // SPDX-License-Identifier: MIT
 kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
-kernel.decl @llama32_finish_isolated() launch(%kind: index, %raw_token: buffer, %control: buffer, %tokens: buffer, %progress: buffer)
+kernel.decl @llama32_publish_epoch_id() launch(%epoch: buffer, %selected_ids: buffer, %output_ids: buffer)

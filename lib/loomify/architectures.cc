@@ -9,7 +9,7 @@ const ArchitectureFiles *SelectArchitecture(std::string_view family) {
        resources::kLlamaPreparation,
        resources::kLlamaExecution,
        resources::kWeights,
-       "loomify-llama", {"generated.llama_prefill", "generated.llama_decode", "generated.llama_epoch"}},
+       "loomify-llama", {"generated.llama_epoch"}},
       {"qwen35", resources::kQwenImplementation,
        resources::kQwenPreparation,
        resources::kQwenExecution,

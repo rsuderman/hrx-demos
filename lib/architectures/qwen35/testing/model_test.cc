@@ -173,7 +173,55 @@ class QwenModelTest : public ::testing::Test {
     ASSERT_TRUE(Ok(loomc_module_get_interop_view(module, loomc_allocator_system(), &view, &result)));
     ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
     loomc_result_release(result);
-    const auto *def = Definition(view.module, "generated.qwen_epoch");
+    const auto *epoch = Definition(view.module, "generated.qwen_epoch");
+    ASSERT_TRUE(epoch && loom_command_program_def_isa(epoch));
+    const auto *epoch_body = loom_region_const_entry_block(loom_command_program_def_body(epoch));
+    ASSERT_EQ(epoch_body->arg_count, 7u);
+    std::vector<const loom_op_t *> boundary;
+    Walk(loom_command_program_def_body(epoch), [&](const loom_op_t *op) {
+      if (loom_buffer_alloca_isa(op) || loom_command_program_launch_isa(op) ||
+          loom_kernel_launch_isa(op) || loom_scf_for_isa(op)) boundary.push_back(op);
+    });
+    ASSERT_EQ(boundary.size(), 3u);
+    ASSERT_TRUE(loom_buffer_alloca_isa(boundary[0]));
+    EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 16);
+    EXPECT_EQ(loom_buffer_alloca_base_alignment(boundary[0]), 256);
+    ASSERT_EQ(boundary[0]->result_count, 1u);
+    const auto selected_ids = loom_op_const_results(boundary[0])[0];
+    ASSERT_TRUE(loom_command_program_launch_isa(boundary[1]));
+    EXPECT_EQ(Text(view.module, view.module->symbols.entries[
+        loom_command_program_launch_callee(boundary[1]).symbol_id].name_id), "loomify.qwen.model");
+    const auto model_args = loom_command_program_launch_bindings(boundary[1]);
+    ASSERT_EQ(model_args.count, 7u);
+    for (size_t i = 0; i < 6; ++i) EXPECT_EQ(model_args.values[i], epoch_body->arg_ids[i]);
+    EXPECT_EQ(model_args.values[6], selected_ids);
+    ASSERT_TRUE(loom_kernel_launch_isa(boundary[2]));
+    EXPECT_EQ(Text(view.module, view.module->symbols.entries[
+        loom_kernel_launch_callee(boundary[2]).symbol_id].name_id), "qwen08_publish_selected_ids");
+    const auto publication_args = loom_kernel_launch_arguments(boundary[2]);
+    ASSERT_EQ(publication_args.count, 3u);
+    EXPECT_EQ(publication_args.values[0], epoch_body->arg_ids[2]);
+    EXPECT_EQ(publication_args.values[1], selected_ids);
+    EXPECT_EQ(publication_args.values[2], epoch_body->arg_ids[6]);
+    const auto *head_def = Definition(view.module, "loomify.qwen.head");
+    ASSERT_TRUE(head_def && loom_command_program_def_isa(head_def));
+    const auto *head_body = loom_region_const_entry_block(loom_command_program_def_body(head_def));
+    // Native program bodies include two specialization arguments before buffers.
+    ASSERT_EQ(head_body->arg_count, 6u);
+    size_t reduce_calls = 0;
+    Walk(loom_command_program_def_body(head_def), [&](const loom_op_t *op) {
+      if (!loom_kernel_launch_isa(op)) return;
+      const auto name = Text(view.module, view.module->symbols.entries[
+          loom_kernel_launch_callee(op).symbol_id].name_id);
+      EXPECT_NE(name, "qwen08_publish_selected_ids");
+      if (name != "qwen38_greedy_argmax_reduce_rows_f32") return;
+      ++reduce_calls;
+      const auto args = loom_kernel_launch_arguments(op);
+      ASSERT_EQ(args.count, 5u);
+      EXPECT_EQ(args.values[4], head_body->arg_ids[5]);
+    });
+    EXPECT_EQ(reduce_calls, 1u);
+    const auto *def = Definition(view.module, "loomify.qwen.model");
     ASSERT_TRUE(def && loom_command_program_def_isa(def));
     const auto *body = loom_region_const_entry_block(loom_command_program_def_body(def));
     ASSERT_EQ(body->arg_count, 7u);
@@ -276,7 +324,7 @@ class QwenModelTest : public ::testing::Test {
     EXPECT_NE(gdn_scratch, attention_scratch);
     std::printf("Prepared Qwen hierarchy: %zu route sites; selection %zu attention/%zu GDN\n", facts.layers.size(), selected_attention, selected_gdn);
     const auto *head = calls.back();
-    EXPECT_EQ(Text(view.module, view.module->symbols.entries[loom_command_program_launch_callee(head).symbol_id].name_id), "qwen08_epoch_head");
+    EXPECT_EQ(Text(view.module, view.module->symbols.entries[loom_command_program_launch_callee(head).symbol_id].name_id), "loomify.qwen.head");
     const auto specs = loom_command_program_launch_specializations(head);
     ASSERT_EQ(specs.count, 2u);
     EXPECT_EQ(Constant(view.module, specs.values[0]), tokens);
