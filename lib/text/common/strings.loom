@@ -1,0 +1,284 @@
+// Copyright 2026 The IREE Authors
+// Copyright 2026 AMD ROCm Software
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Protocol-independent bounded UTF-8 strings and native JSON field access.
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
+global.rodata.def @text.empty = bytes("")
+
+func.def public @text.equal(%a: buffer, %b: buffer) -> (i1) {
+  %a_length = buffer.length %a
+  %b_length = buffer.length %b
+  %same_length = index.cmp eq, %a_length, %b_length : offset
+  %same = scf.if %same_length -> (i1) {
+    %zero = index.constant 0 : offset
+    %compared = buffer.compare %a[%zero], %b[%zero], %a_length
+    %equal = scalar.constant 0 : i32
+    %matches = scalar.cmpi eq, %compared, %equal : i32
+    scf.yield %matches : i1
+  } else {
+    %false = scalar.constant 0 : i1
+    scf.yield %false : i1
+  }
+  func.return %same : i1
+}
+
+func.def public @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer) {
+  %bounded_begin = scalar.assume %begin [range(%begin, 0, 9223372036854775807)] : i64
+  %bounded_length = scalar.assume %length [range(%length, 0, 9223372036854775807)] : i64
+  %start = index.cast %bounded_begin : i64 to offset
+  %size = index.cast %bounded_length : i64 to offset
+  %zero = index.constant 0 : offset
+  %result = buffer.alloca<private> align(1) %size : buffer
+  buffer.copy %text[%start], %result[%zero], %size
+  func.return %result : buffer
+}
+
+func.def public @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer) {
+  %a_size = buffer.length %a
+  %b_size = buffer.length %b
+  %c_size = buffer.length %c
+  %d_size = buffer.length %d
+  %e_size = buffer.length %e
+  %f_size = buffer.length %f
+  %g_size = buffer.length %g
+  %h_size = buffer.length %h
+  %ab = index.add %a_size, %b_size : offset
+  %abc = index.add %ab, %c_size : offset
+  %abcd = index.add %abc, %d_size : offset
+  %abcde = index.add %abcd, %e_size : offset
+  %abcdef = index.add %abcde, %f_size : offset
+  %abcdefg = index.add %abcdef, %g_size : offset
+  %size = index.add %abcdefg, %h_size : offset
+  %output = buffer.alloca<private> align(1) %size : buffer
+  %zero = index.constant 0 : offset
+  buffer.copy %a[%zero], %output[%zero], %a_size
+  buffer.copy %b[%zero], %output[%a_size], %b_size
+  buffer.copy %c[%zero], %output[%ab], %c_size
+  buffer.copy %d[%zero], %output[%abc], %d_size
+  buffer.copy %e[%zero], %output[%abcd], %e_size
+  buffer.copy %f[%zero], %output[%abcde], %f_size
+  buffer.copy %g[%zero], %output[%abcdef], %g_size
+  buffer.copy %h[%zero], %output[%abcdefg], %h_size
+  func.return %output : buffer
+}
+
+func.def public @text.append(%output: buffer, %position: offset, %text: buffer) -> (offset) {
+  %zero = index.constant 0 : offset
+  %length = buffer.length %text
+  buffer.copy %text[%zero], %output[%position], %length
+  %end = index.add %position, %length : offset
+  func.return %end : offset
+}
+
+func.def public @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %zero64 = scalar.constant 0 : i64
+  %bounded = scalar.assume %length [range(%length, 0, 9223372036854775807)] : i64
+  %capacity = index.cast %bounded : i64 to offset
+  %storage = buffer.alloca<private> align(1) %capacity : buffer
+  %used = func.call @unescape(%source, %begin, %length, %storage, %zero64) : (buffer, i64, i64, buffer, i64) -> (i64)
+  %used_bounded = scalar.assume %used [range(%used, 0, 9223372036854775807)] : i64
+  %bytes = index.cast %used_bounded : i64 to offset
+  %result = buffer.alloca<private> align(1) %bytes : buffer
+  buffer.copy %storage[%zero], %result[%zero], %bytes
+  func.return %result : buffer
+}
+
+func.def public @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %zero64 = scalar.constant 0 : i64
+  %false = scalar.constant false : i1
+  %true = scalar.constant true : i1
+  %empty = global.load @text.empty : buffer
+  %members, %type, %count_value = func.call @members(%json) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %records = buffer.view %members[%origin] : buffer -> view<[%count]x5xi64>
+  %result, %kind, %found = scf.for %i = [%zero to %count step %one](%prior = %empty : buffer, %prior_kind = %zero64 : i64, %prior_found = %false : i1) -> (buffer, i64, i1) {
+    %begin = view.load %records[%i,0] : view<[%count]x5xi64> -> i64
+    %length = view.load %records[%i,1] : view<[%count]x5xi64> -> i64
+    %name = func.call @text.decode(%json, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    %equal = func.call @text.equal(%name, %key) : (buffer, buffer) -> (i1)
+    %value, %value_kind, %value_found = scf.if %equal -> (buffer, i64, i1) {
+      %vb = view.load %records[%i,2] : view<[%count]x5xi64> -> i64
+      %vl = view.load %records[%i,3] : view<[%count]x5xi64> -> i64
+      %vt = view.load %records[%i,4] : view<[%count]x5xi64> -> i64
+      %text = func.call @text.range(%json, %vb, %vl) : (buffer, i64, i64) -> (buffer)
+      scf.yield %text, %vt, %true : buffer, i64, i1
+    } else {
+      scf.yield %prior, %prior_kind, %prior_found : buffer, i64, i1
+    }
+    scf.yield %value, %value_kind, %value_found : buffer, i64, i1
+  }
+  func.return %result, %kind, %found : buffer, i64, i1
+}
+
+func.def public @text.string(%json: buffer, %key: buffer) -> (buffer, i1) {
+  %value, %type, %found = func.call @text.lookup(%json, %key) : (buffer, buffer) -> (buffer, i64, i1)
+  %zero64 = scalar.constant 0 : i64
+  %string = scalar.cmpi eq, %type, %zero64 : i64
+  %present = scalar.andi %found, %string : i1
+  %result = scf.if %present -> (buffer) {
+    %size = buffer.length %value
+    %length = index.cast %size : offset to i64
+    %decoded = func.call @text.decode(%value, %zero64, %length) : (buffer, i64, i64) -> (buffer)
+    scf.yield %decoded : buffer
+  } else {
+    %empty = global.load @text.empty : buffer
+    scf.yield %empty : buffer
+  }
+  func.return %result, %present : buffer, i1
+}
+
+func.def public @text.at(%text: buffer, %position: offset, %marker: buffer) -> (i1) {
+  %zero = index.constant 0 : offset
+  %length = buffer.length %text
+  %size = buffer.length %marker
+  %in_range = index.cmp ule, %position, %length : offset
+  %result = scf.if %in_range -> (i1) {
+    %remaining = index.sub %length, %position : offset
+    %fits = index.cmp ule, %size, %remaining : offset
+    %matched = scf.if %fits -> (i1) {
+      %cmp = buffer.compare %text[%position], %marker[%zero], %size
+      %zero32 = scalar.constant 0 : i32
+      %equal = scalar.cmpi eq, %cmp, %zero32 : i32
+      scf.yield %equal : i1
+    } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+    scf.yield %matched : i1
+  } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+  func.return %result : i1
+}
+
+func.def @text.space_width(%text: buffer, %position: offset, %end: offset) -> (offset) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %two = index.constant 2 : offset
+  %three = index.constant 3 : offset
+  %b0 = buffer.load.i8.u %text[%position]
+  %c9 = scalar.constant 9 : i32
+  %c13 = scalar.constant 13 : i32
+  %c28 = scalar.constant 28 : i32
+  %c32 = scalar.constant 32 : i32
+  %lo = scalar.cmpi uge, %b0, %c9 : i32
+  %hi = scalar.cmpi ule, %b0, %c13 : i32
+  %tab = scalar.andi %lo, %hi : i1
+  %lo2 = scalar.cmpi uge, %b0, %c28 : i32
+  %hi2 = scalar.cmpi ule, %b0, %c32 : i32
+  %ascii2 = scalar.andi %lo2, %hi2 : i1
+  %ascii = scalar.ori %tab, %ascii2 : i1
+  %width = scf.if %ascii -> (offset) {
+    scf.yield %one : offset
+  } else {
+    %remaining = index.sub %end, %position : offset
+    %has_two = index.cmp uge, %remaining, %two : offset
+    %multibyte = scf.if %has_two -> (offset) {
+      %p1 = index.add %position, %one : offset
+      %b1 = buffer.load.i8.u %text[%p1]
+      %c194 = scalar.constant 194 : i32
+      %c133 = scalar.constant 133 : i32
+      %c160 = scalar.constant 160 : i32
+      %lead = scalar.cmpi eq, %b0, %c194 : i32
+      %nel = scalar.cmpi eq, %b1, %c133 : i32
+      %nbsp = scalar.cmpi eq, %b1, %c160 : i32
+      %tail = scalar.ori %nel, %nbsp : i1
+      %two_space = scalar.andi %lead, %tail : i1
+      %two_result = scf.if %two_space -> (offset) {
+        scf.yield %two : offset
+      } else {
+        %has_three = index.cmp uge, %remaining, %three : offset
+        %three_result = scf.if %has_three -> (offset) {
+          %p2 = index.add %position, %two : offset
+          %b2 = buffer.load.i8.u %text[%p2]
+          %c128 = scalar.constant 128 : i32
+          %c129 = scalar.constant 129 : i32
+          %c138 = scalar.constant 138 : i32
+          %c154 = scalar.constant 154 : i32
+          %c159 = scalar.constant 159 : i32
+          %c168 = scalar.constant 168 : i32
+          %c169 = scalar.constant 169 : i32
+          %c175 = scalar.constant 175 : i32
+          %c225 = scalar.constant 225 : i32
+          %c226 = scalar.constant 226 : i32
+          %c227 = scalar.constant 227 : i32
+          %a0 = scalar.cmpi eq, %b0, %c225 : i32
+          %a1 = scalar.cmpi eq, %b1, %c154 : i32
+          %a2 = scalar.cmpi eq, %b2, %c128 : i32
+          %aa = scalar.andi %a0, %a1 : i1
+          %a = scalar.andi %aa, %a2 : i1
+          %b0ok = scalar.cmpi eq, %b0, %c226 : i32
+          %b1ok = scalar.cmpi eq, %b1, %c128 : i32
+          %runlo = scalar.cmpi uge, %b2, %c128 : i32
+          %runhi = scalar.cmpi ule, %b2, %c138 : i32
+          %run = scalar.andi %runlo, %runhi : i1
+          %line = scalar.cmpi eq, %b2, %c168 : i32
+          %paragraph = scalar.cmpi eq, %b2, %c169 : i32
+          %narrow = scalar.cmpi eq, %b2, %c175 : i32
+          %lp = scalar.ori %line, %paragraph : i1
+          %r0 = scalar.ori %run, %lp : i1
+          %r1 = scalar.ori %r0, %narrow : i1
+          %bb = scalar.andi %b0ok, %b1ok : i1
+          %b = scalar.andi %bb, %r1 : i1
+          %c1ok = scalar.cmpi eq, %b1, %c129 : i32
+          %c2ok = scalar.cmpi eq, %b2, %c159 : i32
+          %cc = scalar.andi %b0ok, %c1ok : i1
+          %c = scalar.andi %cc, %c2ok : i1
+          %d0ok = scalar.cmpi eq, %b0, %c227 : i32
+          %dd = scalar.andi %d0ok, %b1ok : i1
+          %d = scalar.andi %dd, %a2 : i1
+          %ab = scalar.ori %a, %b : i1
+          %cd = scalar.ori %c, %d : i1
+          %match = scalar.ori %ab, %cd : i1
+          %result = scf.select %match, %three, %zero : offset
+          scf.yield %result : offset
+        } else {
+          scf.yield %zero : offset
+        }
+        scf.yield %three_result : offset
+      }
+      scf.yield %two_result : offset
+    } else {
+      scf.yield %zero : offset
+    }
+    scf.yield %multibyte : offset
+  }
+  func.return %width : offset
+}
+
+func.def public @text.trim(%text: buffer) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %length = buffer.length %text
+  %begin = scf.while(%position = %zero : offset) -> (offset) {
+    %active = index.cmp ult, %position, %length : offset
+    %width = scf.if %active -> (offset) {
+      %width = func.call @text.space_width(%text, %position, %length) : (buffer, offset, offset) -> (offset)
+      scf.yield %width : offset
+    } else { scf.yield %zero : offset }
+    %space = index.cmp ne, %width, %zero : offset
+    scf.condition %space, %position : i1, offset
+  } do(%position: offset) {
+    %width = func.call @text.space_width(%text, %position, %length) : (buffer, offset, offset) -> (offset)
+    %next = index.add %position, %width : offset
+    scf.yield %next : offset
+  }
+  %position, %end = scf.while(%position = %begin : offset, %end = %begin : offset) -> (offset, offset) {
+    %active = index.cmp ult, %position, %length : offset
+    scf.condition %active, %position, %end : i1, offset, offset
+  } do(%position: offset, %end: offset) {
+    %width = func.call @text.space_width(%text, %position, %length) : (buffer, offset, offset) -> (offset)
+    %space = index.cmp ne, %width, %zero : offset
+    %step = scf.select %space, %width, %one : offset
+    %next = index.add %position, %step : offset
+    %next_end = scf.select %space, %end, %next : offset
+    scf.yield %next, %next_end : offset, offset
+  }
+  %size = index.sub %end, %begin : offset
+  %result = buffer.alloca<private> align(1) %size : buffer
+  buffer.copy %text[%begin], %result[%zero], %size
+  func.return %result : buffer
+}

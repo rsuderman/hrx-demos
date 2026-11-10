@@ -160,7 +160,7 @@ class ConfiguredFfnTest : public ::testing::TestWithParam<bool> {
     const auto product = root + "/lib/programs/ffn/testing/" + family +
         (relocatable ? "_fixture.loombc" : "_fixture_text.loom");
     const auto symbol = "test." + family + ".ffn." + suffix;
-    ASSERT_TRUE(LinkConfiguredProduct(context, workspace, config.source, product,
+    ASSERT_TRUE(LinkConfiguredProducts(context, workspace, config.source, {product},
         {symbol.c_str()}, true, module, &error)) << error;
     ASSERT_NE(*module, nullptr);
   }
@@ -183,35 +183,24 @@ TEST_P(ConfiguredFfnTest, SourceAndRelocatableProfilesMaterializeAndCompile) {
     }
   }
 }
-TEST_P(ConfiguredFfnTest, DecodeRejectsMoreThanOneRow) {
-  loomc_module_t *module = nullptr;
-  Link(false, "bad_decode_rows", &module);
-  ASSERT_NE(module, nullptr);
-  const std::string symbol = std::string("test.") + (GetParam() ? "llama" : "qwen") + ".ffn.bad_decode_rows";
-  auto root_symbol = loomc_make_cstring_view(symbol.c_str());
-  loomc_cmd_program_module_options_t options{};
-  options.type = LOOMC_STRUCTURE_TYPE_CMD_PROGRAM_MODULE_OPTIONS;
-  options.structure_size = sizeof(options);
-  loomc_target_profile_t *profile = nullptr;
-  ASSERT_TRUE(Ok(loomc_target_profile_select(environment,
-      loomc_make_cstring_view("amdgpu:gfx1100"), loomc_allocator_system(), &profile)));
-  options.kernel_target_profile = profile;
-  options.root_symbols = &root_symbol;
-  options.root_symbol_count = 1;
-  loomc_product_t *product = nullptr;
-  loomc_result_t *result = nullptr;
-  const auto status = loomc_cmd_program_product_build_module(workspace, module,
-      &options, loomc_allocator_system(), &product, &result);
-  const bool failed_status = !loomc_status_is_ok(status);
-  loomc_status_free(status);
-  EXPECT_TRUE(failed_status || (result && !loomc_result_succeeded(result)));
-  EXPECT_EQ(product, nullptr);
-  EXPECT_NE(Diagnostics(result).find("loomify.ffn.decode_rows"), std::string::npos);
-  loomc_target_profile_release(profile);
-  if (result) loomc_result_release(result);
-  if (product) loomc_product_release(product);
-  loomc_module_release(module);
+TEST_P(ConfiguredFfnTest, DecodeRejectsMoreThanOneRowDuringConstruction) {
+  const std::string family = GetParam() ? "llama" : "qwen";
+  const auto symbol = "test." + family + ".ffn.bad_decode_rows";
+  const auto product = root + "/lib/programs/ffn/testing/" + family +
+      "_fixture.loombc";
+  ConfigurationFacts config;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(Facts(GetParam()), "synthetic-descriptor",
+      {4, 512}, &config, &error)) << error;
+  loomc_module_t* module = nullptr;
+  EXPECT_FALSE(LinkConfiguredProducts(context, workspace, config.source, {product},
+      {symbol.c_str()}, true, &module, &error));
+  EXPECT_EQ(module, nullptr);
+  EXPECT_NE(error.find("loomify.ffn.decode_rows"), std::string::npos) << error;
+  EXPECT_NE(error.find("all_rejected"), std::string::npos) << error;
 }
+
+
 INSTANTIATE_TEST_SUITE_P(Profiles, ConfiguredFfnTest, ::testing::Bool());
 } // namespace
 } // namespace hrx::loomify_gguf

@@ -1,3 +1,11 @@
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+config.decl @qwen.model.tie_word_embeddings : index
+config.decl @qwen.model.argmax_partial_row_bytes : index
+config.decl @qwen.model.logits_row_bytes : index
+config.decl @qwen.model.output_weight_bytes : index
+config.decl @qwen.model.hidden_q8_row_bytes : index
+config.decl @qwen.model.vocabulary_size : index
 // Copyright 2026 The IREE Authors
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated ordinary Qwen0.8B closure from loom-pipeline at0aed77a.
@@ -152,13 +160,21 @@ kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch:
 // Public selected capacity remains1; publication consumes only epoch output_count.
 command.program.def @qwen08_epoch_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
   %four = index.constant 4 : index
-  %hidden = index.constant 1024 : index
-  %vocab = index.constant 248320 : index
+  %hidden = config.get @qwen.model.hidden_size : index
+  %vocab = config.get @qwen.model.vocabulary_size : index
   %origin = index.constant 0 : offset
-  %norm_bytes = index.constant 16384 : offset
-  %q8_bytes = index.constant 4608 : offset
-  %logit_bytes = index.constant 3973120 : offset
-  %partial_bytes = index.constant 976 : offset
+  %hidden_row = config.get @qwen.model.hidden_row_bytes : index
+  %q8_row = config.get @qwen.model.hidden_q8_row_bytes : index
+  %logits_row = config.get @qwen.model.logits_row_bytes : index
+  %partial_row = config.get @qwen.model.argmax_partial_row_bytes : index
+  %norm_size = index.mul %four, %hidden_row : index
+  %q8_size = index.mul %four, %q8_row : index
+  %logits_size = index.mul %four, %logits_row : index
+  %partial_size = index.mul %four, %partial_row : index
+  %norm_bytes = index.cast %norm_size : index to offset
+  %q8_bytes = index.cast %q8_size : index to offset
+  %logit_bytes = index.cast %logits_size : index to offset
+  %partial_bytes = index.cast %partial_size : index to offset
   %id_bytes = index.constant 16 : offset
   %normalized = buffer.alloca<global> align(256) %norm_bytes : buffer
   %q8 = buffer.alloca<global> align(256) %q8_bytes : buffer
@@ -167,11 +183,23 @@ command.program.def @qwen08_epoch_head(%token_capacity: index, %output_capacity:
   %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
   %private_ids = buffer.alloca<global> align(256) %id_bytes : buffer
   %epsilon = config.get @qwen.model.rms_epsilon : f32
-  %gamma = command.parameter %parameters, "output_norm.weight" : view<1024xf32>
-  %weight = command.parameter %parameters, "token_embd.weight" : view<208588800xi8>
-  kernel.launch @qwen38_output_normalize_spans[%four](%epoch, %epsilon, %residual, %gamma, %normalized) : [index](buffer, f32, buffer, view<1024xf32>, buffer)
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%four, %hidden](%four, %hidden, %normalized, %q8) : [index, index](index, index, buffer, buffer)
-  kernel.launch @ggml_linear_q6k_q8_1_x4_m4[%four, %hidden, %vocab](%four, %hidden, %vocab, %q8, %weight, %logits) : [index, index, index](index, index, index, buffer, view<208588800xi8>, buffer)
+  %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
+  %output_bytes = config.get @qwen.model.output_weight_bytes : index
+  %tie = config.get @qwen.model.tie_word_embeddings : index
+  %zero = index.constant 0 : index
+  %tied = index.cmp ne, %tie, %zero : index
+  %weight = scf.if %tied -> (view<[%output_bytes]xi8>) {
+    %shared = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
+    scf.yield %shared : view<[%output_bytes]xi8>
+  } else {
+    %separate = command.parameter %parameters, "output.weight" : view<[%output_bytes]xi8>
+    scf.yield %separate : view<[%output_bytes]xi8>
+  }
+  kernel.launch @qwen38_output_normalize_spans[%four](%epoch, %epsilon, %residual, %gamma, %normalized) : [index](buffer, f32, buffer, view<[%hidden]xf32>, buffer)
+  %canonical = index.constant 1 : index
+  %fixed_count = scalar.constant 4 : i32
+  template.apply<@llm.projection.pack_input>(%canonical, %four, %four, %hidden, %zero, %fixed_count, %origin, %epoch, %normalized, %q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4_m4[%four, %hidden, %vocab](%four, %hidden, %vocab, %q8, %weight, %logits) : [index, index, index](index, index, index, buffer, view<[%output_bytes]xi8>, buffer)
   kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%four, %vocab](%four, %vocab, %logits, %partial_logits, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
   kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%four, %vocab](%four, %vocab, %partial_logits, %partial_ids, %private_ids) : [index, index](index, index, buffer, buffer, buffer)
   kernel.launch @qwen08_publish_selected_ids[%output_capacity](%epoch, %private_ids, %output) : [index](buffer, buffer, buffer)

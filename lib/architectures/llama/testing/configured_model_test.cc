@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "loom/ops/command/ops.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/kernel/ops.h"
+#include "loom/ops/scalar/ops.h"
 #include "loomc/compile.h"
 #include "loomc/interop.h"
 #include "loomc/link.h"
@@ -265,8 +267,14 @@ protected:
     source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
     source_options.identifier =
         loomc_make_cstring_view("llama-model-test-config");
+    // Plain descriptor fixture: explicit publication identities are test data,
+    // while the public builder derives these from its real GGUF vocabulary.
+    const std::string source_text = facts.source +
+        "config.def @llama.publication.end_text_id = 128001 : i32\n"
+        "config.def @llama.publication.end_message_id = 128008 : i32\n"
+        "config.def @llama.publication.end_turn_id = 128009 : i32\n";
     source_options.contents =
-        loomc_make_byte_span(facts.source.data(), facts.source.size());
+        loomc_make_byte_span(source_text.data(), source_text.size());
     loomc_source_t *source = nullptr;
     ASSERT_TRUE(Ok(loomc_source_create(&source_options,
                                        loomc_allocator_system(), &source)));
@@ -423,6 +431,75 @@ TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndThreeRoots) {
 TEST_F(ConfiguredLlamaModelTest, FullDescriptorFixtureUsesMaintainedProducts) {
   for (bool text : {false, true})
     Build(testing::LlamaModelFacts(), 128, false, text);
+}
+TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProviders) {
+  ConfigurationFacts facts;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::LlamaModelFacts(), "fixture", {},
+                                  &facts, &error)) << error;
+  // Scalar leaf sensitivity does not widen full-model geometry admission.
+  for (const auto &entry : std::vector<std::pair<std::string, std::string>>{
+           {"llama.model.rotary_step", "0.75"},
+           {"llama.model.attention_scale", "0.125"}}) {
+    const auto start = facts.source.find("config.def @" + entry.first + " = ");
+    ASSERT_NE(start, std::string::npos);
+    facts.source.replace(start, facts.source.find('\n', start) - start,
+        "config.def @" + entry.first + " = " + entry.second + " : f32");
+  }
+  for (const char *product : {"implementation_text.loom", "implementation.loombc"}) {
+    Module module(nullptr, loomc_module_release);
+    Link(facts, product, &module);
+    ASSERT_TRUE(module);
+    // LINK resolves configuration definitions but need not fold config.get.
+    // Inspect the same canonicalized representation used by prepared products.
+    loomc_pass_program_t *passes = nullptr;
+    loomc_result_t *result = nullptr;
+    ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(context,
+        loomc_make_cstring_view("canonicalize"), nullptr,
+        loomc_allocator_system(), &passes, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    loomc_result_release(result);
+    result = nullptr;
+    ASSERT_TRUE(Ok(loomc_pass_program_run(passes, workspace, module.get(), nullptr,
+        loomc_allocator_system(), &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    loomc_result_release(result);
+    loomc_pass_program_release(passes);
+    loomc_module_interop_view_t view{};
+    result = nullptr;
+    ASSERT_TRUE(Ok(loomc_module_get_interop_view(module.get(), loomc_allocator_system(), &view, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    loomc_result_release(result);
+    for (const auto &entry : std::vector<std::pair<const char *, float>>{
+             {"llama32_rotary_query", 0.75f},
+             {"llama32_publish_kv", 0.75f},
+             {"llama32_attention_rows", 0.125f}}) {
+      const auto *kernel = Definition(view.module, entry.first);
+      ASSERT_TRUE(kernel && loom_kernel_def_isa(kernel)) << entry.first;
+      size_t uses = 0;
+      std::function<void(const loom_region_t *)> inspect = [&](const loom_region_t *region) {
+        for (size_t b = 0; b < region->block_count; ++b)
+          for (const auto *op = region->blocks[b]->first_op; op; op = op->next_op) {
+            const auto spelling = loom_op_vtable_name(loom_op_vtable(view.module, op));
+            if (std::string(spelling.data, spelling.size) == "template.apply") {
+              for (size_t i = 0; i < op->operand_count; ++i) {
+                const auto *operand = loom_module_value(view.module, loom_op_const_operands(op)[i]);
+                // Buffer and position arguments have no defining operation.
+                // The public IR accessor requires excluding block arguments.
+                if (loom_value_is_block_arg(operand)) continue;
+                const auto *value = loom_value_def_op(operand);
+                if (!value || !loom_scalar_constant_isa(value)) continue;
+                const auto attribute = loom_scalar_constant_value(value);
+                if (attribute.kind == LOOM_ATTR_F64 && float(attribute.f64) == entry.second) ++uses;
+              }
+            }
+            for (size_t i = 0; i < op->region_count; ++i) inspect(loom_op_regions(op)[i]);
+          }
+      };
+      inspect(loom_kernel_def_body(kernel));
+      EXPECT_GT(uses, 0u) << entry.first;
+    }
+  }
 }
 TEST_F(ConfiguredLlamaModelTest, MissingLiveConfigOrProviderRejects) {
   ConfigurationFacts facts;

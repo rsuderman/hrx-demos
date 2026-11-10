@@ -12,6 +12,7 @@ config.decl @llama.model.kv_heads : index
 config.decl @llama.model.head_size : index
 config.decl @llama.model.kv_size : index
 config.decl @llama.model.layer_count : index
+config.decl @llama.model.rotary_step : f32
 config.decl @llama.attention.cache_capacity : %value: index where [range(%value, 1, 131072)]
 config.decl @llama.attention.pool_capacity : %value: index where [range(%value, 0, 4194304), multiple_of(%value, 64)]
 
@@ -74,9 +75,8 @@ kernel.def target(@llama32_rotary_wave32) @llama32_rotary_query(%token_capacity0
     %active0 = index.cast %active_i32 : i32 to index
     %active = index.assume %active0 [range(%active0, 1, 512)] : index
     %active_token = index.assume %token [lt(%token, %active)] : index
-    // Primary powf(500000,-2/128), F32 bits1062243009. Keep this model fact
-    // exact rather than introducing approximate backend pow into the recurrence.
-    %theta_scale = scalar.constant 0.8146172165870667 : f32
+    // Generated on the host from the checkpoint's base and rotary width.
+    %theta_scale = config.get @llama.model.rotary_step : f32
     %head_width = config.get @llama.model.head_size : index
     %word_bytes = index.constant 4 : index
     %row_elements = index.mul %heads, %head_width : index
@@ -127,7 +127,7 @@ kernel.def target(@llama32_rotary_wave32) @llama32_publish_kv(%token_capacity0: 
     %value_origin = index.add %cache_base, %value_add : offset
     %logical_position = index.assume %position [range(%position, 0, 131071), lt(%position, %capacity)] : index
     %physical_position = func.call @qwen38_kv_position(%capacity, %map, %map_origin, %logical_position, %pool_capacity) : (index, buffer, offset, index, index) -> (index)
-    %theta_scale = scalar.constant 0.8146172165870667 : f32
+    %theta_scale = config.get @llama.model.rotary_step : f32
     %word_bytes = index.constant 4 : index
     %row_byte_count = index.mul %kv_size, %word_bytes : index
     %row_bytes = index.cast %row_byte_count : index to offset

@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/loomify-gguf/configuration.h"
+#include "tools/loomify-gguf/token_policy.h"
 #include "tools/loomify-gguf/testing/configuration_fixture.h"
 #include "tools/loomify-gguf/testing/prepare_vm.h"
 #include "loomc/link.h"
@@ -105,7 +106,7 @@ class LlamaPreparationTest : public ::testing::Test {
       EXPECT_NE(begin, std::string::npos);
       if (begin != std::string::npos) facts.source.erase(begin, facts.source.find('\n', begin) - begin + 1);
     }
-    auto config = Parse(facts.source);
+    auto config = Parse(facts.source + EmitTerminalMarkerSource("<|eot_id|>"));
     auto prepare = Load(root_ / (bytecode ? "prepare_library.loombc" : "prepare.loom"));
     if (!config || !prepare) return {nullptr, loomc_module_release};
     const loomc_link_module_provider_t providers[] = {

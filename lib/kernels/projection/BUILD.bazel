@@ -9,5 +9,5 @@ filegroup(
 )
 filegroup(
     name = "qwen_sources",
-    srcs = ["q4k.loom", "q4k_canonical.loom", "q5k.loom", "q6k.loom", "q6k_canonical.loom", "qk_common.loom"],
+    srcs = ["q4k.loom", "q4k_canonical.loom", "q5k.loom", "q8_0.loom", "q6k.loom", "q6k_canonical.loom", "qk_common.loom"],
 )

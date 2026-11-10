@@ -1,0 +1,26 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+package(default_visibility = ["//visibility:public"])
+exports_files(["interface.loom", "projection.loom"])
+filegroup(
+    name = "implementation_sources",
+    srcs = [
+        "projection.loom",
+        "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:q4k_canonical.loom",
+        "//lib/kernels/projection:q4k_compat.loom",
+        "//lib/kernels/projection:q5k.loom",
+        "//lib/kernels/projection:q6k.loom",
+        "//lib/kernels/projection:q6k_canonical.loom",
+        "//lib/kernels/projection:q6k_compat.loom",
+        "//lib/kernels/projection:q8_0.loom",
+        "//lib/kernels/projection:qk_common.loom",
+        "//lib/kernels/projection:qk_mmvq_compat.loom",
+        "//lib/kernels/quantization:q8_1_x4.loom",
+        "//lib/kernels/quantization:q8_1_x4_canonical.loom",
+        "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom",
+        "//lib/kernels/llama:active_rows.loom",
+    ],
+)
+loom_merge(name = "implementation", srcs = [":implementation_sources"])

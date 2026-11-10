@@ -1,3 +1,5 @@
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/qwen/programs/qwen38/attention_layer_prefill.loom.
@@ -9,13 +11,6 @@ config.decl @qwen.model.kv_size : index
 config.decl @qwen.model.query_gate_size : index
 config.decl @qwen.model.head_size : index
 config.decl @qwen.model.rms_epsilon : f32
-config.decl @qwen.model.attention_q6_layers : i32
-config.decl @qwen.model.query_q5_weight_bytes : index
-config.decl @qwen.model.query_q6_weight_bytes : index
-config.decl @qwen.model.key_q5_weight_bytes : index
-config.decl @qwen.model.key_q6_weight_bytes : index
-config.decl @qwen.model.value_weight_bytes : index
-config.decl @qwen.model.projection_weight_bytes : index
 config.decl @qwen.model.hidden_capacity_bytes : index
 config.decl @qwen.model.hidden_q8_capacity_bytes : index
 config.decl @qwen.model.query_gate_capacity_bytes : index
@@ -26,38 +21,25 @@ config.decl @qwen.model.kv_plane_token_bytes : index
 config.decl @qwen38.attention.pool_capacity : index
 kernel.decl @qwen38_rmsnorm_f32_prefill(%token_count: index) launch(%token_capacity: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 kernel.decl @qwen38_residual_add_f32_prefill(%token_count: index) launch(%token_capacity: index, %lhs: buffer, %rhs: buffer, %output: buffer)
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_capacity: index, %input_size_data: index, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_capacity: index, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_capacity: index, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %output: buffer)
 kernel.decl @qwen38_attention_query_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %epsilon: f32, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer)
 kernel.decl @qwen38_attention_kv_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %key_projection: buffer, %value_projection: buffer, %weight: buffer, %state: buffer)
 kernel.decl @qwen38_attention_spans_f16_wmma(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %query: buffer, %gate: buffer, %state: buffer, %output: buffer)
 kernel.decl @qwen38_attention_clear_attended(%token_capacity: index) launch(%token_capacity: index, %output: buffer)
 command.program.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 command.program.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
-command.program.def public @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 23), range(%attention_ordinal, 0, 5), eq(%verification_depth, 0), range(%span_capacity, 1, 64)] {
+func.decl pure @loomify.config.attention_projections(%ordinal: index) -> (index, index, index, index, index, index, index, index)
+command.program.def public @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 63), range(%attention_ordinal, 0, 15), eq(%verification_depth, 0), range(%span_capacity, 1, 64)] {
+  %canonical = index.constant 1 : index
   %zero = index.constant 0 : index
-  %one32 = scalar.constant 1 : i32
-  %zero32 = scalar.constant 0 : i32
-  %layer32 = index.cast %layer : index to i32
-  %bit = scalar.shli %one32, %layer32 : i32
-  %mask = config.get @qwen.model.attention_q6_layers : i32
-  %selected = scalar.andi %mask, %bit : i32
-  %q6 = scalar.cmpi ne, %selected, %zero32 : i32
+  %origin = index.constant 0 : offset
+  %fixed_count = scalar.constant -1 : i32
+  %query_tag, %key_tag, %value_tag, %output_tag, %query_bytes, %key_bytes, %value_bytes, %output_bytes = func.call pure @loomify.config.attention_projections(%attention_ordinal) : (index) -> (index, index, index, index, index, index, index, index)
   %hidden_size = config.get @qwen.model.hidden_size : index
   %attention_size = config.get @qwen.model.attention_width : index
   %kv_size = config.get @qwen.model.kv_size : index
   %query_gate_size = config.get @qwen.model.query_gate_size : index
   %head_size = config.get @qwen.model.head_size : index
   %epsilon = config.get @qwen.model.rms_epsilon : f32
-  %q5_bytes = config.get @qwen.model.query_q5_weight_bytes : index
-  %q6_bytes = config.get @qwen.model.query_q6_weight_bytes : index
-  %query_bytes = scf.select %q6, %q6_bytes, %q5_bytes : index
-  %k5_bytes = config.get @qwen.model.key_q5_weight_bytes : index
-  %k6_bytes = config.get @qwen.model.key_q6_weight_bytes : index
-  %key_bytes = scf.select %q6, %k6_bytes, %k5_bytes : index
-  %value_bytes = config.get @qwen.model.value_weight_bytes : index
-  %output_bytes = config.get @qwen.model.projection_weight_bytes : index
   %input_norm_weight = command.parameter %parameters, "blk.{}.attn_norm.weight"[%layer] : view<[%hidden_size]xf32>
   %query_weight = command.parameter %parameters, "blk.{}.attn_q.weight"[%layer] : view<[%query_bytes]xi8>
   %query_norm_weight = command.parameter %parameters, "blk.{}.attn_q_norm.weight"[%layer] : view<[%head_size]xf32>
@@ -85,15 +67,10 @@ command.program.def public @qwen38_attention_layer_prefill(%token_count: index, 
   %key_projection = buffer.alloca<global> align(256) %kv_allocation : buffer
   %value_projection = buffer.alloca<global> align(256) %kv_allocation : buffer
   kernel.launch @qwen38_rmsnorm_f32_prefill[%token_count](%capacity, %epsilon, %residual, %input_norm_weight, %normalized) : [index](index, f32, buffer, view<[%hidden_size]xf32>, buffer)
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%token_count, %hidden_size](%capacity, %hidden_size, %normalized, %normalized_q8) : [index, index](index, index, buffer, buffer)
-  scf.if %q6 {
-    kernel.launch @ggml_linear_q6k_q8_1_x4[%token_count, %hidden_size, %query_gate_size](%capacity, %hidden_size, %query_gate_size, %normalized_q8, %query_weight, %query_gate_projection) : [index, index, index](index, index, index, buffer, view<[%query_bytes]xi8>, buffer)
-    kernel.launch @ggml_linear_q6k_q8_1_x4[%token_count, %hidden_size, %kv_size](%capacity, %hidden_size, %kv_size, %normalized_q8, %key_weight, %key_projection) : [index, index, index](index, index, index, buffer, view<[%key_bytes]xi8>, buffer)
-  } else {
-    kernel.launch @ggml_linear_q5k_q8_1_x4[%token_count, %hidden_size, %query_gate_size](%capacity, %hidden_size, %query_gate_size, %normalized_q8, %query_weight, %query_gate_projection) : [index, index, index](index, index, index, buffer, view<[%query_bytes]xi8>, buffer)
-    kernel.launch @ggml_linear_q5k_q8_1_x4[%token_count, %hidden_size, %kv_size](%capacity, %hidden_size, %kv_size, %normalized_q8, %key_weight, %key_projection) : [index, index, index](index, index, index, buffer, view<[%key_bytes]xi8>, buffer)
-  }
-  kernel.launch @ggml_linear_q6k_q8_1_x4[%token_count, %hidden_size, %kv_size](%capacity, %hidden_size, %kv_size, %normalized_q8, %value_weight, %value_projection) : [index, index, index](index, index, index, buffer, view<[%value_bytes]xi8>, buffer)
+  template.apply<@llm.projection.pack_input>(%canonical, %token_count, %capacity, %hidden_size, %zero, %fixed_count, %origin, %control, %normalized, %normalized_q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %query_tag, %token_count, %capacity, %hidden_size, %query_gate_size, %query_bytes, %zero, %fixed_count, %origin, %control, %normalized_q8, %query_weight, %query_gate_projection) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%query_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %key_tag, %token_count, %capacity, %hidden_size, %kv_size, %key_bytes, %zero, %fixed_count, %origin, %control, %normalized_q8, %key_weight, %key_projection) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%key_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %value_tag, %token_count, %capacity, %hidden_size, %kv_size, %value_bytes, %zero, %fixed_count, %origin, %control, %normalized_q8, %value_weight, %value_projection) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%value_bytes]xi8>, buffer)
   %query = buffer.alloca<global> align(256) %attention_allocation : buffer
   %gate = buffer.alloca<global> align(256) %attention_allocation : buffer
   %pool = config.get @qwen38.attention.pool_capacity : index
@@ -114,8 +91,8 @@ command.program.def public @qwen38_attention_layer_prefill(%token_count: index, 
   // Preserve the canonical seed's roomy attention allocation for Q8 packing.
   %packed_attention = buffer.alloca<global> align(256) %attention_allocation : buffer
   %projected = buffer.alloca<global> align(256) %hidden_allocation : buffer
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%token_count, %attention_size](%capacity, %attention_size, %attention_output, %packed_attention) : [index, index](index, index, buffer, buffer)
-  kernel.launch @ggml_linear_q5k_q8_1_x4[%token_count, %attention_size, %hidden_size](%capacity, %attention_size, %hidden_size, %packed_attention, %output_weight, %projected) : [index, index, index](index, index, index, buffer, view<[%output_bytes]xi8>, buffer)
+  template.apply<@llm.projection.pack_input>(%canonical, %token_count, %capacity, %attention_size, %zero, %fixed_count, %origin, %control, %attention_output, %packed_attention) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %output_tag, %token_count, %capacity, %attention_size, %hidden_size, %output_bytes, %zero, %fixed_count, %origin, %control, %packed_attention, %output_weight, %projected) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%output_bytes]xi8>, buffer)
   kernel.launch @qwen38_residual_add_f32_prefill[%token_count](%capacity, %residual, %projected, %residual) : [index](index, buffer, buffer, buffer)
   %post_normalized = buffer.alloca<global> align(256) %hidden_allocation : buffer
   kernel.launch @qwen38_rmsnorm_f32_prefill[%token_count](%capacity, %epsilon, %residual, %post_norm_weight, %post_normalized) : [index](index, f32, buffer, view<[%hidden_size]xf32>, buffer)

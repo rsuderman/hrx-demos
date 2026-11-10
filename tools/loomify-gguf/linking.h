@@ -6,11 +6,11 @@
 #include <string>
 #include <vector>
 namespace hrx::loomify_gguf {
-// Private native operation; only the selected product is read. Returns one
+// Private native operation; only the selected products are read. Returns one
 // owning strict LINK result. On failure leaves *out unchanged.
-bool LinkConfiguredProduct(loomc_context_t *, loomc_workspace_t *,
+bool LinkConfiguredProducts(loomc_context_t *, loomc_workspace_t *,
                            const std::string &configuration,
-                           const std::string &product_path,
+                           const std::vector<std::string> &product_paths,
                            const std::vector<const char *> &roots,
                            bool normalize_numerical, loomc_module_t **out,
                            std::string *error);

@@ -1,0 +1,26 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// The existing synthetic bank's independent format pattern: gate cycles
+// Q4/Q5/Q6, down alternates Q5/Q6. Production reads actual descriptor tuples.
+func.def public pure inline @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index) where [range(%layer, 0, 23)] {
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %q4 = index.constant 12 : index
+  %q5 = index.constant 13 : index
+  %q6 = index.constant 14 : index
+  %f = index.constant 3584 : index
+  %b4 = index.constant 2064384 : index
+  %b5 = index.constant 2523136 : index
+  %b6 = index.constant 3010560 : index
+  %gate_mod = index.rem %layer, %three : index
+  %gate_tag = index.add %q4, %gate_mod : index
+  %down_mod = index.rem %layer, %two : index
+  %down_tag = index.add %q5, %down_mod : index
+  %is4 = index.cmp eq, %gate_tag, %q4 : index
+  %is6 = index.cmp eq, %gate_tag, %q6 : index
+  %is_down6 = index.cmp eq, %down_tag, %q6 : index
+  %b56 = scf.select %is6, %b6, %b5 : index
+  %gate_bytes = scf.select %is4, %b4, %b56 : index
+  %down_bytes = scf.select %is_down6, %b6, %b5 : index
+  func.return %f, %gate_tag, %gate_tag, %down_tag, %gate_bytes, %gate_bytes, %down_bytes : index, index, index, index, index, index, index
+}

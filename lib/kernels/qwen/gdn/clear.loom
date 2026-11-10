@@ -2,16 +2,20 @@
 // SPDX-License-Identifier: MIT
 // Span recurrence only publishes active rows. Define all raw rows consumed by
 // the retained full-capacity norm-gate route; persistent state is never cleared.
+config.decl @qwen.model.gdn_width : index
 kernel.def @qwen08_gdn_clear_raw(%tokens0: index) {
   %tokens = index.assume %tokens0 [range(%tokens0, 1, 512)] : index
-  %groups_per_row = index.constant 8 : index
-  %groups = index.mul %tokens, %groups_per_row : index
+  %width = config.get @qwen.model.gdn_width : index
+  %count = index.mul %tokens, %width : index
   %threads = index.constant 256 : index
+  %bias = index.constant 255 : index
+  %rounded = index.add %count, %bias : index
+  %groups = index.div %rounded, %threads : index
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%groups, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%tokens0: index, %output: buffer) {
   %tokens = index.assume %tokens0 [range(%tokens0, 1, 512)] : index
-  %width = index.constant 2048 : index
+  %width = config.get @qwen.model.gdn_width : index
   %threads = index.constant 256 : index
   %group = kernel.workgroup.id<x> : index
   %thread = kernel.workitem.id<x> : index

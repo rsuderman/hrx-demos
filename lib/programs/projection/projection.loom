@@ -1,0 +1,127 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+config.decl @ggml.quantize_q8_1_x4.group_capacity : index
+template.decl @llm.projection.packed_capacity(%groups: index, %capacity: index)
+template.def<@llm.projection.packed_capacity> @llm_projection_packed_capacity(%groups: index, %capacity: index) where [le(%groups, %capacity)] {
+  template.return
+}
+template.decl @llm.projection.contract(%bytes: index, %expected: index, %rows: index, %row_limit: index, %width: index, %width_limit: index)
+template.def<@llm.projection.contract> @llm_projection_contract(%bytes: index, %expected: index, %rows: index, %row_limit: index, %width: index, %width_limit: index) where [eq(%bytes, %expected), le(%rows, %row_limit), le(%width, %width_limit)] {
+  template.return
+}
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows: index, %width: index) launch(%capacity: index, %width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %output: buffer)
+template.def<@llm.projection.pack_input> @llm_projection_pack_compatible(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer) where [eq(%policy, 0), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 128, 32768), multiple_of(%input_width, 128)] {
+  %group_width = index.constant 128 : index
+  %elements = index.mul %row_capacity, %input_width : index
+  %groups = index.div %elements, %group_width : index
+  %capacity = config.get @ggml.quantize_q8_1_x4.group_capacity : index
+  template.apply<@llm.projection.packed_capacity>(%groups, %capacity) : (index, index)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%launch_rows, %input_width](%row_capacity, %input_width, %row_origin, %fixed_count, %count_origin, %count, %input, %packed) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.return
+}
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width: index) launch(%capacity: index, %width: index, %input: buffer, %output: buffer)
+template.def<@llm.projection.pack_input> @llm_projection_pack_canonical(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer) where [eq(%policy, 1), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 128, 32768), multiple_of(%input_width, 128)] {
+  %group_width = index.constant 128 : index
+  %elements = index.mul %row_capacity, %input_width : index
+  %groups = index.div %elements, %group_width : index
+  %capacity = config.get @ggml.quantize_q8_1_x4.group_capacity : index
+  template.apply<@llm.projection.packed_capacity>(%groups, %capacity) : (index, index)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%launch_rows, %input_width](%row_capacity, %input_width, %input, %packed) : [index, index](index, index, buffer, buffer)
+  template.return
+}
+
+config.decl @ggml.linear_q4k_q8_1_x4.token_capacity : index
+config.decl @ggml.linear_q4k_q8_1_x4.output_capacity : index
+config.decl @ggml.linear_q5k_q8_1_x4.token_capacity : index
+config.decl @ggml.linear_q5k_q8_1_x4.output_capacity : index
+config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : index
+config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : index
+config.decl @ggml.linear_q8_0_q8_1_x4.token_capacity : index
+config.decl @ggml.linear_q8_0_q8_1_x4.output_capacity : index
+kernel.decl @ggml_linear_q4k_q8_1_x4(%rows: index, %input_width: index, %output_width: index) launch(%capacity: index, %input_width: index, %output_width: index, %packed: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.projection.project_packed> @llm_projection_canonical_q4k(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%policy, 1), eq(%weight_tag, 12), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 256, 32768), multiple_of(%input_width, 256), range(%output_width, 1, 262144)] {
+  %block_width = index.constant 256 : index
+  %block_bytes = index.constant 144 : index
+  %blocks = index.div %input_width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %output_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q4k_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q4k_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %row_capacity, %rows_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @ggml_linear_q4k_q8_1_x4[%launch_rows, %input_width, %output_width](%row_capacity, %input_width, %output_width, %packed, %weight, %output) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+kernel.decl @ggml_linear_q5k_q8_1_x4(%rows: index, %input_width: index, %output_width: index) launch(%capacity: index, %input_width: index, %output_width: index, %packed: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.projection.project_packed> @llm_projection_canonical_q5k(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%policy, 1), eq(%weight_tag, 13), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 256, 32768), multiple_of(%input_width, 256), range(%output_width, 1, 262144)] {
+  %block_width = index.constant 256 : index
+  %block_bytes = index.constant 176 : index
+  %blocks = index.div %input_width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %output_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q5k_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q5k_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %row_capacity, %rows_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @ggml_linear_q5k_q8_1_x4[%launch_rows, %input_width, %output_width](%row_capacity, %input_width, %output_width, %packed, %weight, %output) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+kernel.decl @ggml_linear_q6k_q8_1_x4(%rows: index, %input_width: index, %output_width: index) launch(%capacity: index, %input_width: index, %output_width: index, %packed: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.projection.project_packed> @llm_projection_canonical_q6k(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%policy, 1), eq(%weight_tag, 14), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 256, 17408), multiple_of(%input_width, 256), range(%output_width, 1, 262144)] {
+  %block_width = index.constant 256 : index
+  %block_bytes = index.constant 210 : index
+  %blocks = index.div %input_width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %output_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q6k_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q6k_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %row_capacity, %rows_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%launch_rows, %input_width, %output_width](%row_capacity, %input_width, %output_width, %packed, %weight, %output) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+kernel.decl @ggml_linear_q8_0_q8_1_x4(%rows: index, %input_width: index, %output_width: index) launch(%capacity: index, %input_width: index, %output_width: index, %packed: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.projection.project_packed> @llm_projection_canonical_q8_0(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%policy, 1), eq(%weight_tag, 8), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 128, 32768), multiple_of(%input_width, 128), range(%output_width, 1, 262144)] {
+  %block_width = index.constant 32 : index
+  %block_bytes = index.constant 34 : index
+  %blocks = index.div %input_width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %output_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q8_0_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q8_0_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %row_capacity, %rows_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%launch_rows, %input_width, %output_width](%row_capacity, %input_width, %output_width, %packed, %weight, %output) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows: index, %input_width: index, %output_width: index) launch(%capacity: index, %input_width: index, %output_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.projection.project_packed> @llm_projection_compatible_q4k(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%policy, 0), eq(%weight_tag, 12), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 256, 32768), multiple_of(%input_width, 256), range(%output_width, 1, 262144)] {
+  %block_width = index.constant 256 : index
+  %block_bytes = index.constant 144 : index
+  %blocks = index.div %input_width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %output_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q4k_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q4k_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %row_capacity, %rows_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%launch_rows, %input_width, %output_width](%row_capacity, %input_width, %output_width, %row_origin, %fixed_count, %count_origin, %count, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows: index, %input_width: index, %output_width: index) launch(%capacity: index, %input_width: index, %output_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.projection.project_packed> @llm_projection_compatible_q6k(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%policy, 0), eq(%weight_tag, 14), range(%launch_rows, 1, 2048), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 2048), range(%input_width, 256, 17408), multiple_of(%input_width, 256), range(%output_width, 1, 262144)] {
+  %block_width = index.constant 256 : index
+  %block_bytes = index.constant 210 : index
+  %blocks = index.div %input_width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %output_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q6k_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q6k_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %row_capacity, %rows_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%launch_rows, %input_width, %output_width](%row_capacity, %input_width, %output_width, %row_origin, %fixed_count, %count_origin, %count, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}

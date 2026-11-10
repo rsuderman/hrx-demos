@@ -11,6 +11,7 @@ config.decl @llama.model.kv_heads : index
 config.decl @llama.model.head_size : index
 config.decl @llama.model.kv_size : index
 config.decl @llama.model.layer_count : index
+config.decl @llama.model.attention_scale : f32
 config.decl @llama.attention.cache_capacity : %value: index where [range(%value, 1, 131072)]
 config.decl @llama.attention.pool_capacity : %value: index where [range(%value, 0, 4194304), multiple_of(%value, 64)]
 func.decl @llama32_rotary_position(%token_capacity: index, %token: index, %position_limit: index, %token_begin: index, %control_kind: index, %control_origin: offset, %control: buffer) -> (i1, index, i32)
@@ -79,7 +80,7 @@ kernel.def target(@llama32_attention_wave32) @llama32_attention_rows(%token_capa
     %key_origin = index.add %cache_base, %key_add : offset
     %value_origin = index.add %cache_base, %value_add : offset
     %position_i32 = index.cast %position : index to i32
-    %scale = scalar.constant 0.08838834764831845 : f32
+    %scale = config.get @llama.model.attention_scale : f32
     %gate = scalar.constant false : i1
     // MMVF small-query precision and one-product partials are separate bounds.
     // Padded launch capacity is not the active query-column count.

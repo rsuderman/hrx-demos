@@ -3,6 +3,7 @@
 #ifndef HRX_SOLUTIONS_LOOMIFY_CONFIGURATION_TEST_FIXTURE_H_
 #define HRX_SOLUTIONS_LOOMIFY_CONFIGURATION_TEST_FIXTURE_H_
 #include "tools/model/model_descriptor.h"
+#include <cstdlib>
 namespace hrx::loomify_gguf::testing {
 // Plain admitted full-profile descriptors. No native/compiler/graph objects.
 inline model::ModelDescriptor LlamaModelFacts() {
@@ -74,13 +75,13 @@ inline model::ModelDescriptor LlamaModelFacts() {
   }
   return m;
 }
-inline model::ModelDescriptor QwenModelFacts() {
-  constexpr size_t layers = 24;
+inline model::ModelDescriptor QwenModelFacts(bool large = false) {
+  const size_t layers = large ? 64 : 24;
   constexpr bool small = false;
   model::ModelDescriptor f;
   f.family = "qwen35";
   f.name = "Qwen structural fixture";
-  f.embedding_width = small ? 256 : 1024;
+  f.embedding_width = large ? 5120 : 1024;
   f.vocabulary_size = small ? 256 : 248320;
   f.training_context = 262144;
   f.key_head_width = f.value_head_width = small ? 64 : 256;
@@ -93,7 +94,7 @@ inline model::ModelDescriptor QwenModelFacts() {
   s.convolution_kernel = 4;
   s.state_width = small ? 64 : 128;
   s.key_heads = small ? 2 : 16;
-  s.value_heads = small ? 4 : 16;
+  s.value_heads = large ? 48 : 16;
   s.inner_width = s.state_width * s.value_heads;
   auto channels = s.state_width * (2 * s.key_heads + s.value_heads);
   s.convolution_history_elements = 3 * channels;
@@ -108,62 +109,59 @@ inline model::ModelDescriptor QwenModelFacts() {
     t.tensor.storage_type = storage;
     t.tensor.rank = b == 1 ? 1 : 2;
     t.tensor.normalized_extents = {int64_t(a), int64_t(b), 1, 1};
-    t.tensor.byte_size = storage == 0 ? a * b * 4
-                                      : a / 256 * b *
-                                            (storage == 12   ? 144
-                                             : storage == 13 ? 176
-                                                             : 210);
+    if (!model::EncodedTensorByteSize(storage, a, b, &t.tensor.byte_size)) std::abort();
     t.tensor.absolute_offset = next;
     next += (t.tensor.byte_size + 255) / 256 * 256;
     return t;
   };
   f.globals = {
-      tensor("token_embedding", "token_embd.weight", 14, f.embedding_width,
+      tensor("token_embedding", "token_embd.weight", large ? 12 : 14, f.embedding_width,
              f.vocabulary_size),
       tensor("output_norm", "output_norm.weight", 0, f.embedding_width)};
   auto output = f.globals[0];
   output.role = "output";
+  if (large) output = tensor("output", "output.weight", 14, f.embedding_width, f.vocabulary_size);
   f.globals.push_back(output);
-  f.output_tied_to_embedding = true;
+  f.output_tied_to_embedding = !large;
   uint32_t attention = 0, gdn = 0;
   for (size_t i = 0; i < layers; ++i) {
     model::LayerDescriptor l;
     l.index = i;
-    l.feed_forward_width = small ? 512 : 3584;
-    l.query_heads = 8;
-    l.kv_heads = 2;
+    l.feed_forward_width = large ? 17408 : 3584;
+    l.query_heads = large ? 24 : 8;
+    l.kv_heads = large ? 4 : 2;
     auto p = "blk." + std::to_string(i) + ".";
     auto h = f.embedding_width, ff = l.feed_forward_width;
     l.tensors = {tensor("input_norm", p + "attn_norm.weight", 0, h),
                  tensor("post_norm", p + "post_attention_norm.weight", 0, h),
-                 tensor("ffn_gate", p + "ffn_gate.weight", 12 + i % 3, h, ff),
-                 tensor("ffn_up", p + "ffn_up.weight", 12 + i % 3, h, ff),
-                 tensor("ffn_down", p + "ffn_down.weight", 13 + i % 2, ff, h)};
+                 tensor("ffn_gate", p + "ffn_gate.weight", large ? 12 : 12 + i % 3, h, ff),
+                 tensor("ffn_up", p + "ffn_up.weight", large ? 12 : 12 + i % 3, h, ff),
+                 tensor("ffn_down", p + "ffn_down.weight", large ? 12 : 13 + i % 2, ff, h)};
     auto add = [&](model::TensorBinding t) {
       l.tensors.push_back(std::move(t));
     };
     if ((i + 1) % 4) {
       l.kind = model::LayerKind::kGatedDeltaNet;
       l.recurrent_ordinal = gdn++;
-      add(tensor("recurrent_qkv", p + "attn_qkv.weight", 14, h, channels));
-      add(tensor("recurrent_gate", p + "attn_gate.weight", 14, h,
+      add(tensor("recurrent_qkv", p + "attn_qkv.weight", large ? 8 : 14, h, channels));
+      add(tensor("recurrent_gate", p + "attn_gate.weight", large ? 8 : 14, h,
                  s.inner_width));
       add(tensor("convolution", p + "ssm_conv1d.weight", 0, 4, channels));
       add(tensor("dt_bias", p + "ssm_dt.bias", 0, s.value_heads));
       add(tensor("decay", p + "ssm_a", 0, s.value_heads));
-      add(tensor("alpha", p + "ssm_alpha.weight", 13, h, s.value_heads));
-      add(tensor("beta", p + "ssm_beta.weight", 13, h, s.value_heads));
+      add(tensor("alpha", p + "ssm_alpha.weight", large ? 8 : 13, h, s.value_heads));
+      add(tensor("beta", p + "ssm_beta.weight", large ? 8 : 13, h, s.value_heads));
       add(tensor("recurrent_norm", p + "ssm_norm.weight", 0, s.state_width));
-      add(tensor("recurrent_output", p + "ssm_out.weight", 13, s.inner_width,
+      add(tensor("recurrent_output", p + "ssm_out.weight", large ? 8 : 13, s.inner_width,
                  h));
     } else {
       l.attention_ordinal = attention++;
       auto q = l.query_heads * f.key_head_width,
            k = l.kv_heads * f.key_head_width;
-      add(tensor("query", p + "attn_q.weight", 14, h, 2 * q));
-      add(tensor("key", p + "attn_k.weight", 14, h, k));
-      add(tensor("value", p + "attn_v.weight", 14, h, k));
-      add(tensor("attention_output", p + "attn_output.weight", 13, q, h));
+      add(tensor("query", p + "attn_q.weight", large ? 8 : 14, h, 2 * q));
+      add(tensor("key", p + "attn_k.weight", large ? 8 : 14, h, k));
+      add(tensor("value", p + "attn_v.weight", large ? 8 : 14, h, k));
+      add(tensor("attention_output", p + "attn_output.weight", large ? 14 : 13, q, h));
       add(tensor("query_norm", p + "attn_q_norm.weight", 0, f.key_head_width));
       add(tensor("key_norm", p + "attn_k_norm.weight", 0, f.key_head_width));
     }

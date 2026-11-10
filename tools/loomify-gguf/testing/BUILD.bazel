@@ -77,7 +77,7 @@ loom_test(
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
-exports_files(["configuration_test.cc", "configuration_fixture.h"])
+exports_files(["configuration_test.cc", "configuration_fixture.h", "alternating_qwen_fixture.h"])
 
 iree_cc_library(
     name = "prepare_vm",
@@ -103,3 +103,56 @@ cc_test(
 )
 
 exports_files(["package_test.cc"])
+
+cc_test(
+    name = "token_policy_test",
+    size = "small",
+    srcs = ["token_policy_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        "//tools/loomify-gguf:token_policy",
+        "//tools/model:text_metadata",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/tokenizer:tokenizer",
+        "@hrx_system//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "token_policy_real_assets_test",
+    size = "small",
+    srcs = ["token_policy_real_assets_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    tags = ["manual"],
+    deps = ["//tools/loomify-gguf:token_policy", "//tools/model:text_metadata", "@googletest//:gtest_main"],
+)
+
+exports_files(["chat_policy_test.cc"])
+
+cc_binary(
+    name = "emit_token_marker",
+    srcs = ["emit_token_marker.cc"],
+    testonly = True,
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/loomify-gguf:token_policy"],
+)
+
+iree_cc_library(
+    name = "package_buffer_vm",
+    testonly = True,
+    srcs = ["package_buffer_vm.cc"],
+    hdrs = ["package_buffer_vm.h"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//tools/loomify-gguf:__pkg__"],
+    deps = [
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
+        "@hrx_system//runtime/src/iree/vm",
+        "@hrx_system//runtime/src/iree/vm/bytecode:module",
+    ],
+)
+
+cc_binary(name = "mutate_text_gguf", srcs = ["mutate_text_gguf.cc"], copts = _CXXOPTS, deps = ["//tools/model:gguf_catalog"])

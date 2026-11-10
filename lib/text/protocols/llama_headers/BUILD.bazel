@@ -1,0 +1,4 @@
+load("//build_tools:loom_merge.bzl", "loom_merge")
+package(default_visibility = ["//visibility:public"])
+exports_files(["input.loom"])
+loom_merge(name = "implementation", srcs = ["input.loom"])

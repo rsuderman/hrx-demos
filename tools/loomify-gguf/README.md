@@ -4,7 +4,9 @@
 configuration and native-links maintained Loom architecture and kernel modules.
 It exports a numerical module through the public C++ builder or a complete
 package for existing Loom Serve. The qualified full-model profiles are
-Llama3.2 3B Q4_K_M and Qwen3.5 0.8B UD-Q5_K_XL; weights and tokenizer stay external.
+Llama3.2 3B Q4_K_M, Qwen3.5 0.8B UD-Q5_K_XL and Qwen3.5 27B Q4_K_M;
+weights and tokenizer stay external. Model shapes and numerical scalar facts come
+from the descriptor; operation-owned capabilities admit supported dispatches.
 
 ```sh
 bazel build //tools/loomify-gguf:loomify-gguf

@@ -1,7 +1,9 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/loomify-gguf/configuration.h"
+#include "tools/loomify-gguf/linking.h"
 #include "tools/loomify-gguf/testing/configuration_fixture.h"
+#include "tools/loomify-gguf/testing/alternating_qwen_fixture.h"
 #include "tools/model/qwen_configuration.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/command/ops.h"
@@ -9,6 +11,7 @@
 #include "loom/ir/context.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/ops/kernel/ops.h"
+#include "loom/ops/scalar/ops.h"
 #include "loomc/compile.h"
 #include "loomc/interop.h"
 #include "loomc/link.h"
@@ -17,6 +20,7 @@
 #include "loomc/target/amdgpu.h"
 #include "loomc/target/cmd/program.h"
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -181,7 +185,7 @@ class QwenModelTest : public ::testing::Test {
     ASSERT_EQ(kernels.size(), 1u);
     const auto *embedding = kernels.front();
     EXPECT_EQ(Text(view.module, view.module->symbols.entries[loom_kernel_launch_callee(embedding).symbol_id].name_id),
-              "qwen38_token_embedding_q6k_f16_prefill");
+              facts.globals.front().tensor.storage_type == 12 ? "qwen38_token_embedding_q4k_f32_prefill" : "qwen38_token_embedding_q6k_f16_prefill");
     auto workloads = loom_kernel_launch_workloads(embedding);
     ASSERT_EQ(workloads.count, 1u);
     EXPECT_EQ(Constant(view.module, workloads.values[0]), tokens);
@@ -254,7 +258,7 @@ class QwenModelTest : public ::testing::Test {
         EXPECT_EQ(bindings.values[4], scratch);
         const auto *allocation = loom_value_def_op(loom_module_value(view.module, scratch));
         ASSERT_TRUE(allocation && loom_buffer_alloca_isa(allocation));
-        EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(allocation)), is_gdn ? 256 : 4194304);
+        EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(allocation)), is_gdn ? 256 : int64_t(512 * std::max(facts.ssm->inner_width, facts.layers.front().query_heads * facts.key_head_width) * 4));
         EXPECT_EQ(loom_buffer_alloca_base_alignment(allocation), 256);
       }
       if (facts.layers[i].kind == model::LayerKind::kGatedDeltaNet) {
@@ -265,10 +269,12 @@ class QwenModelTest : public ::testing::Test {
         EXPECT_EQ(*facts.layers[i].attention_ordinal, selected_attention++);
       }
     }
-    EXPECT_EQ(selected_gdn, 18u);
-    EXPECT_EQ(selected_attention, 6u);
+    const auto gdn_count = std::count_if(facts.layers.begin(), facts.layers.end(),
+        [](const auto &layer) { return layer.kind == model::LayerKind::kGatedDeltaNet; });
+    EXPECT_EQ(selected_gdn, gdn_count);
+    EXPECT_EQ(selected_attention, facts.layers.size() - gdn_count);
     EXPECT_NE(gdn_scratch, attention_scratch);
-    std::printf("Prepared Qwen hierarchy: 24 route sites, 24 attention arms, 24 GDN arms, one embedding and one head; configured selection 6 attention/18 GDN\n");
+    std::printf("Prepared Qwen hierarchy: %zu route sites; selection %zu attention/%zu GDN\n", facts.layers.size(), selected_attention, selected_gdn);
     const auto *head = calls.back();
     EXPECT_EQ(Text(view.module, view.module->symbols.entries[loom_command_program_launch_callee(head).symbol_id].name_id), "qwen08_epoch_head");
     const auto specs = loom_command_program_launch_specializations(head);
@@ -280,7 +286,8 @@ class QwenModelTest : public ::testing::Test {
     const size_t expected[] = {0, 1, 2, 6};
     for (size_t j = 0; j < 4; ++j) EXPECT_EQ(bindings.values[j], body->arg_ids[expected[j]]);
   }
-  void InspectParameters(loomc_module_t *module, const model::ModelDescriptor &facts) {
+  void InspectParameters(loomc_module_t *module, const model::ModelDescriptor &facts,
+                         uint64_t pool = 512) {
     loomc_module_t *raw = nullptr;
     ASSERT_TRUE(Ok(loomc_module_clone(module, workspace, loomc_allocator_system(), &raw)));
     Module expanded(raw, loomc_module_release);
@@ -309,6 +316,30 @@ class QwenModelTest : public ::testing::Test {
     for (const auto &layer : facts.layers)
       for (const auto &tensor : layer.tensors) expected.insert(tensor.tensor.name);
     EXPECT_EQ(observed, expected); // Every actual parameter identity, including embedded FFNs.
+    // One metadata value reaches all four GDN normalization consumers. Inspect
+    // actual linked operands, not source spelling or a second preset table.
+    size_t rms_calls = 0, l2_calls = 0, gated_calls = 0;
+    Walk(loom_command_program_def_body(def), [&](const loom_op_t *op) {
+      if (!loom_kernel_launch_isa(op)) return;
+      const auto name = Text(view.module, view.module->symbols.entries[loom_kernel_launch_callee(op).symbol_id].name_id);
+      size_t epsilon_arg;
+      if (name == "qwen38_rmsnorm_f32_prefill") { epsilon_arg = 1; ++rms_calls; }
+      else if (name == "qwen38_gdn_conv_spans") { epsilon_arg = 3; ++l2_calls; }
+      else if (name == "qwen38_gdn_norm_gate_prefill") { epsilon_arg = 1; ++gated_calls; }
+      else return;
+      const auto args = loom_kernel_launch_arguments(op);
+      ASSERT_GT(args.count, epsilon_arg);
+      const auto *value = loom_value_def_op(loom_module_value(view.module, args.values[epsilon_arg]));
+      ASSERT_TRUE(value && loom_scalar_constant_isa(value)) << name;
+      const auto attribute = loom_scalar_constant_value(value);
+      ASSERT_EQ(attribute.kind, LOOM_ATTR_F64);
+      EXPECT_FLOAT_EQ(float(attribute.f64), float(facts.rms_epsilon)) << name;
+    });
+    const auto recurrent_count = std::count_if(facts.layers.begin(), facts.layers.end(),
+        [](const auto &layer) { return layer.kind == model::LayerKind::kGatedDeltaNet; });
+    EXPECT_EQ(rms_calls, 2 * facts.layers.size());
+    EXPECT_EQ(l2_calls, recurrent_count);
+    EXPECT_EQ(gated_calls, recurrent_count);
     // After the native inliner folds route facts, one stateful marker remains
     // for each selected complete layer. Check order AND actual state ordinals.
     std::vector<const loom_op_t *> selected;
@@ -331,7 +362,7 @@ class QwenModelTest : public ::testing::Test {
       ASSERT_GE(args.count, 3u);
       const uint64_t origin = gdn
           ? *facts.layers[i].recurrent_ordinal * (recurrent_bytes + history_bytes) + recurrent_bytes
-          : *facts.layers[i].attention_ordinal * 2 * 512 * 1024;
+          : *facts.layers[i].attention_ordinal * 2 * pool * (2 * facts.layers.front().kv_heads * facts.key_head_width);
       EXPECT_EQ(Constant(view.module, args.values[2]), int64_t(origin));
     }
   }
@@ -378,7 +409,7 @@ class QwenModelTest : public ::testing::Test {
       if (result) loomc_result_release(result);
       loomc_request_release(request);
     }
-    std::printf("Full Qwen24-slot materialization and target compilation: %zu kernel requests\n", requests.size());
+    std::printf("Full Qwen materialization and target compilation: %zu kernel requests\n", requests.size());
     loomc_compiler_release(compiler);
     loomc_target_profile_release(profile);
   }
@@ -389,8 +420,17 @@ class QwenModelTest : public ::testing::Test {
 };
 TEST_F(QwenModelTest, CompleteSequenceSurvivesBothProviderEncodings) {
   auto facts = testing::QwenModelFacts();
+#ifdef LOOMIFY_QWEN_LARGE_GGUF
+  facts = testing::QwenModelFacts(true);
+#endif
 #ifdef LOOMIFY_QWEN_REAL_GGUF
-  const char *asset = std::getenv("LOOMIFY_TEST_QWEN_GGUF");
+  const char *asset = std::getenv(
+#ifdef LOOMIFY_QWEN_LARGE_GGUF
+      "LOOMIFY_TEST_QWEN_27_GGUF"
+#else
+      "LOOMIFY_TEST_QWEN_GGUF"
+#endif
+  );
   ASSERT_NE(asset, nullptr) << "real header fixture required; no checkpoint download/substitution";
   std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(asset, "rb"), &std::fclose);
   ASSERT_TRUE(file);
@@ -415,6 +455,111 @@ TEST_F(QwenModelTest, CompleteSequenceSurvivesBothProviderEncodings) {
     InspectCalls(module.get(), facts, 4);
     InspectParameters(module.get(), facts);
     Compile(module.get());
+  }
+}
+TEST_F(QwenModelTest, AlteredScalarDataReachesAllGdnConsumers) {
+  auto facts = testing::QwenModelFacts();
+  ConfigurationFacts configuration;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(facts, "fixture", {}, &configuration, &error)) << error;
+  // U1 does not widen model admission. Change the linked leaf data only, so a
+  // stale literal in any complete-layer consumer is nevertheless observable.
+  const auto start = configuration.source.find("config.def @qwen.model.rms_epsilon = ");
+  ASSERT_NE(start, std::string::npos);
+  configuration.source.replace(start, configuration.source.find('\n', start) - start,
+      "config.def @qwen.model.rms_epsilon = 0.00002 : f32");
+  facts.rms_epsilon = 2e-5;
+  for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
+    auto config = Parse(configuration.source);
+    auto implementation = Load(root + "/lib/architectures/qwen35/" + name);
+    auto module = Link(config.get(), implementation.get());
+    ASSERT_TRUE(module);
+    Pass(module.get(), "canonicalize,unroll-scf-for,canonicalize");
+    InspectParameters(module.get(), facts);
+  }
+}
+TEST_F(QwenModelTest, IndependentAlternatingGgufUsesUnchangedCompleteBlocks) {
+  model::ModelDescriptor facts;
+  std::string error;
+  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&facts, nullptr, &error)) << error;
+  ConfigurationFacts configuration;
+  ASSERT_TRUE(DeriveConfiguration(facts, "independent.gguf", {3, 65},
+                                  &configuration, &error)) << error;
+  for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
+    auto config = Parse(configuration.source);
+    auto implementation = Load(root + "/lib/architectures/qwen35/" + name);
+    auto module = Link(config.get(), implementation.get());
+    ASSERT_TRUE(module);
+    Pass(module.get(), "canonicalize,unroll-scf-for,canonicalize");
+    InspectCalls(module.get(), facts, 3);
+    InspectParameters(module.get(), facts, 128);
+    Compile(module.get());
+  }
+}
+TEST_F(QwenModelTest, ChangedGgufFactsReachTheNormalConstructor) {
+  for (bool tied : {true, false}) {
+    model::ModelDescriptor facts;
+    std::string error;
+    ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&facts, nullptr, &error,
+        4096, 8, tied)) << error;
+    ConfigurationFacts configuration;
+    ASSERT_TRUE(DeriveConfiguration(facts, "changed.gguf", {3, 65},
+                                    &configuration, &error)) << error;
+    for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
+      auto config = Parse(configuration.source);
+      auto implementation = Load(root + "/lib/architectures/qwen35/" + name);
+      auto module = Link(config.get(), implementation.get());
+      ASSERT_TRUE(module);
+      Pass(module.get(), "canonicalize,unroll-scf-for,canonicalize");
+      InspectCalls(module.get(), facts, 3);
+      InspectParameters(module.get(), facts, 128);
+      // The product path used by the public builder must actually materialize
+      // operation predicates; plain LINK alone is insufficient admission.
+      loomc_module_t *raw = nullptr;
+      ASSERT_TRUE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name},
+          {"generated.qwen_epoch"}, true, &raw, &error)) << error;
+      Module constructed(raw, loomc_module_release);
+      ASSERT_TRUE(constructed);
+      Compile(constructed.get());
+    }
+  }
+}
+TEST_F(QwenModelTest, UnsupportedQueryEncodingFailsBeforeNumericalPublication) {
+  model::ModelDescriptor facts;
+  std::string error;
+  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&facts, nullptr, &error,
+      4096, 0)) << error;
+  ConfigurationFacts configuration;
+  // F32 is a valid GGUF tensor representation; no F32 matrix provider is
+  // implemented by this operation. Reject at the operation, not an E preset.
+  ASSERT_TRUE(DeriveConfiguration(facts, "unsupported.gguf", {3, 65},
+                                  &configuration, &error)) << error;
+  for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
+    loomc_module_t *raw = nullptr;
+    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name},
+        {"generated.qwen_epoch"}, true, &raw, &error));
+    EXPECT_EQ(raw, nullptr);
+    EXPECT_FALSE(error.empty());
+  }
+}
+TEST_F(QwenModelTest, UnsupportedConvolutionKeyHeadCountFailsBeforePublication) {
+  ConfigurationFacts configuration;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "fixture", {3, 65},
+                                  &configuration, &error)) << error;
+  // A linked-data sensitivity probe, not a second coherent GGUF architecture:
+  // the production convolution has K-channel assumptions for sixteen heads.
+  const std::string prefix = "config.def @qwen.model.gdn_key_heads = ";
+  const auto start = configuration.source.find(prefix);
+  ASSERT_NE(start, std::string::npos);
+  configuration.source.replace(start, configuration.source.find('\n', start) - start,
+                               prefix + "8 : index");
+  for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
+    loomc_module_t *raw = nullptr;
+    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name},
+        {"generated.qwen_epoch"}, true, &raw, &error));
+    EXPECT_EQ(raw, nullptr);
+    EXPECT_FALSE(error.empty());
   }
 }
 TEST_F(QwenModelTest, MissingLiveConfigurationAndProvidersFailStrictLink) {

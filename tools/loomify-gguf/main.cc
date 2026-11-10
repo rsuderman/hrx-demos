@@ -18,6 +18,8 @@ IREE_FLAG(string, output, nullptr, "Output .loombc or .loom file path.");
 IREE_FLAG(string, format, "bc", "Output serialization: bc or loom.");
 IREE_FLAG_NAMED(string, output_dir, "output-dir", nullptr,
                 "New directory for a complete serving package.");
+IREE_FLAG_NAMED(string, chat_template, "chat-template", nullptr,
+                "Explicit named chat template from the input GGUF.");
 IREE_FLAG(string, tokenizer, nullptr,
           "External matching tokenizer.json for full-model export.");
 IREE_FLAG_NAMED(int64_t, context_capacity, "context-capacity", 512,
@@ -77,6 +79,7 @@ int ExportModel(const char *executable) {
   hrx::loomify_gguf::GgufPackageOptions package;
   package.output_directory = FLAG_output_dir;
   package.tokenizer = FLAG_tokenizer;
+  if (FLAG_chat_template) package.template_name = FLAG_chat_template;
   package.format = std::strcmp(FLAG_format, "bc") == 0
       ? LOOMC_SOURCE_FORMAT_BYTECODE : LOOMC_SOURCE_FORMAT_TEXT;
   if (build.library_root.empty()) {
@@ -144,7 +147,7 @@ int main(int argc, char **argv) {
   }
   if (std::strcmp(FLAG_stage, "model") == 0)
     return ExportModel(argv[0]);
-  if (!FLAG_output || !*FLAG_output || FLAG_output_dir || FLAG_tokenizer) {
+  if (!FLAG_output || !*FLAG_output || FLAG_output_dir || FLAG_tokenizer || FLAG_chat_template) {
     std::fprintf(stderr, "loomify-gguf: embedding requires --output=PATH and "
                          "no model package flags\n");
     return 1;

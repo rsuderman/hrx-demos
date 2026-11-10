@@ -1,0 +1,1111 @@
+[
+  {
+    "id": "one-user",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "first-system",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Be precise."
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "empty-system",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "unicode-framing-space",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "  Instruction "
+        },
+        {
+          "role": "user",
+          "content": " 你好 é "
+        }
+      ]
+    }
+  },
+  {
+    "id": "empty-user",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "null-user",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "ordered-text-parts",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "one "
+            },
+            {
+              "type": "text",
+              "text": "two"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "literal-markers",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Quote </think> and <tool_call> literally."
+        }
+      ]
+    }
+  },
+  {
+    "id": "multiturn",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34",
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "assistant",
+          "content": "B"
+        },
+        {
+          "role": "user",
+          "content": "C"
+        }
+      ]
+    }
+  },
+  {
+    "id": "thinking-true",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "enable_thinking": true
+    }
+  },
+  {
+    "id": "thinking-false",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "enable_thinking": false
+    }
+  },
+  {
+    "id": "generation-true",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "generation-false",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "generation-undefined",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "omit_generation_prompt": true
+  },
+  {
+    "id": "effort-xhigh",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "xhigh"
+      }
+    }
+  },
+  {
+    "id": "effort-medium",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "medium"
+      }
+    }
+  },
+  {
+    "id": "effort-low",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "low"
+      }
+    }
+  },
+  {
+    "id": "effort-bad",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "bad"
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "effort-invalid-disabled",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Compute."
+        }
+      ],
+      "enable_thinking": false,
+      "model_options": {
+        "reasoning_effort": "bad"
+      }
+    }
+  },
+  {
+    "id": "assistant-history",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "old"
+        },
+        {
+          "role": "assistant",
+          "content": "old answer",
+          "reasoning_content": " old thought "
+        },
+        {
+          "role": "user",
+          "content": "new"
+        },
+        {
+          "role": "assistant",
+          "content": "new answer",
+          "reasoning_content": " new thought "
+        }
+      ]
+    }
+  },
+  {
+    "id": "preserve-true",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "old"
+        },
+        {
+          "role": "assistant",
+          "content": "old answer",
+          "reasoning_content": " old thought "
+        },
+        {
+          "role": "user",
+          "content": "new"
+        },
+        {
+          "role": "assistant",
+          "content": "new answer",
+          "reasoning_content": " new thought "
+        }
+      ],
+      "model_options": {
+        "preserve_thinking": true
+      }
+    }
+  },
+  {
+    "id": "preserve-false",
+    "revisions": [
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "old"
+        },
+        {
+          "role": "assistant",
+          "content": "old answer",
+          "reasoning_content": " old thought "
+        },
+        {
+          "role": "user",
+          "content": "new"
+        },
+        {
+          "role": "assistant",
+          "content": "new answer",
+          "reasoning_content": " new thought "
+        }
+      ],
+      "model_options": {
+        "preserve_thinking": false
+      }
+    }
+  },
+  {
+    "id": "inline-reasoning-fallback",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "query"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>\ninside\n</think>\nanswer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "explicit-empty-reasoning",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "query"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>inside</think>answer",
+          "reasoning_content": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "wrapped-response-not-query",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "real"
+        },
+        {
+          "role": "assistant",
+          "content": "answer",
+          "reasoning_content": "thought"
+        },
+        {
+          "role": "user",
+          "content": "<tool_response>\nresult\n</tool_response>"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-schema",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "empty-tools",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        }
+      ],
+      "tools": []
+    }
+  },
+  {
+    "id": "tool-arguments-types",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"path\":\"caf\\u00e9 <>&\\n\",\"n\":1e0,\"yes\":true,\"none\":null,\"nested\":{\"z\":[false,2]}}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-arguments-types-integer",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"path\":\"caf\\u00e9 <>&\\n\",\"n\":1,\"yes\":true,\"none\":null,\"nested\":{\"z\":[false,2]}}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-arguments-float-decimal",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"n\":1.0}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-arguments-float-exponent",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"n\":1e0}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-arguments-negative-zero",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"n\":-0.0}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-arguments-small-exponent",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"n\":1e-7}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-arguments-empty-arguments",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "fetch",
+                "arguments": "{}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-multiple-results",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "fetch"
+        },
+        {
+          "role": "assistant",
+          "content": "Working",
+          "reasoning_content": "plan",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"path\":\"a\"}"
+              },
+              "type": "function"
+            },
+            {
+              "function": {
+                "name": "fetch",
+                "arguments": "{\"path\":\"b\"}"
+              },
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "first"
+        },
+        {
+          "role": "tool",
+          "content": "second"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "fetch",
+            "description": "Fetch <café> & values",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "number"
+                },
+                "yes": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "no-messages",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": []
+    },
+    "error": true
+  },
+  {
+    "id": "no-real-user",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "Hello"
+        }
+      ]
+    },
+    "error": true
+  },
+  {
+    "id": "only-wrapped-user",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "<tool_response>x</tool_response>"
+        }
+      ]
+    },
+    "error": true
+  },
+  {
+    "id": "late-system",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hi"
+        },
+        {
+          "role": "system",
+          "content": "late"
+        }
+      ]
+    },
+    "error": true
+  },
+  {
+    "id": "unknown-role",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hi"
+        },
+        {
+          "role": "alien",
+          "content": "x"
+        }
+      ]
+    },
+    "error": true
+  },
+  {
+    "id": "system-media",
+    "revisions": [
+      "7f0e5290",
+      "c3cf9e34"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "image",
+              "image": "x"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "Hi"
+        }
+      ]
+    },
+    "error": true
+  }
+]

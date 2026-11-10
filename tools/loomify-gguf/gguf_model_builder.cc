@@ -22,6 +22,7 @@ BuiltGgufModule::~BuiltGgufModule() = default;
 BuiltGgufModule::BuiltGgufModule(BuiltGgufModule &&) noexcept = default;
 BuiltGgufModule &BuiltGgufModule::operator=(BuiltGgufModule &&) noexcept = default;
 const model::ModelDescriptor &GgufModelBuilder::descriptor() const { return impl_->descriptor; }
+const model::TextMetadata &GgufModelBuilder::text_metadata() const { return impl_->text_metadata; }
 const std::string &BuiltGgufModule::configuration_source() const { return impl_->configuration_source; }
 const loomc_module_t *BuiltGgufModule::module() const { return impl_->module.get(); }
 bool GgufModelBuilder::Open(const std::string &path,
@@ -39,7 +40,14 @@ bool GgufModelBuilder::Open(const std::string &path,
   model::GgufCatalog catalog;
   auto impl = std::make_unique<Impl>();
   if (!model::ReadGgufCatalog(file.get(), &catalog, error) ||
-      !model::LoadModelDescriptor(catalog, &impl->descriptor, error)) return false;
+      !model::LoadModelDescriptor(catalog, &impl->descriptor, error) ||
+      !model::ReadTextMetadata(file.get(), catalog, &impl->text_metadata, error)) return false;
+  // Source-only publication facts are captured once with the catalog FILE.
+  // Unsupported templates/external tokenizers remain package-only concerns.
+  // Retain a numerical requirement diagnostic without hiding valid metadata.
+  DerivePublicationTokenFacts(file.get(), impl->descriptor.family,
+      impl->text_metadata, &impl->publication_tokens,
+      &impl->publication_token_error);
   impl->source_asset = asset.string();
   if (std::fclose(file.release()) != 0) return Fail(error, "cannot close GGUF input");
   auto built = std::unique_ptr<GgufModelBuilder>(new GgufModelBuilder(std::move(impl)));
@@ -57,13 +65,17 @@ bool GgufModelBuilder::BuildModule(loomc_context_t *context, loomc_workspace_t *
     return Fail(error, "module build requires context, workspace, library root and output");
   const auto *architecture = SelectArchitecture(impl_->descriptor.family);
   if (!architecture) return Fail(error, "unsupported numerical architecture");
+  if (!impl_->publication_token_error.empty())
+    return Fail(error, impl_->publication_token_error);
   ConfigurationFacts configuration;
   ConfigurationSettings settings{options.prefill_capacity, options.context_capacity};
   if (!DeriveConfiguration(impl_->descriptor, impl_->source_asset, settings, &configuration, error)) return false;
+  if (impl_->publication_tokens)
+    configuration.source += impl_->publication_tokens->configuration_source;
   auto impl = std::make_unique<BuiltGgufModule::Impl>();
   const auto product = (std::filesystem::path(options.library_root) / architecture->implementation).string();
   loomc_module_t *module = nullptr;
-  if (!LinkConfiguredProduct(context, workspace, configuration.source, product,
+  if (!LinkConfiguredProducts(context, workspace, configuration.source, {product},
                               architecture->roots, true, &module, error)) return false;
   impl->module.reset(module);
   impl->configuration_source = std::move(configuration.source);

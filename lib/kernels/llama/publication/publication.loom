@@ -9,10 +9,14 @@
 // logits/argmax for reference; only native publication canonicalizes the three
 // primary EOG IDs to the one declared native terminal. This helper is shared
 // by host publication and the isolated/packed model-root output adapters.
+config.decl @llama.publication.end_text_id : i32
+config.decl @llama.publication.end_message_id : i32
+config.decl @llama.publication.end_turn_id : i32
+
 func.def public inline @llama32_native_token(%token: i32, %eos: i32) -> (i32) {
-  %end_text = scalar.constant 128001 : i32
-  %end_message = scalar.constant 128008 : i32
-  %end_turn = scalar.constant 128009 : i32
+  %end_text = config.get @llama.publication.end_text_id : i32
+  %end_message = config.get @llama.publication.end_message_id : i32
+  %end_turn = config.get @llama.publication.end_turn_id : i32
   %a = scalar.cmpi eq, %token, %end_text : i32
   %b = scalar.cmpi eq, %token, %end_message : i32
   %c = scalar.cmpi eq, %token, %end_turn : i32

@@ -21,10 +21,13 @@ loom_library(name = "spans", srcs = ["common/spans.loom"], deps = ["//lib/kernel
 # Generated model facts supply every model configuration definition.
 # Keep source and relocatable provider forms on this identical closure.
 _CONFIGURED_PROVIDER_SOURCES = [
+    "//lib/programs/ffn:ffn.loom",
+    "//lib/programs/projection:implementation_sources",
     "common/shared_interface.loom",
     "//lib/kernels/quantization:q8_1_x4_canonical.loom",
     "//lib/kernels/projection:q4k_canonical.loom",
     "//lib/kernels/projection:q5k.loom",
+    "//lib/kernels/projection:q8_0.loom",
     "//lib/kernels/projection:q6k_canonical.loom",
     "common/layer_decode.loom",
     "ffn/sequence.loom",

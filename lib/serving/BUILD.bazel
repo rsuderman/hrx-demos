@@ -1,4 +1,16 @@
-# Copyright 2026 AMD ROCm™ Software
+# Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
 package(default_visibility = ["//visibility:public"])
-exports_files(["weights.loom"])
+exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom"])
+loom_merge(name = "greedy", srcs = ["greedy.loom", "request_check.loom"])
+filegroup(
+    name = "export_products",
+    srcs = [
+        "//lib/architectures/llama:implementation", "//lib/architectures/llama:prepare_library", "//lib/architectures/llama:execution",
+        "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:prepare_library", "//lib/architectures/qwen35:execution",
+        "//lib/text/common:implementation", "//lib/text/protocols/llama_headers:implementation",
+        "//lib/text/protocols/chatml_thinking:inline_history", "//lib/text/protocols/chatml_thinking:explicit_reasoning",
+        ":greedy", ":weights.loom",
+    ],
+)

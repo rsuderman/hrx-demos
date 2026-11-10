@@ -1,0 +1,14 @@
+// Admission diagnostic for the maintained ChatML reasoning protocol.
+// Copyright 2026 The IREE Authors
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+global.rodata.def @chatml.invalid = bytes("756e737570706f72746564206368617420696e7075742c206f7074696f6e2c20726f6c652c206f72206d657373616765206f72646572")
+
+func.def @chatml.check(%condition: i1) {
+  %error = global.load @chatml.invalid : buffer
+  %flag = scalar.extui %condition : i1 to i32
+  func.call @require(%flag, %error) : (i32, buffer) -> ()
+  func.return
+}

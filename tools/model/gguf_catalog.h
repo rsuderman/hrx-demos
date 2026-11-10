@@ -7,11 +7,32 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
 namespace hrx::model {
+
+struct GgufCatalog;
+// Only the catalog parser can mint a range. Copies remain usable after the
+// catalog is destroyed, against the same immutable checkpoint.
+class GgufStringArraySpan {
+public:
+  uint64_t begin() const { return begin_; }
+  uint64_t end() const { return end_; }
+  uint64_t count() const { return count_; }
+  uint64_t header_end() const { return header_end_; }
+
+private:
+  friend bool ReadGgufCatalog(FILE *, GgufCatalog *, std::string *);
+  GgufStringArraySpan(uint64_t begin, uint64_t end, uint64_t count,
+                      uint64_t header_end)
+      : begin_(begin), end_(end), count_(count), header_end_(header_end) {}
+  uint64_t begin_, end_, count_, header_end_;
+};
 
 // Numeric tags are the GGUF/ggml on-disk enum values, independent of headers.
 using MetadataScalar =
@@ -25,6 +46,7 @@ struct MetadataRecord {
   uint64_t element_count = 0;
   bool elements_omitted = false;
   std::vector<MetadataScalar> elements;
+  std::optional<GgufStringArraySpan> string_array;
 };
 
 struct TensorRecord {
@@ -43,6 +65,7 @@ struct GgufCatalog {
   uint64_t file_size = 0;
   uint64_t alignment = 0;
   uint64_t data_offset = 0;
+  uint64_t header_end = 0;
   uint64_t bytes_read = 0;
 
   std::string name;
@@ -55,6 +78,25 @@ struct GgufCatalog {
 // data. On failure leaves output unchanged. Admission is limited to a 64 MiB
 // header, 4,096 metadata entries and 16,384 tensors.
 bool ReadGgufCatalog(FILE *file, GgufCatalog *catalog, std::string *error);
+
+// Computes packed matrix bytes from the same on-disk layouts as the reader.
+// The first GGML extent must contain complete encoding blocks. Failure leaves
+// *bytes unchanged, including overflow/unknown format/zero dimensions.
+bool EncodedTensorByteSize(uint32_t storage_type, uint64_t row_elements,
+                           uint64_t rows, uint64_t *bytes);
+
+// These borrow the same immutable unbuffered seekable file as the issuing
+// catalog and restore its position even on failure. Each callback view expires
+// on return. No read/seek leaves the admitted encoded-array/header bounds.
+using StringArrayVisitor =
+    std::function<bool(uint64_t, std::string_view, std::string *)>;
+bool VisitGgufStringArray(FILE *, const GgufStringArraySpan &,
+                          const StringArrayVisitor &, std::string *error);
+// Output follows requested ID order, including duplicates. Bounded retained
+// storage; failure leaves *out unchanged. Unrequested piece bytes are skipped.
+bool ReadGgufTokenPieces(FILE *, const GgufStringArraySpan &,
+                         const std::vector<uint64_t> &ids,
+                         std::vector<std::string> *out, std::string *error);
 
 const MetadataRecord *FindMetadata(const GgufCatalog &catalog,
                                    const std::string &key);

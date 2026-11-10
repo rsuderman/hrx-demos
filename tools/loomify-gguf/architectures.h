@@ -10,7 +10,7 @@ struct ArchitectureFiles {
   const char *family;
   const char *implementation;
   const char *preparation;
-  const char *control;
+  const char *execution;
   const char *weights;
   const char *package_name;
   std::vector<const char *> roots;

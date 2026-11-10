@@ -4,7 +4,9 @@
 #define HRX_SOLUTIONS_TOOLS_LOOMIFY_GGUF_GGUF_MODEL_BUILDER_H_
 #include "loomc/module.h"
 #include "tools/model/model_descriptor.h"
+#include "tools/model/text_metadata.h"
 #include <memory>
+#include <optional>
 #include <string>
 namespace hrx::loomify_gguf {
 struct GgufBuildOptions {
@@ -16,6 +18,8 @@ struct GgufPackageOptions {
   std::string output_directory;
   std::string tokenizer;
   loomc_source_format_t format = LOOMC_SOURCE_FORMAT_BYTECODE;
+  // Optional named entry from this GGUF; never a provider/profile override.
+  std::optional<std::string> template_name;
 };
 class BuiltGgufModule final {
 public:
@@ -45,6 +49,8 @@ public:
   static bool Open(const std::string &gguf_path,
                    std::unique_ptr<GgufModelBuilder> *out, std::string *error);
   const model::ModelDescriptor &descriptor() const;
+  // Owned snapshot with independent issues; inspection needs no native build.
+  const model::TextMetadata &text_metadata() const;
   // Inputs are borrowed synchronously; shared workspace use is externally
   // synchronized. Failure preserves *out. The result owns its native reference
   // and may outlive this builder and the caller's context/workspace references.

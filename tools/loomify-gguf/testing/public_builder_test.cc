@@ -35,6 +35,52 @@ bool Context(loomc_context_t **context) {
   loomc_target_environment_release(environment);
   return Ok(status);
 }
+// A header-only sparse fixture changes chat metadata without copying weights.
+// It is linked for this API test and never executed as a numerical model.
+bool HeaderWithUnlistedTemplate(const char *asset,
+                                const std::filesystem::path &path) {
+  std::unique_ptr<FILE, decltype(&std::fclose)> input(std::fopen(asset, "rb"),
+                                                      std::fclose);
+  if (!input || std::setvbuf(input.get(), nullptr, _IONBF, 0) != 0)
+    return false;
+  model::GgufCatalog catalog;
+  std::string error;
+  if (!model::ReadGgufCatalog(input.get(), &catalog, &error))
+    return false;
+  std::string header(catalog.header_end, '\0');
+  if (fseeko(input.get(), 0, SEEK_SET) != 0 ||
+      std::fread(header.data(), 1, header.size(), input.get()) != header.size())
+    return false;
+  auto number = [](std::string &out, uint64_t value, unsigned width) {
+    for (unsigned i = 0; i < width; ++i)
+      out.push_back(char(value >> (8 * i)));
+  };
+  std::string field;
+  const std::string key = "tokenizer.chat_template.s1_unlisted_fixture",
+                    source = "unlisted-source";
+  number(field, key.size(), 8);
+  field += key;
+  number(field, 8, 4);
+  number(field, source.size(), 8);
+  field += source;
+  header.insert(24, field);
+  const uint64_t count = catalog.metadata.size() + 1;
+  for (unsigned i = 0; i < 8; ++i)
+    header[16 + i] = char(count >> (8 * i));
+  while (header.size() % catalog.alignment)
+    header.push_back(0);
+  const uint64_t size = header.size() + catalog.file_size - catalog.data_offset;
+  std::unique_ptr<FILE, decltype(&std::fclose)> output(
+      std::fopen(path.c_str(), "wbx"), std::fclose);
+  if (!output ||
+      std::fwrite(header.data(), 1, header.size(), output.get()) !=
+          header.size() ||
+      size > INT64_MAX ||
+      fseeko(output.get(), int64_t(size - 1), SEEK_SET) != 0 ||
+      std::fputc(0, output.get()) == EOF)
+    return false;
+  return std::fclose(output.release()) == 0;
+}
 TEST(PublicGgufBuilder, InvalidOpenPreservesExistingOutput) {
   std::unique_ptr<GgufModelBuilder> builder;
   std::string error;
@@ -57,6 +103,10 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     std::string error = "stale";
     ASSERT_TRUE(GgufModelBuilder::Open(asset, &builder, &error)) << error;
     EXPECT_TRUE(error.empty());
+    const auto text_snapshot = builder->text_metadata();
+    ASSERT_TRUE(text_snapshot.vocabulary);
+    EXPECT_FALSE(text_snapshot.templates.empty());
+    EXPECT_TRUE(text_snapshot.template_issues.empty());
     auto *previous = builder.get();
     EXPECT_FALSE(GgufModelBuilder::Open("/nonexistent-loomify-test.gguf", &builder, &error));
     EXPECT_EQ(builder.get(), previous);
@@ -74,6 +124,19 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     GgufBuildOptions options;
     options.library_root = directory.string();
     options.context_capacity = 513;
+    const auto malformed_path = directory / "unlisted-template.gguf";
+    ASSERT_TRUE(HeaderWithUnlistedTemplate(asset, malformed_path));
+    std::unique_ptr<GgufModelBuilder> malformed;
+    ASSERT_TRUE(
+        GgufModelBuilder::Open(malformed_path.string(), &malformed, &error))
+        << error;
+    EXPECT_FALSE(malformed->text_metadata().template_issues.empty());
+    EXPECT_TRUE(malformed->text_metadata().token_issues.empty());
+    std::unique_ptr<BuiltGgufModule> malformed_module;
+    ASSERT_TRUE(malformed->BuildModule(context, workspace, options,
+                                       &malformed_module, &error))
+        << error;
+    malformed.reset();
     std::unique_ptr<BuiltGgufModule> first, second;
     ASSERT_TRUE(builder->BuildModule(context, workspace, options, &first, &error)) << error;
     EXPECT_TRUE(error.empty());
@@ -92,6 +155,8 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     EXPECT_FALSE(builder->BuildModule(context, workspace, options, &first, &error));
     EXPECT_EQ(first.get(), saved);
     builder.reset();
+    EXPECT_FALSE(text_snapshot.templates.front().text.empty());
+    EXPECT_FALSE(text_snapshot.token_pieces.empty());
     loomc_workspace_release(workspace);
     loomc_context_release(context);
     ASSERT_TRUE(first->module());

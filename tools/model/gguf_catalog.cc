@@ -69,7 +69,7 @@ struct Reader {
             "unseekable GGUF catalog");
     position += size;
   }
-  std::string String(bool retain = true) {
+  std::string String(bool retain = true, bool raw = false) {
     const auto size = Number(8);
     Check(size);
     if (!retain) {
@@ -78,7 +78,7 @@ struct Reader {
     }
     std::string value(static_cast<size_t>(size), '\0');
     Read(value.data(), value.size());
-    Require(value.find('\0') == std::string::npos,
+    Require(raw || value.find('\0') == std::string::npos,
             "embedded NUL in GGUF string");
     return value;
   }
@@ -178,6 +178,20 @@ void StringField(const GgufCatalog &catalog, const char *key, bool required,
 }
 } // namespace
 
+bool EncodedTensorByteSize(uint32_t storage_type, uint64_t row_elements,
+                           uint64_t rows, uint64_t *bytes) {
+  if (!bytes || !row_elements || !rows) return false;
+  try {
+    const auto encoding = Storage(storage_type);
+    if (row_elements % encoding.block) return false;
+    const auto value = Multiply(Multiply(row_elements / encoding.block, rows), encoding.bytes);
+    *bytes = value;
+    return true;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
 bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
   if (!file || !info || !error)
     return false;
@@ -210,6 +224,7 @@ bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
         field.element_type = reader.Number(4);
         const auto width = ScalarWidth(field.element_type);
         field.element_count = reader.Number(8);
+        const uint64_t array_begin = reader.position;
         // A string needs at least its eight-byte length record.
         Require(field.element_count <=
                     (reader.limit - reader.position) / (width ? width : 8),
@@ -234,6 +249,9 @@ bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
               field.elements.push_back(Scalar(reader, field.element_type));
           }
         }
+        if (field.element_type == 8)
+          field.string_array = GgufStringArraySpan(array_begin, reader.position,
+                                                   field.element_count, 0);
       } else {
         field.scalar = Scalar(reader, field.source_type);
       }
@@ -276,6 +294,14 @@ bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
               "misaligned GGUF tensor offset");
       result.tensors.push_back(std::move(tensor));
     }
+    result.header_end = reader.position;
+    for (auto &field : result.metadata) {
+      if (field.string_array) {
+        const auto &span = *field.string_array;
+        field.string_array = GgufStringArraySpan(
+            span.begin(), span.end(), span.count(), result.header_end);
+      }
+    }
     result.data_offset =
         (reader.position + result.alignment - 1) & ~(result.alignment - 1);
     Require(result.data_offset <= result.file_size,
@@ -301,6 +327,123 @@ bool ReadGgufCatalog(FILE *file, GgufCatalog *info, std::string *error) {
     return true;
   } catch (const std::exception &ex) {
     *error = std::string("unable to read bounded GGUF metadata: ") + ex.what();
+    return false;
+  }
+}
+
+namespace {
+bool WalkStringArray(FILE *file, const GgufStringArraySpan &span,
+                     const std::function<bool(uint64_t)> &selected,
+                     const StringArrayVisitor &visit, std::string *error) {
+  std::string ignored;
+  if (!error)
+    error = &ignored;
+  if (!file || !visit) {
+    *error = "GGUF string-array reader requires file and visitor";
+    return false;
+  }
+  const auto saved = Tell(file);
+  if (saved < 0) {
+    *error = "GGUF string-array file must be seekable";
+    return false;
+  }
+  bool success = false;
+  try {
+    Require(Seek(file, 0, SEEK_END) == 0, "unseekable GGUF string array");
+    const auto size = Tell(file);
+    Require(size >= 0 && span.begin() <= span.end() &&
+                span.end() <= span.header_end() &&
+                span.header_end() <= kHeaderLimit &&
+                span.header_end() <= uint64_t(size),
+            "truncated GGUF string array or invalid admitted header bounds");
+    Require(span.count() <= (span.end() - span.begin()) / 8,
+            "GGUF string-array count exceeds its encoded range");
+    Require(Seek(file, int64_t(span.begin()), SEEK_SET) == 0,
+            "cannot seek to GGUF string array");
+    Reader reader{file, span.end(), span.begin()};
+    for (uint64_t i = 0; i < span.count(); ++i) {
+      if (selected(i)) {
+        const auto piece = reader.String(true, true);
+        if (!visit(i, piece, error)) {
+          if (error->empty())
+            *error = "GGUF string-array visitor failed";
+          throw std::runtime_error(*error);
+        }
+      } else {
+        reader.String(false);
+      }
+    }
+    Require(reader.position == span.end(),
+            "GGUF string-array encoded end changed");
+    error->clear();
+    success = true;
+  } catch (const std::exception &ex) {
+    *error =
+        std::string("unable to read bounded GGUF string array: ") + ex.what();
+  }
+  if (Seek(file, saved, SEEK_SET) != 0) {
+    if (!error->empty())
+      *error += "; ";
+    *error += "cannot restore GGUF file position";
+    return false;
+  }
+  return success;
+}
+} // namespace
+bool VisitGgufStringArray(FILE *file, const GgufStringArraySpan &span,
+                          const StringArrayVisitor &visit, std::string *error) {
+  return WalkStringArray(
+      file, span, [](uint64_t) { return true; }, visit, error);
+}
+bool ReadGgufTokenPieces(FILE *file, const GgufStringArraySpan &span,
+                         const std::vector<uint64_t> &ids,
+                         std::vector<std::string> *out, std::string *error) {
+  std::string ignored;
+  if (!error)
+    error = &ignored;
+  if (!out) {
+    *error = "GGUF selected strings require output";
+    return false;
+  }
+  using Selection = std::pair<uint64_t, size_t>;
+  constexpr uint64_t per_entry = sizeof(std::string) + sizeof(Selection);
+  if (ids.size() > kHeaderLimit / per_entry) {
+    *error = "GGUF selected string output exceeds retained-storage budget";
+    return false;
+  }
+  for (auto id : ids)
+    if (id >= span.count()) {
+      *error = "GGUF selected token ID exceeds vocabulary";
+      return false;
+    }
+  try {
+    std::vector<Selection> order;
+    order.reserve(ids.size());
+    for (size_t i = 0; i < ids.size(); ++i)
+      order.emplace_back(ids[i], i);
+    std::sort(order.begin(), order.end());
+    std::vector<std::string> pieces(ids.size());
+    uint64_t retained = ids.size() * per_entry;
+    size_t cursor = 0;
+    auto select = [&](uint64_t id) {
+      return cursor < order.size() && order[cursor].first == id;
+    };
+    auto visit = [&](uint64_t id, std::string_view piece, std::string *) {
+      while (cursor < order.size() && order[cursor].first == id) {
+        Require(piece.size() <= kHeaderLimit - retained,
+                "GGUF selected string output exceeds retained-storage budget");
+        retained += piece.size();
+        pieces[order[cursor++].second].assign(piece.data(), piece.size());
+      }
+      return true;
+    };
+    if (!WalkStringArray(file, span, select, visit, error))
+      return false;
+    *out = std::move(pieces);
+    error->clear();
+    return true;
+  } catch (const std::exception &ex) {
+    *error = std::string("unable to read selected GGUF strings: ") + ex.what();
     return false;
   }
 }

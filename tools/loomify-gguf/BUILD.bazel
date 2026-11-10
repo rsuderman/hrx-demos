@@ -31,15 +31,7 @@ iree_cc_library(
 cc_binary(
     name = "loomify-gguf",
     srcs = ["main.cc"],
-    data = [
-        "//lib/architectures/llama:implementation",
-        "//lib/architectures/llama:prepare_library",
-        "//lib/architectures/llama:control.loom",
-        "//lib/architectures/qwen35:implementation",
-        "//lib/architectures/qwen35:prepare_library",
-        "//lib/architectures/qwen35:control.loom",
-        "//lib/serving:weights.loom",
-    ],
+    data = ["//lib/serving:export_products"],
     cxxopts = _CXXOPTS,
     deps = [
         ":embedding",
@@ -55,15 +47,15 @@ iree_cc_library(
     srcs = ["configuration.cc"],
     hdrs = ["configuration.h"],
     cxxopts = _CXXOPTS,
-    deps = ["//tools/model:model_types"],
+    deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
 )
 
 iree_cc_library(
     name = "configuration_fixture",
     testonly = True,
-    hdrs = ["//tools/loomify-gguf/testing:configuration_fixture.h"],
+    hdrs = ["//tools/loomify-gguf/testing:configuration_fixture.h", "//tools/loomify-gguf/testing:alternating_qwen_fixture.h"],
     cxxopts = _CXXOPTS,
-    deps = ["//tools/model:model_types"],
+    deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
 )
 
 cc_test(
@@ -96,7 +88,7 @@ iree_cc_library(
     srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "architectures.h"],
     hdrs = ["gguf_model_builder.h"],
     cxxopts = _CXXOPTS,
-    deps = [":configuration", ":native_linking", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c:loomc"],
+    deps = [":configuration", ":native_linking", ":token_policy", ":chat_policy", "//tools/model:model_descriptor", "//tools/model:text_metadata", "@hrx_system//loom/binding/c:loomc"],
 )
 
 # Private operation shared only by the module/package implementation and retained
@@ -110,6 +102,8 @@ iree_cc_library(
         "//tools/loomify-gguf/testing:__pkg__",
         "//lib/architectures:__subpackages__",
         "//lib/programs/ffn/testing:__pkg__",
+        "//lib/programs/projection/testing:__pkg__",
+        "//lib/serving/testing:__pkg__",
     ],
     deps = ["@hrx_system//loom/binding/c:loomc"],
 )
@@ -122,13 +116,43 @@ cc_test(
     linkstatic = True,
     srcs = ["//tools/loomify-gguf/testing:package_test.cc"],
     copts = _CXXOPTS,
-    data = [
-        ":loomify-gguf",
-        "//lib/architectures/llama:implementation", "//lib/architectures/llama:prepare_library",
-        "//lib/architectures/llama:control.loom",
-        "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:prepare_library",
-        "//lib/architectures/qwen35:control.loom", "//lib/serving:weights.loom",
-    ],
-    deps = [":gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu",
+    data = [":loomify-gguf", "//lib/serving:export_products"],
+    deps = ["//tools/loomify-gguf/testing:package_buffer_vm", ":gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu",
             "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+iree_cc_library(
+    name = "token_policy",
+    srcs = ["token_policy.cc"],
+    hdrs = ["token_policy.h"],
+    cxxopts = _CXXOPTS,
+    deps = [
+        "//tools/model:text_metadata",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/tokenizer:tokenizer",
+        "@hrx_system//runtime/src/iree/tokenizer/vocab",
+        "@hrx_system//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+    ],
+)
+
+iree_c_embed_data(
+    name = "chat_templates",
+    srcs = ["//lib/text/llama:templates/5816fce1.jinja",
+            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja"],
+    c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
+    identifier = "chat_templates", flatten = True,
+)
+iree_cc_library(
+    name = "chat_policy",
+    visibility = ["//tools/loomify-gguf:__subpackages__", "//lib/serving/testing:__pkg__"],
+    srcs = ["chat_policy.cc"], hdrs = ["chat_policy.h"],
+    cxxopts = _CXXOPTS,
+    deps = [":chat_templates", "//tools/model:text_metadata"],
+)
+cc_test(
+    name = "chat_policy_test", size = "small", linkstatic = True,
+    srcs = ["//tools/loomify-gguf/testing:chat_policy_test.cc"], copts = _CXXOPTS,
+    data = ["//lib/text/llama:templates/5816fce1.jinja",
+            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja"],
+    deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
 )

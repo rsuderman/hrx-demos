@@ -1,3 +1,6 @@
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 
@@ -24,7 +27,7 @@ command.program.def public @loomify.qwen.ffn(%layer: index, %phase: index, %rows
 }
 
 template.decl @loomify.ffn.normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer)
-template.def<@loomify.ffn.normalize> @loomify_qwen_ffn_normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer) where [eq(%hidden, 1024), range(%rows, 1, 512), range(%phase, 0, 1)] {
+template.def<@loomify.ffn.normalize> @loomify_qwen_ffn_normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), range(%rows, 1, 512), range(%phase, 0, 1)] {
   %one = index.constant 1 : index
   %decode = index.cmp eq, %phase, %one : index
   scf.if %decode {
@@ -36,8 +39,12 @@ template.def<@loomify.ffn.normalize> @loomify_qwen_ffn_normalize(%hidden: index,
 }
 
 template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer)
-template.def<@loomify.ffn.pack_input> @loomify_qwen_ffn_pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer) where [eq(%rows, 1), eq(%input_size, 1024)] {
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %input_size](%rows, %input_size, %input, %output) : [index, index](index, index, buffer, buffer)
+template.def<@loomify.ffn.pack_input> @loomify_qwen_ffn_pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer) where [eq(%rows, 1), range(%input_size, 1024, 32768), multiple_of(%input_size, 1024)] {
+  %policy = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %fixed = scalar.constant 1 : i32
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %input_size, %begin, %fixed, %origin, %count, %input, %output) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
   template.return
 }
 

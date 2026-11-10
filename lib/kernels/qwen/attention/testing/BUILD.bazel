@@ -43,7 +43,7 @@ loom_test(
 )
 loom_test(
     name = "clear_execution_test",
-    srcs = ["clear_checks.loom", "//lib/kernels/qwen/attention:clear.loom"],
+    srcs = ["config.loom", "clear_checks.loom", "//lib/kernels/qwen/attention:clear.loom"],
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
@@ -54,8 +54,34 @@ exports_files(["layer_fixture.py", "run_layer_fixture.sh"])
 [genrule(
     name = "layer_" + encoding,
     testonly = True,
-    srcs = ["attention_" + encoding + "_programs.loom", "//lib/architectures/qwen35:numerical_sources"],
+    srcs = ["//lib/kernels/qwen/testing/common:ffn_facts.loom", "attention_" + encoding + "_programs.loom", "//lib/architectures/qwen35:numerical_sources"],
     outs = ["layer_" + encoding + ".loombc"],
     tools = ["@hrx_system//loom/src/loom/tools/loom-link"],
     cmd = "$(execpath @hrx_system//loom/src/loom/tools/loom-link) $(SRCS) --mode=link --require-resolved-config --root=@attention_layer --to=bc --output=$@",
 ) for encoding in ["q5", "q6"]]
+
+# Same independent GQA oracle, expanded to 24Q/4KV and reversed physical pages.
+genrule(
+    name = "wmma27_checks",
+    srcs = ["wmma_checks.loom"],
+    outs = ["wmma27_checks.loom"],
+    tools = ["wmma27_fixture.py"],
+    cmd = "python3 $(location wmma27_fixture.py) $(location wmma_checks.loom) $@",
+)
+loom_test(
+    name = "wmma27_execution_test",
+    srcs = ["config27.loom", ":wmma27_checks",
+            "//lib/kernels/qwen/attention:attention_common.loom",
+            "//lib/kernels/attention:core.loom",
+            "//lib/kernels/attention:kv_position.loom",
+            "//lib/kernels/qwen/attention:attention_prefill.loom",
+            "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
+            "//lib/kernels/qwen/attention:attention_spans.loom",
+            "//lib/kernels/qwen:common/spans.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(name = "clear_2048_execution_test", srcs = ["config.loom", "clear_2048_checks.loom", "//lib/kernels/qwen/attention:clear.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+
+loom_test(name = "clear_6144_execution_test", srcs = ["config27.loom", "clear_6144_checks.loom", "//lib/kernels/qwen/attention:clear.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])

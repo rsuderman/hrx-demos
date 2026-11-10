@@ -1,0 +1,15 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+
+# Only owned production sources provide the actual projection and pack accessor.
+loom_library(
+    name = "provider",
+    srcs = ["//lib/kernels/projection:q8_0.loom", "//lib/kernels/quantization:q8_1_x4.loom"],
+)
+loom_test(
+    name = "q8_0_execution_test", srcs = ["q8_0_checks.loom"], deps = [":provider"],
+    benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)

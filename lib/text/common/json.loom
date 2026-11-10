@@ -1,0 +1,239 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Serialization for the selected Hugging Face chat-template tojson override:
+// ensure_ascii=false, default comma/colon spaces, insertion order, no HTML
+// escaping. The caller admits a complete strict JSON value with unique object keys;
+// JSONC comments/trailing commas and ambiguous duplicate keys are outside this
+// helper contract, even though native compact accepts those extensions. Floating-point
+// lexemes deliberately retain their spelling; no runtime dtoa is introduced.
+func.decl import("json") @compact(%text: buffer) -> (buffer)
+func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
+
+global.rodata.def @text_json.hex = bytes("30313233343536373839616263646566")
+
+// Native compaction validated the string before this scan. Escaped quotes and
+// backslashes are skipped together, so only the real closing quote ends it.
+func.def @text_json.string_end(%text: buffer, %start: offset) -> (offset) {
+  %one = index.constant 1 : offset
+  %two = index.constant 2 : offset
+  %quote = scalar.constant 34 : i32
+  %slash = scalar.constant 92 : i32
+  %end = scf.while(%p = %start : offset) -> (offset) {
+    %b = buffer.load.i8.u %text[%p]
+    %more = scalar.cmpi ne, %b, %quote : i32
+    scf.condition %more, %p : i1, offset
+  } do(%p: offset) {
+    %b = buffer.load.i8.u %text[%p]
+    %escaped = scalar.cmpi eq, %b, %slash : i32
+    %step = scf.select %escaped, %two, %one : offset
+    %next = index.add %p, %step : offset
+    scf.yield %next : offset
+  }
+  func.return %end : offset
+}
+
+// Requote decoded UTF-8. Only JSON syntax and ASCII controls are escaped;
+// non-ASCII, slash, apostrophe, ampersand and angle brackets remain literal.
+func.def @text_json.quote(%decoded: buffer, %size: offset, %output: buffer, %start: offset) -> (offset) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %two = index.constant 2 : offset
+  %six = index.constant 6 : offset
+  %quote = scalar.constant 34 : i32
+  %slash = scalar.constant 92 : i32
+  %quote8 = scalar.constant 34 : i32
+  %slash8 = scalar.constant 92 : i32
+  %c8 = scalar.constant 8 : i32
+  %c9 = scalar.constant 9 : i32
+  %c10 = scalar.constant 10 : i32
+  %c12 = scalar.constant 12 : i32
+  %c13 = scalar.constant 13 : i32
+  %c32 = scalar.constant 32 : i32
+  %bchar = scalar.constant 98 : i32
+  %tchar = scalar.constant 116 : i32
+  %nchar = scalar.constant 110 : i32
+  %fchar = scalar.constant 102 : i32
+  %rchar = scalar.constant 114 : i32
+  %uchar = scalar.constant 117 : i32
+  %zerochar = scalar.constant 48 : i32
+  %hex = global.load @text_json.hex : buffer
+  buffer.store.i8 %quote8, %output[%start]
+  %first = index.add %start, %one : offset
+  %end = scf.for %i = [%zero to %size step %one](%p = %first : offset) -> (offset) {
+    %b = buffer.load.i8.u %decoded[%i]
+    %is_quote = scalar.cmpi eq, %b, %quote : i32
+    %is_slash = scalar.cmpi eq, %b, %slash : i32
+    %is_b = scalar.cmpi eq, %b, %c8 : i32
+    %is_t = scalar.cmpi eq, %b, %c9 : i32
+    %is_n = scalar.cmpi eq, %b, %c10 : i32
+    %is_f = scalar.cmpi eq, %b, %c12 : i32
+    %is_r = scalar.cmpi eq, %b, %c13 : i32
+    %syntax = scalar.ori %is_quote, %is_slash : i1
+    %bt = scalar.ori %is_b, %is_t : i1
+    %nf = scalar.ori %is_n, %is_f : i1
+    %btnf = scalar.ori %bt, %nf : i1
+    %short_control = scalar.ori %btnf, %is_r : i1
+    %short = scalar.ori %syntax, %short_control : i1
+    %control = scalar.cmpi ult, %b, %c32 : i32
+
+    %next = scf.if %short -> (offset) {
+      %escaped_b = scf.select %is_b, %bchar, %b : i32
+      %escaped_t = scf.select %is_t, %tchar, %escaped_b : i32
+      %escaped_n = scf.select %is_n, %nchar, %escaped_t : i32
+      %escaped_f = scf.select %is_f, %fchar, %escaped_n : i32
+      %escaped = scf.select %is_r, %rchar, %escaped_f : i32
+      %p1 = index.add %p, %one : offset
+      buffer.store.i8 %slash8, %output[%p]
+      buffer.store.i8 %escaped, %output[%p1]
+      %next = index.add %p, %two : offset
+      scf.yield %next : offset
+    } else {
+      %next = scf.if %control -> (offset) {
+        %shift = scalar.constant 4 : i32
+        %fifteen = scalar.constant 15 : i32
+        %hi = scalar.shrui %b, %shift : i32
+        %lo = scalar.andi %b, %fifteen : i32
+        %high = index.cast %hi : i32 to offset
+        %low = index.cast %lo : i32 to offset
+        %h = buffer.load.i8.u %hex[%high]
+        %l = buffer.load.i8.u %hex[%low]
+
+
+        %three = index.constant 3 : offset
+        %four = index.constant 4 : offset
+        %five = index.constant 5 : offset
+        %p1 = index.add %p, %one : offset
+        %p2 = index.add %p, %two : offset
+        %p3 = index.add %p, %three : offset
+        %p4 = index.add %p, %four : offset
+        %p5 = index.add %p, %five : offset
+        buffer.store.i8 %slash8, %output[%p]
+        buffer.store.i8 %uchar, %output[%p1]
+        buffer.store.i8 %zerochar, %output[%p2]
+        buffer.store.i8 %zerochar, %output[%p3]
+        buffer.store.i8 %h, %output[%p4]
+        buffer.store.i8 %l, %output[%p5]
+        %next = index.add %p, %six : offset
+        scf.yield %next : offset
+      } else {
+        buffer.store.i8 %b, %output[%p]
+        %next = index.add %p, %one : offset
+        scf.yield %next : offset
+      }
+      scf.yield %next : offset
+    }
+    scf.yield %next : offset
+  }
+  buffer.store.i8 %quote8, %output[%end]
+  %next = index.add %end, %one : offset
+  func.return %next : offset
+}
+
+func.def public @text.json_dump(%document: buffer) -> (buffer) {
+  %text = func.call @compact(%document) : (buffer) -> (buffer)
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %two = index.constant 2 : offset
+  %zero64 = scalar.constant 0 : i64
+  %length = buffer.length %text
+  // Requoting never grows a valid JSON string: each expanded control byte had
+  // at least that many source escape bytes. Added separator spaces cost at
+  // most one byte per source punctuation. Twice the source size is sufficient.
+  %capacity = index.add %length, %length : offset
+  %output = buffer.alloca<private> align(1) %capacity : buffer
+  %scratch = buffer.alloca<private> align(1) %length : buffer
+  %quote = scalar.constant 34 : i32
+  %comma = scalar.constant 44 : i32
+  %colon = scalar.constant 58 : i32
+  %minus = scalar.constant 45 : i32
+  %zero32 = scalar.constant 48 : i32
+  %space8 = scalar.constant 32 : i32
+  %zero8 = scalar.constant 48 : i32
+  %size, %last = scf.while(%p = %zero : offset, %written = %zero : offset) -> (offset, offset) {
+    %active = index.cmp ult, %p, %length : offset
+    scf.condition %active, %p, %written : i1, offset, offset
+  } do(%p: offset, %written: offset) {
+    %b = buffer.load.i8.u %text[%p]
+    %is_string = scalar.cmpi eq, %b, %quote : i32
+    %next, %end = scf.if %is_string -> (offset, offset) {
+      %start = index.add %p, %one : offset
+      %end_quote = func.call @text_json.string_end(%text, %start) : (buffer, offset) -> (offset)
+      %raw_length = index.sub %end_quote, %start : offset
+      %start64 = index.cast %start : offset to i64
+      %length64 = index.cast %raw_length : offset to i64
+      %decoded64 = func.call @unescape(%text, %start64, %length64, %scratch, %zero64) : (buffer, i64, i64, buffer, i64) -> (i64)
+      %bounded = scalar.assume %decoded64 [range(%decoded64, 0, 9223372036854775807)] : i64
+      %decoded = index.cast %bounded : i64 to offset
+      %end = func.call @text_json.quote(%scratch, %decoded, %output, %written) : (buffer, offset, buffer, offset) -> (offset)
+      %next = index.add %end_quote, %one : offset
+      scf.yield %next, %end : offset, offset
+    } else {
+      %is_minus = scalar.cmpi eq, %b, %minus : i32
+      %nine = scalar.constant 57 : i32
+      %lo = scalar.cmpi uge, %b, %zero32 : i32
+      %hi = scalar.cmpi ule, %b, %nine : i32
+      %digit = scalar.andi %lo, %hi : i1
+      %number = scalar.ori %is_minus, %digit : i1
+      %end, %step = scf.if %number -> (offset, offset) {
+        // Copy whole numeric tokens so exponent signs cannot be mistaken for
+        // standalone integer -0. Arbitrarily large integers remain exact.
+        %number_end = scf.while(%q = %p : offset) -> (offset) {
+          %active = index.cmp ult, %q, %length : offset
+          %more = scf.if %active -> (i1) {
+            %c = buffer.load.i8.u %text[%q]
+            %close_array = scalar.constant 93 : i32
+            %close_object = scalar.constant 125 : i32
+            %is_comma = scalar.cmpi eq, %c, %comma : i32
+            %is_array = scalar.cmpi eq, %c, %close_array : i32
+            %is_object = scalar.cmpi eq, %c, %close_object : i32
+            %close = scalar.ori %is_array, %is_object : i1
+            %stop = scalar.ori %is_comma, %close : i1
+            %false = scalar.constant false : i1
+            %go = scalar.cmpi eq, %stop, %false : i1
+            scf.yield %go : i1
+          } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+          scf.condition %more, %q : i1, offset
+        } do(%q: offset) {
+          %next = index.add %q, %one : offset
+          scf.yield %next : offset
+        }
+        %number_size = index.sub %number_end, %p : offset
+        %short = index.cmp eq, %number_size, %two : offset
+        %possible = scalar.andi %is_minus, %short : i1
+        %negative_zero = scf.if %possible -> (i1) {
+          %p1 = index.add %p, %one : offset
+          %value = buffer.load.i8.u %text[%p1]
+          %is_zero = scalar.cmpi eq, %value, %zero32 : i32
+          scf.yield %is_zero : i1
+        } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+        %written_size = scf.select %negative_zero, %one, %number_size : offset
+        %from = scf.if %negative_zero -> (offset) {
+          %next = index.add %p, %one : offset
+          scf.yield %next : offset
+        } else { scf.yield %p : offset }
+        buffer.copy %text[%from], %output[%written], %written_size
+        %end = index.add %written, %written_size : offset
+        scf.yield %end, %number_size : offset, offset
+      } else {
+
+        buffer.store.i8 %b, %output[%written]
+        %after = index.add %written, %one : offset
+        %is_comma = scalar.cmpi eq, %b, %comma : i32
+        %is_colon = scalar.cmpi eq, %b, %colon : i32
+        %separator = scalar.ori %is_comma, %is_colon : i1
+        %end = scf.if %separator -> (offset) {
+          buffer.store.i8 %space8, %output[%after]
+          %end = index.add %after, %one : offset
+          scf.yield %end : offset
+        } else { scf.yield %after : offset }
+        scf.yield %end, %one : offset, offset
+      }
+      %next = index.add %p, %step : offset
+      scf.yield %next, %end : offset, offset
+    }
+    scf.yield %next, %end : offset, offset
+  }
+  %result = buffer.alloca<private> align(1) %last : buffer
+  buffer.copy %output[%zero], %result[%zero], %last
+  func.return %result : buffer
+}

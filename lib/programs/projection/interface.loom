@@ -1,0 +1,15 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Operation policy matches the existing FFN profile: 0 = qk_compat,
+// 1 = canonical. GGUF weight tags select encoding independently of policy.
+// Both operations use the same policy and Q8_1 x4 physical row layout.
+// Canonical processes every launched row; compatible preserves inactive rows.
+// A nonnegative fixed_count bypasses count; negative reads I32 at count_origin.
+// Input and weights are read. Packed/output are written only for produced rows.
+// Callers supply disjoint storage and retain allocation/reuse ownership.
+// launch_rows is a static launch extent; row_capacity is the runtime view extent.
+// Origins in the data buffers are supplied through caller-created zero-origin
+// views. row_origin/count_origin describe the existing logical activity ABI.
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)

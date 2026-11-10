@@ -1,3 +1,4 @@
+func.decl @loomify.tokens.terminal_marker() -> (buffer)
 // Independently maintained serving companion, seeded from Llama 3B.
 // Copyright 2026 The IREE Authors
 //
@@ -30,7 +31,6 @@ global.rodata.def @epoch_root = bytes("67656e6572617465642e6c6c616d615f65706f636
 // weights.loom
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
 // <|eot_id|>
-global.rodata.def @terminal = bytes("3c7c656f745f69647c3e")
 // Empty path component.
 global.rodata.def @empty = bytes("")
 // Llama 3B requires target-only greedy stages, empty model options and valid bounded capacities
@@ -283,7 +283,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %state_view = buffer.view %state[%origin] : buffer -> view<2xi32>
   view.store %prefill_stage, %state_view[0] : i32, view<2xi32>
   view.store %decode_stage, %state_view[1] : i32, view<2xi32>
-  %terminal = global.load @terminal : buffer
+  %terminal = func.call @loomify.tokens.terminal_marker() : () -> (buffer)
   %allocations, %views, %origins, %draft_origins, %geometry = func.call @llama32_storage() : () -> (buffer, buffer, buffer, buffer, buffer)
   func.return %effective_prefill, %shared, %state, %terminal, %allocations, %views, %origins, %draft_origins, %geometry : i64, i32, buffer, buffer, buffer, buffer, buffer, buffer, buffer
 }

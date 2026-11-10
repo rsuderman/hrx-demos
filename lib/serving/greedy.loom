@@ -1,0 +1,96 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+func.decl @loomify.request.check(%condition: i1)
+func.decl @text.validate_request(%request: buffer)
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.decl import("json") @members(%text: buffer) -> (buffer, i32, i64)
+func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
+func.decl import("json") @parse_i64(%source: buffer, %offset: i64, %length: i64) -> (i64)
+func.decl import("json") @parse_f64(%source: buffer, %offset: i64, %length: i64) -> (f64)
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+global.rodata.def @greedy.empty = bytes("")
+global.rodata.def @greedy.request_temperature = bytes("74656d7065726174757265")
+global.rodata.def @greedy.request_top_p = bytes("746f705f70")
+global.rodata.def @greedy.request_top_k = bytes("746f705f6b")
+global.rodata.def @greedy.request_seed = bytes("73656564")
+global.rodata.def @greedy.request_sampling_error = bytes("67726565647920726571756573742072657175697265732074656d70657261747572653d302c20746f705f703d312c20746f705f6b3d30206f72203120616e6420696e7465676572207365656473")
+
+
+func.def public @request_defaults(%options: buffer) -> (buffer) {
+  %fields, %type, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
+  %object = scalar.constant 2 : i32
+  %empty_count = scalar.constant 0 : i64
+  %typed = scalar.cmpi eq, %type, %object : i32
+  %empty_options = scalar.cmpi eq, %count, %empty_count : i64
+  %valid = scalar.andi %typed, %empty_options : i1
+  func.call @loomify.request.check(%valid) : (i1)
+  %empty = global.load @greedy.empty : buffer
+  func.return %empty : buffer
+}
+
+func.def public @request_options(%defaults: buffer, %request: buffer, %nonce: i64) -> (buffer) {
+  %origin = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %fields, %type, %count = func.call @members(%request) : (buffer) -> (buffer, i32, i64)
+  %object = scalar.constant 2 : i32
+  %is_object = scalar.cmpi eq, %type, %object : i32
+  func.call @loomify.request.check(%is_object) : (i1)
+  %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %records = buffer.view %fields[%origin] : buffer -> view<[%extent]x5xi64>
+  %capacity = buffer.length %request
+  %storage = buffer.alloca<private> align(1) %capacity : buffer
+  %temperature = global.load @greedy.request_temperature : buffer
+  %top_p = global.load @greedy.request_top_p : buffer
+  %top_k = global.load @greedy.request_top_k : buffer
+  %seed = global.load @greedy.request_seed : buffer
+  scf.for %i = [%c0 to %extent step %c1] {
+    %begin = view.load %records[%i, 0] : view<[%extent]x5xi64> -> i64
+    %length = view.load %records[%i, 1] : view<[%extent]x5xi64> -> i64
+    %used = func.call @unescape(%request, %begin, %length, %storage, %zero64) : (buffer, i64, i64, buffer, i64) -> (i64)
+    %bounded_used = scalar.assume %used [range(%used, 0, 9223372036854775807)] : i64
+    %key_length = index.cast %bounded_used : i64 to offset
+    %key = buffer.alloca<private> align(1) %key_length : buffer
+    buffer.copy %storage[%origin], %key[%origin], %key_length
+    %is_temperature = func.call @text.equal(%key, %temperature) : (buffer, buffer) -> (i1)
+    %is_p = func.call @text.equal(%key, %top_p) : (buffer, buffer) -> (i1)
+    %is_k = func.call @text.equal(%key, %top_k) : (buffer, buffer) -> (i1)
+    %is_seed = func.call @text.equal(%key, %seed) : (buffer, buffer) -> (i1)
+    %floating = scalar.ori %is_temperature, %is_p : i1
+    %integer = scalar.ori %is_k, %is_seed : i1
+    %value_begin = view.load %records[%i, 2] : view<[%extent]x5xi64> -> i64
+    %value_length = view.load %records[%i, 3] : view<[%extent]x5xi64> -> i64
+    %valid = scf.if %floating -> (i1) {
+      %value = func.call @parse_f64(%request, %value_begin, %value_length) : (buffer, i64, i64) -> (f64)
+      %greedy_temperature = scalar.constant 0.0 : f64
+      %full_probability = scalar.constant 1.0 : f64
+      %expected = scf.select %is_temperature, %greedy_temperature, %full_probability : f64
+      %valid = scalar.cmpf oeq, %value, %expected : f64
+      scf.yield %valid : i1
+    } else {
+      %valid = scf.if %integer -> (i1) {
+        %value = func.call @parse_i64(%request, %value_begin, %value_length) : (buffer, i64, i64) -> (i64)
+        %small = scalar.cmpi ule, %value, %one64 : i64
+        %valid = scalar.ori %small, %is_seed : i1
+        scf.yield %valid : i1
+      } else {
+        %true = scalar.constant true : i1
+        scf.yield %true : i1
+      }
+      scf.yield %valid : i1
+    }
+    %condition = scalar.extui %valid : i1 to i32
+    %error = global.load @greedy.request_sampling_error : buffer
+    func.call @require(%condition, %error) : (i32, buffer)
+  }
+  func.call @text.validate_request(%request) : (buffer)
+  func.return %defaults : buffer
+}
+
+func.def public @bind_request(%state: buffer, %row: i32, %options: buffer) { func.return }

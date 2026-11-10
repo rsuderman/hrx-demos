@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Initialize every transient row consumed by dense output projection. The
 // following span attention writes only active N; no persistent bytes are touched.
+config.decl @qwen.model.attention_width : index
 kernel.def @qwen38_attention_clear_attended(%token_capacity: index) {
   %tokens = index.assume %token_capacity [range(%token_capacity, 1, 512)] : index
   %one = index.constant 1 : index
@@ -14,15 +15,12 @@ kernel.def @qwen38_attention_clear_attended(%token_capacity: index) {
   %lane0 = kernel.workitem.id<x> : index
   %lane = index.assume %lane0 [range(%lane0, 0, 255)] : index
   %origin = index.constant 0 : offset
-  %view = buffer.view %output[%origin] : buffer -> view<[%tokens]x2048xf32>
-  %zero = index.constant 0 : index
-  %one = index.constant 1 : index
-  %eight = index.constant 8 : index
+  %width = config.get @qwen.model.attention_width : index
+  %view = buffer.view %output[%origin] : buffer -> view<[%tokens]x[%width]xf32>
   %stride = index.constant 256 : index
   %zero_float = scalar.constant 0.0 : f32
-  scf.for %part = [%zero to %eight step %one] unroll {
-    %column = index.madd %part, %stride, %lane : index
-    view.store %zero_float, %view[%row, %column] : f32, view<[%tokens]x2048xf32>
+  scf.for %column = [%lane to %width step %stride] {
+    view.store %zero_float, %view[%row, %column] : f32, view<[%tokens]x[%width]xf32>
   }
   kernel.return
 }

@@ -1,0 +1,245 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Growing UTF-8 response parser. Low three state bits are DEFAULT=0,
+// CONTENT=1, THINKING=2, TOOL=3, AFTER_THINK=4, AFTER_ONE_NEWLINE=5.
+// Bit16 records that chat_end emitted no assistant generation prefix.
+func.decl @chatml.default_thinking() -> (i1)
+func.decl @text.trim(%text: buffer) -> (buffer)
+
+global.rodata.def @chatml_output.tool = bytes("3c746f6f6c5f63616c6c3e")
+global.rodata.def @chatml_output.close_think = bytes("3c2f7468696e6b3e")
+global.rodata.def @chatml_output.empty = bytes("")
+global.rodata.def @chatml_output.assistant = bytes("3c7c696d5f73746172747c3e617373697374616e740a3c7468696e6b3e0a")
+global.rodata.def @chatml_output.thought_end = bytes("0a3c2f7468696e6b3e0a0a")
+global.rodata.def @chatml_output.separator = bytes("0a0a")
+global.rodata.def @chatml_output.end = bytes("3c7c696d5f656e647c3e0a")
+
+func.def @chatml.output_initial(%thinking: i1, %generation: i1) -> (i64) {
+  %content = scalar.constant 1 : i64
+  %thought = scalar.constant 2 : i64
+  %no_prefix = scalar.constant 17 : i64
+  %mode = scf.select %thinking, %thought, %content : i64
+  %state = scf.select %generation, %mode, %no_prefix : i64
+  func.return %state : i64
+}
+
+// Returns zero for a mismatch, one for an incomplete matching prefix, and
+// two for a complete marker. All comparisons stay inside both buffers.
+func.def @chatml_output.match(%text: buffer, %at: offset, %marker: buffer) -> (i32) {
+  %zero = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %length = buffer.length %text
+  %size = buffer.length %marker
+  %remaining = index.sub %length, %at : offset
+  %short = index.cmp ult, %remaining, %size : offset
+  %count = scf.select %short, %remaining, %size : offset
+  %cmp = buffer.compare %text[%at], %marker[%zero], %count
+  %same = scalar.cmpi eq, %cmp, %zero32 : i32
+  %matched = scf.select %short, %one32, %two32 : i32
+  %result = scf.select %same, %matched, %zero32 : i32
+  func.return %result : i32
+}
+
+func.def public @output_next(%response: buffer, %previous: i64, %state: i64, %phase: i32) -> (i64, i64, i64, i64) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %zero32 = scalar.constant 0 : i32
+  %two32 = scalar.constant 2 : i32
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %two64 = scalar.constant 2 : i64
+  %three64 = scalar.constant 3 : i64
+  %four64 = scalar.constant 4 : i64
+  %five64 = scalar.constant 5 : i64
+  %mask = scalar.constant 7 : i64
+  %flagmask = scalar.constant 16 : i64
+  %flags = scalar.andi %state, %flagmask : i64
+  %raw = scalar.andi %state, %mask : i64
+  %default = scalar.cmpi eq, %raw, %zero64 : i64
+  %resolved_mode = scf.if %default -> (i64) {
+    %thinking = func.call @chatml.default_thinking() : () -> (i1)
+    %resolved = scf.select %thinking, %two64, %one64 : i64
+    scf.yield %resolved : i64
+  } else { scf.yield %raw : i64 }
+  %bounded = scalar.assume %previous [range(%previous, 0, 9223372036854775807)] : i64
+  %start = index.cast %bounded : i64 to offset
+  %length = buffer.length %response
+  %has = index.cmp ult, %start, %length : offset
+  %after0 = scalar.cmpi eq, %resolved_mode, %four64 : i64
+  %after1 = scalar.cmpi eq, %resolved_mode, %five64 : i64
+  %was_after = scalar.ori %after0, %after1 : i1
+  %newline = scf.if %has -> (i1) {
+    %b = buffer.load.i8.u %response[%start]
+    %nl = scalar.constant 10 : i32
+    %match = scalar.cmpi eq, %b, %nl : i32
+    scf.yield %match : i1
+  } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+  %false = scalar.constant false : i1
+  %not_newline = scalar.cmpi eq, %newline, %false : i1
+  %ready = scalar.andi %was_after, %not_newline : i1
+  %mode = scf.select %ready, %one64, %resolved_mode : i64
+  %after = scalar.andi %was_after, %newline : i1
+  %tool_mode = scalar.cmpi eq, %mode, %three64 : i64
+  %kind, %end, %next_mode = scf.if %tool_mode -> (i64, offset, i64) {
+    scf.yield %zero64, %start, %three64 : i64, offset, i64
+  } else {
+    %kind, %end, %next_mode = scf.if %after -> (i64, offset, i64) {
+      %end = index.add %start, %one : offset
+      %next_mode = scf.select %after0, %five64, %one64 : i64
+      scf.yield %zero64, %end, %next_mode : i64, offset, i64
+    } else {
+      %thinking = scalar.cmpi eq, %mode, %two64 : i64
+      %tool = global.load @chatml_output.tool : buffer
+      %close = global.load @chatml_output.close_think : buffer
+      %stream = scalar.cmpi eq, %phase, %zero32 : i32
+      %false = scalar.constant false : i1
+      %scan_end = scf.while(%p = %start : offset) -> (offset) {
+        %active = index.cmp ult, %p, %length : offset
+        %advance = scf.if %active -> (i1) {
+          %tm = func.call @chatml_output.match(%response, %p, %tool) : (buffer, offset, buffer) -> (i32)
+          %cm = scf.if %thinking -> (i32) {
+            %m = func.call @chatml_output.match(%response, %p, %close) : (buffer, offset, buffer) -> (i32)
+            scf.yield %m : i32
+          } else { scf.yield %zero32 : i32 }
+          %tf = scalar.cmpi eq, %tm, %two32 : i32
+          %cf = scalar.cmpi eq, %cm, %two32 : i32
+          %complete = scalar.ori %tf, %cf : i1
+          %tp = scalar.cmpi ne, %tm, %zero32 : i32
+          %cp = scalar.cmpi ne, %cm, %zero32 : i32
+          %prefix = scalar.ori %tp, %cp : i1
+          %pending = scalar.andi %prefix, %stream : i1
+          // Never publish an incomplete UTF-8 code point during streaming.
+          %b = buffer.load.i8.u %response[%p]
+          %c192 = scalar.constant 192 : i32
+          %c224 = scalar.constant 224 : i32
+          %c240 = scalar.constant 240 : i32
+          %c248 = scalar.constant 248 : i32
+          %lead2 = scalar.cmpi uge, %b, %c192 : i32
+          %lead3 = scalar.cmpi uge, %b, %c224 : i32
+          %lead4 = scalar.cmpi uge, %b, %c240 : i32
+          %valid = scalar.cmpi ult, %b, %c248 : i32
+          %w2 = index.constant 2 : offset
+          %w3 = index.constant 3 : offset
+          %w4 = index.constant 4 : offset
+          %width2 = scf.select %lead2, %w2, %one : offset
+          %width3 = scf.select %lead3, %w3, %width2 : offset
+          %w = scf.select %lead4, %w4, %width3 : offset
+          %remaining = index.sub %length, %p : offset
+          %short = index.cmp ult, %remaining, %w : offset
+          %short_valid = scalar.andi %short, %valid : i1
+          %utf_pending = scalar.andi %short_valid, %stream : i1
+          %stop0 = scalar.ori %complete, %pending : i1
+          %stop = scalar.ori %stop0, %utf_pending : i1
+          %go = scalar.cmpi eq, %stop, %false : i1
+          scf.yield %go : i1
+        } else { scf.yield %false : i1 }
+        scf.condition %advance, %p : i1, offset
+      } do(%p: offset) {
+        %next = index.add %p, %one : offset
+        scf.yield %next : offset
+      }
+      %at_start = index.cmp eq, %scan_end, %start : offset
+      %can_marker = scalar.andi %at_start, %has : i1
+      %kind, %end, %next = scf.if %can_marker -> (i64, offset, i64) {
+        %tm = func.call @chatml_output.match(%response, %start, %tool) : (buffer, offset, buffer) -> (i32)
+        %tool_found = scalar.cmpi eq, %tm, %two32 : i32
+        %cm = scf.if %thinking -> (i32) {
+          %m = func.call @chatml_output.match(%response, %start, %close) : (buffer, offset, buffer) -> (i32)
+          scf.yield %m : i32
+        } else { scf.yield %zero32 : i32 }
+        %close_found = scalar.cmpi eq, %cm, %two32 : i32
+        %hidden = scalar.ori %tool_found, %close_found : i1
+        %close_size = buffer.length %close
+        %close_end = index.add %start, %close_size : offset
+        %marker_end = scf.select %tool_found, %start, %close_end : offset
+        %e = scf.select %hidden, %marker_end, %scan_end : offset
+        %marker_mode = scf.select %tool_found, %mode, %four64 : i64
+        %m = scf.select %hidden, %marker_mode, %mode : i64
+        %k = scf.select %hidden, %zero64, %mode : i64
+        scf.yield %k, %e, %m : i64, offset, i64
+      } else { scf.yield %mode, %scan_end, %mode : i64, offset, i64 }
+      scf.yield %kind, %end, %next : i64, offset, i64
+    }
+    scf.yield %kind, %end, %next_mode : i64, offset, i64
+  }
+  %end64 = index.cast %end : offset to i64
+  %advanced_state = scalar.ori %next_mode, %flags : i64
+  %advanced = index.cmp ne, %end, %start : offset
+  %next_state = scf.select %advanced, %advanced_state, %state : i64
+  func.return %kind, %previous, %end64, %next_state : i64, i64, i64, i64
+}
+
+// Python/Jinja str.strip whitespace encoded as UTF8. Check complete byte
+// sequences before reading them; preserve all other Unicode and embedded NUL.
+
+
+
+
+
+// The native host supplies already rendered canonical XML tool records.
+// Rebuild the new assistant turn; older-turn reasoning retention can change
+// after a future user turn, so this provider conservatively requests replay.
+func.def public @complete_text(%prompt: buffer, %response: buffer, %content: buffer, %reasoning: buffer, %tools: buffer, %initial_state: i64, %final_state: i64) -> (buffer, i32) {
+  %zero = index.constant 0 : offset
+  %zero64 = scalar.constant 0 : i64
+  %two64 = scalar.constant 2 : i64
+  %mask = scalar.constant 7 : i64
+  %flagmask = scalar.constant 16 : i64
+  %flag = scalar.andi %initial_state, %flagmask : i64
+  %no_prefix = scalar.cmpi ne, %flag, %zero64 : i64
+  %raw = scalar.andi %initial_state, %mask : i64
+  %is_default = scalar.cmpi eq, %raw, %zero64 : i64
+  %thinking = scf.if %is_default -> (i1) {
+    %value = func.call @chatml.default_thinking() : () -> (i1)
+    scf.yield %value : i1
+  } else {
+    %value = scalar.cmpi eq, %raw, %two64 : i64
+    scf.yield %value : i1
+  }
+  %needs_thought = scalar.ori %no_prefix, %thinking : i1
+  %text = func.call @text.trim(%content) : (buffer) -> (buffer)
+  %thought = func.call @text.trim(%reasoning) : (buffer) -> (buffer)
+  %empty = global.load @chatml_output.empty : buffer
+  %assistant = global.load @chatml_output.assistant : buffer
+  %close_think = global.load @chatml_output.thought_end : buffer
+  %separator = global.load @chatml_output.separator : buffer
+  %close = global.load @chatml_output.end : buffer
+  %header = scf.select %no_prefix, %assistant, %empty : buffer
+  %retained_thought = scf.select %needs_thought, %thought, %empty : buffer
+  %thought_end = scf.select %needs_thought, %close_think, %empty : buffer
+  %text_length = buffer.length %text
+  %tools_length = buffer.length %tools
+  %has_text = index.cmp ne, %text_length, %zero : offset
+  %has_tools = index.cmp ne, %tools_length, %zero : offset
+  %separate = scalar.andi %has_text, %has_tools : i1
+  %between = scf.select %separate, %separator, %empty : buffer
+  %size0 = buffer.length %prompt
+  %at0 = index.add %zero, %size0 : offset
+  %size1 = buffer.length %header
+  %at1 = index.add %at0, %size1 : offset
+  %size2 = buffer.length %retained_thought
+  %at2 = index.add %at1, %size2 : offset
+  %size3 = buffer.length %thought_end
+  %at3 = index.add %at2, %size3 : offset
+  %size4 = buffer.length %text
+  %at4 = index.add %at3, %size4 : offset
+  %size5 = buffer.length %between
+  %at5 = index.add %at4, %size5 : offset
+  %size6 = buffer.length %tools
+  %at6 = index.add %at5, %size6 : offset
+  %size7 = buffer.length %close
+  %at7 = index.add %at6, %size7 : offset
+  %result = buffer.alloca<private> align(1) %at7 : buffer
+  buffer.copy %prompt[%zero], %result[%zero], %size0
+  buffer.copy %header[%zero], %result[%at0], %size1
+  buffer.copy %retained_thought[%zero], %result[%at1], %size2
+  buffer.copy %thought_end[%zero], %result[%at2], %size3
+  buffer.copy %text[%zero], %result[%at3], %size4
+  buffer.copy %between[%zero], %result[%at4], %size5
+  buffer.copy %tools[%zero], %result[%at5], %size6
+  buffer.copy %close[%zero], %result[%at6], %size7
+  %reusable = scalar.constant 0 : i32
+  func.return %result, %reusable : buffer, i32
+}

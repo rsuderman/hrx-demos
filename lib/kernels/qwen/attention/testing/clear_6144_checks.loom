@@ -1,0 +1,34 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Guarded poison regression: every declared raw row must be initialized.
+kernel.decl @qwen38_attention_clear_attended(%tokens: index) launch(%tokens: index, %output: buffer)
+
+check.case @clear_6144_rows1 {
+  %tokens = check.literal value(1) : index
+  %owner = check.generate.fill value(91.0) : tensor<6272xf32>
+  %prefix = check.tensor.view %owner offset(0) : tensor<6272xf32> -> tensor<64xf32>
+  %raw = check.tensor.view %owner offset(256) : tensor<6272xf32> -> tensor<6144xf32>
+  %suffix = check.tensor.view %owner offset(24832) : tensor<6272xf32> -> tensor<64xf32>
+  %guard = check.generate.fill value(91.0) : tensor<64xf32>
+  %zero = check.generate.fill value(0.0) : tensor<6144xf32>
+  kernel.launch @qwen38_attention_clear_attended[%tokens](%tokens, %raw) : [index](index, tensor<6144xf32>)
+  check.expect.bitwise actual(%raw) expected(%zero) : tensor<6144xf32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<64xf32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<64xf32>
+  check.return
+}
+
+check.case @clear_6144_rows3 {
+  %tokens = check.literal value(3) : index
+  %owner = check.generate.fill value(91.0) : tensor<18560xf32>
+  %prefix = check.tensor.view %owner offset(0) : tensor<18560xf32> -> tensor<64xf32>
+  %raw = check.tensor.view %owner offset(256) : tensor<18560xf32> -> tensor<18432xf32>
+  %suffix = check.tensor.view %owner offset(73984) : tensor<18560xf32> -> tensor<64xf32>
+  %guard = check.generate.fill value(91.0) : tensor<64xf32>
+  %zero = check.generate.fill value(0.0) : tensor<18432xf32>
+  kernel.launch @qwen38_attention_clear_attended[%tokens](%tokens, %raw) : [index](index, tensor<18432xf32>)
+  check.expect.bitwise actual(%raw) expected(%zero) : tensor<18432xf32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<64xf32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<64xf32>
+  check.return
+}

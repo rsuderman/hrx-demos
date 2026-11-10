@@ -1,3 +1,5 @@
+config.decl @llama.model.rotary_step : f32
+config.decl @llama.model.attention_scale : f32
 func.decl @llm_rotary_token_position(%rows: index, %token: index, %capacity: index, %active: i32, %position: i32) -> (i1, index)
 template.decl @llm.rotary.query_row128(%row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer)
 template.decl @llm.rotary.kv_separate_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer)
@@ -29,7 +31,7 @@ kernel.def target(@llama_dispatch_attention_wave32) @llama_dispatch_rope(%rows0:
   %count32 = index.cast %rows : index to i32
   %valid, %position = func.call @llm_rotary_token_position(%rows, %token, %capacity, %count32, %position32) : (index, index, index, i32, i32) -> (i1, index)
   scf.if %valid {
-    %theta = scalar.constant 0.8146172165870667 : f32
+    %theta = config.get @llama.model.rotary_step : f32
     template.apply<@llm.rotary.query_row128>(%rows, %heads, %token, %head, %lane, %position, %theta, %origin, %origin, %factors, %input, %output) : (index, index, index, index, index, index, f32, offset, offset, buffer, buffer, buffer)
   }
   kernel.return
@@ -54,7 +56,7 @@ kernel.def target(@llama_dispatch_attention_wave32) @llama_dispatch_publish_kv(%
   %count32 = index.cast %rows : index to i32
   %valid, %position = func.call @llm_rotary_token_position(%rows, %token, %capacity, %count32, %position32) : (index, index, index, i32, i32) -> (i1, index)
   scf.if %valid {
-    %theta = scalar.constant 0.8146172165870667 : f32
+    %theta = config.get @llama.model.rotary_step : f32
     template.apply<@llm.rotary.kv_separate_row128>(%rows, %heads, %capacity, %token, %head, %lane, %position, %position, %theta, %origin, %origin, %origin, %factors, %key, %value, %key_cache, %value_cache) : (index, index, index, index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
   }
   kernel.return
@@ -79,7 +81,7 @@ kernel.def target(@llama_dispatch_attention_wave32) @llama_dispatch_causal_atten
   %count32 = index.cast %rows : index to i32
   %valid, %position = func.call @llm_rotary_token_position(%rows, %token, %capacity, %count32, %position32) : (index, index, index, i32, i32) -> (i1, index)
   scf.if %valid {
-    %theta = scalar.constant 0.8146172165870667 : f32
+    %theta = config.get @llama.model.rotary_step : f32
     %kvheads = index.constant 8 : index
     %width = index.constant 128 : index
     %qwidth = index.mul %heads, %width : index
@@ -88,7 +90,7 @@ kernel.def target(@llama_dispatch_attention_wave32) @llama_dispatch_causal_atten
     %row_bytes = index.scale %qwidth, %four : index, offset -> offset
     %row_origin = index.scale %token, %row_bytes : index, offset -> offset
     %zero = index.constant 0 : index
-    %scale = scalar.constant 0.08838834764831845 : f32
+    %scale = config.get @llama.model.attention_scale : f32
     %no = scalar.constant false : i1
     template.apply<@llm.attention.row_f32>(%heads, %kvheads, %width, %qwidth, %kvwidth, %capacity, %zero, %origin, %row_origin, %row_origin, %origin, %origin, %query, %scale, %position32, %head, %lane, %no, %query, %query, %key_cache, %value_cache, %output) : (index, index, index, index, index, index, index, offset, offset, offset, offset, offset, buffer, f32, i32, index, index, i1, buffer, buffer, buffer, buffer, buffer)
   }

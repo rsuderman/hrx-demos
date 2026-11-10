@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 #include "loomc/target/vm.h"
 #include "tools/loomify-gguf/configuration.h"
+#include "tools/loomify-gguf/token_policy.h"
 #include "tools/loomify-gguf/testing/configuration_fixture.h"
+#include "tools/loomify-gguf/testing/alternating_qwen_fixture.h"
 #include "tools/loomify-gguf/testing/prepare_vm.h"
 #include "gtest/gtest.h"
 #include <algorithm>
@@ -128,15 +130,16 @@ protected:
     return module;
   }
   Module Link(uint64_t tokens, uint64_t capacity, bool bytecode,
-              bool config = true) {
+              bool config = true, bool large = false,
+              const model::ModelDescriptor *descriptor = nullptr) {
     ConfigurationFacts facts;
     std::string error;
-    if (!DeriveConfiguration(QwenModelFacts(), "fixture.gguf",
+    if (!DeriveConfiguration(descriptor ? *descriptor : QwenModelFacts(large), "fixture.gguf",
                              {tokens, capacity}, &facts, &error)) {
       ADD_FAILURE() << error;
       return {nullptr, loomc_module_release};
     }
-    auto cfg = Parse(config ? facts.source : "");
+    auto cfg = Parse((config ? facts.source : "") + EmitTerminalMarkerSource("<|im_end|>"));
     auto prepare = Product(bytecode);
     if (!cfg || !prepare)
       return {nullptr, loomc_module_release};
@@ -195,14 +198,20 @@ protected:
     return reloaded;
   }
   void Records(const PreparationRequest &request,
-               const PreparationObservation &out) {
+               const PreparationObservation &out, bool large = false,
+               bool alternating = false) {
     const int64_t P = ((request.context + 63) / 64) * 64;
     // Independent current-profile contract, not generated/emitter-derived
     // geometry.
-    constexpr int64_t S = 18 * 4 * (18432 + 262144), B = 256 + S + 2048 + 256;
+    const int64_t S = alternating ? 4 * 4 * (18432 + 262144)
+        : large ? 48 * 4 * (30720 + 786432) : 18 * 4 * (18432 + 262144);
+    const int64_t B = 256 + S + 2048 + 256;
+    const int64_t residual = large ? 10485760 : 2097152;
+    const int64_t planes = alternating ? 8 : large ? 32 : 12;
+    const int64_t plane_token_bytes = large ? 2048 : 1024;
     std::vector<int64_t> allocations;
     const std::array<int64_t, 11> sizes = {
-        2097152, B + 12 * P * 1024,
+        residual, B + planes * P * plane_token_bytes,
         4192,    2048 + 4 * ((request.context + 63) / 64),
         4096,    64,
         0,       0,
@@ -211,7 +220,7 @@ protected:
     for (size_t i = 0; i < 11; ++i) {
       allocations.push_back(sizes[i]);
       allocations.push_back(256);
-      allocations.push_back(i == 0 ? 2097152 : i == 1 ? B : 0);
+      allocations.push_back(i == 0 ? residual : i == 1 ? B : 0);
     }
     EXPECT_EQ(Words64(out.buffers[2]), allocations);
     EXPECT_EQ(Words64(out.buffers[3]),
@@ -223,8 +232,8 @@ protected:
     EXPECT_EQ(Words64(out.buffers[4]), origins);
     EXPECT_EQ(Words64(out.buffers[5]), std::vector<int64_t>(64, 0));
     EXPECT_EQ(Words64(out.buffers[6]),
-              (std::vector<int64_t>{64, 2048, 0, 384, 256, B, S, 1, 1, B, 12,
-                                    P * 1024, 64 * 1024}));
+              (std::vector<int64_t>{64, 2048, 0, 384, 256, B, S, 1, 1, B, planes,
+                                    P * plane_token_bytes, 64 * plane_token_bytes}));
     const int64_t max_tokens =
         std::max_element(request.shapes.begin(), request.shapes.end(),
                          [](auto a, auto b) { return a[0] < b[0]; })
@@ -289,6 +298,24 @@ TEST_F(QwenPrepareTest, CompleteRecordsAndRegistrationsFromSourceAndBytecode) {
       }
     }
 }
+TEST_F(QwenPrepareTest, Qwen27AllRecordsAcrossCapacityAndPoolBoundaries) {
+  for (bool bc : {false, true})
+    for (uint64_t T : {1, 128, 257, 512})
+      for (uint64_t C : {std::max<uint64_t>(T, 65), uint64_t(513)}) {
+        SCOPED_TRACE(::testing::Message() << "27B T=" << T << " C=" << C << " BC=" << bc);
+        auto module = Link(T, C, bc, true, true);
+        ASSERT_TRUE(module);
+        PreparationRequest request;
+        request.prefill = T;
+        request.context = C;
+        request.pool = (C + 63) / 64 * 64;
+        request.shapes = {{1, 1}, {int64_t(T), 1}};
+        PreparationObservation out;
+        std::string error;
+        ASSERT_TRUE(RunPreparation(environment.get(), context.get(), workspace.get(), module.get(), request, &out, &error)) << error;
+        Records(request, out, true);
+      }
+}
 TEST_F(QwenPrepareTest, EffectivePrefillUsesRequestedShapeMaximum) {
   for (bool bytecode : {false, true}) {
     auto module = Link(128, 512, bytecode);
@@ -303,6 +330,25 @@ TEST_F(QwenPrepareTest, EffectivePrefillUsesRequestedShapeMaximum) {
         << error;
     EXPECT_EQ(observed.effective_prefill, 17);
     Records(request, observed);
+  }
+}
+TEST_F(QwenPrepareTest, IndependentEightLayerGgufControlsNativeStorageRecords) {
+  model::ModelDescriptor descriptor;
+  std::string error;
+  ASSERT_TRUE(LoadAlternatingQwenFixture(&descriptor, nullptr, &error)) << error;
+  for (bool bytecode : {false, true}) {
+    auto module = Link(3, 65, bytecode, true, false, &descriptor);
+    ASSERT_TRUE(module);
+    PreparationRequest request;
+    request.prefill = 3;
+    request.context = 65;
+    request.pool = 128;
+    request.shapes = {{1, 1}, {3, 1}};
+    request.weights = "independent sparse fixture.gguf";
+    PreparationObservation observed;
+    ASSERT_TRUE(RunPreparation(environment.get(), context.get(), workspace.get(),
+        module.get(), request, &observed, &error)) << error;
+    Records(request, observed, false, true);
   }
 }
 TEST_F(QwenPrepareTest, MissingLiveConfigurationFailsNativeLink) {

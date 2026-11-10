@@ -35,3 +35,20 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "text_metadata_test",
+    size = "small",
+    srcs = ["text_metadata_test.cc"],
+    copts = _CXXOPTS,
+    deps = ["//tools/model:text_metadata", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+cc_test(
+    name = "text_metadata_real_assets_test",
+    size = "small",
+    tags = ["manual"],
+    srcs = ["text_metadata_test.cc"],
+    defines = ["LOOMIFY_TEXT_REAL_ASSETS=1"],
+    copts = _CXXOPTS,
+    deps = ["//tools/model:text_metadata", "@googletest//:gtest", "@googletest//:gtest_main"],
+)

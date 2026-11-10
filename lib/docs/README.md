@@ -8,7 +8,9 @@ owns model sequencing, temporary storage and preparation records.
 - [Examples](examples.md): actual Loomcxx imports and the independent F32 embedding example.
 
 `lib/architectures/{llama,qwen35}` contains maintained model, preparation and
-control programs. Complete Qwen attention/GDN layers retain their internal FFNs.
+execution programs. `lib/text/protocols` owns independently selected chat framing,
+`lib/text/common` owns shared text helpers and `lib/serving` owns the shared greedy
+request policy. Complete Qwen attention/GDN layers retain their internal FFNs.
 `lib/programs/ffn` and `lib/kernels` own reusable numerical sequences and kernels;
 model configuration selects existing qualified encoding/arithmetic policies.
 

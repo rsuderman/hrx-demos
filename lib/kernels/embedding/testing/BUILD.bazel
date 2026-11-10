@@ -1,0 +1,13 @@
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+loom_test(
+    name = "q4k_rows_test",
+    srcs = ["q4k_checks.loom", "//lib/kernels/embedding:q4k_rows.loom",
+            "//lib/kernels/embedding:q6k_rows.loom", "//lib/kernels/qwen:output/embedding.loom",
+            "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:qk_common.loom",
+            "//lib/kernels/quantization:q8_1_x4.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)

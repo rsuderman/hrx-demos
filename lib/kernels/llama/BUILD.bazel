@@ -21,6 +21,7 @@ loom_library(
 loom_library(
     name = "ffn",
     srcs = [
+        "//lib/programs/projection:implementation_sources",
         "ffn/ffn.loom",
         "//lib/kernels/elementwise:ffn_launches.loom",
         "//lib/kernels/normalization:rmsnorm_row.loom",
@@ -60,6 +61,7 @@ loom_kernel_binary(
 loom_library(
     name = "output",
     srcs = [
+        "//lib/programs/projection:implementation_sources",
         "active_rows.loom",
         "output/head_count.loom",
         "//lib/kernels/projection:q6k.loom",
@@ -83,7 +85,7 @@ loom_library(name = "publication", srcs = ["publication/publication.loom", "publ
 
 loom_library(
     name = "attention_dispatch",
-    srcs = ["attention/attention_dispatch.loom", "attention/rotary.loom", "//lib/kernels/attention:core.loom", "//lib/kernels/attention:kv_position.loom"],
+    srcs = ["attention/attention_config.loom", "attention/attention_dispatch.loom", "attention/rotary.loom", "//lib/kernels/attention:core.loom", "//lib/kernels/attention:kv_position.loom"],
 )
 loom_kernel_binary(
     name = "attention_dispatch_gfx1100",
@@ -95,6 +97,7 @@ loom_kernel_binary(
 loom_library(
     name = "attention_native",
     srcs = [
+        "//lib/programs/projection:implementation_sources",
         "attention/attention_prepare.loom",
         "attention/attention_native.loom",
         "attention/rotary.loom",
@@ -112,6 +115,7 @@ loom_library(
 # Generated model facts supply every model configuration definition.
 # Keep source and relocatable provider forms on this identical closure.
 _CONFIGURED_PROVIDER_SOURCES = [
+    "//lib/programs/projection:implementation_sources",
     "norm/norm.loom",
     "//lib/kernels/normalization:rmsnorm_row.loom",
     "//lib/kernels/elementwise:residual_row.loom",

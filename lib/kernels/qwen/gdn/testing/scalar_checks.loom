@@ -1,0 +1,141 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Deliberately changed scalar leaf data; full-model admission remains unchanged.
+config.def @qwen.model.rms_epsilon = 0.00002 : f32
+config.def @qwen.model.hidden_size = 1024 : index
+config.def @qwen.model.hidden_divisor = 1024.0 : f32
+kernel.decl @qwen38_rmsnorm_f32_prefill(%tokens: index) launch(%capacity: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @qwen38_gdn_norm_gate_prefill(%tokens: index) launch(%capacity: index, %epsilon: f32, %raw: buffer, %weight: buffer, %z: buffer, %output: buffer)
+kernel.decl @qwen38_gdn_conv_spans(%spans: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse: buffer)
+func.def @test_gdn_epoch(%n: index, %epoch: buffer, %rows: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %five = index.constant 5 : index
+  %six = index.constant 6 : index
+  %seven = index.constant 7 : index
+  %n32 = index.cast %n : index to i32
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %minus = scalar.constant -1 : i32
+  %control = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
+  view.store %n32, %control[%zero] : i32, view<1048xi32>
+  view.store %one32, %control[%one] : i32, view<1048xi32>
+  view.store %zero32, %control[%two] : i32, view<1048xi32>
+  view.store %n32, %control[%three] : i32, view<1048xi32>
+  view.store %zero32, %control[%four] : i32, view<1048xi32>
+  view.store %two32, %control[%five] : i32, view<1048xi32>
+  view.store %zero32, %control[%six] : i32, view<1048xi32>
+  view.store %minus, %control[%seven] : i32, view<1048xi32>
+  %table = buffer.view %rows[%origin] : buffer -> view<4xi64>
+  %zero64 = scalar.constant 0 : i64
+  scf.for %i = [%zero to %four step %one] { view.store %zero64, %table[%i] : i64, view<4xi64> }
+  func.return
+}
+kernel.def @test_gdn_epoch_kernel() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%n: index, %epoch: buffer, %rows: buffer) {
+  func.call @test_gdn_epoch(%n, %epoch, %rows) : (index, buffer, buffer) -> ()
+  kernel.return
+}
+command.program.def @rms_actual() launch(%input: buffer, %weight: buffer, %output: buffer) {
+  %one = index.constant 1 : index
+  %eps = config.get @qwen.model.rms_epsilon : f32
+  kernel.launch @qwen38_rmsnorm_f32_prefill[%one](%one, %eps, %input, %weight, %output) : [index](index, f32, buffer, buffer, buffer)
+  command.return
+}
+func.def @rms_expected(%input: buffer, %weight: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %width = index.constant 1024 : index
+  %w = buffer.view %weight[%origin] : buffer -> view<1024xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<1024xf32>
+  // x=.001, mean-square=1e-6, eps=2e-5; independent closed form.
+  %normalized = scalar.constant 0.2182178902359924 : f32
+  scf.for %i = [%zero to %width step %one] {
+    %gamma = view.load %w[%i] : view<1024xf32> -> f32
+    %v = scalar.mulf %normalized, %gamma : f32
+    view.store %v, %out[%i] : f32, view<1024xf32>
+  }
+  func.return
+}
+check.scenario @rms_metadata_epsilon_sensitive {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0.001) : tensor<1024xf32>
+    %weight = check.generate.iota offset(0.125) step(0.03125) period(4) : tensor<1024xf32>
+    %out = check.generate.fill value(-99.0) : tensor<1088xf32>
+    %guard = check.tensor.view %out offset(4096) : tensor<1088xf32> -> tensor<64xf32>
+    check.compare<@rms_actual, @rms_expected>(%input, %weight, %out) : (tensor<1024xf32>, tensor<1024xf32>, tensor<1088xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.000001) rtol(0.00001) nan(same) : tensor<1088xf32>
+      check.expect.bitwise actual(%guard) expected(%guard) : tensor<64xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1024xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<1024xf32>
+    }
+  }
+  check.return
+}
+check.case @gated_rms_metadata_epsilon_sensitive {
+  %one = check.literal value(1) : index
+  %eps = check.literal value(0.00002) : f32
+  %raw = check.generate.fill value(0.001) : tensor<2048xf32>
+  %weight = check.generate.fill value(0.5) : tensor<128xf32>
+  %z = check.generate.fill value(0.125) : tensor<2048xf32>
+  %out = check.generate.fill value(-99.0) : tensor<2112xf32>
+  %guard = check.tensor.view %out offset(8192) : tensor<2112xf32> -> tensor<64xf32>
+  %sentinel = check.generate.fill value(-99.0) : tensor<64xf32>
+  %values = check.tensor.view %out offset(0) : tensor<2112xf32> -> tensor<2048xf32>
+  %expected = check.generate.fill value(0.0072449617957002889) : tensor<2048xf32>
+  kernel.launch @qwen38_gdn_norm_gate_prefill[%one](%one, %eps, %raw, %weight, %z, %out) : [index](index, f32, tensor<2048xf32>, tensor<128xf32>, tensor<2048xf32>, tensor<2112xf32>)
+  check.expect.close actual(%values) expected(%expected) atol(0.000001) rtol(0.00001) nan(same) : tensor<2048xf32>
+  check.expect.bitwise actual(%guard) expected(%sentinel) : tensor<64xf32>
+  check.return
+}
+command.program.def @l2_actual() launch(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %one = index.constant 1 : index
+  %offset = index.constant 256 : offset
+  %eps = config.get @qwen.model.rms_epsilon : f32
+  kernel.launch @test_gdn_epoch_kernel[](%one, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @qwen38_gdn_conv_spans[%one](%epoch, %rows, %offset, %eps, %input, %weight, %history, %output, %inverse) : [index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+func.def @l2_expected(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+  %one = index.constant 1 : index
+  func.call @test_gdn_epoch(%one, %epoch, %rows) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %two = index.constant 2 : index
+  %heads = index.constant 32 : index
+  %origin = index.constant 0 : offset
+  %out = buffer.view %inverse[%origin] : buffer -> view<8x32xf32>
+  // Tiny positive channels keep both Q/K lengths below2e-5 after SiLU.
+  // L2 clamp therefore gives exactly1/eps=50000, independent of their sum.
+  %value = scalar.constant 50000.0 : f32
+  scf.for %i = [%zero to %heads step %one] { view.store %value, %out[%two, %i] : f32, view<8x32xf32> }
+  func.return
+}
+check.scenario @l2_metadata_epsilon_near_floor {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %rows = check.generate.fill value(0) : tensor<4xi64>
+    %input = check.generate.fill value(0.00000001) : tensor<49152xf32>
+    %weight = check.generate.fill value(0.25) : tensor<24576xf32>
+    %history = check.generate.fill value(0.00000001) : tensor<18560xf32>
+    %before = check.tensor.view %history offset(0) : tensor<18560xf32> -> tensor<64xf32>
+    %after = check.tensor.view %history offset(73984) : tensor<18560xf32> -> tensor<64xf32>
+    %output = check.generate.fill value(-99.0) : tensor<49152xf32>
+    %inverse = check.generate.fill value(-99.0) : tensor<256xf32>
+    check.compare<@l2_actual, @l2_expected>(%epoch, %rows, %input, %weight, %history, %output, %inverse) : (tensor<1048xi32>, tensor<4xi64>, tensor<49152xf32>, tensor<24576xf32>, tensor<18560xf32>, tensor<49152xf32>, tensor<256xf32>) -> () {
+      check.expect.close actual(%inverse) expected(%inverse) atol(0.01) rtol(0.00001) nan(same) : tensor<256xf32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<64xf32>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<64xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<49152xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<24576xf32>
+    }
+  }
+  check.return
+}

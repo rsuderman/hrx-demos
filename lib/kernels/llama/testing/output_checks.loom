@@ -1,3 +1,8 @@
+// Explicit checkpoint IDs for this existing independent numerical fixture.
+config.def @llama.publication.end_text_id = 128001 : i32
+config.def @llama.publication.end_message_id = 128008 : i32
+config.def @llama.publication.end_turn_id = 128009 : i32
+
 kernel.decl @qwen38_greedy_argmax_f32(%v: index) launch(%v: index, %logits: buffer, %ids: buffer)
 kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%r: index, %v: index) launch(%r: index, %v: index, %logits: buffer, %partial: buffer, %ids: buffer)
 kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%r: index, %v: index) launch(%r: index, %v: index, %partial: buffer, %ids: buffer, %output: buffer)

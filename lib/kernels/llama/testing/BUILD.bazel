@@ -3,6 +3,7 @@
 load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 package(default_visibility = ["//visibility:public"])
 
 # The same owned numerical files back each maintained test call sequence.
@@ -49,3 +50,25 @@ _CHECKS = {
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 ) for case, checks in _CHECKS.items() for format in (["text", "bc"] if case in ["head_publication", "joined_adapters"] else ["bc"])]
+
+genrule(
+    name = "token_control_data",
+    testonly = True,
+    outs = ["token_control_data.loom"],
+    tools = ["//tools/loomify-gguf/testing:emit_token_marker"],
+    cmd = "$(location //tools/loomify-gguf/testing:emit_token_marker) $@",
+)
+loom_merge(
+    name = "token_control",
+    testonly = True,
+    srcs = ["//lib/architectures/llama:execution", "//lib/serving:request_check.loom", ":token_control_data"],
+)
+loom_test(
+    name = "token_policy_execution_test",
+    srcs = ["token_policy_checks.loom", ":token_control"],
+    deps = ["//lib/kernels/llama:publication"],
+    benchmark_smoke = False,
+    execution_profiles = [VM_REFERENCE_PROFILE],
+)
+
+loom_test(name = "scalar_data_execution_test", srcs = ["scalar_data_checks.loom", "//lib/kernels/llama:attention/attention_prepare.loom", "//lib/kernels/llama:attention/attention_native.loom", "//lib/kernels/llama:attention/rotary.loom", "//lib/kernels/llama:attention/attention_materialized.loom", "//lib/kernels/attention:core.loom", "//lib/kernels/attention:kv_position.loom", "//lib/kernels/elementwise:residual_row.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])

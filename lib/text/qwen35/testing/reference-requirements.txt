@@ -1,0 +1,5 @@
+# Test oracle only; never a converter or Serve dependency.
+transformers==4.57.1
+Jinja2==3.1.6
+tokenizers==0.22.2
+MarkupSafe==3.0.4

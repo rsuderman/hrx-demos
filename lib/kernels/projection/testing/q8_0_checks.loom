@@ -1,0 +1,446 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent logical fixture: A[t,k] = (((k+5t)%17)-8) * (1+(k/32)%4)*(t+1)/8.
+// W[c,k] = (((3k+7c)%19)-9) * (1+(k/32+c)%4)/4.
+// The encoder writes canonical Q8_0 weights (32/34) and Q8_1_x4 activations
+// (128/144); the scalar oracle never reads either encoded representation.
+// Every selected dot is exact in F32: even the absolute 6144-term bound in
+// units of 1/32 is <=14155776, below 2^24. Bitwise comparison needs no tolerance.
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 2 : index
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1025 : index
+kernel.decl @ggml_linear_q8_0_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%rows:index,%width:index,%cols:index,%activation:buffer,%weight:buffer,%output:buffer)
+
+func.def pure @q8_activation_code(%k:index,%row:index) -> (i32) {
+  %five = index.constant 5 : index
+  %seventeen = index.constant 17 : index
+  %shift = index.mul %row, %five : index
+  %ordinal = index.add %k, %shift : index
+  %remainder = index.rem %ordinal, %seventeen : index
+  %value = index.cast %remainder : index to i32
+  %bias = scalar.constant 8 : i32
+  %code = scalar.subi %value, %bias : i32
+  func.return %code : i32
+}
+func.def pure @q8_weight_code(%k:index,%column:index) -> (i32) {
+  %three = index.constant 3 : index
+  %seven = index.constant 7 : index
+  %nineteen = index.constant 19 : index
+  %element = index.mul %k, %three : index
+  %shift = index.mul %column, %seven : index
+  %ordinal = index.add %element, %shift : index
+  %remainder = index.rem %ordinal, %nineteen : index
+  %value = index.cast %remainder : index to i32
+  %bias = scalar.constant 9 : i32
+  %code = scalar.subi %value, %bias : i32
+  func.return %code : i32
+}
+func.def pure @q8_activation_scale(%block:index,%row:index) -> (f32) {
+  %four = index.constant 4 : index
+  %one = index.constant 1 : index
+  %part = index.rem %block, %four : index
+  %factor = index.add %part, %one : index
+  %row_factor = index.add %row, %one : index
+  %integer = index.mul %factor, %row_factor : index
+  %integer32 = index.cast %integer : index to i32
+  %value = scalar.uitofp %integer32 : i32 to f32
+  %eighth = scalar.constant 0.125 : f32
+  %scale = scalar.mulf %value, %eighth : f32
+  func.return %scale : f32
+}
+func.def pure @q8_weight_scale(%block:index,%column:index) -> (f32) {
+  %four = index.constant 4 : index
+  %one = index.constant 1 : index
+  %ordinal = index.add %block, %column : index
+  %part = index.rem %ordinal, %four : index
+  %factor = index.add %part, %one : index
+  %integer32 = index.cast %factor : index to i32
+  %value = scalar.uitofp %integer32 : i32 to f32
+  %quarter = scalar.constant 0.25 : f32
+  %scale = scalar.mulf %value, %quarter : f32
+  func.return %scale : f32
+}
+
+func.def @q8_encode_fixture(%rows:index,%width:index,%cols:index,%activation:buffer,%weights:buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %four = index.constant 4 : index
+  %c32 = index.constant 32 : index
+  %c128 = index.constant 128 : index
+  %group_bytes = index.constant 144 : offset
+  %block_bytes = index.constant 34 : offset
+  %payload_add = index.constant 16 : offset
+  %weight_payload_add = index.constant 2 : offset
+  %blocks = index.div %width, %c32 : index
+  %groups = index.div %width, %c128 : index
+  %activation_row_bytes = index.scale %groups, %group_bytes : index, offset -> offset
+  %weight_row_bytes = index.scale %blocks, %block_bytes : index, offset -> offset
+  %zero32 = scalar.constant 0 : i32
+  scf.for %row = [%zero to %rows step %one] {
+    %activation_row = index.scale %row, %activation_row_bytes : index, offset -> offset
+    scf.for %block = [%zero to %blocks step %one] {
+      %group = index.div %block, %four : index
+      %inner = index.rem %block, %four : index
+      %group_offset = index.scale %group, %group_bytes : index, offset -> offset
+      %base = index.add %activation_row, %group_offset : offset
+      %payload_base = index.add %base, %payload_add : offset
+      %metadata = buffer.view %activation[%base] : buffer -> view<8xf16>
+      %payload = buffer.view %activation[%payload_base] : buffer -> view<128xi8>
+      %scale = func.call pure @q8_activation_scale(%block,%row) : (index,index) -> (f32)
+      %half = scalar.fptrunc %scale : f32 to f16
+      %d_index = index.mul %inner, %two : index
+      %s_index = index.add %d_index, %one : index
+      view.store %half, %metadata[%d_index] : f16, view<8xf16>
+      %first_k = index.mul %block, %c32 : index
+      %first_byte = index.mul %inner, %c32 : index
+      %sum = scf.for %j = [%zero to %c32 step %one](%acc = %zero32 : i32) -> (i32) {
+        %k = index.add %first_k, %j : index
+        %code = func.call pure @q8_activation_code(%k,%row) : (index,index) -> (i32)
+        %byte = scalar.trunci %code : i32 to i8
+        %position = index.add %first_byte, %j : index
+        view.store %byte, %payload[%position] : i8, view<128xi8>
+        %next = scalar.addi %acc, %code : i32
+        scf.yield %next : i32
+      }
+      %sum_float = scalar.sitofp %sum : i32 to f32
+      %scaled_sum = scalar.mulf %sum_float, %scale : f32
+      %sum_half = scalar.fptrunc %scaled_sum : f32 to f16
+      view.store %sum_half, %metadata[%s_index] : f16, view<8xf16>
+    }
+  }
+  scf.for %column = [%zero to %cols step %one] {
+    %weight_row = index.scale %column, %weight_row_bytes : index, offset -> offset
+    scf.for %block = [%zero to %blocks step %one] {
+      %offset = index.scale %block, %block_bytes : index, offset -> offset
+      %base = index.add %weight_row, %offset : offset
+      %payload_base = index.add %base, %weight_payload_add : offset
+      %d = buffer.view %weights[%base] : buffer -> view<1xf16>
+      %payload = buffer.view %weights[%payload_base] : buffer -> view<32xi8>
+      %scale = func.call pure @q8_weight_scale(%block,%column) : (index,index) -> (f32)
+      %half = scalar.fptrunc %scale : f32 to f16
+      view.store %half, %d[0] : f16, view<1xf16>
+      %first_k = index.mul %block, %c32 : index
+      scf.for %j = [%zero to %c32 step %one] {
+        %k = index.add %first_k, %j : index
+        %code = func.call pure @q8_weight_code(%k,%column) : (index,index) -> (i32)
+        %byte = scalar.trunci %code : i32 to i8
+        view.store %byte, %payload[%j] : i8, view<32xi8>
+      }
+    }
+  }
+  func.return
+}
+
+func.def @q8_logical_oracle(%rows:index,%width:index,%cols:index,%output:buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  %origin = index.constant 0 : offset
+  %zero_float = scalar.constant 0.0 : f32
+  %y = buffer.view %output[%origin] : buffer -> view<[%rows]x[%cols]xf32>
+  scf.for %row = [%zero to %rows step %one] {
+    scf.for %column = [%zero to %cols step %one] {
+      %dot = scf.for %k = [%zero to %width step %one](%acc = %zero_float : f32) -> (f32) {
+        %block = index.div %k, %c32 : index
+        %activation_code = func.call pure @q8_activation_code(%k,%row) : (index,index) -> (i32)
+        %weight_code = func.call pure @q8_weight_code(%k,%column) : (index,index) -> (i32)
+        %activation_scale = func.call pure @q8_activation_scale(%block,%row) : (index,index) -> (f32)
+        %weight_scale = func.call pure @q8_weight_scale(%block,%column) : (index,index) -> (f32)
+        %a_integer = scalar.sitofp %activation_code : i32 to f32
+        %w_integer = scalar.sitofp %weight_code : i32 to f32
+        %a = scalar.mulf %a_integer, %activation_scale : f32
+        %w = scalar.mulf %w_integer, %weight_scale : f32
+        %product = scalar.mulf %a, %w : f32
+        %next = scalar.addf %acc, %product : f32
+        scf.yield %next : f32
+      }
+      view.store %dot, %y[%row,%column] : f32, view<[%rows]x[%cols]xf32>
+    }
+  }
+  func.return
+}
+
+func.def @q8_init_tiny(%activation:buffer,%weight:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 128 : index
+  %cols = index.constant 9 : index
+  func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
+  func.return
+}
+command.program.def @q8_actual_tiny() launch(%activation:buffer,%weight:buffer,%output:buffer,%encoded:buffer,%known:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 128 : index
+  %cols = index.constant 9 : index
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%cols](%rows,%width,%cols,%activation,%weight,%output) : [index,index,index](index,index,index,buffer,buffer,buffer)
+  command.return
+}
+func.def @q8_expected_tiny(%activation:buffer,%weight:buffer,%output:buffer,%encoded:buffer,%known:buffer) {
+  %origin = index.constant 0 : offset
+  %values = buffer.view %output[%origin] : buffer -> view<18xf32>
+  %v0 = scalar.constant 21.1875 : f32
+  view.store %v0, %values[0] : f32, view<18xf32>
+  %v1 = scalar.constant 9.6875 : f32
+  view.store %v1, %values[1] : f32, view<18xf32>
+  %v2 = scalar.constant -4.9375 : f32
+  view.store %v2, %values[2] : f32, view<18xf32>
+  %v3 = scalar.constant 24.0625 : f32
+  view.store %v3, %values[3] : f32, view<18xf32>
+  %v4 = scalar.constant 29.78125 : f32
+  view.store %v4, %values[4] : f32, view<18xf32>
+  %v5 = scalar.constant -5.125 : f32
+  view.store %v5, %values[5] : f32, view<18xf32>
+  %v6 = scalar.constant -1.5625 : f32
+  view.store %v6, %values[6] : f32, view<18xf32>
+  %v7 = scalar.constant -18.5625 : f32
+  view.store %v7, %values[7] : f32, view<18xf32>
+  %v8 = scalar.constant 52.625 : f32
+  view.store %v8, %values[8] : f32, view<18xf32>
+  %v9 = scalar.constant 27.875 : f32
+  view.store %v9, %values[9] : f32, view<18xf32>
+  %v10 = scalar.constant -33.5 : f32
+  view.store %v10, %values[10] : f32, view<18xf32>
+  %v11 = scalar.constant 74.875 : f32
+  view.store %v11, %values[11] : f32, view<18xf32>
+  %v12 = scalar.constant 107.625 : f32
+  view.store %v12, %values[12] : f32, view<18xf32>
+  %v13 = scalar.constant -171.1875 : f32
+  view.store %v13, %values[13] : f32, view<18xf32>
+  %v14 = scalar.constant -49.125 : f32
+  view.store %v14, %values[14] : f32, view<18xf32>
+  %v15 = scalar.constant -33.4375 : f32
+  view.store %v15, %values[15] : f32, view<18xf32>
+  %v16 = scalar.constant -18.875 : f32
+  view.store %v16, %values[16] : f32, view<18xf32>
+  %v17 = scalar.constant 27.5625 : f32
+  view.store %v17, %values[17] : f32, view<18xf32>
+  func.return
+}
+check.scenario @q8_0_tiny {
+  check.trial[1](%trial:index,%entropy:check.entropy) {
+    %activation_owner = check.generate.fill value(81) : tensor<800xi8>
+    %activation = check.tensor.view %activation_owner offset(256) : tensor<800xi8> -> tensor<288xi8>
+    %weight_owner = check.generate.fill value(-67) : tensor<1736xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<1736xi8> -> tensor<1224xi8>
+    check.generate<@q8_init_tiny>(%activation,%weight) : (tensor<288xi8>,tensor<1224xi8>) -> ()
+    %output_owner = check.generate.fill value(-999.0) : tensor<22xf32>
+    %output = check.tensor.view %output_owner offset(8) : tensor<22xf32> -> tensor<18xf32>
+    // Host fixture anchors are compared within this real projection trial.
+    %encoded = check.generate.fill value(0) : tensor<19xi8>
+    %known = check.generate.fill value(0) : tensor<19xi8>
+    check.generate<@q8_capture_bytes>(%activation,%weight,%encoded) : (tensor<288xi8>,tensor<1224xi8>,tensor<19xi8>) -> ()
+    check.generate<@q8_known_bytes>(%known) : (tensor<19xi8>) -> ()
+    check.compare<@q8_actual_tiny,@q8_expected_tiny>(%activation,%weight,%output,%encoded,%known) : (tensor<288xi8>,tensor<1224xi8>,tensor<18xf32>,tensor<19xi8>,tensor<19xi8>) -> () {
+      check.expect.bitwise actual(%encoded) expected(%known) : tensor<19xi8>
+      check.expect.bitwise actual(%activation_owner) expected(%activation_owner) : tensor<800xi8>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<1736xi8>
+      check.expect.bitwise actual(%output_owner) expected(%output_owner) : tensor<22xf32>
+    }
+  }
+  check.return
+}
+
+func.def @q8_init_k5120_c48(%activation:buffer,%weight:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 5120 : index
+  %cols = index.constant 48 : index
+  func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
+  func.return
+}
+command.program.def @q8_actual_k5120_c48() launch(%activation:buffer,%weight:buffer,%output:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 5120 : index
+  %cols = index.constant 48 : index
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%cols](%rows,%width,%cols,%activation,%weight,%output) : [index,index,index](index,index,index,buffer,buffer,buffer)
+  command.return
+}
+func.def @q8_expected_k5120_c48(%activation:buffer,%weight:buffer,%output:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 5120 : index
+  %cols = index.constant 48 : index
+  func.call @q8_logical_oracle(%rows,%width,%cols,%output) : (index,index,index,buffer) -> ()
+  func.return
+}
+check.scenario @q8_0_k5120_c48 {
+  check.trial[1](%trial:index,%entropy:check.entropy) {
+    %activation_owner = check.generate.fill value(81) : tensor<12032xi8>
+    %activation = check.tensor.view %activation_owner offset(256) : tensor<12032xi8> -> tensor<11520xi8>
+    %weight_owner = check.generate.fill value(-67) : tensor<261632xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<261632xi8> -> tensor<261120xi8>
+    check.generate<@q8_init_k5120_c48>(%activation,%weight) : (tensor<11520xi8>,tensor<261120xi8>) -> ()
+    %output_owner = check.generate.fill value(-999.0) : tensor<100xf32>
+    %output = check.tensor.view %output_owner offset(8) : tensor<100xf32> -> tensor<96xf32>
+    check.compare<@q8_actual_k5120_c48,@q8_expected_k5120_c48>(%activation,%weight,%output) : (tensor<11520xi8>,tensor<261120xi8>,tensor<96xf32>) -> () {
+      check.expect.bitwise actual(%activation_owner) expected(%activation_owner) : tensor<12032xi8>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<261632xi8>
+      check.expect.bitwise actual(%output_owner) expected(%output_owner) : tensor<100xf32>
+    }
+  }
+  check.return
+}
+
+func.def @q8_init_k6144_c49(%activation:buffer,%weight:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 6144 : index
+  %cols = index.constant 49 : index
+  func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
+  func.return
+}
+command.program.def @q8_actual_k6144_c49() launch(%activation:buffer,%weight:buffer,%output:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 6144 : index
+  %cols = index.constant 49 : index
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%cols](%rows,%width,%cols,%activation,%weight,%output) : [index,index,index](index,index,index,buffer,buffer,buffer)
+  command.return
+}
+func.def @q8_expected_k6144_c49(%activation:buffer,%weight:buffer,%output:buffer) {
+  %rows = index.constant 2 : index
+  %width = index.constant 6144 : index
+  %cols = index.constant 49 : index
+  func.call @q8_logical_oracle(%rows,%width,%cols,%output) : (index,index,index,buffer) -> ()
+  func.return
+}
+check.scenario @q8_0_k6144_c49 {
+  check.trial[1](%trial:index,%entropy:check.entropy) {
+    %activation_owner = check.generate.fill value(81) : tensor<14336xi8>
+    %activation = check.tensor.view %activation_owner offset(256) : tensor<14336xi8> -> tensor<13824xi8>
+    %weight_owner = check.generate.fill value(-67) : tensor<320384xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<320384xi8> -> tensor<319872xi8>
+    check.generate<@q8_init_k6144_c49>(%activation,%weight) : (tensor<13824xi8>,tensor<319872xi8>) -> ()
+    %output_owner = check.generate.fill value(-999.0) : tensor<102xf32>
+    %output = check.tensor.view %output_owner offset(8) : tensor<102xf32> -> tensor<98xf32>
+    check.compare<@q8_actual_k6144_c49,@q8_expected_k6144_c49>(%activation,%weight,%output) : (tensor<13824xi8>,tensor<319872xi8>,tensor<98xf32>) -> () {
+      check.expect.bitwise actual(%activation_owner) expected(%activation_owner) : tensor<14336xi8>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<320384xi8>
+      check.expect.bitwise actual(%output_owner) expected(%output_owner) : tensor<102xf32>
+    }
+  }
+  check.return
+}
+
+func.def @q8_init_large_output_tail(%activation:buffer,%weight:buffer) {
+  %rows = index.constant 1 : index
+  %width = index.constant 5120 : index
+  %cols = index.constant 1025 : index
+  func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
+  func.return
+}
+command.program.def @q8_actual_large_output_tail() launch(%activation:buffer,%weight:buffer,%output:buffer) {
+  %rows = index.constant 1 : index
+  %width = index.constant 5120 : index
+  %cols = index.constant 1025 : index
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%cols](%rows,%width,%cols,%activation,%weight,%output) : [index,index,index](index,index,index,buffer,buffer,buffer)
+  command.return
+}
+func.def @q8_expected_large_output_tail(%activation:buffer,%weight:buffer,%output:buffer) {
+  %rows = index.constant 1 : index
+  %width = index.constant 5120 : index
+  %cols = index.constant 1025 : index
+  func.call @q8_logical_oracle(%rows,%width,%cols,%output) : (index,index,index,buffer) -> ()
+  func.return
+}
+check.scenario @q8_0_large_output_tail {
+  check.trial[1](%trial:index,%entropy:check.entropy) {
+    %activation_owner = check.generate.fill value(81) : tensor<6272xi8>
+    %activation = check.tensor.view %activation_owner offset(256) : tensor<6272xi8> -> tensor<5760xi8>
+    %weight_owner = check.generate.fill value(-67) : tensor<5576512xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<5576512xi8> -> tensor<5576000xi8>
+    check.generate<@q8_init_large_output_tail>(%activation,%weight) : (tensor<5760xi8>,tensor<5576000xi8>) -> ()
+    %output_owner = check.generate.fill value(-999.0) : tensor<1029xf32>
+    %output = check.tensor.view %output_owner offset(8) : tensor<1029xf32> -> tensor<1025xf32>
+    check.compare<@q8_actual_large_output_tail,@q8_expected_large_output_tail>(%activation,%weight,%output) : (tensor<5760xi8>,tensor<5576000xi8>,tensor<1025xf32>) -> () {
+      check.expect.bitwise actual(%activation_owner) expected(%activation_owner) : tensor<6272xi8>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<5576512xi8>
+      check.expect.bitwise actual(%output_owner) expected(%output_owner) : tensor<1029xf32>
+    }
+  }
+  check.return
+}
+
+func.def @q8_capture_bytes(%activation:buffer,%weights:buffer,%output:buffer) {
+  %origin = index.constant 0 : offset
+  %a = buffer.view %activation[%origin] : buffer -> view<288xi8>
+  %w = buffer.view %weights[%origin] : buffer -> view<1224xi8>
+  %out = buffer.view %output[%origin] : buffer -> view<19xi8>
+  %v0 = view.load %a[0] : view<288xi8> -> i8
+  view.store %v0, %out[0] : i8, view<19xi8>
+  %v1 = view.load %a[1] : view<288xi8> -> i8
+  view.store %v1, %out[1] : i8, view<19xi8>
+  %v2 = view.load %a[16] : view<288xi8> -> i8
+  view.store %v2, %out[2] : i8, view<19xi8>
+  %v3 = view.load %a[47] : view<288xi8> -> i8
+  view.store %v3, %out[3] : i8, view<19xi8>
+  %v4 = view.load %a[48] : view<288xi8> -> i8
+  view.store %v4, %out[4] : i8, view<19xi8>
+  %v5 = view.load %a[4] : view<288xi8> -> i8
+  view.store %v5, %out[5] : i8, view<19xi8>
+  %v6 = view.load %a[5] : view<288xi8> -> i8
+  view.store %v6, %out[6] : i8, view<19xi8>
+  %v7 = view.load %w[0] : view<1224xi8> -> i8
+  view.store %v7, %out[7] : i8, view<19xi8>
+  %v8 = view.load %w[1] : view<1224xi8> -> i8
+  view.store %v8, %out[8] : i8, view<19xi8>
+  %v9 = view.load %w[2] : view<1224xi8> -> i8
+  view.store %v9, %out[9] : i8, view<19xi8>
+  %v10 = view.load %w[33] : view<1224xi8> -> i8
+  view.store %v10, %out[10] : i8, view<19xi8>
+  %v11 = view.load %w[34] : view<1224xi8> -> i8
+  view.store %v11, %out[11] : i8, view<19xi8>
+  %v12 = view.load %w[35] : view<1224xi8> -> i8
+  view.store %v12, %out[12] : i8, view<19xi8>
+  %v13 = view.load %w[36] : view<1224xi8> -> i8
+  view.store %v13, %out[13] : i8, view<19xi8>
+  %v14 = view.load %w[136] : view<1224xi8> -> i8
+  view.store %v14, %out[14] : i8, view<19xi8>
+  %v15 = view.load %w[137] : view<1224xi8> -> i8
+  view.store %v15, %out[15] : i8, view<19xi8>
+  %v16 = view.load %w[138] : view<1224xi8> -> i8
+  view.store %v16, %out[16] : i8, view<19xi8>
+  %v17 = view.load %a[2] : view<288xi8> -> i8
+  view.store %v17, %out[17] : i8, view<19xi8>
+  %v18 = view.load %a[3] : view<288xi8> -> i8
+  view.store %v18, %out[18] : i8, view<19xi8>
+  func.return
+}
+func.def @q8_known_bytes(%output:buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %output[%origin] : buffer -> view<19xi8>
+  %v0 = scalar.constant 0 : i8
+  view.store %v0, %out[0] : i8, view<19xi8>
+  %v1 = scalar.constant 48 : i8
+  view.store %v1, %out[1] : i8, view<19xi8>
+  %v2 = scalar.constant -8 : i8
+  view.store %v2, %out[2] : i8, view<19xi8>
+  %v3 = scalar.constant 6 : i8
+  view.store %v3, %out[3] : i8, view<19xi8>
+  %v4 = scalar.constant 7 : i8
+  view.store %v4, %out[4] : i8, view<19xi8>
+  %v5 = scalar.constant 0 : i8
+  view.store %v5, %out[5] : i8, view<19xi8>
+  %v6 = scalar.constant 52 : i8
+  view.store %v6, %out[6] : i8, view<19xi8>
+  %v7 = scalar.constant 0 : i8
+  view.store %v7, %out[7] : i8, view<19xi8>
+  %v8 = scalar.constant 52 : i8
+  view.store %v8, %out[8] : i8, view<19xi8>
+  %v9 = scalar.constant -9 : i8
+  view.store %v9, %out[9] : i8, view<19xi8>
+  %v10 = scalar.constant 8 : i8
+  view.store %v10, %out[10] : i8, view<19xi8>
+  %v11 = scalar.constant 0 : i8
+  view.store %v11, %out[11] : i8, view<19xi8>
+  %v12 = scalar.constant 56 : i8
+  view.store %v12, %out[12] : i8, view<19xi8>
+  %v13 = scalar.constant -8 : i8
+  view.store %v13, %out[13] : i8, view<19xi8>
+  %v14 = scalar.constant 0 : i8
+  view.store %v14, %out[14] : i8, view<19xi8>
+  %v15 = scalar.constant 56 : i8
+  view.store %v15, %out[15] : i8, view<19xi8>
+  %v16 = scalar.constant -2 : i8
+  view.store %v16, %out[16] : i8, view<19xi8>
+  %v17 = scalar.constant -128 : i8
+  view.store %v17, %out[17] : i8, view<19xi8>
+  %v18 = scalar.constant -65 : i8
+  view.store %v18, %out[18] : i8, view<19xi8>
+  func.return
+}

@@ -48,7 +48,7 @@ int main(int argc,char **argv) {
   for (const auto &name : names) roots.push_back(name.c_str());
   auto product=(std::filesystem::path(argv[1])/"lib/programs/ffn/testing"/(family+"_fixture.loombc")).string();
   loomc_module_t *module=nullptr;
-  if (!LinkConfiguredProduct(context,workspace,config.source,product,roots,true,&module,&error)) {
+  if (!LinkConfiguredProducts(context,workspace,config.source, {product},roots,true,&module,&error)) {
     std::fprintf(stderr,"%s\n",error.c_str());return 1;
   }
   bool ok=true;

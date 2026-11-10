@@ -1,3 +1,8 @@
+// Explicit checkpoint IDs for this existing independent numerical fixture.
+config.def @llama.publication.end_text_id = 128001 : i32
+config.def @llama.publication.end_message_id = 128008 : i32
+config.def @llama.publication.end_turn_id = 128009 : i32
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Maintained test call wiring; numerical bodies are linked from owned kernels.

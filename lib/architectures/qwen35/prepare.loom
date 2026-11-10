@@ -1,3 +1,4 @@
+func.decl @loomify.tokens.terminal_marker() -> (buffer)
 // Copyright 2026 The IREE Authors
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
@@ -20,7 +21,6 @@ func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
 func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %source: i32, %directory: buffer, %path: buffer, %policy: buffer)
 global.rodata.def @epoch_root = bytes("67656e6572617465642e7177656e5f65706f6368")
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
-global.rodata.def @terminal = bytes("3c7c696d5f656e647c3e")
 global.rodata.def @empty = bytes("")
 // Ordinary Qwen0.8B requires the exact generated capacities, one row/span and no draft/options.
 global.rodata.def @unsupported_options = bytes("4f7264696e617279205177656e302e3842207265717569726573207468652067656e65726174656420636170616369746965732c206f6e6520726f772f7370616e20616e64206e6f2064726166742f6f7074696f6e73")
@@ -287,7 +287,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   view.store %decode_stage, %state_view[1] : i32, view<4xi32>
   view.store %count32, %state_view[2] : i32, view<4xi32>
   view.store %proposal_stage, %state_view[3] : i32, view<4xi32>
-  %terminal = global.load @terminal : buffer
+  %terminal = func.call @loomify.tokens.terminal_marker() : () -> (buffer)
   %packed = scalar.cmpi ne, %shape_count, %zero64 : i64
   %allocations, %views, %target_origins, %draft_origins, %geometry = func.call @storage(%context, %pool, %rows, %pins, %packed) : (i64, i64, i64, i64, i1) -> (buffer, buffer, buffer, buffer, buffer)
   func.return %effective_prefill, %shared, %state, %terminal, %allocations, %views, %target_origins, %draft_origins, %geometry : i64, i32, buffer, buffer, buffer, buffer, buffer, buffer, buffer

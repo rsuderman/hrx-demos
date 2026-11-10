@@ -1,7 +1,7 @@
 # GGUF model export
 
 `loomify-gguf --stage=model` constructs the supported Llama3.2 3B Q4_K_M
-and Qwen3.5 0.8B UD-Q5_K_XL architectures by deriving data-only configuration and parameter bindings from the
+and qualified Qwen3.5 0.8B UD-Q5_K_XL / 27B Q4_K_M architectures by deriving data-only configuration and parameter bindings from the
 GGUF descriptor, selecting a config-free numerical provider closure, and linking
 maintained Loom programs. It writes the model document and source providers
 consumed by existing Loom Serve. GGUF weights and matching tokenizer JSON remain
@@ -111,17 +111,17 @@ Qwen orchestration is maintained in `lib/architectures/qwen35/model.loom`.
 Complete GDN/attention layer bundles retain their internal FFNs and qualified
 numerical policies; the exporter selects and links the maintained product.
 
-The generated Qwen model name is `loomify-qwen-08b`. It uses ordinary greedy text,
+The generated Qwen model name is `loomify-qwen35`. It uses ordinary greedy text,
 one active row/span, no MTP/vision or retained/prefix caches, T in1..512 and C from
 T through262144. Its sole `generated.qwen_epoch` entry invokes
-embedding, all24 configured hybrid layer bundles,
+embedding, all configured hybrid layer bundles,
 then selected-row normalized vocabulary head. It directly accepts the existing
 epoch buffers; a one-token continuation uses the same entry. The owned prepare
 program reports the complete convolution/recurrent GDN slot and paged KV geometry
 so native request reset clears fresh state and subsequent chunks retain it. The
-Qwen control policy keeps Qwen framing/EOS behavior and requires ordinary inference;
-it does not use Llama's terminal mapping or an isolated numerical buffer shim.
-For the ordinary chat profile, pass `enable_thinking:false` and `temperature:0`.
+Qwen control policy uses the selected known template revision and its declared
+thinking defaults, with its matching terminal marker. For nonthinking greedy
+chat, pass `enable_thinking:false` and `temperature:0`.
 
 Source/bytecode export, relocation and failure tests share the package gate above.
 Qwen preparation retains its distinct native state layout and registration policy.
@@ -139,3 +139,22 @@ not maintained as an independent numerical oracle. Real-weight FFN wrappers
 still select actual Llama Q6-down layers0/1 and Q4-down layer3, and Qwen layers0/1.
 The epoch packet tests now link maintained commands and the real relocated
 unpack/scatter helpers, retaining their exact packet/token/cache expectations.
+
+Recognized chat-template semantic skeletons select maintained text providers independently
+of numerical execution. Native linking assembles the architecture execution hooks,
+selected text protocol, shared greedy request policy and common text utilities against
+the same public 18-hook contract. The selected text strategy owns tokenizer requirements;
+numerical publication IDs are checked separately. Missing providers, unresolved requested
+definitions, incompatible hook signatures or mismatched tokenizers fail before publication.
+Numerical-only `BuildModule` remains independent of those package checks.
+
+`GgufPackageOptions::template_name` / `--chat-template=NAME` selects an explicitly
+named template from the GGUF when needed. It does not override providers or execute
+arbitrary Jinja. Recognized literal/default slots are emitted as data from the owned template bytes;
+unknown structural changes are rejected. The generated control text records the
+semantic skeleton identity, rather than claiming its hash identifies mutated source bytes;
+the existing model manifest stays unchanged. Qwen packages use the honest family
+name `loomify-qwen35`; control `model_name` is emitted from that same value.
+Llama retains its explicitly selected greedy text baseline. Qwen float tool arguments
+remain functional through the existing JSON representation; exact Hugging Face float
+spelling is deferred, while other declared rendering/token/output checks remain.

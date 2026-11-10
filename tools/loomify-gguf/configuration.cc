@@ -9,6 +9,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <tuple>
 
 namespace hrx::loomify_gguf {
 namespace {
@@ -48,12 +49,38 @@ bool Sum(uint64_t a, uint64_t b, uint64_t *out) {
   *out = a + b;
   return true;
 }
+bool PositiveF32(double value) {
+  return std::isfinite(value) && std::isfinite(float(value)) && float(value) > 0;
+}
 struct Producer {
   ConfigurationFacts facts;
   std::map<std::string, model::TensorRecord> identities;
   std::ostringstream text;
   std::string asset;
   std::string *error;
+  std::map<uint32_t, uint64_t> projection_widths;
+  uint64_t packed_input_width = 0;
+  void Projection(const model::TensorRecord &tensor, uint64_t input,
+                  uint64_t output) {
+    projection_widths[tensor.storage_type] =
+        std::max(projection_widths[tensor.storage_type], output);
+    packed_input_width = std::max(packed_input_width, input);
+  }
+  void ProjectionCapacities() {
+    for (const auto &entry : std::vector<std::pair<uint32_t, const char *>>{
+             {12, "ggml.linear_q4k_q8_1_x4."},
+             {13, "ggml.linear_q5k_q8_1_x4."},
+             {14, "ggml.linear_q6k_q8_1_x4."},
+             {8, "ggml.linear_q8_0_q8_1_x4."}}) {
+      // The operation owns format support. This only sizes the reused product
+      // from its actual tensor consumers; unused products receive a minimal bound.
+      Index(std::string(entry.second) + "token_capacity", 512);
+      Index(std::string(entry.second) + "output_capacity",
+            std::max<uint64_t>(1, projection_widths[entry.first]));
+    }
+    Index("ggml.quantize_q8_1_x4.group_capacity",
+          std::max<uint64_t>(1, 512 * packed_input_width / 128));
+  }
   void Index(const std::string &name, uint64_t value,
              const char *type = "index") {
     text << "config.def @" << name << " = " << value << " : " << type << '\n';
@@ -73,20 +100,11 @@ struct Producer {
     if (t->name != key || t->rank != (out == 1 ? 1u : 2u) ||
         t->normalized_extents !=
             std::array<int64_t, 4>{int64_t(in), int64_t(out), 1, 1} ||
-        std::find(tags.begin(), tags.end(), t->storage_type) == tags.end())
+        (tags.size() && std::find(tags.begin(), tags.end(), t->storage_type) == tags.end()))
       return Fail(error, "unsupported tensor name, shape or encoding: " + key);
     uint64_t bytes;
-    if (t->storage_type == 0) {
-      if (!Product(in, out, &bytes) || !Product(bytes, 4, &bytes))
-        return Fail(error, "tensor extent overflow: " + key);
-    } else {
-      const uint64_t block = t->storage_type == 12   ? 144
-                             : t->storage_type == 13 ? 176
-                                                     : 210;
-      if (in % 256 || !Product(in / 256, out, &bytes) ||
-          !Product(bytes, block, &bytes))
-        return Fail(error, "encoded tensor extent overflow: " + key);
-    }
+    if (!model::EncodedTensorByteSize(t->storage_type, in, out, &bytes) || bytes > uint64_t(INT64_MAX))
+      return Fail(error, "unsupported or overflowing encoded tensor extent: " + key);
     uint64_t end;
     if (bytes != t->byte_size || !Sum(t->absolute_offset, bytes, &end))
       return Fail(error, "invalid encoded tensor byte range: " + key);
@@ -144,45 +162,48 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
                 "configuration requires output and source asset identity");
   if (!s.token_capacity || s.token_capacity > 512)
     return Fail(error, "token capacity must be between 1 and 512");
-  const uint64_t E = 3072, F = 8192;
-  if (m.family != "llama" || m.embedding_width != E ||
-      !std::isfinite(m.rms_epsilon) || float(m.rms_epsilon) != 1e-5f ||
-      m.layers.size() != 28)
-    return Fail(error, "unsupported linked configuration model profile");
-  if (m.vocabulary_size != 128256 || m.key_head_width != 128 ||
-      m.value_head_width != 128 || m.ssm || m.rope.width != 128 ||
-      m.rope.base != 500000 || m.rope.scaling_factor != 1 ||
+  if (m.family != "llama" || m.layers.empty() || m.layers.size() > 64)
+    return Fail(error, "Llama configuration requires supported layer identities");
+  const uint64_t E = m.embedding_width, V = m.vocabulary_size;
+  const uint64_t QH = m.layers.front().query_heads, KH = m.layers.front().kv_heads;
+  const uint64_t H = m.key_head_width;
+  uint64_t Q, KV;
+  if (!E || !V || !QH || !KH || QH % KH || !H || H != m.value_head_width ||
+      !Product(QH, H, &Q) || Q != E || !Product(KH, H, &KV) ||
+      !PositiveF32(m.rms_epsilon) || !PositiveF32(m.rope.base) || m.rope.base < 1 ||
+      m.ssm || m.rope.width != H || m.rope.scaling_factor != 1 ||
       (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear") ||
       !m.output_tied_to_embedding)
-    return Fail(error, "unsupported Llama head, rotary or tied-output profile");
+    return Fail(error, "inconsistent Llama geometry or unsupported rotary/output binding");
   Producer p;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", "token_embd.weight", E, 128256,
+  if (!p.Tensor(m.globals, "token_embedding", "token_embd.weight", E, V,
                 {14}) ||
-      !p.Tensor(m.globals, "output", "token_embd.weight", E, 128256, {14}) ||
+      !p.Tensor(m.globals, "output", "token_embd.weight", E, V, {14}) ||
       !p.Tensor(m.globals, "output_norm", "output_norm.weight", E, 1, {0}) ||
-      !p.Tensor(m.globals, "rope_frequencies", "rope_freqs.weight", 64, 1, {0}))
+      !p.Tensor(m.globals, "rope_frequencies", "rope_freqs.weight", m.rope.width / 2, 1, {0}))
     return false;
 
+  p.Projection(*Role(m.globals, "output"), E, V);
   std::vector<std::vector<uint64_t>> ffn, attention;
   // Order is architecture order; require that it is also the native layer key.
   for (size_t i = 0; i < m.layers.size(); ++i) {
     const auto &l = m.layers[i];
-    if (l.index != i || l.feed_forward_width != F ||
-        (l.kind != model::LayerKind::kAttention || l.query_heads != 24 ||
-         l.kv_heads != 8))
+    const uint64_t F = l.feed_forward_width;
+    if (l.index != i || !F || l.kind != model::LayerKind::kAttention ||
+        l.query_heads != QH || l.kv_heads != KH)
       return Fail(error, "unsupported layer identity or geometry at layer " +
                              std::to_string(i));
     const auto prefix = "blk." + std::to_string(i) + ".";
     if (!p.Tensor(l.tensors, "post_norm", prefix + "ffn_norm.weight", E, 1, {0},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", prefix + "ffn_gate.weight", E, F, {12},
+        !p.Tensor(l.tensors, "ffn_gate", prefix + "ffn_gate.weight", E, F, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", prefix + "ffn_up.weight", E, F, {12},
+        !p.Tensor(l.tensors, "ffn_up", prefix + "ffn_up.weight", E, F, {},
                   l.index) ||
         !p.Tensor(l.tensors, "ffn_down", prefix + "ffn_down.weight", F, E,
-                  {12, 14}, l.index))
+                  {}, l.index))
       return false;
     const auto &gate = *Role(l.tensors, "ffn_gate"),
                &up = *Role(l.tensors, "ffn_up"),
@@ -193,16 +214,19 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
           "FFN gate/up must have matching encoding and encoded byte extents");
     ffn.push_back({F, gate.storage_type, up.storage_type, down.storage_type,
                    gate.byte_size, up.byte_size, down.byte_size});
+    p.Projection(gate, E, F);
+    p.Projection(up, E, F);
+    p.Projection(down, F, E);
     if (!p.Tensor(l.tensors, "input_norm", prefix + "attn_norm.weight", E, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", prefix + "attn_q.weight", E, E, {12, 14},
+        !p.Tensor(l.tensors, "query", prefix + "attn_q.weight", E, E, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "key", prefix + "attn_k.weight", E, 1024, {12, 14},
+        !p.Tensor(l.tensors, "key", prefix + "attn_k.weight", E, KV, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "value", prefix + "attn_v.weight", E, 1024,
-                  {12, 14}, l.index) ||
+        !p.Tensor(l.tensors, "value", prefix + "attn_v.weight", E, KV,
+                  {}, l.index) ||
         !p.Tensor(l.tensors, "attention_output", prefix + "attn_output.weight",
-                  E, E, {12, 14}, l.index))
+                  E, E, {}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
                &v = *Role(l.tensors, "value"),
@@ -210,6 +234,10 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
     attention.push_back({q.storage_type, k.storage_type, v.storage_type,
                          o.storage_type, q.byte_size, k.byte_size, v.byte_size,
                          o.byte_size});
+    p.Projection(q, E, E);
+    p.Projection(k, E, KV);
+    p.Projection(v, E, KV);
+    p.Projection(o, E, E);
   }
   p.Index("loomify.ffn.profile", 0);
   const auto history = std::max<uint64_t>(s.token_capacity, 129);
@@ -218,11 +246,15 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("llama.model.hidden_size", E);
   p.Index("llama.model.vocabulary_size", m.vocabulary_size);
   p.Index("llama.model.layer_count", m.layers.size());
-  p.Index("llama.model.query_heads", 24);
-  p.Index("llama.model.kv_heads", 8);
-  p.Index("llama.model.head_size", 128);
-  p.Index("llama.model.kv_size", 1024);
+  p.Index("llama.model.query_heads", QH);
+  p.Index("llama.model.kv_heads", KH);
+  p.Index("llama.model.head_size", H);
+  p.Index("llama.model.kv_size", KV);
   p.Real("llama.model.rms_epsilon", float(m.rms_epsilon));
+  p.Real("llama.model.rotary_step",
+         float(std::pow(m.rope.base, -2.0 / double(m.rope.width))));
+  p.Real("llama.model.attention_scale",
+         float(1.0 / std::sqrt(double(m.key_head_width))));
   p.Index("llama.attention.cache_capacity", s.context_capacity);
   p.Index("llama.attention.pool_capacity", pool);
   p.Index("runner.llama32.prefill_token_count", s.token_capacity);
@@ -234,12 +266,7 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
           Role(m.globals, "output")->byte_size);
   p.Index("qwen38.greedy_argmax.output_capacity", m.vocabulary_size);
 
-  for (const auto tag : std::vector<int>{4, 6}) {
-    const auto prefix = "ggml.linear_q" + std::to_string(tag) + "k_q8_1_x4.";
-    p.Index(prefix + "token_capacity", 512);
-    p.Index(prefix + "output_capacity", tag == 6 ? 128256 : F);
-  }
-  p.Index("ggml.quantize_q8_1_x4.group_capacity", 32768);
+  p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_ffn", ffn);
   p.Lookup("loomify.config.layer_attention", attention);
   p.facts.source = p.text.str();
@@ -249,9 +276,6 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   return true;
 }
 
-struct Selectors {
-  uint32_t gate_q4 = 0, gate_q6 = 0, down_q6 = 0, attention_q6 = 0;
-};
 bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
               const ConfigurationSettings &o, ConfigurationFacts *out,
               std::string *error) {
@@ -264,46 +288,66 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
                     std::initializer_list<uint32_t> tags) {
     return p.Tensor(bindings, role, name, in, out, tags, layer);
   };
-  if (m.family != "qwen35" || m.embedding_width != 1024 ||
-      m.vocabulary_size != 248320 || m.layers.size() != 24 ||
-      m.key_head_width != 256 || m.value_head_width != 256 ||
-      !std::isfinite(m.rms_epsilon) || float(m.rms_epsilon) != 1e-6f ||
-      m.rope.width != 64 || m.rope.base != 10000000 ||
-      m.rope.scaling_factor != 1 ||
-      (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear") ||
-      m.rope.sections != std::array<uint64_t, 4>{11, 11, 10, 0} || !m.ssm ||
-      m.ssm->convolution_kernel != 4 || m.ssm->inner_width != 2048 ||
-      m.ssm->state_width != 128 || m.ssm->key_heads != 16 ||
-      m.ssm->value_heads != 16 ||
-      m.ssm->convolution_history_elements != 18432 ||
-      m.ssm->recurrent_state_elements != 262144 || !m.output_tied_to_embedding)
-    return Fail(error, "unsupported Qwen 0.8B native profile");
-  if (!tensor(m.globals, "token_embedding", "token_embd.weight", 1024, 248320,
-              {14}) ||
-      !tensor(m.globals, "output", "token_embd.weight", 1024, 248320, {14}) ||
-      !tensor(m.globals, "output_norm", "output_norm.weight", 1024, 1, {0}))
+  if (m.family != "qwen35" || !m.ssm || m.layers.empty() || m.layers.size() > 64)
+    return Fail(error, "Qwen configuration requires supported layer identities and SSM facts");
+  const uint64_t E = m.embedding_width, V = m.vocabulary_size;
+  const uint64_t F = m.layers.front().feed_forward_width, L = m.layers.size();
+  const uint64_t QH = m.layers.front().query_heads, KH = m.layers.front().kv_heads;
+  const uint64_t G = m.ssm->value_heads, K = m.ssm->key_heads;
+  const uint64_t D = m.ssm->state_width, H = m.key_head_width;
+  const uint64_t W = m.ssm->inner_width;
+  if (!E || !V || !F || !QH || !KH || QH % KH || !H || H != m.value_head_width ||
+      !K || !G || G % K || !D || !W || W % D || W / D != G ||
+      !m.ssm->convolution_kernel || !PositiveF32(m.rms_epsilon) ||
+      !m.rope.width || m.rope.width % 2 || m.rope.width > H ||
+      !PositiveF32(m.rope.base) || m.rope.base < 1 || m.rope.scaling_factor != 1 ||
+      (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear"))
+    return Fail(error, "inconsistent Qwen numerical or unsupported rotary facts");
+  uint64_t sections = 0;
+  for (auto section : m.rope.sections)
+    if (!Sum(sections, section, &sections))
+      return Fail(error, "overflowing Qwen rotary sections");
+  uint64_t section_width;
+  if (!Product(2, sections, &section_width) || section_width != m.rope.width)
+    return Fail(error, "inconsistent Qwen rotary sections");
+  uint64_t attention_width, query_gate_width, kv_width;
+  if (!Product(QH, H, &attention_width) ||
+      !Product(2, attention_width, &query_gate_width) ||
+      !Product(KH, H, &kv_width))
+    return Fail(error, "overflowing Qwen attention geometry");
+  uint64_t key_channels, QKV, expected_history, expected_state;
+  if (!Product(K, D, &key_channels) || !Product(2, key_channels, &QKV) ||
+      !Sum(QKV, W, &QKV) ||
+      !Product(m.ssm->convolution_kernel - 1, QKV, &expected_history) ||
+      !Product(D, W, &expected_state) ||
+      expected_history != m.ssm->convolution_history_elements ||
+      expected_state != m.ssm->recurrent_state_elements)
+    return Fail(error, "inconsistent or overflowing Qwen recurrent geometry");
+  const std::string output_name = m.output_tied_to_embedding ? "token_embd.weight" : "output.weight";
+  if (!tensor(m.globals, "token_embedding", "token_embd.weight", E, V, {}) ||
+      !tensor(m.globals, "output", output_name, E, V, {}) ||
+      !tensor(m.globals, "output_norm", "output_norm.weight", E, 1, {0}))
     return false;
-  Selectors selected;
+  p.Projection(*Role(m.globals, "output"), E, V);
   uint64_t gdn_count = 0, attention_count = 0;
-  std::vector<std::vector<uint64_t>> routes, ffn;
+  std::vector<std::vector<uint64_t>> routes, ffn, attention_projections, gdn_projections;
   for (size_t slot = 0; slot < m.layers.size(); ++slot) {
     const auto &l = m.layers[slot];
     layer = l.index;
-    if (l.index != slot || l.feed_forward_width != 3584 || l.query_heads != 8 ||
-        l.kv_heads != 2)
+    if (l.index != slot || l.feed_forward_width != F || l.query_heads != QH ||
+        l.kv_heads != KH)
       return Fail(error, "unsupported Qwen layer identity or geometry");
-    const auto bit = uint32_t(1) << l.index;
     const auto prefix = "blk." + std::to_string(l.index) + ".";
     const auto &t = l.tensors;
-    if (!tensor(t, "input_norm", prefix + "attn_norm.weight", 1024, 1, {0}) ||
-        !tensor(t, "post_norm", prefix + "post_attention_norm.weight", 1024, 1,
+    if (!tensor(t, "input_norm", prefix + "attn_norm.weight", E, 1, {0}) ||
+        !tensor(t, "post_norm", prefix + "post_attention_norm.weight", E, 1,
                 {0}) ||
-        !tensor(t, "ffn_gate", prefix + "ffn_gate.weight", 1024, 3584,
-                {12, 13, 14}) ||
-        !tensor(t, "ffn_up", prefix + "ffn_up.weight", 1024, 3584,
-                {12, 13, 14}) ||
-        !tensor(t, "ffn_down", prefix + "ffn_down.weight", 3584, 1024,
-                {13, 14}))
+        !tensor(t, "ffn_gate", prefix + "ffn_gate.weight", E, F,
+                {}) ||
+        !tensor(t, "ffn_up", prefix + "ffn_up.weight", E, F,
+                {}) ||
+        !tensor(t, "ffn_down", prefix + "ffn_down.weight", F, E,
+                {}))
       return false;
     const auto gate = Role(t, "ffn_gate")->storage_type;
     if (gate != Role(t, "ffn_up")->storage_type)
@@ -311,90 +355,97 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
     const auto &gate_tensor = *Role(t, "ffn_gate");
     const auto &up_tensor = *Role(t, "ffn_up");
     const auto &down_tensor = *Role(t, "ffn_down");
-    ffn.push_back({3584, gate, up_tensor.storage_type, down_tensor.storage_type,
+    ffn.push_back({F, gate, up_tensor.storage_type, down_tensor.storage_type,
                    gate_tensor.byte_size, up_tensor.byte_size,
                    down_tensor.byte_size});
-    if (gate == 12)
-      selected.gate_q4 |= bit;
-    if (gate == 14)
-      selected.gate_q6 |= bit;
-    if (Role(t, "ffn_down")->storage_type == 14)
-      selected.down_q6 |= bit;
+    p.Projection(gate_tensor, E, F);
+    p.Projection(up_tensor, E, F);
+    p.Projection(down_tensor, F, E);
     if (l.kind == model::LayerKind::kGatedDeltaNet) {
       if (!l.recurrent_ordinal || *l.recurrent_ordinal != gdn_count ||
           l.attention_ordinal)
         return Fail(error,
                     "Qwen recurrent ordinal disagrees with descriptor order");
       routes.push_back({1, l.index, gdn_count++});
-      if (!tensor(t, "recurrent_qkv", prefix + "attn_qkv.weight", 1024, 6144,
-                  {14}) ||
-          !tensor(t, "recurrent_gate", prefix + "attn_gate.weight", 1024, 2048,
-                  {14}) ||
-          !tensor(t, "convolution", prefix + "ssm_conv1d.weight", 4, 6144,
+      if (!tensor(t, "recurrent_qkv", prefix + "attn_qkv.weight", E, QKV, {}) ||
+          !tensor(t, "recurrent_gate", prefix + "attn_gate.weight", E, W, {}) ||
+          !tensor(t, "convolution", prefix + "ssm_conv1d.weight", m.ssm->convolution_kernel, QKV,
                   {0}) ||
-          !tensor(t, "dt_bias", prefix + "ssm_dt.bias", 16, 1, {0}) ||
-          !tensor(t, "decay", prefix + "ssm_a", 16, 1, {0}) ||
-          !tensor(t, "alpha", prefix + "ssm_alpha.weight", 1024, 16, {13}) ||
-          !tensor(t, "beta", prefix + "ssm_beta.weight", 1024, 16, {13}) ||
-          !tensor(t, "recurrent_norm", prefix + "ssm_norm.weight", 128, 1,
+          !tensor(t, "dt_bias", prefix + "ssm_dt.bias", G, 1, {0}) ||
+          !tensor(t, "decay", prefix + "ssm_a", G, 1, {0}) ||
+          !tensor(t, "alpha", prefix + "ssm_alpha.weight", E, G, {}) ||
+          !tensor(t, "beta", prefix + "ssm_beta.weight", E, G, {}) ||
+          !tensor(t, "recurrent_norm", prefix + "ssm_norm.weight", D, 1,
                   {0}) ||
-          !tensor(t, "recurrent_output", prefix + "ssm_out.weight", 2048, 1024,
-                  {13}))
+          !tensor(t, "recurrent_output", prefix + "ssm_out.weight", W, E, {}))
         return false;
+      for (const auto &use : std::vector<std::tuple<const char *, uint64_t, uint64_t>>{
+               {"recurrent_qkv", E, QKV}, {"recurrent_gate", E, W},
+               {"alpha", E, G}, {"beta", E, G}, {"recurrent_output", W, E}})
+        p.Projection(*Role(t, std::get<0>(use)), std::get<1>(use), std::get<2>(use));
+      std::vector<uint64_t> row;
+      for (const char *role : {"recurrent_qkv", "recurrent_gate", "alpha", "beta", "recurrent_output"}) row.push_back(Role(t, role)->storage_type);
+      for (const char *role : {"recurrent_qkv", "recurrent_gate", "alpha", "beta", "recurrent_output"}) row.push_back(Role(t, role)->byte_size);
+      gdn_projections.push_back(std::move(row));
     } else if (l.kind == model::LayerKind::kAttention) {
       if (!l.attention_ordinal || *l.attention_ordinal != attention_count ||
           l.recurrent_ordinal)
         return Fail(error,
                     "Qwen attention ordinal disagrees with descriptor order");
       routes.push_back({0, l.index, attention_count++});
-      if (!tensor(t, "query", prefix + "attn_q.weight", 1024, 4096, {13, 14}) ||
-          !tensor(t, "key", prefix + "attn_k.weight", 1024, 512, {13, 14}) ||
-          !tensor(t, "value", prefix + "attn_v.weight", 1024, 512, {14}) ||
-          !tensor(t, "attention_output", prefix + "attn_output.weight", 2048,
-                  1024, {13}) ||
-          !tensor(t, "query_norm", prefix + "attn_q_norm.weight", 256, 1,
+      if (!tensor(t, "query", prefix + "attn_q.weight", E, query_gate_width, {}) ||
+          !tensor(t, "key", prefix + "attn_k.weight", E, kv_width, {}) ||
+          !tensor(t, "value", prefix + "attn_v.weight", E, kv_width, {}) ||
+          !tensor(t, "attention_output", prefix + "attn_output.weight", attention_width, E, {}) ||
+          !tensor(t, "query_norm", prefix + "attn_q_norm.weight", H, 1,
                   {0}) ||
-          !tensor(t, "key_norm", prefix + "attn_k_norm.weight", 256, 1, {0}))
+          !tensor(t, "key_norm", prefix + "attn_k_norm.weight", H, 1, {0}))
         return false;
-      const auto query = Role(t, "query")->storage_type;
-      if (query != Role(t, "key")->storage_type)
-        return Fail(error,
-                    "Qwen attention requires matching query/key encodings");
-      if (query == 14)
-        selected.attention_q6 |= bit;
+      for (const auto &use : std::vector<std::tuple<const char *, uint64_t, uint64_t>>{
+               {"query", E, query_gate_width}, {"key", E, kv_width},
+               {"value", E, kv_width}, {"attention_output", attention_width, E}})
+        p.Projection(*Role(t, std::get<0>(use)), std::get<1>(use), std::get<2>(use));
+      std::vector<uint64_t> row;
+      for (const char *role : {"query", "key", "value", "attention_output"}) row.push_back(Role(t, role)->storage_type);
+      for (const char *role : {"query", "key", "value", "attention_output"}) row.push_back(Role(t, role)->byte_size);
+      attention_projections.push_back(std::move(row));
     } else
       return Fail(error, "unsupported Qwen layer kind");
   }
-  if (gdn_count != 18 || attention_count != 6)
-    return Fail(error, "unsupported Qwen recurrent/attention layer counts");
+  // These are the complete consumers' actual ordinal bounds, not a checkpoint
+  // layer ratio. Both lookup products currently require at least one row.
+  if (!gdn_count || gdn_count > 48 || !attention_count || attention_count > 16)
+    return Fail(error, "unsupported Qwen recurrent/attention ordinal counts");
   const auto pool = (o.context_capacity + 63) / 64 * 64;
-  const auto history_bytes = 4 * m.ssm->convolution_history_elements;
-  const auto recurrent_bytes = 4 * m.ssm->recurrent_state_elements;
-  const auto layer_bytes = history_bytes + recurrent_bytes;
-  const auto state_bytes = gdn_count * layer_bytes;
+  uint64_t history_bytes, recurrent_bytes, layer_bytes, state_bytes;
+  uint64_t plane_token_bytes, all_token_bytes, capacity_bytes, private_stride, arena_bytes;
   const auto plane_count = 2 * attention_count;
-  const auto plane_token_bytes =
-      2 * m.layers.front().kv_heads * m.key_head_width;
-  auto mask = [&](const char *key, uint32_t value) {
-    p.text << "config.def @" << key << " = " << int64_t(int32_t(value))
-           << " : i32\n";
-  };
-  const auto E = m.embedding_width, F = uint64_t(3584), V = m.vocabulary_size;
-  const auto H = m.key_head_width, D = m.ssm->state_width, K = m.ssm->key_heads,
-             G = m.ssm->value_heads, W = m.ssm->inner_width,
-             QKV = 2 * K * D + W;
+  if (!Product(4, expected_history, &history_bytes) ||
+      !Product(4, expected_state, &recurrent_bytes) ||
+      !Sum(history_bytes, recurrent_bytes, &layer_bytes) ||
+      !Product(gdn_count, layer_bytes, &state_bytes) ||
+      !Product(KH, H, &plane_token_bytes) ||
+      !Product(2, plane_token_bytes, &plane_token_bytes) ||
+      !Product(plane_count, plane_token_bytes, &all_token_bytes) ||
+      !Product(all_token_bytes, pool, &capacity_bytes) ||
+      !Sum(state_bytes, 256 + 2048 + 256, &private_stride) ||
+      !Sum(private_stride, capacity_bytes, &arena_bytes))
+    return Fail(error, "overflowing Qwen state or cache allocation");
+  for (auto width : {E, F, W, QKV, query_gate_width, kv_width, V})
+    if (!Product(width, 512 * 4, &capacity_bytes))
+      return Fail(error, "overflowing Qwen scratch allocation");
   p.Index("qwen.model.hidden_size", E);
   p.Index("qwen.model.ffn_size", F);
   p.Index("qwen.model.vocabulary_size", V);
   p.Index("qwen.model.base_layers", m.layers.size());
   p.Index("qwen.model.checkpoint_layers", m.layers.size());
   p.Index("qwen.model.group_count", attention_count);
-  p.Index("qwen.model.attention_heads", 8);
-  p.Index("qwen.model.kv_heads", 2);
+  p.Index("qwen.model.attention_heads", QH);
+  p.Index("qwen.model.kv_heads", KH);
   p.Index("qwen.model.head_size", H);
-  p.Index("qwen.model.attention_width", 8 * H);
-  p.Index("qwen.model.kv_size", 2 * H);
-  p.Index("qwen.model.query_gate_size", 16 * H);
+  p.Index("qwen.model.attention_width", attention_width);
+  p.Index("qwen.model.kv_size", kv_width);
+  p.Index("qwen.model.query_gate_size", query_gate_width);
   p.Index("qwen.model.rope_size", m.rope.width);
   p.Index("qwen.model.rope_half", m.rope.width / 2);
   p.Real("qwen.model.rope_theta", m.rope.base);
@@ -435,11 +486,11 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("qwen.model.projection_row_bytes", W * 4);
   p.Index("qwen.model.hidden_row_bytes", E * 4);
   p.Index("qwen.model.ffn_row_bytes", F * 4);
-  p.Index("qwen.model.query_gate_row_bytes", 16 * H * 4);
+  p.Index("qwen.model.query_gate_row_bytes", query_gate_width * 4);
   p.Index("qwen.model.kv_plane_token_bytes", plane_token_bytes);
   p.Index("qwen.model.kv_row_bytes", plane_token_bytes * 2);
   p.Index("qwen.model.target_kv_planes", plane_count);
-  p.Index("qwen.model.target_kv_token_bytes", plane_count * plane_token_bytes);
+  p.Index("qwen.model.target_kv_token_bytes", all_token_bytes);
   p.Index("qwen.model.head_gate_size", 2 * H);
   p.Index("qwen.model.hidden_qk_blocks", E / 256);
   p.Index("qwen.model.ffn_qk_blocks", F / 256);
@@ -450,45 +501,23 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("qwen.model.ffn_q8_row_bytes", F / 128 * 144);
   p.Index("qwen.model.logits_row_bytes", V * 4);
   p.Index("qwen.model.argmax_partial_row_bytes", ((V + 4095) / 4096) * 4);
-  p.Index("qwen.model.embedding_quantization", 6);
-  p.Index("qwen.model.tie_word_embeddings", 1);
-  p.Index("qwen.model.embedding_weight_bytes", E / 256 * V * 210);
-  p.Index("qwen.model.output_weight_bytes", E / 256 * V * 210);
-  p.Index("qwen.model.embedding_row_bytes", E / 256 * 210);
-  p.Index("qwen.model.output_weight_row_bytes", E / 256 * 210);
-  p.Index("qwen.model.ffn_gate_q4_weight_bytes", E / 256 * F * 144);
-  p.Index("qwen.model.ffn_gate_q5_weight_bytes", E / 256 * F * 176);
-  p.Index("qwen.model.ffn_gate_q6_weight_bytes", E / 256 * F * 210);
-  p.Index("qwen.model.ffn_down_q5_weight_bytes", F / 256 * E * 176);
-  p.Index("qwen.model.ffn_down_q6_weight_bytes", F / 256 * E * 210);
-  p.Index("qwen.model.ffn_gate_weight_bytes", E / 256 * F * 176);
-  p.Index("qwen.model.ffn_down_weight_bytes", F / 256 * E * 210);
-  p.Index("qwen.model.query_q5_weight_bytes", E / 256 * 16 * H * 176);
-  p.Index("qwen.model.query_q6_weight_bytes", E / 256 * 16 * H * 210);
-  p.Index("qwen.model.key_q5_weight_bytes", E / 256 * 2 * H * 176);
-  p.Index("qwen.model.key_q6_weight_bytes", E / 256 * 2 * H * 210);
-  p.Index("qwen.model.query_weight_bytes", E / 256 * 16 * H * 210);
-  p.Index("qwen.model.key_weight_bytes", E / 256 * 2 * H * 210);
-  p.Index("qwen.model.value_weight_bytes", E / 256 * 2 * H * 210);
-  p.Index("qwen.model.projection_weight_bytes", W / 256 * E * 176);
-  p.Index("qwen.model.gdn_qkv_weight_bytes", E / 256 * QKV * 210);
-  p.Index("qwen.model.gdn_gate_weight_bytes", E / 256 * W * 210);
-  p.Index("qwen.model.gdn_alpha_weight_bytes", E / 256 * G * 176);
-  p.Index("qwen.model.gdn_beta_weight_bytes", E / 256 * G * 176);
-  mask("qwen.model.ffn_gate_q4_layers", selected.gate_q4);
-  mask("qwen.model.ffn_gate_q6_layers", selected.gate_q6);
-  mask("qwen.model.ffn_down_q6_layers", selected.down_q6);
-  mask("qwen.model.attention_q6_layers", selected.attention_q6);
+  p.Index("qwen.model.embedding_storage_type", Role(m.globals, "token_embedding")->storage_type);
+  p.Index("qwen.model.output_storage_type", Role(m.globals, "output")->storage_type);
+  p.Index("qwen.model.tie_word_embeddings", m.output_tied_to_embedding);
+  p.Index("qwen.model.embedding_weight_bytes", Role(m.globals, "token_embedding")->byte_size);
+  p.Index("qwen.model.output_weight_bytes", Role(m.globals, "output")->byte_size);
+  p.Index("qwen.model.embedding_row_bytes", Role(m.globals, "token_embedding")->byte_size / V);
+  p.Index("qwen.model.output_weight_row_bytes", Role(m.globals, "output")->byte_size / V);
   p.Index("qwen.model.projection_implementation", 1);
   p.Index("qwen.model.hidden_capacity_bytes", 512 * m.embedding_width * 4);
   p.Index("qwen.model.ffn_capacity_bytes", 512 * F * 4);
   p.Index("qwen.model.gdn_f16_capacity_bytes", 512 * W * 2);
   p.Index("qwen.model.gdn_gate_capacity_bytes", 512 * G * 4);
   p.Index("qwen.model.hidden_q8_capacity_bytes", 512 * E / 128 * 144);
-  p.Index("qwen.model.kv_capacity_bytes", 512 * 2 * H * 4);
-  p.Index("qwen.model.projection_capacity_bytes", 512 * W * 4);
+  p.Index("qwen.model.kv_capacity_bytes", 512 * kv_width * 4);
+  p.Index("qwen.model.projection_capacity_bytes", 512 * std::max(W, attention_width) * 4);
   p.Index("qwen.model.qkv_capacity_bytes", 512 * QKV * 4);
-  p.Index("qwen.model.query_gate_capacity_bytes", 512 * 16 * H * 4);
+  p.Index("qwen.model.query_gate_capacity_bytes", 512 * query_gate_width * 4);
   p.Index("qwen.model.embedding_chunks", E / 16);
   p.Index("qwen.model.output_projection_iterations", 1);
   p.Index("qwen.model.head_scratch_bytes", 1024);
@@ -500,18 +529,14 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("runner.qwen38.prefill_token_count", o.token_capacity);
   p.Index("runner.qwen38.span_capacity", 1);
   p.Index("qwen38.greedy_argmax.output_capacity", V);
-  p.Index("ggml.linear_q4k_q8_1_x4.output_capacity", F);
-  p.Index("ggml.linear_q5k_q8_1_x4.output_capacity", QKV);
-  p.Index("ggml.linear_q6k_q8_1_x4.output_capacity", V);
-  p.Index("ggml.linear_q4k_q8_1_x4.token_capacity", 512);
-  p.Index("ggml.linear_q5k_q8_1_x4.token_capacity", 512);
-  p.Index("ggml.linear_q6k_q8_1_x4.token_capacity", 512);
-  p.Index("ggml.quantize_q8_1_x4.group_capacity", 32768);
+  p.ProjectionCapacities();
   p.Index("qwen.model.gdn_slot_origin", 256);
-  p.Index("qwen.model.private_row_stride", 256 + state_bytes + 2048 + 256);
+  p.Index("qwen.model.private_row_stride", private_stride);
   p.Index("qwen.model.map_origin", 2048);
   p.Index("loomify.ffn.profile", 1);
   p.Lookup("loomify.config.layer_route", routes);
+  p.Lookup("loomify.config.attention_projections", attention_projections);
+  p.Lookup("loomify.config.gdn_projections", gdn_projections);
   p.Lookup("loomify.config.layer_ffn", ffn);
   p.facts.source = p.text.str();
   *out = std::move(p.facts);

@@ -5,3 +5,6 @@ config.def @llama.model.query_heads = 24 : index
 config.def @llama.model.kv_heads = 8 : index
 config.def @llama.model.head_size = 128 : index
 config.def @llama.model.kv_size = 1024 : index
+
+config.def @llama.model.rotary_step = 0.8146172165870667 : f32
+config.def @llama.model.attention_scale = 0.08838834764831845 : f32

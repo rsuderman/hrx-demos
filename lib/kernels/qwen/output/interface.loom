@@ -2,3 +2,4 @@
 // SPDX-License-Identifier: MIT
 kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
 command.program.decl @qwen08_epoch_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)]
+kernel.decl @qwen38_token_embedding_q4k_f32_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)

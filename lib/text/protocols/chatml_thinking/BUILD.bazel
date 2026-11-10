@@ -1,0 +1,6 @@
+load("//build_tools:loom_merge.bzl", "loom_merge")
+package(default_visibility = ["//visibility:public"])
+exports_files(glob(["*.loom"]))
+filegroup(name = "shared_sources", srcs = ["admission.loom", "input.loom", "output.loom", "tools.loom", "tool_output.loom"])
+loom_merge(name = "inline_history", srcs = [":shared_sources", "inline_history.loom"])
+loom_merge(name = "explicit_reasoning", srcs = [":shared_sources", "explicit_reasoning.loom"])
