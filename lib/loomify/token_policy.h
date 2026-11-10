@@ -3,6 +3,7 @@
 #ifndef HRX_SOLUTIONS_LIB_LOOMIFY_TOKEN_POLICY_H_
 #define HRX_SOLUTIONS_LIB_LOOMIFY_TOKEN_POLICY_H_
 #include <cstdio>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -15,11 +16,21 @@ struct TokenIdentity {
   int32_t id = 0;
   std::string piece;
 };
-// Only Llama's numerical publication consumes these identities. Qwen's
-// numerical product has no tokenizer/EOS prerequisite.
+// Source-only raw stop identities consumed by the numerical publication.
+// Qwen numerical construction has no tokenizer/EOS prerequisite.
 struct PublicationTokenFacts {
-  TokenIdentity end_text, end_message, end_turn;
+  std::vector<TokenIdentity> raw_stops;
+  size_t terminal_index = 0;
   std::string configuration_source;
+};
+// Finite requirements of the selected text protocol, not a numerical family.
+struct TextTokenRequirements {
+  std::string tokenizer_model, pre_tokenizer;
+  bool require_bos = false;
+  // Empty permits the actual source BOS spelling (e.g. a template BOS variable).
+  std::string bos_piece;
+  std::string terminal_piece;
+  bool terminal_is_eos = true;
 };
 struct BoundTokenPolicy {
   std::map<std::string, TokenIdentity> roles;
@@ -36,11 +47,11 @@ bool DerivePublicationTokenFacts(FILE*, std::string_view family,
     const model::TextMetadata&, std::optional<PublicationTokenFacts>* out,
     std::string* error);
 // Native HF JSON binding for a reviewed text provider, not exhaustive tokenizer
-// equivalence. text_family selects token/text requirements, not the numerical ABI.
+// equivalence. Requirements come from the selected text protocol, not numerical ABI.
 // Optional publication facts are numerical requirements checked independently.
 // JSON bytes and metadata are borrowed; result owns its data.
 // Required atomic pieces must exist in both GGUF and JSON at the same ID.
-bool BindTokenPolicy(FILE* gguf, std::string_view text_family, const model::TextMetadata&,
+bool BindTokenPolicy(FILE* gguf, const TextTokenRequirements& requirements, const model::TextMetadata&,
     const std::optional<PublicationTokenFacts>&,
     const std::vector<std::string>& required_atomic_markers,
     std::string_view tokenizer_json, BoundTokenPolicy* out, std::string* error);

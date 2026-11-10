@@ -1,0 +1,61 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+kernel.decl @gemma3_rmsnorm_active_f32(%rows: index) launch(%rows: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @gemma3_residual(%rows: index) launch(%count: buffer, %source: buffer, %residual: buffer)
+config.decl @gemma3.model.hidden_size : index
+func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
+kernel.decl @gemma3_geglu(%rows: index, %width: index) launch(%width: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
+command.program.def @loomify.gemma3.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+  %hidden = config.get @gemma3.model.hidden_size : index
+  %zero = index.constant 0 : index
+  %policy = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %word = index.constant 4 : offset
+  %block = index.constant 128 : index
+  %packed_block = index.constant 144 : offset
+  %f, %gt, %ut, %dt, %gb, %ub, %db = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
+  %pregamma = command.parameter %parameters, "blk.{}.ffn_norm.weight"[%layer] : view<[%hidden]xf32>
+  %postgamma = command.parameter %parameters, "blk.{}.post_ffw_norm.weight"[%layer] : view<[%hidden]xf32>
+  %gw = command.parameter %parameters, "blk.{}.ffn_gate.weight"[%layer] : view<[%gb]xi8>
+  %uw = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%ub]xi8>
+  %dw = command.parameter %parameters, "blk.{}.ffn_down.weight"[%layer] : view<[%db]xi8>
+  %normal_elements = index.mul %rows, %hidden : index
+  %normal_bytes = index.scale %normal_elements, %word : index, offset -> offset
+  %normal = buffer.alloca<global> align(256) %normal_bytes : buffer
+  %gate_elements = index.mul %rows, %f : index
+  %gate_bytes = index.scale %gate_elements, %word : index, offset -> offset
+  %gate = buffer.alloca<global> align(256) %gate_bytes : buffer
+  %up_elements = index.mul %rows, %f : index
+  %up_bytes = index.scale %up_elements, %word : index, offset -> offset
+  %up = buffer.alloca<global> align(256) %up_bytes : buffer
+  %activated_elements = index.mul %rows, %f : index
+  %activated_bytes = index.scale %activated_elements, %word : index, offset -> offset
+  %activated = buffer.alloca<global> align(256) %activated_bytes : buffer
+  %down_elements = index.mul %rows, %hidden : index
+  %down_bytes = index.scale %down_elements, %word : index, offset -> offset
+  %down = buffer.alloca<global> align(256) %down_bytes : buffer
+  %post_elements = index.mul %rows, %hidden : index
+  %post_bytes = index.scale %post_elements, %word : index, offset -> offset
+  %post = buffer.alloca<global> align(256) %post_bytes : buffer
+  %packed_row_groups = index.div %hidden, %block : index
+  %packed_groups = index.mul %rows, %packed_row_groups : index
+  %packed_bytes = index.scale %packed_groups, %packed_block : index, offset -> offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  %down_packed_row_groups = index.div %f, %block : index
+  %down_packed_groups = index.mul %rows, %down_packed_row_groups : index
+  %down_packed_bytes = index.scale %down_packed_groups, %packed_block : index, offset -> offset
+  %down_packed = buffer.alloca<global> align(256) %down_packed_bytes : buffer
+  kernel.launch @gemma3_rmsnorm_active_f32[%rows](%rows, %zero, %origin, %count, %residual, %pregamma, %normal) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %normal, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %gt, %rows, %rows, %hidden, %f, %gb, %zero, %dynamic, %origin, %count, %packed, %gw, %gate) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%gb]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %ut, %rows, %rows, %hidden, %f, %ub, %zero, %dynamic, %origin, %count, %packed, %uw, %up) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%ub]xi8>, buffer)
+  kernel.launch @gemma3_geglu[%rows, %f](%f, %count, %gate, %up, %activated) : [index, index](index, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %f, %zero, %dynamic, %origin, %count, %activated, %down_packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %dt, %rows, %rows, %f, %hidden, %db, %zero, %dynamic, %origin, %count, %down_packed, %dw, %down) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%db]xi8>, buffer)
+  kernel.launch @gemma3_rmsnorm_active_f32[%rows](%rows, %zero, %origin, %count, %down, %postgamma, %post) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
+  kernel.launch @gemma3_residual[%rows](%count, %post, %residual) : [index](buffer, buffer, buffer)
+  command.return
+}

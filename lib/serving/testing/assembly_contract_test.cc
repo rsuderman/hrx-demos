@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/chat_policy.h"
+#include "lib/loomify/gguf_model_builder.h"
 #include "lib/loomify/configuration.h"
 #include "lib/loomify/testing/configuration_fixture.h"
 #include "lib/loomify/linking.h"
@@ -47,7 +48,30 @@ protected:
     const auto path=scratch_/name; std::ofstream output(path,std::ios::binary);
     output << contents; output.close(); EXPECT_TRUE(output); return path.string();
   }
+  void SelectGemma() {
+    const char* gguf=std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
+    const char* tokenizer=std::getenv("LOOMIFY_TEST_GEMMA_TOKENIZER");
+    ASSERT_NE(gguf,nullptr) << "real Gemma GGUF fixture required";
+    ASSERT_NE(tokenizer,nullptr) << "adjacent real tokenizer.json required";
+    std::unique_ptr<GgufModelBuilder> builder; std::string error;
+    ASSERT_TRUE(GgufModelBuilder::Open(gguf,&builder,&error)) << error;
+    ASSERT_EQ(builder->descriptor().family,"gemma3");
+    ASSERT_TRUE(SelectChatPolicy(builder->text_metadata(),{},&policy_,&error)) << error;
+    GgufBuildOptions build; build.prefill_capacity=8; build.context_capacity=64;
+    GgufPackageOptions package; package.tokenizer=tokenizer;
+    std::unique_ptr<GgufConfiguration> configuration;
+    ASSERT_TRUE(builder->Configure(build,&package,&configuration,&error)) << error;
+    ASSERT_TRUE(configuration->has_package_configuration());
+    gemma_source_=configuration->configuration_source()+configuration->package_data_source();
+    products_={(root_/"lib/architectures/gemma3/execution.loombc").string(),
+      (root_/policy_.text_product).string(),(root_/"lib/serving/greedy.loombc").string(),
+      (root_/"lib/text/common/implementation.loombc").string()};
+    roots_=policy_.roots; roots_.push_back("loomify.text.model_name");
+    roots_.insert(roots_.end(),policy_.data_roots.begin(),policy_.data_roots.end());
+  }
   void Select(int revision) {
+    gemma_source_.clear();
+    if (revision==3) { SelectGemma(); return; }
     const char* templates[]={"lib/text/llama/templates/5816fce1.jinja",
       "lib/text/qwen35/templates/7f0e5290.jinja","lib/text/qwen35/templates/c3cf9e34.jinja"};
     model::TextMetadata metadata;
@@ -66,7 +90,18 @@ protected:
     roots_.push_back("loomify.text.model_name");
     roots_.insert(roots_.end(),policy_.data_roots.begin(),policy_.data_roots.end());
   }
-  std::string Configuration() const { return numerical_+marker_+policy_.configuration_source+identity_; }
+  std::string Configuration() const {
+    return gemma_source_.empty() ? numerical_+marker_+policy_.configuration_source+identity_ : gemma_source_;
+  }
+  std::string WithoutDefinition(std::string source,const std::string& prefix,bool function) {
+    const auto begin=source.find(prefix);
+    EXPECT_NE(begin,std::string::npos) << prefix;
+    if (begin==std::string::npos) return source;
+    const auto end=source.find(function ? "\n}" : "\n",begin);
+    EXPECT_NE(end,std::string::npos) << prefix;
+    if (end!=std::string::npos) source.erase(begin,end-begin+(function ? 2 : 1));
+    return source;
+  }
   bool Link(const std::string& config,const std::vector<std::string>& products,loomc_module_t** out,std::string* error) {
     return LinkConfiguredProducts(context_,workspace_,config,products,roots_,false,out,error);
   }
@@ -80,19 +115,20 @@ protected:
     if (module) loomc_module_release(module);
     ASSERT_TRUE(succeeded) << path;
   }
-  void Reject(const std::string& config,const std::vector<std::string>& products) {
+  void Reject(const std::string& config,const std::vector<std::string>& products,const char* missing=nullptr) {
     loomc_module_t* output=nullptr; std::string error;
     EXPECT_FALSE(Link(config,products,&output,&error));
     EXPECT_EQ(output,nullptr); EXPECT_FALSE(error.empty());
+    if (missing) EXPECT_NE(error.find(missing),std::string::npos) << error;
     if (output) loomc_module_release(output);
   }
   ChatPolicySelection policy_; std::vector<std::string> products_;
-  std::vector<const char*> roots_; std::string numerical_,marker_,identity_;
+  std::vector<const char*> roots_; std::string numerical_,marker_,identity_,gemma_source_;
   fs::path root_,scratch_; loomc_context_t* context_=nullptr; loomc_workspace_t* workspace_=nullptr;
 };
-TEST_F(AssemblyContract, ActualProvidersResolveAllEighteenHooksForThreePolicies) {
+TEST_F(AssemblyContract, ActualProvidersResolveAllEighteenHooksForFourPolicies) {
   std::string qwen_execution;
-  for (int revision=0;revision<3;++revision) {
+  for (int revision=0;revision<4;++revision) {
     SCOPED_TRACE(revision); Select(revision); ASSERT_FALSE(HasFatalFailure());
     ASSERT_EQ(policy_.roots.size(),18u);
     ASSERT_EQ(std::set<std::string>(policy_.roots.begin(),policy_.roots.end()).size(),18u);
@@ -110,7 +146,7 @@ TEST_F(AssemblyContract, ActualProvidersResolveAllEighteenHooksForThreePolicies)
   }
 }
 TEST_F(AssemblyContract, MissingActualProviderIsRejected) {
-  for (int revision=0;revision<3;++revision) {
+  for (int revision=0;revision<4;++revision) {
     Select(revision); ASSERT_FALSE(HasFatalFailure());
     for (size_t omitted=0;omitted<products_.size();++omitted) {
       SCOPED_TRACE(std::to_string(revision)+":"+std::to_string(omitted));
@@ -153,28 +189,64 @@ TEST_F(AssemblyContract, ActualPreparationRequiresGeneratedTerminalMarker) {
     if (module) loomc_module_release(module);
   }
 }
+TEST_F(AssemblyContract, GemmaGeneratedDataIsRequiredByActualConsumers) {
+  Select(3); ASSERT_FALSE(HasFatalFailure());
+  const auto no_identity=WithoutDefinition(Configuration(),"global.rodata.def public @loomify.text.model_name",false);
+  ASSERT_FALSE(HasFailure());
+  Reject(no_identity,products_,"loomify.text.model_name");
+  for (const char* symbol:{"loomify.tokens.bos_marker","loomify.tokens.vocabulary_size"}) {
+    SCOPED_TRACE(symbol);
+    const auto missing=WithoutDefinition(Configuration(),"func.def public @"+std::string(symbol),true);
+    ASSERT_FALSE(HasFailure());
+    AssertParses(Write(std::string(symbol)+".loom",missing)); ASSERT_FALSE(HasFatalFailure());
+    Reject(missing,products_,symbol);
+  }
+}
+TEST_F(AssemblyContract, GemmaActualPreparationRequiresGeneratedTerminalMarker) {
+  Select(3); ASSERT_FALSE(HasFatalFailure());
+  const std::vector<std::string> providers={(root_/"lib/architectures/gemma3/prepare_library.loombc").string()};
+  loomc_module_t* module=nullptr; std::string error;
+  ASSERT_TRUE(LinkConfiguredProducts(context_,workspace_,Configuration(),providers,
+      {"prepare"},false,&module,&error)) << error;
+  loomc_module_function_t prepare{};
+  EXPECT_TRUE(loomc_module_try_lookup_function(module,loomc_make_cstring_view("prepare"),&prepare));
+  EXPECT_EQ(prepare.kind,LOOMC_MODULE_FUNCTION_KIND_FUNCTION);
+  EXPECT_TRUE(prepare.flags & LOOMC_MODULE_FUNCTION_FLAG_PUBLIC);
+  loomc_module_release(module); module=nullptr;
+  const auto missing=WithoutDefinition(Configuration(),"func.def public @loomify.tokens.terminal_marker",true);
+  ASSERT_FALSE(HasFailure());
+  AssertParses(Write("gemma_no_terminal.loom",missing)); ASSERT_FALSE(HasFatalFailure());
+  EXPECT_FALSE(LinkConfiguredProducts(context_,workspace_,missing,providers,
+      {"prepare"},false,&module,&error));
+  EXPECT_EQ(module,nullptr); EXPECT_NE(error.find("loomify.tokens.terminal_marker"),std::string::npos) << error;
+  if (module) loomc_module_release(module);
+}
 TEST_F(AssemblyContract, DuplicateActualHookProviderIsRejected) {
-  Select(1); ASSERT_FALSE(HasFatalFailure());
-  auto duplicate=products_;
-  duplicate.push_back((root_/"lib/text/common/identity.loom").string());
-  Reject(Configuration(),duplicate);
+  for (int revision:{1,3}) {
+    SCOPED_TRACE(revision); Select(revision); ASSERT_FALSE(HasFatalFailure());
+    auto duplicate=products_;
+    duplicate.push_back((root_/"lib/text/common/identity.loom").string());
+    Reject(Configuration(),duplicate);
+  }
 }
 TEST_F(AssemblyContract, WrongHookAbiIsRejectedAgainstActualTypedContract) {
-  Select(1); ASSERT_FALSE(HasFatalFailure());
-  // Mutate only the actual identity provider, leaving the maintained 18-hook
-  // declaration product and every other real implementation unchanged.
-  auto wrong=Read("lib/text/common/identity.loom");
-  const auto start=wrong.find("func.def public @model_name()");
-  const auto end=wrong.find("\n}",start);
-  ASSERT_NE(start,std::string::npos); ASSERT_NE(end,std::string::npos);
-  wrong.replace(start,end+2-start,"func.def public @model_name() -> (i64) {\n  %name = scalar.constant 1 : i64\n  func.return %name : i64\n}");
-  auto products=products_; products.pop_back();
-  for (const char* name:{"strings.loom","json.loom"}) products.push_back((root_/"lib/text/common"/name).string());
-  products.push_back((root_/"lib/serving/control_interface.loom").string());
-  const auto wrong_path=Write("wrong_identity.loom",wrong);
-  AssertParses(wrong_path); ASSERT_FALSE(HasFatalFailure());
-  products.push_back(wrong_path);
-  Reject(Configuration(),products);
+  for (int revision:{1,3}) {
+    SCOPED_TRACE(revision); Select(revision); ASSERT_FALSE(HasFatalFailure());
+    // Mutate only the actual identity provider, leaving the maintained 18-hook
+    // declaration product and every other real implementation unchanged.
+    auto wrong=Read("lib/text/common/identity.loom");
+    const auto start=wrong.find("func.def public @model_name()");
+    const auto end=wrong.find("\n}",start);
+    ASSERT_NE(start,std::string::npos); ASSERT_NE(end,std::string::npos);
+    wrong.replace(start,end+2-start,"func.def public @model_name() -> (i64) {\n  %name = scalar.constant 1 : i64\n  func.return %name : i64\n}");
+    auto products=products_; products.pop_back();
+    for (const char* name:{"strings.loom","json.loom"}) products.push_back((root_/"lib/text/common"/name).string());
+    products.push_back((root_/"lib/serving/control_interface.loom").string());
+    const auto wrong_path=Write("wrong_identity.loom",wrong);
+    AssertParses(wrong_path); ASSERT_FALSE(HasFatalFailure());
+    products.push_back(wrong_path);
+    Reject(Configuration(),products);
+  }
 }
 } // namespace
 } // namespace hrx::loomify_gguf

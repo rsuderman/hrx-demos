@@ -152,6 +152,8 @@ Encoding Storage(uint32_t type) {
     return {1, 4, "f32"};
   case 1:
     return {1, 2, "f16"};
+  case 6:
+    return {32, 22, "q5_0"};
   case 8:
     return {32, 34, "q8_0"};
   case 12:
@@ -180,11 +182,14 @@ void StringField(const GgufCatalog &catalog, const char *key, bool required,
 
 bool EncodedTensorByteSize(uint32_t storage_type, uint64_t row_elements,
                            uint64_t rows, uint64_t *bytes) {
-  if (!bytes || !row_elements || !rows) return false;
+  if (!bytes || !row_elements || !rows)
+    return false;
   try {
     const auto encoding = Storage(storage_type);
-    if (row_elements % encoding.block) return false;
-    const auto value = Multiply(Multiply(row_elements / encoding.block, rows), encoding.bytes);
+    if (row_elements % encoding.block)
+      return false;
+    const auto value =
+        Multiply(Multiply(row_elements / encoding.block, rows), encoding.bytes);
     *bytes = value;
     return true;
   } catch (const std::exception &) {

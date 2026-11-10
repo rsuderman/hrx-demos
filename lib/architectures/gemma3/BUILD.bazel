@@ -1,0 +1,12 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+package(default_visibility = ["//visibility:public"])
+exports_files(["model.loom", "epoch.loom", "prepare.loom", "control_core.loom"])
+_ARCHITECTURE_SOURCES = ["model.loom", "epoch.loom", "//lib/programs/gemma3:implementation_sources"]
+_IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + ["//lib/kernels/gemma3:implementation_sources"]
+filegroup(name = "architecture_sources", srcs = _ARCHITECTURE_SOURCES)
+loom_merge(name = "implementation", srcs = _IMPLEMENTATION_SOURCES)
+loom_merge(name = "implementation_text", srcs = _IMPLEMENTATION_SOURCES, output_format = "text", testonly = True)
+loom_merge(name = "prepare_library", srcs = ["prepare.loom"])
+loom_merge(name = "execution", srcs = ["control_core.loom", "//lib/serving:ordinary_control.loom"])

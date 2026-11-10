@@ -14,27 +14,30 @@ void Number(std::string& s, uint64_t n, int width) {
 void String(std::string& s, std::string_view v) {
   Number(s, v.size(), 8); s += v;
 }
+TextTokenRequirements LlamaTokens() { return {"gpt2","llama-bpe",true,"<|begin_of_text|>","<|eot_id|>"}; }
+TextTokenRequirements ChatmlTokens() { return {"gpt2","qwen35",false,"","<|im_end|>"}; }
 class TokenPolicyTest : public ::testing::Test {
 protected:
   void Open(bool missing_stop = false, bool bad_template = true,
-            bool chatml = false, std::string terminal = {}) {
+            bool chatml = false, std::string terminal = {}, bool gemma = false) {
     pieces = {"a", "<|begin_of_text|>", "<|end_of_text|>",
               missing_stop ? "other" : "<|eom_id|>",
               terminal.empty() ? (chatml ? "<|im_end|>" : "<|eot_id|>") : terminal,
               "<|header|>"};
+    if (gemma) pieces={"a","<pad>","<eos>","<bos>","<unk>","<start_of_turn>",missing_stop ? "other" : "<end_of_turn>"};
     std::string bytes = "GGUF";
     Number(bytes, 3, 4); Number(bytes, 0, 8); Number(bytes, 7, 8);
     auto field = [&](std::string_view k, std::string_view v) {
       String(bytes, k); Number(bytes, 8, 4); String(bytes, v);
     };
-    field("general.architecture", "llama");
-    field("tokenizer.ggml.model", "gpt2");
-    field("tokenizer.ggml.pre", chatml ? "qwen35" : "llama-bpe");
+    field("general.architecture", gemma ? "gemma3" : "llama");
+    field("tokenizer.ggml.model", gemma ? "llama" : "gpt2");
+    field("tokenizer.ggml.pre", gemma ? "default" : chatml ? "qwen35" : "llama-bpe");
     String(bytes, "tokenizer.ggml.tokens"); Number(bytes, 9, 4);
     Number(bytes, 8, 4); Number(bytes, pieces.size(), 8);
     for (const auto& p : pieces) String(bytes, p);
-    String(bytes, "tokenizer.ggml.eos_token_id"); Number(bytes, 4, 4); Number(bytes, 4, 4);
-    String(bytes, "tokenizer.ggml.bos_token_id"); Number(bytes, 4, 4); Number(bytes, 1, 4);
+    String(bytes, "tokenizer.ggml.eos_token_id"); Number(bytes, 4, 4); Number(bytes, gemma ? 2 : 4, 4);
+    String(bytes, "tokenizer.ggml.bos_token_id"); Number(bytes, 4, 4); Number(bytes, gemma ? 3 : 1, 4);
     String(bytes, "tokenizer.chat_template");
     if (bad_template) { Number(bytes, 4, 4); Number(bytes, 42, 4); }
     else { Number(bytes, 8, 4); String(bytes, "unknown template"); }
@@ -72,14 +75,14 @@ TEST_F(TokenPolicyTest, PublicationUsesSourceIdsDespiteMalformedTemplate) {
   std::optional<PublicationTokenFacts> facts;
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error)) << error;
   ASSERT_TRUE(facts);
-  EXPECT_EQ(facts->end_text.id, 2); EXPECT_EQ(facts->end_message.id, 3); EXPECT_EQ(facts->end_turn.id, 4);
+  EXPECT_EQ(facts->raw_stops[0].id, 2); EXPECT_EQ(facts->raw_stops[1].id, 3); EXPECT_EQ(facts->raw_stops[2].id, 4);
   EXPECT_NE(facts->configuration_source.find("end_message_id = 3 : i32"), std::string::npos);
 }
 TEST_F(TokenPolicyTest, MissingRequiredPublicationPiecePreservesOutput) {
   Open(true); std::optional<PublicationTokenFacts> facts = PublicationTokenFacts{};
-  facts->end_turn.id = 99;
+  facts->raw_stops.resize(3); facts->raw_stops[2].id = 99;
   EXPECT_FALSE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
-  ASSERT_TRUE(facts); EXPECT_EQ(facts->end_turn.id, 99);
+  ASSERT_TRUE(facts); EXPECT_EQ(facts->raw_stops[2].id, 99);
   EXPECT_NE(error.find("<|eom_id|>"), std::string::npos);
 }
 TEST_F(TokenPolicyTest, QwenNumericalNeedsNoTextData) {
@@ -95,9 +98,9 @@ TEST_F(TokenPolicyTest, TextStrategyDoesNotRequireNumericalPublication) {
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "qwen35", text, &publication, &error));
   ASSERT_FALSE(publication);
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(file.get(), "llama", text, publication, {}, Json(), &bound, &error)) << error;
+  ASSERT_TRUE(BindTokenPolicy(file.get(), LlamaTokens(), text, publication, {}, Json(), &bound, &error)) << error;
   EXPECT_EQ(bound.terminal.piece, "<|eot_id|>");
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "qwen35", text, publication, {}, Json(), &bound, &error));
+  EXPECT_FALSE(BindTokenPolicy(file.get(), ChatmlTokens(), text, publication, {}, Json(), &bound, &error));
   EXPECT_NE(error.find("model/pre"),std::string::npos);
 }
 TEST_F(TokenPolicyTest, TextTerminalGuardAppliesWithoutNumericalPublication) {
@@ -105,34 +108,34 @@ TEST_F(TokenPolicyTest, TextTerminalGuardAppliesWithoutNumericalPublication) {
   // requires eot rather than this otherwise valid ChatML terminal.
   Open(false,true,false,"<|im_end|>");
   BoundTokenPolicy bound; bound.terminal.id=77;
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "llama", text, {}, {}, Json(), &bound, &error));
+  EXPECT_FALSE(BindTokenPolicy(file.get(), LlamaTokens(), text, {}, {}, Json(), &bound, &error));
   EXPECT_NE(error.find("requires EOS <|eot_id|>"),std::string::npos);
   EXPECT_EQ(bound.terminal.id,77);
 }
 TEST_F(TokenPolicyTest, OptionalPublicationIsValidatedForChatmlStrategy) {
   Open(false,true,true);
-  PublicationTokenFacts facts{{2,pieces[2]},{3,pieces[3]},{4,pieces[4]},""};
+  PublicationTokenFacts facts{{{2,pieces[2]},{3,pieces[3]},{4,pieces[4]}},2,""};
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(file.get(), "qwen35", text, facts, {}, Json(), &bound, &error)) << error;
+  ASSERT_TRUE(BindTokenPolicy(file.get(), ChatmlTokens(), text, facts, {}, Json(), &bound, &error)) << error;
   EXPECT_EQ(bound.terminal.piece,"<|im_end|>");
   for (int ordinal=0;ordinal<3;++ordinal) {
     auto bad=facts;
-    TokenIdentity* identities[]={&bad.end_text,&bad.end_message,&bad.end_turn};
+    TokenIdentity* identities[]={&bad.raw_stops[0],&bad.raw_stops[1],&bad.raw_stops[2]};
     identities[ordinal]->id=1;
     bound.terminal.id=77;
-    EXPECT_FALSE(BindTokenPolicy(file.get(), "qwen35", text, bad, {}, Json(), &bound, &error));
+    EXPECT_FALSE(BindTokenPolicy(file.get(), ChatmlTokens(), text, bad, {}, Json(), &bound, &error));
     EXPECT_NE(error.find("identity mismatch"),std::string::npos);
     EXPECT_EQ(bound.terminal.id,77);
   }
-  auto mismatched=facts; mismatched.end_turn={3,pieces[3]};
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "qwen35", text, mismatched, {}, Json(), &bound, &error));
+  auto mismatched=facts; mismatched.raw_stops[2]={3,pieces[3]};
+  EXPECT_FALSE(BindTokenPolicy(file.get(), ChatmlTokens(), text, mismatched, {}, Json(), &bound, &error));
   EXPECT_NE(error.find("differs from numerical publication"),std::string::npos);
 }
 TEST_F(TokenPolicyTest, NativeBindingRecoversUndeclaredAtomicMarker) {
   Open(); std::optional<PublicationTokenFacts> facts;
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(file.get(), "llama", text, facts, {"<|header|>", "<|header|>"}, Json(), &bound, &error)) << error;
+  ASSERT_TRUE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {"<|header|>", "<|header|>"}, Json(), &bound, &error)) << error;
   EXPECT_EQ(bound.terminal.id, 4); EXPECT_EQ(bound.terminal.piece, "<|eot_id|>");
   EXPECT_EQ(bound.encode_flags, 0u);
   EXPECT_EQ(bound.roles.at("tokenizer.ggml.bos_token_id").id, 1);
@@ -142,9 +145,9 @@ TEST_F(TokenPolicyTest, NativeBindingRejectsWrongIdAndNonspecialMarker) {
   Open(); std::optional<PublicationTokenFacts> facts;
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
   BoundTokenPolicy bound; bound.terminal.id = 77;
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "llama", text, facts, {}, Json(true), &bound, &error));
+  EXPECT_FALSE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {}, Json(true), &bound, &error));
   EXPECT_EQ(bound.terminal.id, 77);
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "llama", text, facts, {"<|header|>"}, Json(false, false), &bound, &error));
+  EXPECT_FALSE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {"<|header|>"}, Json(false, false), &bound, &error));
   EXPECT_EQ(bound.terminal.id, 77);
 }
 TEST_F(TokenPolicyTest, UnusedDeclaredRoleIsPreservedWithoutNativeAdmission) {
@@ -159,7 +162,7 @@ TEST_F(TokenPolicyTest, UnusedDeclaredRoleIsPreservedWithoutNativeAdmission) {
     json.replace(pos, 10, "<|other|>"); pos += 9;
   }
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(file.get(), "llama", text, facts, {}, json, &bound, &error)) << error;
+  ASSERT_TRUE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {}, json, &bound, &error)) << error;
   EXPECT_EQ(bound.roles.at("tokenizer.ggml.padding_token_id").piece, "<|header|>");
   EXPECT_EQ(bound.terminal.id, 4);
 }
@@ -170,7 +173,7 @@ TEST_F(TokenPolicyTest, RenderedBosIsEncodedOnceDespiteJsonPostprocessor) {
   std::optional<PublicationTokenFacts> facts;
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(file.get(), "llama", text, facts, {}, json, &bound, &error)) << error;
+  ASSERT_TRUE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {}, json, &bound, &error)) << error;
   iree_tokenizer_t* raw = nullptr;
   auto status = iree_tokenizer_from_huggingface_json(
       iree_make_string_view(json.data(), json.size()), iree_allocator_system(), &raw);
@@ -189,13 +192,42 @@ TEST_F(TokenPolicyTest, RenderedBosIsEncodedOnceDespiteJsonPostprocessor) {
   ASSERT_TRUE(iree_status_is_ok(status));
   ASSERT_EQ(count, 3u); EXPECT_EQ(ids[0], 1); EXPECT_EQ(ids[1], 1); EXPECT_EQ(ids[2], 0);
 }
+TEST_F(TokenPolicyTest, GemmaSourceStopsAreIndependentOfChatAndCheckpointIds) {
+  Open(false,true,false,{},true);
+  ASSERT_FALSE(text.template_issues.empty());
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(DerivePublicationTokenFacts(file.get(),"gemma3",text,&facts,&error)) << error;
+  ASSERT_TRUE(facts); ASSERT_EQ(facts->raw_stops.size(),2u);
+  EXPECT_EQ(facts->raw_stops[0].id,2); EXPECT_EQ(facts->raw_stops[0].piece,"<eos>");
+  EXPECT_EQ(facts->terminal_index,1u); EXPECT_EQ(facts->raw_stops[1].id,6);
+  EXPECT_NE(facts->configuration_source.find("@gemma3.publication.eos_id = 2 : i32"),std::string::npos);
+  EXPECT_NE(facts->configuration_source.find("@gemma3.publication.end_turn_id = 6 : i32"),std::string::npos);
+  TextTokenRequirements requirements{"llama","default",true,"","<end_of_turn>",false};
+  BoundTokenPolicy bound;
+  ASSERT_TRUE(BindTokenPolicy(file.get(),requirements,text,facts,{"<start_of_turn>","<end_of_turn>"},Json(),&bound,&error)) << error;
+  EXPECT_EQ(bound.roles.at("tokenizer.ggml.eos_token_id").id,2);
+  EXPECT_EQ(bound.terminal.id,6); EXPECT_EQ(bound.encode_flags,0u);
+  EXPECT_NE(bound.text_source.find("@loomify.tokens.bos_marker"),std::string::npos);
+  EXPECT_NE(bound.text_source.find("3c626f733e"),std::string::npos);
+  auto invalid=*facts; invalid.terminal_index=99;
+  bound.terminal.id=77;
+  EXPECT_FALSE(BindTokenPolicy(file.get(),requirements,text,invalid,{},Json(),&bound,&error));
+  EXPECT_EQ(bound.terminal.id,77);
+}
+TEST_F(TokenPolicyTest, GemmaMissingTurnStopRejectsWithoutReplacingFacts) {
+  Open(true,true,false,{},true);
+  std::optional<PublicationTokenFacts> facts=PublicationTokenFacts{{{77,"prior"}},0,"prior"};
+  EXPECT_FALSE(DerivePublicationTokenFacts(file.get(),"gemma3",text,&facts,&error));
+  ASSERT_TRUE(facts); EXPECT_EQ(facts->raw_stops[0].id,77);
+  EXPECT_NE(error.find("<end_of_turn>"),std::string::npos);
+}
 TEST_F(TokenPolicyTest, MissingMarkerAndMalformedJsonAreDiagnosed) {
   Open(); std::optional<PublicationTokenFacts> facts;
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
   BoundTokenPolicy bound;
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "llama", text, facts, {"<|missing|>"}, Json(), &bound, &error));
+  EXPECT_FALSE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {"<|missing|>"}, Json(), &bound, &error));
   EXPECT_NE(error.find("<|missing|>"), std::string::npos);
-  EXPECT_FALSE(BindTokenPolicy(file.get(), "llama", text, facts, {}, "{broken", &bound, &error));
+  EXPECT_FALSE(BindTokenPolicy(file.get(), LlamaTokens(), text, facts, {}, "{broken", &bound, &error));
   EXPECT_NE(error.find("native tokenizer JSON"), std::string::npos);
 }
 } // namespace

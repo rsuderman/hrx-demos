@@ -4,9 +4,13 @@ load("//build_tools:loom_merge.bzl", "loom_merge")
 load("//build_tools:loom_resources.bzl", "loom_resources")
 load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:public"])
-exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom"])
+exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom", "ordinary_control.loom"])
 loom_merge(name = "greedy", srcs = ["greedy.loom", "request_check.loom"])
 _PRODUCTS = {
+    "//lib/architectures/gemma3:implementation": "kGemmaImplementation",
+    "//lib/architectures/gemma3:prepare_library": "kGemmaPreparation",
+    "//lib/architectures/gemma3:execution": "kGemmaExecution",
+    "//lib/text/protocols/gemma_turns:implementation": "kGemmaTurns",
     "//lib/architectures/llama:implementation": "kLlamaImplementation",
     "//lib/architectures/llama:prepare_library": "kLlamaPreparation",
     "//lib/architectures/llama:execution": "kLlamaExecution",

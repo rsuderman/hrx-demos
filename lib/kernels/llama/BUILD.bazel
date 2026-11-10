@@ -43,7 +43,7 @@ loom_library(
     srcs = [
         "//lib/programs/projection:implementation_sources",
         "active_rows.loom",
-        "output/head_count.loom",
+        "//lib/kernels/epoch:count.loom",
         "//lib/kernels/projection:q6k.loom",
         "//lib/kernels/quantization:q8_1_x4.loom",
         "//lib/programs/llama:output.loom",
@@ -59,7 +59,7 @@ loom_library(
         "//lib/kernels/projection:qk_common.loom",
     ],
 )
-loom_library(name = "publication", srcs = ["publication/publication.loom", "publication/publication_interface.loom", "output/head_count.loom"])
+loom_library(name = "publication", srcs = ["publication/publication.loom", "publication/publication_interface.loom", "//lib/kernels/epoch:count.loom"])
 
 
 loom_library(
@@ -97,7 +97,7 @@ _CONFIGURED_PROVIDER_SOURCES = [
     "//lib/kernels/projection:qk_mmvq_compat.loom",
     "//lib/kernels/quantization:q8_1_x4.loom",
     "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom",
-    "output/head_count.loom",
+    "//lib/kernels/epoch:count.loom",
     "output/output_norm_last.loom",
     "//lib/kernels/selection:greedy_argmax.loom",
     "publication/publication.loom",

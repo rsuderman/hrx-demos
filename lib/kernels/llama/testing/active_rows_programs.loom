@@ -37,7 +37,7 @@ kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: in
 
 kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
 
-kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
 kernel.decl @llama32_rmsnorm_active_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
@@ -70,7 +70,7 @@ command.program.def public retain @active.projection.q4.n1() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -100,7 +100,7 @@ command.program.def public retain @active.projection.q4.n3() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -130,7 +130,7 @@ command.program.def public retain @active.projection.q4.n4() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -160,7 +160,7 @@ command.program.def public retain @active.projection.q4.n8() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 12 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -190,7 +190,7 @@ command.program.def public retain @active.projection.q4.n9() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 13 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -220,7 +220,7 @@ command.program.def public retain @active.projection.q4.n16() launch(%v0: buffer
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 20 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -250,7 +250,7 @@ command.program.def public retain @active.projection.q4.n17() launch(%v0: buffer
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 21 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -280,7 +280,7 @@ command.program.def public retain @active.projection.q4.decode() launch(%v0: buf
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 1 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 1 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -310,7 +310,7 @@ command.program.def public retain @active.projection.q4.tail() launch(%v0: buffe
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 5 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -340,7 +340,7 @@ command.program.def public retain @active.projection.q6.n1() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -370,7 +370,7 @@ command.program.def public retain @active.projection.q6.n3() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -400,7 +400,7 @@ command.program.def public retain @active.projection.q6.n4() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -430,7 +430,7 @@ command.program.def public retain @active.projection.q6.n8() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 12 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -460,7 +460,7 @@ command.program.def public retain @active.projection.q6.n9() launch(%v0: buffer,
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 13 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -490,7 +490,7 @@ command.program.def public retain @active.projection.q6.n16() launch(%v0: buffer
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 20 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -520,7 +520,7 @@ command.program.def public retain @active.projection.q6.n17() launch(%v0: buffer
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 21 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -550,7 +550,7 @@ command.program.def public retain @active.projection.q6.decode() launch(%v0: buf
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 1 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 1 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -580,7 +580,7 @@ command.program.def public retain @active.projection.q6.tail() launch(%v0: buffe
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 5 : index
     %v15 = index.constant 256 : index
     %v16 = index.constant 13 : index
@@ -610,7 +610,7 @@ command.program.def public retain @active.ffn.q4.n1() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 8 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -663,7 +663,7 @@ command.program.def public retain @active.ffn.q4.n3() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 8 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -716,7 +716,7 @@ command.program.def public retain @active.ffn.q4.n4() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 8 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -769,7 +769,7 @@ command.program.def public retain @active.ffn.q4.n8() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 12 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -822,7 +822,7 @@ command.program.def public retain @active.ffn.q4.n9() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 13 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -875,7 +875,7 @@ command.program.def public retain @active.ffn.q4.n16() launch(%v0: buffer, %v1: 
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 20 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -928,7 +928,7 @@ command.program.def public retain @active.ffn.q4.n17() launch(%v0: buffer, %v1: 
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 21 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -981,7 +981,7 @@ command.program.def public retain @active.ffn.q4.decode() launch(%v0: buffer, %v
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 1 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 1 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1030,7 +1030,7 @@ command.program.def public retain @active.ffn.q4.tail() launch(%v0: buffer, %v1:
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 5 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1083,7 +1083,7 @@ command.program.def public retain @active.ffn.q6.n1() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 8 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1136,7 +1136,7 @@ command.program.def public retain @active.ffn.q6.n3() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 8 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1189,7 +1189,7 @@ command.program.def public retain @active.ffn.q6.n4() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 8 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1242,7 +1242,7 @@ command.program.def public retain @active.ffn.q6.n8() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 12 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1295,7 +1295,7 @@ command.program.def public retain @active.ffn.q6.n9() launch(%v0: buffer, %v1: b
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 13 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1348,7 +1348,7 @@ command.program.def public retain @active.ffn.q6.n16() launch(%v0: buffer, %v1: 
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 20 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1401,7 +1401,7 @@ command.program.def public retain @active.ffn.q6.n17() launch(%v0: buffer, %v1: 
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 21 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1454,7 +1454,7 @@ command.program.def public retain @active.ffn.q6.decode() launch(%v0: buffer, %v
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 1 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 1 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1503,7 +1503,7 @@ command.program.def public retain @active.ffn.q6.tail() launch(%v0: buffer, %v1:
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 5 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1556,7 +1556,7 @@ command.program.def public retain @active.norm() launch(%v0: buffer, %v1: buffer
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 8 : index
     %v15 = index.constant 2 : index
     %v16 = index.constant 0 : offset
@@ -1578,7 +1578,7 @@ command.program.def public retain @active.norm.decode() launch(%v0: buffer, %v1:
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 1 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 1 : index
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
@@ -1600,7 +1600,7 @@ command.program.def public retain @active.norm.tail() launch(%v0: buffer, %v1: b
     %v11 = buffer.alloca<global> align(4) %v10 : buffer
     %v12 = index.constant 0 : index
     %v13 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v12, %v13, %v2, %v11) : (index, offset, buffer, buffer)
     %v14 = index.constant 5 : index
     %v15 = index.constant 2 : index
     %v16 = index.constant 0 : offset
@@ -1621,7 +1621,7 @@ command.program.def public retain @active.embedding() launch(%v0: buffer, %v1: b
     %v10 = buffer.alloca<global> align(4) %v9 : buffer
     %v11 = index.constant 0 : index
     %v12 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
     %v13 = index.constant 8 : index
     %v14 = index.constant 323205120 : index
     %v15 = command.parameter %v1, "weight" : view<[%v14]xi8>
@@ -1644,7 +1644,7 @@ command.program.def public retain @active.embedding.decode() launch(%v0: buffer,
     %v10 = buffer.alloca<global> align(4) %v9 : buffer
     %v11 = index.constant 1 : index
     %v12 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
     %v13 = index.constant 1 : index
     %v14 = index.constant 323205120 : index
     %v15 = command.parameter %v1, "weight" : view<[%v14]xi8>
@@ -1667,7 +1667,7 @@ command.program.def public retain @active.embedding.tail() launch(%v0: buffer, %
     %v10 = buffer.alloca<global> align(4) %v9 : buffer
     %v11 = index.constant 0 : index
     %v12 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v11, %v12, %v2, %v10) : (index, offset, buffer, buffer)
     %v13 = index.constant 5 : index
     %v14 = index.constant 323205120 : index
     %v15 = command.parameter %v1, "weight" : view<[%v14]xi8>
@@ -1691,7 +1691,7 @@ command.program.def public retain @active.ffn.q4.compact() launch(%v0: buffer, %
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 3 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index
@@ -1784,7 +1784,7 @@ command.program.def public retain @active.ffn.q6.compact() launch(%v0: buffer, %
     %v14 = buffer.alloca<global> align(4) %v13 : buffer
     %v15 = index.constant 0 : index
     %v16 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v15, %v16, %v4, %v14) : (index, offset, buffer, buffer)
     %v17 = index.constant 3 : index
     %v18 = index.constant 3072 : index
     %v19 = index.constant 8192 : index

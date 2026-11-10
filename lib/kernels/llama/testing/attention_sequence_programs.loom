@@ -20,7 +20,7 @@ kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control
 
 kernel.decl @llama32_attention_rows(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
 
-kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
 kernel.decl @llama32_publish_kv(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
 
@@ -32,7 +32,7 @@ command.program.def public retain @native.attention() launch(%v0: buffer, %v1: b
     %v9 = buffer.alloca<global> align(4) %v8 : buffer
     %v10 = index.constant 0 : index
     %v11 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
     %v12 = index.constant 1 : index
     %v13 = index.constant 1 : index
     %v14 = index.constant 0 : index
@@ -60,7 +60,7 @@ command.program.def public retain @native.attention.decode() launch(%v0: buffer,
     %v9 = buffer.alloca<global> align(4) %v8 : buffer
     %v10 = index.constant 1 : index
     %v11 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v10, %v11, %v0, %v9) : (index, offset, buffer, buffer)
     %v12 = index.constant 1 : index
     %v13 = index.constant 1 : index
     %v14 = index.constant 1 : index

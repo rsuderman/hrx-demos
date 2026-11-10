@@ -1,0 +1,20 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Focused packet-wrapper contract: canonical pack consumers read all T rows.
+config.def @gemma3.model.hidden_size = 1152 : index
+config.def @gemma3.model.rms_epsilon = 9.999999974752427e-7 : f32
+kernel.decl @gemma3_rmsnorm_active_f32(%rows: index) launch(%rows: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @gemma3_geglu(%rows: index, %width: index) launch(%width: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
+command.program.def @gemma3.padding.norm() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %begin = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  kernel.launch @gemma3_rmsnorm_active_f32[%rows](%rows, %begin, %origin, %count, %input, %gamma, %output) : [index](index, index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+command.program.def @gemma3.padding.geglu() launch(%count: buffer, %input: buffer, %up: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %width = index.constant 6912 : index
+  kernel.launch @gemma3_geglu[%rows, %width](%width, %count, %input, %up, %output) : [index, index](index, buffer, buffer, buffer, buffer)
+  command.return
+}

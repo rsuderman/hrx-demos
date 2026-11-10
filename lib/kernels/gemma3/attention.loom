@@ -1,0 +1,188 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Gemma packet adaptation; arithmetic remains in shared row operations.
+config.decl @gemma3.model.head_size : index
+config.decl @gemma3.model.query_heads : index
+config.decl @gemma3.model.kv_heads : index
+config.decl @gemma3.model.query_size : index
+config.decl @gemma3.model.kv_size : index
+config.decl @gemma3.model.layer_count : index
+config.decl @gemma3.model.rms_epsilon : f32
+config.decl @gemma3.model.attention_scale : f32
+config.decl @gemma3.model.rope_log_step_local : f32
+config.decl @gemma3.model.rope_log_step_global : f32
+config.decl @gemma3.attention.cache_capacity : index
+config.decl @gemma3.attention.pool_capacity : index
+func.decl pure @loomify.config.layer_window(%layer: index) -> (index, index)
+func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
+template.decl @llm.attention.head_rms_value(%raw: f32, %head_divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %norm_weight: buffer) -> (f32)
+template.decl @llm.attention.rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane: index, %head_data: buffer) -> (f32)
+template.decl @llm.attention.row_window_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %window: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
+// Numerical rows are compact; B belongs to input IDs and P remains absolute.
+func.def inline @gemma3_position(%row: index, %capacity: index, %control_origin: offset, %epoch: buffer) -> (i1, index) {
+  %zero = index.constant 0 : index
+  %zero32 = scalar.constant 0 : i32
+  %descriptor = buffer.view %epoch[%control_origin] : buffer -> view<5xi32>
+  %n32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %base32 = view.load %descriptor[1] : view<5xi32> -> i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %nonnegative = scalar.cmpi sge, %base32, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %base = index.cast %base32 : i32 to index
+  %inside = index.cmp ult, %row, %n : index
+  %position = index.add %base, %row : index
+  %fits = index.cmp ult, %position, %capacity : index
+  %a = scalar.andi %positive, %nonnegative : i1
+  %b = scalar.andi %inside, %fits : i1
+  %valid = scalar.andi %a, %b : i1
+  func.return %valid, %position : i1, index
+}
+
+kernel.def @gemma3_prepare_qk(%rows0: index, %heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 4)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%layer0: index, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer) {
+  %layer_count = config.get @gemma3.model.layer_count : index
+  %layer = index.assume %layer0 [range(%layer0, 0, 63), lt(%layer0, %layer_count)] : index
+  %head = kernel.workgroup.id<x> : index
+  %row = kernel.workgroup.id<y> : index
+  %heads = kernel.workgroup.count<x> : index
+  %rows = kernel.workgroup.count<y> : index
+  %lane = kernel.workitem.id<x> : index
+  %capacity = config.get @gemma3.attention.cache_capacity : index
+  %valid, %position = func.call @gemma3_position(%row, %capacity, %control_origin, %epoch) : (index, index, offset, buffer) -> (i1, index)
+  scf.if %valid {
+    %h = index.constant 256 : index
+    %half = index.constant 128 : index
+    %origin = index.constant 0 : offset
+    %width = index.mul %heads, %h : index
+    %head_base = index.mul %head, %h : index
+    %element = index.add %head_base, %lane : index
+    %input = buffer.view %projection[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %raw = view.load %input[%row, %element] : view<[%rows]x[%width]xf32> -> f32
+    %divisor = scalar.constant 256.0 : f32
+    %epsilon = config.get @gemma3.model.rms_epsilon : f32
+    %normal = template.apply<@llm.attention.head_rms_value>(%raw, %divisor, %epsilon, %lane, %h, %gamma) : (f32, f32, f32, index, index, buffer) -> (f32)
+    %bytes = index.constant 1024 : offset
+    %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+    %view = buffer.view %scratch[%origin] : buffer -> view<256xf32>
+    view.store %normal, %view[%lane] : f32, view<256xf32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %window, %local = func.call pure @loomify.config.layer_window(%layer) : (index) -> (index, index)
+    %zero = index.constant 0 : index
+    %is_local = index.cmp ne, %local, %zero : index
+    %local_step = config.get @gemma3.model.rope_log_step_local : f32
+    %global_step = config.get @gemma3.model.rope_log_step_global : f32
+    %step = scf.select %is_local, %local_step, %global_step : f32
+    %position32 = index.cast %position : index to i32
+    %rotated = template.apply<@llm.attention.rope_neox_value>(%h, %half, %h, %step, %position32, %lane, %scratch) : (index, index, index, f32, i32, index, buffer) -> (f32)
+    view.store %rotated, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  }
+  kernel.return
+}
+
+kernel.def @gemma3_publish_kv(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = config.get @gemma3.model.kv_heads : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%layer0: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer) {
+  %layer_count = config.get @gemma3.model.layer_count : index
+  %layer = index.assume %layer0 [range(%layer0, 0, 63), lt(%layer0, %layer_count)] : index
+  %head = kernel.workgroup.id<x> : index
+  %row = kernel.workgroup.id<y> : index
+  %rows = kernel.workgroup.count<y> : index
+  %lane = kernel.workitem.id<x> : index
+  %capacity = config.get @gemma3.attention.cache_capacity : index
+  %valid, %position = func.call @gemma3_position(%row, %capacity, %control_origin, %epoch) : (index, index, offset, buffer) -> (i1, index)
+  scf.if %valid {
+    %pool = config.get @gemma3.attention.pool_capacity : index
+    %kv = config.get @gemma3.model.kv_size : index
+    %two = index.constant 2 : index
+    %one = index.constant 1 : index
+    %half_bytes = index.constant 2 : offset
+    %row_bytes_half = index.scale %kv, %half_bytes : index, offset -> offset
+    %stride = index.scale %pool, %row_bytes_half : index, offset -> offset
+    %key_plane = index.mul %layer, %two : index
+    %value_plane = index.add %key_plane, %one : index
+    %key_add = index.scale %key_plane, %stride : index, offset -> offset
+    %value_add = index.scale %value_plane, %stride : index, offset -> offset
+    %key_origin = index.add %cache_base, %key_add : offset
+    %value_origin = index.add %cache_base, %value_add : offset
+    %origin = index.constant 0 : offset
+    %h = index.constant 256 : index
+    %head_base = index.mul %head, %h : index
+    %element = index.add %head_base, %lane : index
+    %physical = func.call @qwen38_kv_position(%capacity, %map, %map_origin, %position, %pool) : (index, buffer, offset, index, index) -> (index)
+    %k = buffer.view %key[%origin] : buffer -> view<[%rows]x[%kv]xf32>
+    %v = buffer.view %value[%origin] : buffer -> view<[%rows]x[%kv]xf32>
+    %kc = buffer.view %cache[%key_origin] : buffer -> view<[%pool]x[%kv]xf16>
+    %vc = buffer.view %cache[%value_origin] : buffer -> view<[%pool]x[%kv]xf16>
+    %key32 = view.load %k[%row, %element] : view<[%rows]x[%kv]xf32> -> f32
+    %value32 = view.load %v[%row, %element] : view<[%rows]x[%kv]xf32> -> f32
+    %key16 = scalar.fptrunc %key32 : f32 to f16
+    %value16 = scalar.fptrunc %value32 : f32 to f16
+    view.store %key16, %kc[%physical, %element] : f16, view<[%pool]x[%kv]xf16>
+    view.store %value16, %vc[%physical, %element] : f16, view<[%pool]x[%kv]xf16>
+  }
+  kernel.return
+}
+
+kernel.def @gemma3_attention_rows(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = config.get @gemma3.model.query_heads : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%layer0: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer) {
+  %layer_count = config.get @gemma3.model.layer_count : index
+  %layer = index.assume %layer0 [range(%layer0, 0, 63), lt(%layer0, %layer_count)] : index
+  %head = kernel.workgroup.id<x> : index
+  %row = kernel.workgroup.id<y> : index
+  %rows = kernel.workgroup.count<y> : index
+  %lane = kernel.workitem.id<x> : index
+  %capacity = config.get @gemma3.attention.cache_capacity : index
+  %qwidth = config.get @gemma3.model.query_size : index
+  %valid, %position = func.call @gemma3_position(%row, %capacity, %control_origin, %epoch) : (index, index, offset, buffer) -> (i1, index)
+  scf.if %valid {
+    %pool = config.get @gemma3.attention.pool_capacity : index
+    %kv = config.get @gemma3.model.kv_size : index
+    %two = index.constant 2 : index
+    %one = index.constant 1 : index
+    %half_bytes = index.constant 2 : offset
+    %row_bytes_half = index.scale %kv, %half_bytes : index, offset -> offset
+    %stride = index.scale %pool, %row_bytes_half : index, offset -> offset
+    %key_plane = index.mul %layer, %two : index
+    %value_plane = index.add %key_plane, %one : index
+    %key_add = index.scale %key_plane, %stride : index, offset -> offset
+    %value_add = index.scale %value_plane, %stride : index, offset -> offset
+    %key_origin = index.add %cache_base, %key_add : offset
+    %value_origin = index.add %cache_base, %value_add : offset
+    %qheads = config.get @gemma3.model.query_heads : index
+    %kheads = config.get @gemma3.model.kv_heads : index
+    %h = config.get @gemma3.model.head_size : index
+    %word = index.constant 4 : offset
+    %row_bytes = index.scale %qwidth, %word : index, offset -> offset
+    %row_origin = index.scale %row, %row_bytes : index, offset -> offset
+    %window, %local = func.call pure @loomify.config.layer_window(%layer) : (index) -> (index, index)
+    %scale = config.get @gemma3.model.attention_scale : f32
+    %position32 = index.cast %position : index to i32
+    %no_gate = scalar.constant false : i1
+    template.apply<@llm.attention.row_window_f32>(%qheads, %kheads, %h, %qwidth, %kv, %capacity, %window, %pool, %map_origin, %row_origin, %row_origin, %key_origin, %value_origin, %map, %scale, %position32, %head, %lane, %no_gate, %query, %query, %cache, %cache, %output) : (index, index, index, index, index, index, index, index, offset, offset, offset, offset, offset, buffer, f32, i32, index, index, i1, buffer, buffer, buffer, buffer, buffer)
+  } else {
+    %origin = index.constant 0 : offset
+    %h = index.constant 256 : index
+    %base = index.mul %head, %h : index
+    %element = index.add %base, %lane : index
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%qwidth]xf32>
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%qwidth]xf32>
+  }
+  kernel.return
+}

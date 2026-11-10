@@ -30,7 +30,7 @@ TEST(ChatPolicy, ExactThreeIdentitiesAndDefaults) {
     ChatPolicySelection policy; std::string error="stale";
     ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
     EXPECT_TRUE(error.empty());
-    EXPECT_EQ(policy.family, i==0 ? "llama" : "qwen35");
+    EXPECT_EQ(policy.tokens.pre_tokenizer, i==0 ? "llama-bpe" : "qwen35");
     EXPECT_EQ(policy.source_key, "tokenizer.chat_template");
     EXPECT_FALSE(policy.template_name);
     const char* identities[] = {
@@ -101,6 +101,22 @@ TEST(ChatPolicy, RejectsNonSlotStructureMarkersEscapesAndOversizeData) {
     EXPECT_FALSE(SelectChatPolicy(metadata,{},&policy,&error));
     EXPECT_EQ(policy.source_text,"prior"); EXPECT_FALSE(error.empty());
   }
+}
+TEST(ChatPolicy, GemmaTurnsHasIndependentSourceTokenRequirements) {
+  model::TextMetadata metadata;
+  metadata.templates={Candidate(Source("lib/text/gemma/templates/7de1c58e.jinja"))};
+  ChatPolicySelection selected; std::string error;
+  ASSERT_TRUE(SelectChatPolicy(metadata,{},&selected,&error)) << error;
+  EXPECT_EQ(selected.revision,ChatRevision::GemmaTurns);
+  EXPECT_EQ(selected.tokens.tokenizer_model,"llama");
+  EXPECT_EQ(selected.tokens.pre_tokenizer,"default");
+  EXPECT_TRUE(selected.tokens.require_bos); EXPECT_TRUE(selected.tokens.bos_piece.empty());
+  EXPECT_FALSE(selected.tokens.terminal_is_eos);
+  EXPECT_EQ(selected.tokens.terminal_piece,"<end_of_turn>");
+  EXPECT_TRUE(selected.configuration_source.empty());
+  EXPECT_NE(selected.text_product.find("gemma_turns/implementation"),std::string::npos);
+  metadata.templates[0].text+="\n";
+  EXPECT_FALSE(SelectChatPolicy(metadata,{},&selected,&error));
 }
 TEST(ChatPolicy, NamesDoNotImplyRevisionOrPriority) {
   const auto a=Source("lib/text/qwen35/templates/7f0e5290.jinja");

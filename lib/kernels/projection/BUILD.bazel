@@ -3,11 +3,12 @@
 package(default_visibility = ["//visibility:public"])
 exports_files(glob(["*.loom"]))
 filegroup(name = "all_sources", srcs = glob(["*.loom"]))
+filegroup(name = "block32_sources", srcs = ["block32.loom"])
 filegroup(
     name = "llama_sources",
     srcs = ["q4k.loom", "q4k_compat.loom", "q6k.loom", "q6k_compat.loom", "qk_common.loom", "qk_mmvq_compat.loom"],
 )
 filegroup(
     name = "qwen_sources",
-    srcs = ["q4k.loom", "q4k_canonical.loom", "q5k.loom", "q8_0.loom", "q6k.loom", "q6k_canonical.loom", "qk_common.loom"],
+    srcs = [":block32_sources", "q4k.loom", "q4k_canonical.loom", "q5k.loom", "q8_0.loom", "q6k.loom", "q6k_canonical.loom", "qk_common.loom"],
 )

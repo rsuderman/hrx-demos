@@ -13,7 +13,7 @@ config.decl @llama.model.layer_count : index
 config.decl @llama.model.embedding_weight_bytes : index
 config.decl @llama.model.output_weight_bytes : index
 command.program.decl @loomify.llama.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
-kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 kernel.decl @llama32_token_embedding_epoch_q6k_f32(%rows: index) launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
 template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
 
@@ -27,7 +27,7 @@ command.program.def @loomify.llama.model() launch(%parameters: buffer, %residual
   %word = index.constant 4 : offset
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
-  kernel.launch @llama32_head_count[](%phase, %descriptor_origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %descriptor_origin, %epoch, %count) : [](index, offset, buffer, buffer)
   %layout_hidden = config.get @llama.model.hidden_size : index
   %layout_head = config.get @llama.model.head_size : index
   %layout_vocabulary = config.get @llama.model.vocabulary_size : index

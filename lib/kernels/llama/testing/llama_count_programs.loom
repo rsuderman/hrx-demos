@@ -6,7 +6,7 @@ config.def @llama.publication.end_turn_id = 128009 : i32
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Count snapshots are immutable through observation and independent replay.
-kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 kernel.decl @test.observe_count() launch(%count: buffer, %output: buffer)
 kernel.decl @test.init_prefill() launch(%packet: buffer)
 kernel.decl @test.init_decode() launch(%packet: buffer)
@@ -15,7 +15,7 @@ command.program.def @native.count.step(%kind: index) launch(%raw: buffer, %packe
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(4) %bytes : buffer
   %origin = index.constant 0 : offset
-  kernel.launch @llama32_head_count[](%kind, %origin, %packet, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count[](%kind, %origin, %packet, %count) : [](index, offset, buffer, buffer)
   kernel.launch @test.observe_count[](%count, %observed) : [](buffer, buffer)
   command.return
 }

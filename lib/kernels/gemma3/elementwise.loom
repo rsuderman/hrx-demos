@@ -1,0 +1,61 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+config.decl @gemma3.model.hidden_size : index
+func.decl @gemma3_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+template.decl @llm.residual_add_f32.row(%hidden: index, %rows: index, %row: index, %lhs: buffer, %rhs: buffer, %out: buffer)
+template.decl @llm.geglu_tanh_f32.row(%width: index, %rows: index, %row: index, %gate: buffer, %up: buffer, %out: buffer)
+
+kernel.def @gemma3_residual(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %hidden = config.get @gemma3.model.hidden_size : index
+  %bias = index.constant 1023 : index
+  %tile = index.constant 1024 : index
+  %rounded = index.add %hidden, %bias : index
+  %groups = index.div %rounded, %tile : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%groups, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%count: buffer, %source: buffer, %residual: buffer) {
+  %rows = kernel.workgroup.count<y> : index
+  %row = kernel.workgroup.id<y> : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @gemma3_active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    %hidden = config.get @gemma3.model.hidden_size : index
+    template.apply<@llm.residual_add_f32.row>(%hidden, %rows, %row, %residual, %source, %residual) : (index, index, index, buffer, buffer, buffer)
+  }
+  kernel.return
+}
+kernel.def @gemma3_geglu(%rows0: index, %width0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  %groups = index.div %width, %threads : index
+  kernel.launch.config workgroups(%groups, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%width0: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %rows = kernel.workgroup.count<y> : index
+  %row = kernel.workgroup.id<y> : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @gemma3_active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    template.apply<@llm.geglu_tanh_f32.row>(%width, %rows, %row, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  } else {
+    // Every inactive row must be initialized before canonical down-input packing.
+    %group = kernel.workgroup.id<x> : index
+    %lane = kernel.workitem.id<x> : index
+    %tile = index.constant 256 : index
+    %base = index.mul %group, %tile : index
+    %element0 = index.add %base, %lane : index
+    %element = index.assume %element0 [range(%element0, 0, 32767), lt(%element0, %width)] : index
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  }
+  kernel.return
+}

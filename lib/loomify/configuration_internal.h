@@ -66,6 +66,7 @@ struct Producer {
   }
   void ProjectionCapacities() {
     for (const auto &entry : std::vector<std::pair<uint32_t, const char *>>{
+             {6, "ggml.linear_q5_0_q8_1_x4."},
              {12, "ggml.linear_q4k_q8_1_x4."},
              {13, "ggml.linear_q5k_q8_1_x4."},
              {14, "ggml.linear_q6k_q8_1_x4."},
@@ -153,6 +154,8 @@ struct Producer {
   }
 };
 bool EmitLlama(const model::ModelDescriptor&, const std::string&,
+               const ConfigurationSettings&, ConfigurationFacts*, std::string*);
+bool EmitGemma(const model::ModelDescriptor&, const std::string&,
                const ConfigurationSettings&, ConfigurationFacts*, std::string*);
 bool EmitQwen(const model::ModelDescriptor&, const std::string&,
               const ConfigurationSettings&, ConfigurationFacts*, std::string*);

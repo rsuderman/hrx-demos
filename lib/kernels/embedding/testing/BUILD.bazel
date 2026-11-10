@@ -1,3 +1,4 @@
+load("//build_tools:loom_merge.bzl", "loom_merge")
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
@@ -18,3 +19,17 @@ loom_test(
     benchmark_smoke = False,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
+
+
+[loom_merge(
+    name = "q8_0_provider_" + format,
+    srcs = ["//lib/kernels/embedding:q8_0_rows.loom", "//lib/kernels/projection:block32_sources"],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+[loom_test(
+    name = "q8_0_rows_" + format + "_test",
+    srcs = ["q8_0_checks.loom", ":q8_0_provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+) for format in ["text", "bc"]]

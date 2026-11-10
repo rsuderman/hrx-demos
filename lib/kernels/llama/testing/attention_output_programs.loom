@@ -33,7 +33,7 @@ kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_siz
 
 kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
 
-kernel.decl @llama32_head_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
 command.program.def public retain @attention.output.q4.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
@@ -41,7 +41,7 @@ command.program.def public retain @attention.output.q4.prefill() launch(%v0: buf
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
     %v6 = index.constant 0 : index
     %v7 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
     %v8 = index.constant 8 : index
     %v9 = index.constant 3072 : index
     %v10 = index.constant 3072 : index
@@ -71,7 +71,7 @@ command.program.def public retain @attention.output.q4.decode() launch(%v0: buff
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
     %v6 = index.constant 1 : index
     %v7 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
     %v8 = index.constant 1 : index
     %v9 = index.constant 3072 : index
     %v10 = index.constant 3072 : index
@@ -101,7 +101,7 @@ command.program.def public retain @attention.output.q6.prefill() launch(%v0: buf
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
     %v6 = index.constant 0 : index
     %v7 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
     %v8 = index.constant 8 : index
     %v9 = index.constant 3072 : index
     %v10 = index.constant 3072 : index
@@ -131,7 +131,7 @@ command.program.def public retain @attention.output.q6.decode() launch(%v0: buff
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
     %v6 = index.constant 1 : index
     %v7 = index.constant 0 : offset
-    kernel.launch @llama32_head_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
+    kernel.launch @llm.epoch.snapshot_count(%v6, %v7, %v2, %v5) : (index, offset, buffer, buffer)
     %v8 = index.constant 1 : index
     %v9 = index.constant 3072 : index
     %v10 = index.constant 3072 : index

@@ -57,6 +57,7 @@ struct Input {
   int group_capacity = 524288;
   int output_limit = 262144;
   bool expected = true;
+  int columns = 49;
 };
 std::vector<Input> Inputs() {
   return {
@@ -64,6 +65,17 @@ std::vector<Input> Inputs() {
     {"canonical_q6", 1, 14, 768, 1, 4, 30870},
     {"canonical_q8", 1, 8, 768, 1, 4, 39984},
     {"compatible_q4", 0}, {"compatible_q6", 0, 14, 768, 1, 4, 30870},
+    {"canonical_q5_0_minimum", 1, 6, 128, 1, 4, 4312},
+    {"canonical_q5_0_gemma_kv", 1, 6, 1152, 1, 4, 202752, 524288, 262144, true, 256},
+    {"canonical_q5_0_gemma_query", 1, 6, 1152, 1, 4, 811008, 524288, 262144, true, 1024},
+    {"canonical_q5_0_gemma_ffn", 1, 6, 1152, 3, 4, 5474304, 524288, 262144, true, 6912},
+    {"unsupported_compatible_q5_0", 0, 6, 1152, 1, 4, 202752, 524288, 262144, false, 256},
+    {"bad_q5_0_weight_bytes", 1, 6, 1152, 1, 4, 202751, 524288, 262144, false, 256},
+    {"bad_q5_0_alignment", 1, 6, 1120, 1, 4, 37730, 524288, 262144, false},
+    {"bad_q5_0_width", 1, 6, 32896, 1, 4, 1108184, 524288, 262144, false},
+    {"bad_q5_0_capacity", 1, 6, 1152, 4, 1, 202752, 524288, 262144, false, 256},
+    {"bad_q5_0_packed_capacity", 1, 6, 1152, 1, 4, 202752, 1, 262144, false, 256},
+    {"bad_q5_0_output_capacity", 1, 6, 1152, 1, 4, 202752, 524288, 255, false, 256},
     {"bad_policy", 2, 12, 768, 1, 4, 21168, 524288, 262144, false},
     {"bad_tag", 1, 99, 768, 1, 4, 21168, 524288, 262144, false},
     {"unsupported_compatible_q5", 0, 13, 768, 1, 4, 25872, 524288, 262144, false},
@@ -105,7 +117,7 @@ TEST_P(ProjectionMaterializationTest, NormalConstructionEnforcesActualOperations
   ASSERT_TRUE(stream);
   std::ostringstream source;
   source << stream.rdbuf();
-  for (const char* format : {"q4k", "q5k", "q6k", "q8_0"})
+  for (const char* format : {"q4k", "q5k", "q6k", "q8_0", "q5_0"})
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 2048 : index\n"
            << "config.def @ggml.linear_" << format
@@ -115,7 +127,7 @@ TEST_P(ProjectionMaterializationTest, NormalConstructionEnforcesActualOperations
          << "command.program.def public @probe.root() launch(%count: buffer, %raw: buffer, %packed: buffer, %weights: buffer, %output: buffer) {\n";
   for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{
       {"policy", input.policy}, {"tag", input.tag}, {"rows", input.rows},
-      {"capacity", input.capacity}, {"width", input.width}, {"cols", 49},
+      {"capacity", input.capacity}, {"width", input.width}, {"cols", input.columns},
       {"bytes", input.bytes}, {"begin", 0}})
     source << "  %" << key << " = index.constant " << value << " : index\n";
   source << "  %origin = index.constant 0 : offset\n"

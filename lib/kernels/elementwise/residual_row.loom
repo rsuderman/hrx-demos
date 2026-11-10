@@ -5,7 +5,7 @@
 template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
 template.def<@llm.residual_add_f32.row> device @llm_residual_add_f32_row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer) {
-  %hidden_size = index.assume %hidden_size0 [range(%hidden_size0, 1024, 32768), multiple_of(%hidden_size0, 1024)] : index
+  %hidden_size = index.assume %hidden_size0 [range(%hidden_size0, 1024, 32768), multiple_of(%hidden_size0, 4)] : index
   %row_count, %row = index.assume %row_count0, %row0 [range(%row_count0, 1, 512), lt(%row0, %row_count0)] : index, index
   %workgroup = kernel.workgroup.id<x> : index
   %lane = kernel.workitem.id<x> : index
@@ -14,14 +14,19 @@ template.def<@llm.residual_add_f32.row> device @llm_residual_add_f32_row(%hidden
   %c0_offset = index.constant 0 : offset
   %workgroup_base = index.mul %workgroup, %workgroup_size : index
   %vector_ordinal = index.add %workgroup_base, %lane : index
-  %element0 = index.mul %vector_ordinal, %c4 : index
-  %element = index.assume %element0 [range(%element0, 0, 32764), multiple_of(%element0, 4), lt(%element0, %hidden_size)] : index
-  %lhs_view = buffer.view %lhs[%c0_offset] : buffer -> view<[%row_count]x[%hidden_size]xf32>
-  %rhs_view = buffer.view %rhs[%c0_offset] : buffer -> view<[%row_count]x[%hidden_size]xf32>
-  %output_view = buffer.view %output[%c0_offset] : buffer -> view<[%row_count]x[%hidden_size]xf32>
-  %lhs_values = vector.load %lhs_view[%row, %element] : view<[%row_count]x[%hidden_size]xf32> -> vector<4xf32>
-  %rhs_values = vector.load %rhs_view[%row, %element] : view<[%row_count]x[%hidden_size]xf32> -> vector<4xf32>
-  %result = vector.addf<nnan|ninf|nsz> %lhs_values, %rhs_values : vector<4xf32>
-  vector.store %result, %output_view[%row, %element] : vector<4xf32>, view<[%row_count]x[%hidden_size]xf32>
+  %vector_count = index.div %hidden_size, %c4 : index
+  %zero = index.constant 0 : index
+  %valid_vector = index.cmp ult, %vector_ordinal, %vector_count : index
+  scf.if %valid_vector {
+    %vector = index.assume %vector_ordinal [range(%vector_ordinal, 0, 8191), lt(%vector_ordinal, %vector_count)] : index
+    // The final constant axis expresses the full four-value footprint directly.
+    %lhs_view = buffer.view %lhs[%c0_offset] : buffer -> view<[%row_count]x[%vector_count]x4xf32>
+    %rhs_view = buffer.view %rhs[%c0_offset] : buffer -> view<[%row_count]x[%vector_count]x4xf32>
+    %output_view = buffer.view %output[%c0_offset] : buffer -> view<[%row_count]x[%vector_count]x4xf32>
+    %lhs_values = vector.load %lhs_view[%row, %vector, %zero] : view<[%row_count]x[%vector_count]x4xf32> -> vector<4xf32>
+    %rhs_values = vector.load %rhs_view[%row, %vector, %zero] : view<[%row_count]x[%vector_count]x4xf32> -> vector<4xf32>
+    %result = vector.addf<nnan|ninf|nsz> %lhs_values, %rhs_values : vector<4xf32>
+    vector.store %result, %output_view[%row, %vector, %zero] : vector<4xf32>, view<[%row_count]x[%vector_count]x4xf32>
+  }
   template.return
 }

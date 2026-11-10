@@ -1,0 +1,88 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+kernel.decl @gemma3_rmsnorm_active_f32(%rows: index) launch(%rows: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @gemma3_residual(%rows: index) launch(%count: buffer, %source: buffer, %residual: buffer)
+config.decl @gemma3.model.hidden_size : index
+config.decl @gemma3.model.query_size : index
+config.decl @gemma3.model.kv_size : index
+config.decl @gemma3.model.head_size : index
+config.decl @gemma3.model.query_heads : index
+config.decl @gemma3.model.kv_heads : index
+config.decl @gemma3.attention.cache_base : offset
+config.decl @gemma3.attention.map_origin : offset
+func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
+kernel.decl @gemma3_prepare_qk(%rows: index, %heads: index) launch(%layer: index, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @gemma3_publish_kv(%rows: index) launch(%layer: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
+kernel.decl @gemma3_attention_rows(%rows: index) launch(%layer: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+command.program.def @loomify.gemma3.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+  %hidden = config.get @gemma3.model.hidden_size : index
+  %zero = index.constant 0 : index
+  %policy = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %word = index.constant 4 : offset
+  %block = index.constant 128 : index
+  %packed_block = index.constant 144 : offset
+  %qwidth = config.get @gemma3.model.query_size : index
+  %kv = config.get @gemma3.model.kv_size : index
+  %h = config.get @gemma3.model.head_size : index
+  %qh = config.get @gemma3.model.query_heads : index
+  %kh = config.get @gemma3.model.kv_heads : index
+  %cache_base = config.get @gemma3.attention.cache_base : offset
+  %map_origin = config.get @gemma3.attention.map_origin : offset
+  %qt, %kt, %vt, %ot, %qb, %kb, %vb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index, index, index, index, index)
+  %qw = command.parameter %parameters, "blk.{}.attn_q.weight"[%layer] : view<[%qb]xi8>
+  %kw = command.parameter %parameters, "blk.{}.attn_k.weight"[%layer] : view<[%kb]xi8>
+  %vw = command.parameter %parameters, "blk.{}.attn_v.weight"[%layer] : view<[%vb]xi8>
+  %ow = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%ob]xi8>
+  %qnorm = command.parameter %parameters, "blk.{}.attn_q_norm.weight"[%layer] : view<[%h]xf32>
+  %knorm = command.parameter %parameters, "blk.{}.attn_k_norm.weight"[%layer] : view<[%h]xf32>
+  %postgamma = command.parameter %parameters, "blk.{}.post_attention_norm.weight"[%layer] : view<[%hidden]xf32>
+  %q_elements = index.mul %rows, %qwidth : index
+  %q_bytes = index.scale %q_elements, %word : index, offset -> offset
+  %q = buffer.alloca<global> align(256) %q_bytes : buffer
+  %k_elements = index.mul %rows, %kv : index
+  %k_bytes = index.scale %k_elements, %word : index, offset -> offset
+  %k = buffer.alloca<global> align(256) %k_bytes : buffer
+  %v_elements = index.mul %rows, %kv : index
+  %v_bytes = index.scale %v_elements, %word : index, offset -> offset
+  %v = buffer.alloca<global> align(256) %v_bytes : buffer
+  %query_elements = index.mul %rows, %qwidth : index
+  %query_bytes = index.scale %query_elements, %word : index, offset -> offset
+  %query = buffer.alloca<global> align(256) %query_bytes : buffer
+  %rotated_key_elements = index.mul %rows, %kv : index
+  %rotated_key_bytes = index.scale %rotated_key_elements, %word : index, offset -> offset
+  %rotated_key = buffer.alloca<global> align(256) %rotated_key_bytes : buffer
+  %attended_elements = index.mul %rows, %qwidth : index
+  %attended_bytes = index.scale %attended_elements, %word : index, offset -> offset
+  %attended = buffer.alloca<global> align(256) %attended_bytes : buffer
+  %projected_elements = index.mul %rows, %hidden : index
+  %projected_bytes = index.scale %projected_elements, %word : index, offset -> offset
+  %projected = buffer.alloca<global> align(256) %projected_bytes : buffer
+  %post_elements = index.mul %rows, %hidden : index
+  %post_bytes = index.scale %post_elements, %word : index, offset -> offset
+  %post = buffer.alloca<global> align(256) %post_bytes : buffer
+  %packed_row_groups = index.div %hidden, %block : index
+  %packed_groups = index.mul %rows, %packed_row_groups : index
+  %packed_bytes = index.scale %packed_groups, %packed_block : index, offset -> offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  %attended_packed_row_groups = index.div %qwidth, %block : index
+  %attended_packed_groups = index.mul %rows, %attended_packed_row_groups : index
+  %attended_packed_bytes = index.scale %attended_packed_groups, %packed_block : index, offset -> offset
+  %attended_packed = buffer.alloca<global> align(256) %attended_packed_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %qt, %rows, %rows, %hidden, %qwidth, %qb, %zero, %dynamic, %origin, %count, %packed, %qw, %q) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%qb]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %kt, %rows, %rows, %hidden, %kv, %kb, %zero, %dynamic, %origin, %count, %packed, %kw, %k) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%kb]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %vt, %rows, %rows, %hidden, %kv, %vb, %zero, %dynamic, %origin, %count, %packed, %vw, %v) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%vb]xi8>, buffer)
+  kernel.launch @gemma3_prepare_qk[%rows, %qh](%layer, %control_origin, %control, %q, %qnorm, %query) : [index, index](index, offset, buffer, buffer, view<[%h]xf32>, buffer)
+  kernel.launch @gemma3_prepare_qk[%rows, %kh](%layer, %control_origin, %control, %k, %knorm, %rotated_key) : [index, index](index, offset, buffer, buffer, view<[%h]xf32>, buffer)
+  kernel.launch @gemma3_publish_kv[%rows](%layer, %cache_base, %control_origin, %map_origin, %control, %map, %rotated_key, %v, %cache) : [index](index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @gemma3_attention_rows[%rows](%layer, %cache_base, %control_origin, %map_origin, %control, %map, %query, %cache, %attended) : [index](index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %qwidth, %zero, %dynamic, %origin, %count, %attended, %attended_packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %ot, %rows, %rows, %qwidth, %hidden, %ob, %zero, %dynamic, %origin, %count, %attended_packed, %ow, %projected) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%ob]xi8>, buffer)
+  kernel.launch @gemma3_rmsnorm_active_f32[%rows](%rows, %zero, %origin, %count, %projected, %postgamma, %post) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
+  kernel.launch @gemma3_residual[%rows](%count, %post, %residual) : [index](buffer, buffer, buffer)
+  command.return
+}

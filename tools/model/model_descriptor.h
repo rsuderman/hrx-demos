@@ -30,6 +30,9 @@ struct LayerDescriptor {
   uint64_t feed_forward_width = 0;
   uint64_t query_heads = 0;
   uint64_t kv_heads = 0;
+  // Effective causal window (zero means full history) and per-layer RoPE base.
+  uint64_t attention_window = 0;
+  double rope_base = 10000;
   std::vector<TensorBinding> tensors;
 };
 

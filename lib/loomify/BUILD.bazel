@@ -24,7 +24,7 @@ iree_cc_library(
         "//lib/serving/testing:__pkg__",
         "//lib/programs/ffn/testing:__pkg__",
     ],
-    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc"],
+    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc", "architectures/gemma3.cc"],
     hdrs = ["configuration.h"],
     cxxopts = _CXXOPTS,
     deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
@@ -126,7 +126,8 @@ iree_cc_library(
 iree_c_embed_data(
     name = "chat_templates",
     srcs = ["//lib/text/llama:templates/5816fce1.jinja",
-            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja"],
+            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
+            "//lib/text/gemma:templates/7de1c58e.jinja"],
     c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
     identifier = "chat_templates", flatten = True,
 )
@@ -135,13 +136,14 @@ iree_cc_library(
     visibility = ["//lib/loomify:__subpackages__", "//lib/serving/testing:__pkg__"],
     srcs = ["chat_policy.cc"], hdrs = ["chat_policy.h"],
     cxxopts = _CXXOPTS,
-    deps = ["//lib/serving:library_resources", ":chat_templates", "//tools/model:text_metadata"],
+    deps = ["//lib/serving:library_resources", ":chat_templates", ":token_policy", "//tools/model:text_metadata"],
 )
 cc_test(
     name = "chat_policy_test", size = "small", linkstatic = True,
     srcs = ["//lib/loomify/testing:chat_policy_test.cc"], copts = _CXXOPTS,
     data = ["//lib/text/llama:templates/5816fce1.jinja",
-            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja"],
+            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
+            "//lib/text/gemma:templates/7de1c58e.jinja"],
     deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
@@ -152,4 +154,12 @@ iree_c_embed_data(
     h_file_output = "materialize_source.h",
     identifier = "materialize_source",
     flatten = True,
+)
+
+cc_test(
+    name = "gemma3_configuration_test",
+    srcs = ["//lib/loomify/testing:gemma3_configuration_test.cc"],
+    copts = _CXXOPTS,
+    deps = [":configuration", "//tools/model:gguf_catalog", "//tools/model:model_descriptor",
+            "@googletest//:gtest", "@googletest//:gtest_main"],
 )

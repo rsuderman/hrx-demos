@@ -3,12 +3,13 @@
 #ifndef HRX_SOLUTIONS_LIB_LOOMIFY_CHAT_POLICY_H_
 #define HRX_SOLUTIONS_LIB_LOOMIFY_CHAT_POLICY_H_
 #include "tools/model/text_metadata.h"
+#include "lib/loomify/token_policy.h"
 #include <optional>
 #include <string>
 #include <vector>
 namespace hrx::loomify_gguf {
 // Private selection data, never a numerical model or dispatch graph.
-enum class ChatRevision { LlamaHeadersBaseline, ChatmlInlineHistory, ChatmlExplicitReasoning };
+enum class ChatRevision { LlamaHeadersBaseline, ChatmlInlineHistory, ChatmlExplicitReasoning, GemmaTurns };
 struct ChatMarker {
   std::string text;
   // Framing literals such as XML tags may encode as several ordinary tokens.
@@ -24,7 +25,7 @@ struct ChatPolicySelection {
   // Public definitions linked with the selected maintained text provider.
   std::string configuration_source;
   std::vector<const char*> data_roots;
-  std::string family; // selected text tokenizer strategy; independent of numerical family
+  TextTokenRequirements tokens;
   std::string text_product;
   bool preserved_baseline = false;
   std::vector<ChatMarker> markers;

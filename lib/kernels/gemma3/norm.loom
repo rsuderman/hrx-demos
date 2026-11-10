@@ -1,0 +1,46 @@
+// Copyright 2026 The IREE Authors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Curated from loom-pipeline/llm/llama/llama_3b/bindings.loom; independently maintained by Loomify.
+
+config.decl @gemma3.model.hidden_size : index
+
+config.decl @gemma3.model.rms_epsilon : f32
+
+template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
+func.decl @gemma3_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+
+kernel.def @gemma3_rmsnorm_active_f32(%token_count0: index) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%one, %token_count, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
+  %hidden_size = config.get @gemma3.model.hidden_size : index
+  %width32 = index.cast %hidden_size : index to i32
+  %divisor = scalar.uitofp %width32 : i32 to f32
+  %epsilon = config.get @gemma3.model.rms_epsilon : f32
+  %row_value = kernel.workgroup.id<y> : index
+  %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %token_count)] : index
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @gemma3_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    %word_bytes = index.constant 4 : offset
+    %row_bytes = index.scale %hidden_size, %word_bytes : index, offset -> offset
+    %output_origin = index.scale %row, %row_bytes : index, offset -> offset
+    %half_output = scalar.constant false : i1
+    template.apply<@llm.rmsnorm.row>(%hidden_size, %divisor, %token_count, %row, %output_origin, %half_output, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
+  } else {
+    // Canonical projection packs every launch row; inactive scratch is defined.
+    %origin = index.constant 0 : offset
+    %lane = kernel.workitem.id<x> : index
+    %step = index.constant 256 : index
+    %zero = scalar.constant 0.0 : f32
+    %out = buffer.view %output[%origin] : buffer -> view<[%token_count]x[%hidden_size]xf32>
+    scf.for %element = [%lane to %hidden_size step %step] {
+      view.store %zero, %out[%row, %element] : f32, view<[%token_count]x[%hidden_size]xf32>
+    }
+  }
+  kernel.return
+}

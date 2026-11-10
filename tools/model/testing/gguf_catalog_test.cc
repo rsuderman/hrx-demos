@@ -117,9 +117,9 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
     const char *name;
     uint64_t bytes;
   };
-  const Case cases[] = {{0, "f32", 2048},  {1, "f16", 1024},
-                        {8, "q8_0", 544},  {12, "q4_K", 288},
-                        {13, "q5_K", 352}, {14, "q6_K", 420}};
+  const Case cases[] = {{0, "f32", 2048}, {1, "f16", 1024},  {6, "q5_0", 352},
+                        {8, "q8_0", 544}, {12, "q4_K", 288}, {13, "q5_K", 352},
+                        {14, "q6_K", 420}};
   for (const auto &test : cases) {
     SCOPED_TRACE(test.name);
     const uint64_t relative = uint64_t{1} << 32;
@@ -320,6 +320,18 @@ TEST(GgufCatalog, RejectsMalformedInputsWithoutPublishingPartialData) {
     EXPECT_EQ(catalog.name, "unchanged");
     EXPECT_TRUE(catalog.tensors.empty());
   }
+}
+TEST(GgufCatalog, Q5ZeroBlockExtentsAreDistinctFromQ5K) {
+  uint64_t bytes = 99;
+  EXPECT_TRUE(EncodedTensorByteSize(6, 1152, 1, &bytes));
+  EXPECT_EQ(bytes, 792);
+  EXPECT_TRUE(EncodedTensorByteSize(6, 6912, 1, &bytes));
+  EXPECT_EQ(bytes, 4752);
+  bytes = 99;
+  EXPECT_FALSE(EncodedTensorByteSize(6, 33, 1, &bytes));
+  EXPECT_EQ(bytes, 99);
+  EXPECT_FALSE(EncodedTensorByteSize(6, 32, UINT64_MAX, &bytes));
+  EXPECT_EQ(bytes, 99);
 }
 } // namespace
 } // namespace hrx::model

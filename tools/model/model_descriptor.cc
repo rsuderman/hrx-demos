@@ -170,16 +170,26 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     ModelDescriptor m;
     m.family = catalog.architecture;
     m.name = catalog.name;
-    if (m.family != "llama" && m.family != "qwen35")
+    if (m.family != "llama" && m.family != "qwen35" && m.family != "gemma3")
       l.Fail("unsupported architecture: " + m.family);
     for (const char *key :
          {"expert_count", "expert_used_count", "nextn_predict_layers"})
       if (l.Int(key, 0, false) != 0)
         l.Fail(std::string("unsupported MoE/MTP feature: ") + l.prefix + key);
-    for (const char *key :
-         {"attention.sliding_window", "attention.logit_softcap",
-          "attention.scale", "embedding_length_out", "pooling_type"})
+    for (const char *key : {"attention.logit_softcap", "attention.scale",
+                            "embedding_length_out", "pooling_type"})
       l.Unsupported(key);
+    if (m.family != "gemma3")
+      l.Unsupported("attention.sliding_window");
+    uint64_t window = 0, period = 6;
+    double local_rope_base = 10000;
+    if (m.family == "gemma3") {
+      window = l.Int("attention.sliding_window", 0, false);
+      period = l.Int("attention.sliding_window_pattern", 6, false);
+      local_rope_base = l.Real("rope.freq_base_swa", 10000);
+      if (l.Real("final_logit_softcapping", 0, false) != 0)
+        l.Fail("unsupported Gemma3 final logit softcap");
+    }
     if (const auto *f = l.Field("attention.causal")) {
       const auto *v = std::get_if<bool>(&f->scalar);
       if (f->source_type != 7 || !v || !*v)
@@ -208,7 +218,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     if (m.rope.width > m.key_head_width || m.rope.width % 2 ||
         (m.family == "llama" && m.rope.width != m.key_head_width))
       l.Fail("invalid RoPE width");
-    m.rope.base = l.Real("rope.freq_base", 10000);
+    m.rope.base = m.family == "gemma3" ? l.Real("rope.freq_base")
+                                       : l.Real("rope.freq_base", 10000);
     m.rope.scaling_kind = l.String("rope.scaling.type", "linear");
     if (m.rope.scaling_kind != "linear" && m.rope.scaling_kind != "none")
       l.Fail("unsupported RoPE scaling: " + m.rope.scaling_kind);
@@ -284,6 +295,9 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
       d.feed_forward_width = ff[i];
       d.query_heads = heads[i];
       d.kv_heads = kv[i];
+      const bool local = window && (period == 0 || i % period < period - 1);
+      d.attention_window = local ? window : 0;
+      d.rope_base = local ? local_rope_base : m.rope.base;
       if (heads[i] % kv[i])
         l.Fail("query heads must be divisible by KV heads at layer" +
                std::to_string(i));
@@ -295,10 +309,16 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
       auto e = m.embedding_width;
       auto f = ff[i];
       bind("input_norm", "attn_norm.weight", {e});
-      bind("post_norm",
-           m.family == "llama" ? "ffn_norm.weight"
-                               : "post_attention_norm.weight",
-           {e});
+      if (m.family == "gemma3") {
+        bind("attention_post_norm", "post_attention_norm.weight", {e});
+        bind("ffn_norm", "ffn_norm.weight", {e});
+        bind("ffn_post_norm", "post_ffw_norm.weight", {e});
+      } else {
+        bind("post_norm",
+             m.family == "llama" ? "ffn_norm.weight"
+                                 : "post_attention_norm.weight",
+             {e});
+      }
       bind("ffn_gate", "ffn_gate.weight", {e, f});
       bind("ffn_up", "ffn_up.weight", {e, f});
       bind("ffn_down", "ffn_down.weight", {f, e});
@@ -330,7 +350,7 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
         bind("key", "attn_k.weight", {e, k});
         bind("value", "attn_v.weight", {e, v});
         bind("attention_output", "attn_output.weight", {q, e});
-        if (m.family == "qwen35") {
+        if (m.family == "qwen35" || m.family == "gemma3") {
           bind("query_norm", "attn_q_norm.weight", {m.key_head_width});
           bind("key_norm", "attn_k_norm.weight", {m.key_head_width});
         }

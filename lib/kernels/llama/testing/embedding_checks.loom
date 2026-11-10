@@ -126,7 +126,7 @@ check.scenario @embedding_q6k_repeated_rows {
 }
 
 // H5 != N3, B2 != compact activation0. Invalid inactive IDs must never load.
-kernel.decl @llama32_head_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
 kernel.decl @llama32_token_embedding_epoch_q6k_f32(%rows:index) launch(%epoch:buffer,%count:buffer,%ids:buffer,%weight:buffer,%output:buffer)
 func.def @embedding.init_epoch(%epoch:buffer,%ids:buffer) {
   %origin = index.constant 0 : offset
@@ -168,7 +168,7 @@ command.program.def @embedding.epoch_call() launch(%epoch:buffer,%ids:buffer,%we
   %prefill = index.constant 0 : index
   %descriptor = index.constant 12 : offset
   %rows = index.constant 8 : index
-  kernel.launch @llama32_head_count[](%prefill,%descriptor,%epoch,%count) : [](index,offset,buffer,buffer)
+  kernel.launch @llm.epoch.snapshot_count[](%prefill,%descriptor,%epoch,%count) : [](index,offset,buffer,buffer)
   kernel.launch @llama32_token_embedding_epoch_q6k_f32[%rows](%epoch,%count,%ids,%weight,%output) : [index](buffer,buffer,buffer,buffer,buffer)
   command.return
 }

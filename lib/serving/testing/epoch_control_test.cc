@@ -130,7 +130,8 @@ struct Arguments {
     return Buffer(types, data.data(), data.size() * sizeof(T), write);
   }
 };
-struct Product { const char* name; const char* variable; bool llama; };
+enum class Family { kLlama, kQwen, kGemma };
+struct Product { const char* name; const char* variable; Family family; };
 class EpochControlTest : public ::testing::TestWithParam<Product> {
  protected:
   void SetUp() override {
@@ -231,15 +232,16 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
       EXPECT_EQ(metadata[6], 0); EXPECT_EQ(metadata[7], flags & 1 ? 0 : -1);
       if (flags & 1) EXPECT_EQ(metadata[323], 2);
       EXPECT_EQ(metadata[387], 0); EXPECT_EQ(metadata[388], 0);
-      EXPECT_EQ(metadata[515], 93);
+      EXPECT_EQ(metadata[515], controls[7]);
       EXPECT_EQ(tokens, (std::vector<int32_t>{71,72,73,0,0,0,0,0}));
     }
     return status;
   }
-  iree_status_t Publish(std::array<int32_t, 6> controls, int32_t flags = 1) {
+  iree_status_t Publish(std::array<int32_t, 6> controls, int32_t flags = 1,
+                        int32_t raw_id = 91, int32_t published_id = -1) {
     std::vector<int32_t> plan(32 * 9, 0), ids(16, 0), empty, progress(16 * 21, -77);
     plan[0] = 3; plan[1] = 11; plan[2] = 11; plan[3] = 0; plan[6] = flags;
-    ids[0] = 91;
+    ids[0] = raw_id;
     const auto original_plan = plan, original_ids = ids;
     Arguments args;
     if (!args.Buffer(types_, plan) || !args.Buffer(types_, empty)) return iree_make_status(IREE_STATUS_INTERNAL);
@@ -253,7 +255,11 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
       std::vector<int32_t> expected(16 * 21, 0);
       expected[0] = expected[1] = 3;
       expected[2] = flags & 1; expected[4] = 14;
-      expected[5] = flags & 1 ? (GetParam().llama ? 93 : 91) : 0;
+      // Default retains the existing Llama fixture's 91/92/93 stop mapping.
+      // Forced Gemma rows supply independent expected IDs explicitly below.
+      if (published_id < 0)
+        published_id = GetParam().family == Family::kLlama ? 93 : 91;
+      expected[5] = flags & 1 ? published_id : 0;
       EXPECT_EQ(progress, expected);
     }
     return status;
@@ -297,7 +303,8 @@ TEST_P(EpochControlTest, ActualRequireEnforcesOrdinaryHostContract) {
   EXPECT_EQ(rows, expected_rows);
   Reject(EncodeState(2, 0, &rows));
   Reject(EncodeState(1, 1, &rows));
-  const std::array<int32_t, 8> encode = {1,0,3,0,0,8,8,93};
+  const int32_t terminal = GetParam().family == Family::kGemma ? 106 : 93;
+  const std::array<int32_t, 8> encode = {1,0,3,0,0,8,8,terminal};
   ASSERT_TRUE(Ok(Encode(encode)));
   ASSERT_TRUE(Ok(Encode(encode, 0, 0)));
   for (const auto& change : std::vector<std::pair<size_t,int32_t>>{{0,2},{1,1},{3,1},{4,1}}) {
@@ -314,6 +321,23 @@ TEST_P(EpochControlTest, ActualRequireEnforcesOrdinaryHostContract) {
   for (size_t i = 0; i < publish.size(); ++i) {
     auto bad = publish; bad[i] = i == 0 ? 2 : 1;
     Reject(Publish(bad));
+  }
+  if (GetParam().family == Family::kGemma) {
+    // Actual generated Gemma facts: declared EOS1 and turn-end106 remain
+    // distinct; host progress canonicalizes only those stops to terminal106.
+    // PAD/BOS/UNK produce ordinary progress even when their decoded text is empty.
+    for (const auto& item : std::array<std::pair<int32_t, int32_t>, 6>{{
+             {1, 106}, {106, 106}, {0, 0}, {2, 2}, {3, 3}, {17, 17}}}) {
+      SCOPED_TRACE("Gemma raw ID " + std::to_string(item.first));
+      runner_.Reset();
+      ASSERT_TRUE(Ok(Publish(publish, 1, item.first, item.second)));
+      EXPECT_EQ(runner_.executes, 0);
+      EXPECT_EQ(runner_.feedbacks, 0);
+    }
+    runner_.Reset();
+    ASSERT_TRUE(Ok(Publish(publish, 0, 1, 106)));
+    EXPECT_EQ(runner_.executes, 0);
+    EXPECT_EQ(runner_.feedbacks, 0);
   }
   const std::array<int32_t, 10> issue = {5,0,0,1,1,1,0,0,0,0};
   runner_.Reset(true, true);
@@ -337,9 +361,11 @@ TEST_P(EpochControlTest, ActualRequireEnforcesOrdinaryHostContract) {
 }
 INSTANTIATE_TEST_SUITE_P(SourceAndBytecode, EpochControlTest,
     ::testing::Values(
-      Product{"LlamaSource", "LOOMIFY_EPOCH_HOST_LLAMA_SOURCE", true},
-      Product{"LlamaBytecode", "LOOMIFY_EPOCH_HOST_LLAMA_BC", true},
-      Product{"QwenSource", "LOOMIFY_EPOCH_HOST_QWEN_SOURCE", false},
-      Product{"QwenBytecode", "LOOMIFY_EPOCH_HOST_QWEN_BC", false}),
+      Product{"LlamaSource", "LOOMIFY_EPOCH_HOST_LLAMA_SOURCE", Family::kLlama},
+      Product{"LlamaBytecode", "LOOMIFY_EPOCH_HOST_LLAMA_BC", Family::kLlama},
+      Product{"QwenSource", "LOOMIFY_EPOCH_HOST_QWEN_SOURCE", Family::kQwen},
+      Product{"QwenBytecode", "LOOMIFY_EPOCH_HOST_QWEN_BC", Family::kQwen},
+      Product{"GemmaSource", "LOOMIFY_EPOCH_HOST_GEMMA_SOURCE", Family::kGemma},
+      Product{"GemmaBytecode", "LOOMIFY_EPOCH_HOST_GEMMA_BC", Family::kGemma}),
     [](const ::testing::TestParamInfo<Product>& info) { return info.param.name; });
 }  // namespace

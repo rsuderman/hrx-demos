@@ -1,0 +1,420 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Fixtures use an independently assigned logical history and page permutation.
+func.def @window.fixture.reference_element(%paged: i1, %physical_arg: index, %lane_arg: index, %query: buffer, %key: buffer, %value: buffer, %map: buffer) {
+  %physical = index.assume %physical_arg [range(%physical_arg, 0, 575)] : index
+  %lane = index.assume %lane_arg [range(%lane_arg, 0, 255)] : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %nine = index.constant 9 : index
+  %sixty_four = index.constant 64 : index
+  %width = index.constant 256 : index
+  %future_start = index.constant 514 : index
+  %cache_origin = index.constant 8 : offset
+  %query_origin = index.constant 16 : offset
+  %map_origin = index.constant 4 : offset
+  %keys = buffer.view %key[%cache_origin] : buffer -> view<576x256xf16>
+  %values = buffer.view %value[%cache_origin] : buffer -> view<576x256xf16>
+  %physical_page = index.div %physical, %sixty_four : index
+  %within = index.rem %physical, %sixty_four : index
+  %prior = index.add %physical_page, %eight : index
+  %logical_page = index.rem %prior, %nine : index
+  %logical_base = index.mul %logical_page, %sixty_four : index
+  %permuted = index.add %logical_base, %within : index
+  %logical = scf.select %paged, %permuted, %physical : index
+  %first = index.cmp eq, %logical, %zero : index
+  %lane_zero = index.cmp eq, %lane, %zero : index
+  %first_key = scalar.andi %first, %lane_zero : i1
+  %z = scalar.constant 0.0 : f32
+  %u = scalar.constant 1.0 : f32
+  %key32 = scf.select %first_key, %u, %z : f32
+  %key16 = scalar.fptrunc %key32 : f32 to f16
+  view.store %key16, %keys[%physical, %lane] : f16, view<576x256xf16>
+  %lane_i32 = index.cast %lane : index to i32
+  %lane32 = scalar.uitofp %lane_i32 : i32 to f32
+  %step = scalar.constant 0.03125 : f32
+  %component = scalar.mulf %lane32, %step : f32
+  %base = scalar.constant 2.0 : f32
+  %first_base = scalar.constant 32.0 : f32
+  %future_base = scalar.constant 1000.0 : f32
+  %future = index.cmp uge, %logical, %future_start : index
+  %ordinary_base = scf.select %first, %first_base, %base : f32
+  %chosen_base = scf.select %future, %future_base, %ordinary_base : f32
+  %value32 = scalar.addf %chosen_base, %component : f32
+  %value16 = scalar.fptrunc %value32 : f32 to f16
+  view.store %value16, %values[%physical, %lane] : f16, view<576x256xf16>
+  %group_zero = index.cmp eq, %physical, %zero : index
+  scf.if %group_zero {
+    %queries = buffer.view %query[%query_origin] : buffer -> view<3x4x256xf32>
+    %q = scf.select %lane_zero, %u, %z : f32
+    scf.for %row = [%zero to %three step %one] {
+      scf.for %head = [%zero to %four step %one] {
+        view.store %q, %queries[%row, %head, %lane] : f32, view<3x4x256xf32>
+      }
+    }
+    %map_lane = index.cmp ult, %lane, %nine : index
+    scf.if %map_lane {
+      %next = index.add %lane, %one : index
+      %mapped = index.rem %next, %nine : index
+      %page = scf.select %paged, %mapped, %lane : index
+      %page32 = index.cast %page : index to i32
+      %entries = buffer.view %map[%map_origin] : buffer -> view<9xi32>
+      view.store %page32, %entries[%lane] : i32, view<9xi32>
+    }
+  }
+  func.return
+}
+
+func.def @window.fixture.reference(%paged: i1, %q: buffer, %k: buffer, %v: buffer, %map: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %capacity = index.constant 576 : index
+  %width = index.constant 256 : index
+  scf.for %p = [%zero to %capacity step %one] {
+    scf.for %lane = [%zero to %width step %one] {
+      func.call @window.fixture.reference_element(%paged, %p, %lane, %q, %k, %v, %map) : (i1, index, index, buffer, buffer, buffer, buffer) -> ()
+    }
+  }
+  func.return
+}
+func.def @window.oracle(%position_arg: index, %window: index, %row_arg: index, %out: buffer) {
+  %position = index.assume %position_arg [range(%position_arg, 0, 575)] : index
+  %row = index.assume %row_arg [range(%row_arg, 0, 2)] : index
+  %origin = index.constant 16 : offset
+  %values = buffer.view %out[%origin] : buffer -> view<3x4x256xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %heads = index.constant 4 : index
+  %width = index.constant 256 : index
+  %full = index.cmp eq, %window, %zero : index
+  %early = index.cmp ult, %position, %window : index
+  %keeps_first = scalar.ori %full, %early : i1
+  %position_i32 = index.cast %position : index to i32
+  %others = scalar.uitofp %position_i32 : i32 to f64
+  %score = scalar.constant 0.0625 : f64
+  // Independent F64 math.exp(0.0625), generated/rechecked by gemma3_reference.py.
+  %first_weight = scalar.constant 1.0644944589178593 : f64
+  %denominator = scalar.addf %others, %first_weight : f64
+  %delta = scalar.constant 30.0 : f64
+  %numerator = scalar.mulf %delta, %first_weight : f64
+  %correction = scalar.divf %numerator, %denominator : f64
+  %z = scalar.constant 0.0 : f64
+  %adjustment = scf.select %keeps_first, %correction, %z : f64
+  %base = scalar.constant 2.0 : f64
+  %step = scalar.constant 0.03125 : f64
+  scf.for %h = [%zero to %heads step %one] {
+    scf.for %lane = [%zero to %width step %one] {
+      %lane_i32 = index.cast %lane : index to i32
+      %component = scalar.uitofp %lane_i32 : i32 to f64
+      %fraction = scalar.mulf %component, %step : f64
+      %ordinary = scalar.addf %base, %fraction : f64
+      %answer64 = scalar.addf %ordinary, %adjustment : f64
+      %answer = scalar.fptrunc %answer64 : f64 to f32
+      view.store %answer, %values[%row, %h, %lane] : f32, view<3x4x256xf32>
+    }
+  }
+  func.return
+}
+
+command.program.decl @actual.p510_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p510_w512_paged0_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant false : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 510 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p510_w512_paged0_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p510_w512_paged0_rows1, @expected.p510_w512_paged0_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p511_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p511_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 511 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p511_w512_paged1_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p511_w512_paged1_rows1, @expected.p511_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p512_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p512_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 512 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p512_w512_paged1_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p512_w512_paged1_rows1, @expected.p512_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p513_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p513_w512_paged0_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant false : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 513 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p513_w512_paged0_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p513_w512_paged0_rows1, @expected.p513_w512_paged0_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p512_w0_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p512_w0_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 0 : index
+  %p0 = index.constant 512 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p512_w0_paged1_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p512_w0_paged1_rows1, @expected.p512_w0_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p63_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p63_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 63 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p63_w512_paged1_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p63_w512_paged1_rows1, @expected.p63_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p64_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p64_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 64 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p64_w512_paged1_rows1_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p64_w512_paged1_rows1, @expected.p64_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p511_w512_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p511_w512_paged1_rows3(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 512 : index
+  %p0 = index.constant 511 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  %p1 = index.constant 512 : index
+  %r1 = index.constant 1 : index
+  func.call @window.oracle(%p1, %window, %r1, %out) : (index, index, index, buffer) -> ()
+  %p2 = index.constant 513 : index
+  %r2 = index.constant 2 : index
+  func.call @window.oracle(%p2, %window, %r2, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p511_w512_paged1_rows3_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p511_w512_paged1_rows3, @expected.p511_w512_paged1_rows3>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}
+
+command.program.decl @actual.p511_w0_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+func.def @expected.p511_w0_paged1_rows3(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+  %paged = scalar.constant true : i1
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  %window = index.constant 0 : index
+  %p0 = index.constant 511 : index
+  %r0 = index.constant 0 : index
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  %p1 = index.constant 512 : index
+  %r1 = index.constant 1 : index
+  func.call @window.oracle(%p1, %window, %r1, %out) : (index, index, index, buffer) -> ()
+  %p2 = index.constant 513 : index
+  %r2 = index.constant 2 : index
+  func.call @window.oracle(%p2, %window, %r2, %out) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @p511_w0_paged1_rows3_causal_window_gqa_guards {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %q = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %k = check.generate.fill value(-12.0) : tensor<147464xf16>
+    %v = check.generate.fill value(-13.0) : tensor<147464xf16>
+    %map = check.generate.fill value(-77) : tensor<11xi32>
+    %out = check.generate.fill value(-123.5) : tensor<3080xf32>
+    %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
+    check.compare<@actual.p511_w0_paged1_rows3, @expected.p511_w0_paged1_rows3>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
+      check.expect.close actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
+      check.expect.bitwise actual(%k) expected(%k) : tensor<147464xf16>
+      check.expect.bitwise actual(%v) expected(%v) : tensor<147464xf16>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<11xi32>
+    }
+  }
+  check.return
+}

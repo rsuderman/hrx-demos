@@ -1,7 +1,7 @@
 # GGUF model export
 
 `loomify-gguf` constructs the supported Llama3.2 3B Q4_K_M
-and qualified Qwen3.5 0.8B UD-Q5_K_XL / 27B Q4_K_M architectures by deriving data-only configuration and parameter bindings from the
+Qwen3.5 0.8B UD-Q5_K_XL / 27B Q4_K_M and Gemma3 1B IT Q4_K_M architectures by deriving data-only configuration and parameter bindings from the
 GGUF descriptor, selecting a config-free numerical provider closure, and linking
 maintained Loom programs. It writes the model document and source providers
 consumed by existing Loom Serve. GGUF weights and matching tokenizer JSON remain
@@ -46,7 +46,10 @@ a16-byte private selected-ID buffer, its private model invocation and final
 publication to the request output. Each `model.loom` owns the private embedding,
 repeated-layer and head sequence, writing only private selected IDs. The Qwen
 head retains all four private projection/argmax rows; only result0 is published.
-Host encode/issue/progress hooks remain in `control_core.loom`. `lib/programs/llama` contains its complete layer, attention,
+Llama and Gemma share host encode/issue/progress hooks in
+`lib/serving/ordinary_control.loom`; their `control_core.loom` files supply the
+family terminal policy. Qwen keeps its own host control.
+`lib/programs/llama` contains its complete layer, attention,
 FFN adapter and normalized vocabulary-selection programs. `lib/programs/ffn`
 contains the shared FFN sequence; each profile selects its numerical packing
 and normalization providers. Generated configuration supplies tensor bindings,
@@ -209,3 +212,27 @@ name `loomify-qwen35`; control `model_name` is emitted from that same value.
 Llama retains its explicitly selected greedy text baseline. Qwen float tool arguments
 remain functional through the existing JSON representation; exact Hugging Face float
 spelling is deferred, while other declared rendering/token/output checks remain.
+
+## Gemma3 text profile
+
+The Gemma3 profile derives its 26-layer layout, effective local window and global
+RoPE base from GGUF metadata. It uses plain stored-gamma RMS normalization,
+GeGLU, tied Q8_0 embedding/output weights, and mixed Q5_0/Q4_K/Q6_K projections.
+Local layers use a 512-token causal window; global layers retain full logical
+context. KV storage remains fully paged, without ring eviction. Prefill capacity
+is at most512 and is distinct from logical context capacity; context1024 permits
+bounded prompts crossing the local-window boundary.
+
+The selected turns template owns BOS and turn framing. Output preserves visible
+whitespace; future structured conversations rerender canonical history and replay
+it without claiming a cached prefix. Tools, reasoning options and media requests
+are rejected. The matching tokenizer JSON remains an external input. Its extra
+added tokens may load, but encoded IDs outside the GGUF vocabulary are rejected
+before numerical execution. Declared EOS and end-of-turn remain separate source
+facts: the numerical publisher maps either raw stop to the canonical end-of-turn
+ID, while other special IDs remain nonstops.
+
+SOURCE/BC component and direct epoch tests cover numerical anchors, inactive
+scratch initialization, offsets, state ownership, dependent decode and local/global
+window sensitivity. These bounded checks do not establish independent full-model
+numerical fidelity or qualify every admitted context size.

@@ -22,19 +22,22 @@ struct Revision {
   const char* fixture;
   ChatRevision revision;
   const char* sha;
-  const char* family;
+  TextTokenRequirements tokens;
   const char* product;
 };
 const Revision kRevisions[] = {
   {"5816fce1.jinja", ChatRevision::LlamaHeadersBaseline,
    "5816fce10444e03c2e9ee1ef8a4a1ea61ae7e69e438613f3b17b69d0426223a4",
-   "llama", resources::kLlamaText},
+   {"gpt2", "llama-bpe", true, "<|begin_of_text|>", "<|eot_id|>"}, resources::kLlamaText},
   {"7f0e5290.jinja", ChatRevision::ChatmlInlineHistory,
    "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",
-   "qwen35", resources::kChatmlInlineHistory},
+   {"gpt2", "qwen35", false, "", "<|im_end|>"}, resources::kChatmlInlineHistory},
   {"c3cf9e34.jinja", ChatRevision::ChatmlExplicitReasoning,
    "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
-   "qwen35", resources::kChatmlExplicitReasoning},
+   {"gpt2", "qwen35", false, "", "<|im_end|>"}, resources::kChatmlExplicitReasoning},
+  {"7de1c58e.jinja", ChatRevision::GemmaTurns,
+   "7de1c58e208eda46e9c7f86397df37ec49883aeece39fb961e0a6b24088dd3c4",
+   {"llama", "default", true, "", "<end_of_turn>", false}, resources::kGemmaTurns},
 };
 std::string_view Fixture(const char* name) {
   const auto* files = chat_templates_create();
@@ -111,6 +114,7 @@ bool AddSlot(std::string_view source, const char* name, std::string_view anchor,
 }
 bool Capture(const Revision& revision, std::string_view expected,
              std::string_view actual, std::map<std::string, std::string>* values) {
+  if (revision.revision == ChatRevision::GemmaTurns) return actual == expected;
   std::vector<Slot> slots;
   if (revision.revision == ChatRevision::LlamaHeadersBaseline) {
     const std::string anchor = "{%- else %}\n        {%- set date_string = ";
@@ -155,6 +159,7 @@ void Datum(ChatPolicySelection* policy, const char* name, std::string_view value
   policy->data_roots.push_back(name);
 }
 void EmitData(const std::map<std::string, std::string>& slots, ChatPolicySelection* policy) {
+  if (policy->revision == ChatRevision::GemmaTurns) return;
   if (policy->preserved_baseline) {
     Datum(policy, "loomify.text.fallback_date", slots.at("date"));
     return;
@@ -216,11 +221,13 @@ bool SelectChatPolicy(const model::TextMetadata& metadata,
     result.template_name = selected->name;
     result.skeleton_sha256 = revision.sha;
     result.source_text = selected->text;
-    result.family = revision.family;
+    result.tokens = revision.tokens;
     result.text_product = revision.product;
     result.roots = kRoots;
     result.preserved_baseline = revision.revision == ChatRevision::LlamaHeadersBaseline;
-    if (result.preserved_baseline) {
+    if (result.revision == ChatRevision::GemmaTurns) {
+      result.markers = {{"<start_of_turn>",true}, {"<end_of_turn>",true}};
+    } else if (result.preserved_baseline) {
       result.markers = {{"<|begin_of_text|>",true}, {"<|start_header_id|>",true},
         {"<|end_header_id|>",true}, {"<|eot_id|>",true}};
     } else {

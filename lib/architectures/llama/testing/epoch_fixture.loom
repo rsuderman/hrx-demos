@@ -5,7 +5,7 @@
 config.def @llama.publication.end_text_id = 128001 : i32
 config.def @llama.publication.end_message_id = 128008 : i32
 config.def @llama.publication.end_turn_id = 128009 : i32
-kernel.decl @llama32_head_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
+kernel.decl @llm.epoch.snapshot_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
 kernel.decl @llama32_publish_epoch_id() launch(%epoch:buffer,%selected:buffer,%output:buffer)
 kernel.decl @test.epoch_compute(%capacity:index) launch(%capacity:index,%residual:buffer,%epoch:buffer,%count:buffer,%arena:buffer,%input:buffer,%selected:buffer)
 kernel.decl @test.epoch_initialize() launch(%kind:index,%metadata:buffer,%input:buffer)
@@ -17,7 +17,7 @@ command.program.def @test.epoch.single(%capacity:index) launch(%parameters:buffe
   %selected = buffer.alloca<global> align(256) %selected_bytes : buffer
   %prefill = index.constant 0 : index
   %descriptor_origin = index.constant 12 : offset
-  kernel.launch @llama32_head_count[](%prefill,%descriptor_origin,%metadata,%count) : [](index,offset,buffer,buffer)
+  kernel.launch @llm.epoch.snapshot_count[](%prefill,%descriptor_origin,%metadata,%count) : [](index,offset,buffer,buffer)
   kernel.launch @test.epoch_compute[%capacity](%capacity,%residual,%metadata,%count,%arena,%input,%selected) : [index](index,buffer,buffer,buffer,buffer,buffer,buffer)
   kernel.launch @llama32_publish_epoch_id[](%metadata,%selected,%output) : [](buffer,buffer,buffer)
   command.return

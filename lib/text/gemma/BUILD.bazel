@@ -1,0 +1,4 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+package(default_visibility = ["//visibility:public"])
+exports_files(["templates/7de1c58e.jinja"])

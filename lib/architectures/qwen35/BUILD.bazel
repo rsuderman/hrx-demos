@@ -19,6 +19,8 @@ filegroup(
         "//lib/kernels/qwen/gdn:clear.loom",
         "//lib/kernels/qwen/attention:clear.loom",
         "//lib/kernels/qwen/attention:attention_common.loom",
+        "//lib/kernels/attention:rotary.loom",
+        "//lib/kernels/attention:normalization.loom",
         "//lib/kernels/qwen/attention:attention_prefill.loom",
         "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
         "//lib/kernels/qwen/attention:attention_spans.loom",

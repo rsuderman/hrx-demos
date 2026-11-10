@@ -23,45 +23,7 @@ template.decl @qwen38.attention.rope_text_value(%position: i32, %lane0: index, %
 // This helper does not normalize Q/K or impose a model position convention.
 template.decl @llm.attention.rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane0: index, %head_data: buffer) -> (f32)
 
-template.def<@llm.attention.rope_neox_value> device @llm_attention_rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane0: index, %head_data: buffer) -> (f32) {
-  %lane = index.assume %lane0 [range(%lane0, 0, 255), lt(%lane0, %head_size)] : index
-  %c0_offset = index.constant 0 : offset
-  %head_view = buffer.view %head_data[%c0_offset] : buffer -> view<[%head_size]xf32>
-  %value = view.load %head_view[%lane] : view<[%head_size]xf32> -> f32
-  %rotates = index.cmp ult, %lane, %rope_size : index
-  %result = scf.if %rotates -> (f32) {
-    %is_low_half = index.cmp ult, %lane, %rope_half : index
-    %pair, %partner = scf.if %is_low_half -> (index, index) {
-      %high_lane = index.add %lane, %rope_half : index
-      scf.yield %lane, %high_lane : index, index
-    } else {
-      %low_lane = index.sub %lane, %rope_half : index
-      scf.yield %low_lane, %low_lane : index, index
-    }
-    %partner_value = view.load %head_view[%partner] : view<[%head_size]xf32> -> f32
-    %pair_i32 = index.cast %pair : index to i32
-    %pair_f32 = scalar.uitofp %pair_i32 : i32 to f32
-    %position_f32 = scalar.sitofp %position : i32 to f32
-    %log_frequency = scalar.mulf %pair_f32, %log_frequency_step : f32
-    %frequency = scalar.expf<afn> %log_frequency : f32
-    %angle = scalar.mulf %position_f32, %frequency : f32
-    %sine = scalar.sinf<afn> %angle : f32
-    %cosine = scalar.cosf<afn> %angle : f32
-    %own_cosine = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %value, %cosine : f32
-    %partner_sine = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %partner_value, %sine : f32
-    %rotated = scf.if %is_low_half -> (f32) {
-      %low = scalar.subf<reassoc|nnan|ninf|nsz> %own_cosine, %partner_sine : f32
-      scf.yield %low : f32
-    } else {
-      %high = scalar.addf<reassoc|nnan|ninf|nsz> %partner_sine, %own_cosine : f32
-      scf.yield %high : f32
-    }
-    scf.yield %rotated : f32
-  } else {
-    scf.yield %value : f32
-  }
-  template.return %result : f32
-}
+
 
 template.def<@qwen38.attention.rope_text_value> device @qwen38_attention_rope_text_value(%position: i32, %lane0: index, %normalized_head: buffer) -> (f32) {
   %head_size = config.get @qwen.model.head_size : index
@@ -106,17 +68,3 @@ template.def<@llm.attention.decode_f32> device @llm_attention_decode_f32(%query_
 // one complete head. Q/K normalization policy belongs to the caller: callers
 // without Q/K normalization use their raw projection and omit this operation.
 template.decl @llm.attention.head_rms_value(%raw: f32, %head_divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %norm_weight: buffer) -> (f32)
-
-template.def<@llm.attention.head_rms_value> device @llm_attention_head_rms_value(%raw: f32, %head_divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %norm_weight: buffer) -> (f32) {
-  %square = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %raw, %raw : f32
-  %sum = kernel.workgroup.reduce<addf> %square : f32
-  %mean = scalar.divf<nnan|ninf|nsz|arcp> %sum, %head_divisor : f32
-  %biased_mean = scalar.addf<nnan|ninf|nsz> %mean, %epsilon : f32
-  %inverse_rms = scalar.rsqrtf<nnan|ninf|nsz|afn> %biased_mean : f32
-  %origin = index.constant 0 : offset
-  %weight_view = buffer.view %norm_weight[%origin] : buffer -> view<[%head_size]xf32>
-  %weight = view.load %weight_view[%lane] : view<[%head_size]xf32> -> f32
-  %normalized0 = scalar.mulf<nnan|ninf|nsz> %raw, %inverse_rms : f32
-  %normalized = scalar.mulf<nnan|ninf|nsz> %normalized0, %weight : f32
-  template.return %normalized : f32
-}

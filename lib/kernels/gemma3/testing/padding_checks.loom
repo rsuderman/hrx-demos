@@ -1,0 +1,85 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Nonzero output poison and outer canaries prove N<T defines all pack input rows.
+command.program.decl @gemma3.padding.norm() launch(%count: buffer, %input: buffer, %rhs: buffer, %output: buffer)
+func.def @expected.padding.norm(%count: buffer, %input: buffer, %rhs: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 3 : index
+  %width = index.constant 1152 : index
+  %out = buffer.view %output[%origin] : buffer -> view<3x1152xf32>
+  %active_value = scalar.constant 0.9999998750000234 : f32
+  %inactive_value = scalar.constant 0.0 : f32
+  scf.for %r = [%zero to %rows step %one] {
+    %active = index.cmp eq, %r, %zero : index
+    %value = scf.select %active, %active_value, %inactive_value : f32
+    scf.for %c = [%zero to %width step %one] {
+      view.store %value, %out[%r, %c] : f32, view<3x1152xf32>
+    }
+  }
+  func.return
+}
+check.scenario @gemma3.padding.norm_active_one_of_three {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %input = check.generate.fill value(2.0) : tensor<3x1152xf32>
+    %rhs = check.generate.fill value(1.0) : tensor<1152xf32>
+    %storage = check.generate.fill value(123.5) : tensor<3464xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<3464xf32> -> tensor<3x1152xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<3464xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(13840) : tensor<3464xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(4608) : tensor<3x1152xf32> -> tensor<2x1152xf32>
+    check.compare<@gemma3.padding.norm, @expected.padding.norm>(%count, %input, %rhs, %output) : (tensor<3xi32>, tensor<3x1152xf32>, tensor<1152xf32>, tensor<3x1152xf32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x1152xf32>
+      check.expect.bitwise actual(%rhs) expected(%rhs) : tensor<1152xf32>
+      check.expect.close actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<3464xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2x1152xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+command.program.decl @gemma3.padding.geglu() launch(%count: buffer, %input: buffer, %rhs: buffer, %output: buffer)
+func.def @expected.padding.geglu(%count: buffer, %input: buffer, %rhs: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 3 : index
+  %width = index.constant 6912 : index
+  %out = buffer.view %output[%origin] : buffer -> view<3x6912xf32>
+  %active_value = scalar.constant 0.8411919906082768 : f32
+  %inactive_value = scalar.constant 0.0 : f32
+  scf.for %r = [%zero to %rows step %one] {
+    %active = index.cmp eq, %r, %zero : index
+    %value = scf.select %active, %active_value, %inactive_value : f32
+    scf.for %c = [%zero to %width step %one] {
+      view.store %value, %out[%r, %c] : f32, view<3x6912xf32>
+    }
+  }
+  func.return
+}
+check.scenario @gemma3.padding.geglu_active_one_of_three {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %input = check.generate.fill value(1.0) : tensor<3x6912xf32>
+    %rhs = check.generate.fill value(1.0) : tensor<3x6912xf32>
+    %storage = check.generate.fill value(123.5) : tensor<20744xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<20744xf32> -> tensor<3x6912xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<20744xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(82960) : tensor<20744xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(27648) : tensor<3x6912xf32> -> tensor<2x6912xf32>
+    check.compare<@gemma3.padding.geglu, @expected.padding.geglu>(%count, %input, %rhs, %output) : (tensor<3xi32>, tensor<3x6912xf32>, tensor<3x6912xf32>, tensor<3x6912xf32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x6912xf32>
+      check.expect.bitwise actual(%rhs) expected(%rhs) : tensor<3x6912xf32>
+      check.expect.close actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<20744xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2x6912xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}

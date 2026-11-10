@@ -5,6 +5,9 @@ cc_test(
     srcs = ["assembly_contract_test.cc"],
     copts = ["-std=c++17"],
     data = [
+        "//lib/architectures/gemma3:execution",
+        "//lib/architectures/gemma3:prepare_library",
+        "//lib/text/protocols/gemma_turns:implementation",
         "//lib/architectures/llama:execution",
         "//lib/architectures/llama:prepare_library",
         "//lib/architectures/qwen35:prepare_library",
@@ -23,6 +26,7 @@ cc_test(
         "//lib/text/qwen35:templates/c3cf9e34.jinja",
     ],
     deps = [
+        "//lib/loomify:gguf_model_builder",
         "//lib/loomify:chat_policy",
         "//lib/loomify:configuration",
         "//lib/loomify:configuration_fixture",

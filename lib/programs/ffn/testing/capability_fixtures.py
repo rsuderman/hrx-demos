@@ -51,6 +51,8 @@ for name, hidden, intermediate, compatible, down_tags in [
     bank = 2 * (2 * gate_bytes + max(down_bytes) + hidden * 4) + 1048576
     for tag in ('q4k', 'q5k', 'q6k', 'q8_0'):
         h.emit(f'config.def @ggml.linear_{tag}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{tag}_q8_1_x4.output_capacity = 262144 : index\n')
+    # Unused Q5_0 provider: mirror Producer::ProjectionCapacities bounds.
+    h.emit('config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index\n')
     h.emit(f'''config.def @ggml.quantize_q8_1_x4.group_capacity = 524288 : index
 config.def @loomify.ffn.profile = {0 if compatible else 1} : index
 config.def @{family}.model.hidden_size = {hidden} : index

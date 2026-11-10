@@ -1,0 +1,38 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// F32 gather/scaling uses the same owned signed Q8_0 word codec as projection.
+template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32)
+template.decl @llm.embedding.q8_row_bytes(%bytes: index, %expected: index)
+template.def<@llm.embedding.q8_row_bytes> @llm_embedding_q8_row_bytes(%bytes: index, %expected: index) where [eq(%bytes, %expected)] { template.return }
+template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %scale: f32, %weight: buffer, %output: buffer)
+template.def<@llm.token_embedding_q8_0_f32.row> device @llm_token_embedding_q8_0_f32_row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %scale: f32, %weight: buffer, %output: buffer) where [range(%hidden_size, 32, 32768), multiple_of(%hidden_size, 32)] {
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %thirty_two = index.constant 32 : index
+  %thirty_four = index.constant 34 : index
+  %threads = index.constant 256 : index
+  %tag = index.constant 8 : index
+  %blocks = index.div %hidden_size, %thirty_two : index
+  %expected = index.mul %blocks, %thirty_four : index
+  template.apply<@llm.embedding.q8_row_bytes>(%row_bytes, %expected) : (index, index)
+  %thread = kernel.workitem.id<x> : index
+  %words = index.div %hidden_size, %four : index
+  %row_stride = index.cast %row_bytes : index to offset
+  %id = index.cast %token : i32 to index
+  %row_origin = index.scale %id, %row_stride : index, offset -> offset
+  %weight_noalias, %output_noalias = buffer.assume.noalias %weight, %output : buffer, buffer
+  %out = buffer.view %output_noalias[%output_origin] : buffer -> view<[%hidden_size]xf32>
+  %factor = vector.splat %scale : vector<4xf32>
+  scf.for %packet = [%thread to %words step %threads] {
+    %block = index.div %packet, %eight : index
+    %word = index.rem %packet, %eight : index
+    %codes, %d = template.apply<@ggml.block32.word>(%tag, %weight_noalias, %row_origin, %block, %word) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32)
+    %values = vector.sitofp %codes : vector<4xi8> to vector<4xf32>
+    %d_vector = vector.splat %d : vector<4xf32>
+    %decoded = vector.mulf %values, %d_vector : vector<4xf32>
+    %scaled = vector.mulf %decoded, %factor : vector<4xf32>
+    %column = index.mul %packet, %four : index
+    vector.store %scaled, %out[%column] : vector<4xf32>, view<[%hidden_size]xf32>
+  }
+  template.return
+}

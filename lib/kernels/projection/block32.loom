@@ -1,0 +1,121 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Shared signed block32 word access and unchanged Q8_1_x4 dot traversal.
+template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_block: index, %word_in_block: index) -> (vector<4xi8>, f32)
+template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32)
+
+template.def<@ggml.block32.word> device @ggml_block32_q8_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32) where [eq(%tag, 8)] {
+  %block_bytes = index.constant 34 : offset
+  %word_bytes = index.constant 4 : offset
+  %payload_bytes = index.constant 2 : offset
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %base = index.add %row_origin, %block_add : offset
+  %payload = index.add %base, %payload_bytes : offset
+  %word_add = index.scale %word, %word_bytes : index, offset -> offset
+  %word_origin = index.add %payload, %word_add : offset
+  %scale_view = buffer.view %weight[%base] : buffer -> view<1xf16>
+  %word_view = buffer.view %weight[%word_origin] : buffer -> view<1xi32>
+  %d16 = view.load %scale_view[0] : view<1xf16> -> f16
+  %packed = vector.load %word_view[0] : view<1xi32> -> vector<1xi32>
+  %codes = vector.bitcast %packed : vector<1xi32> to vector<4xi8>
+  %d = scalar.extf %d16 : f16 to f32
+  template.return %codes, %d : vector<4xi8>, f32
+}
+
+template.def<@ggml.block32.word> device @ggml_block32_q5_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32) where [eq(%tag, 6)] {
+  %block_bytes = index.constant 22 : offset
+  %two = index.constant 2 : offset
+  %six = index.constant 6 : offset
+  %four_bytes = index.constant 4 : offset
+  %four = index.constant 4 : index
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %base = index.add %row_origin, %block_add : offset
+  %high_origin = index.add %base, %two : offset
+  %payload = index.add %base, %six : offset
+  %payload_word = index.rem %word, %four : index
+  %word_add = index.scale %payload_word, %four_bytes : index, offset -> offset
+  %word_origin = index.add %payload, %word_add : offset
+  %scale_view = buffer.view %weight[%base] : buffer -> view<1xf16>
+  %high_view = buffer.view %weight[%high_origin] : buffer -> view<4xi8>
+  %packed_view = buffer.view %weight[%word_origin] : buffer -> view<4xi8>
+  %d16 = view.load %scale_view[0] : view<1xf16> -> f16
+  %high_bytes = vector.load %high_view[0] : view<4xi8> -> vector<4xi8>
+  %packed_bytes = vector.load %packed_view[0] : view<4xi8> -> vector<4xi8>
+  %high = vector.bitcast %high_bytes : vector<4xi8> to vector<1xi32>
+  %packed = vector.bitcast %packed_bytes : vector<4xi8> to vector<1xi32>
+  %nibble_half = index.div %word, %four : index
+  %nibble_shift0 = index.mul %nibble_half, %four : index
+  %nibble_shift32 = index.cast %nibble_shift0 : index to i32
+  %nibble_shift = vector.splat %nibble_shift32 : vector<1xi32>
+  %nibble_mask = vector.constant 252645135 : vector<1xi32>
+  %shifted = vector.shrui %packed, %nibble_shift : vector<1xi32>
+  %nibbles = vector.andi %shifted, %nibble_mask : vector<1xi32>
+  %high_shift0 = index.mul %word, %four : index
+  %high_shift32 = index.cast %high_shift0 : index to i32
+  %high_shift = vector.splat %high_shift32 : vector<1xi32>
+  %bits = vector.shrui %high, %high_shift : vector<1xi32>
+  %m1 = vector.constant 1 : vector<1xi32>
+  %m2 = vector.constant 2 : vector<1xi32>
+  %m4 = vector.constant 4 : vector<1xi32>
+  %m8 = vector.constant 8 : vector<1xi32>
+  %s4 = vector.constant 4 : vector<1xi32>
+  %s11 = vector.constant 11 : vector<1xi32>
+  %s18 = vector.constant 18 : vector<1xi32>
+  %s25 = vector.constant 25 : vector<1xi32>
+  %b0m = vector.andi %bits, %m1 : vector<1xi32>
+  %b1m = vector.andi %bits, %m2 : vector<1xi32>
+  %b2m = vector.andi %bits, %m4 : vector<1xi32>
+  %b3m = vector.andi %bits, %m8 : vector<1xi32>
+  %b0 = vector.shli %b0m, %s4 : vector<1xi32>
+  %b1 = vector.shli %b1m, %s11 : vector<1xi32>
+  %b2 = vector.shli %b2m, %s18 : vector<1xi32>
+  %b3 = vector.shli %b3m, %s25 : vector<1xi32>
+  %h01 = vector.ori %b0, %b1 : vector<1xi32>
+  %h23 = vector.ori %b2, %b3 : vector<1xi32>
+  %high_bits = vector.ori %h01, %h23 : vector<1xi32>
+  %code_words = vector.ori %nibbles, %high_bits : vector<1xi32>
+  %codes0 = vector.bitcast %code_words : vector<1xi32> to vector<4xi8>
+  %center = vector.constant 16 : vector<4xi8>
+  %codes = vector.subi %codes0, %center : vector<4xi8>
+  %d = scalar.extf %d16 : f16 to f32
+  template.return %codes, %d : vector<4xi8>, f32
+}
+
+func.def inline @ggml_block32_q8_1_x4_row_lane(%weight_tag: index, %input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane0: index) -> (f32) {
+  %bounded_input_size = index.assume %input_size [range(%input_size, 128, 32768), multiple_of(%input_size, 128)] : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 63)] : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c32 = index.constant 32 : index
+  %c0_i32v = vector.constant 0 : vector<1xi32>
+  %c0_f32 = scalar.constant 0.0 : f32
+  %subgroup_size = target.subgroup.size : index
+  %blocks_per_iteration = index.div %subgroup_size, %c8 : index
+  %block_slot0 = index.div %lane, %c8 : index
+  %block_slot = index.assume %block_slot0 [range(%block_slot0, 0, 7)] : index
+  %word0 = index.rem %lane, %c8 : index
+  %word = index.assume %word0 [range(%word0, 0, 7)] : index
+  %block_count = index.div %bounded_input_size, %c32 : index
+  %result = scf.for %block_base = [%c0 to %block_count step %blocks_per_iteration](%row_acc = %c0_f32 : f32) -> (f32) {
+    %block0 = index.add %block_base, %block_slot : index
+    %valid_block = index.cmp ult, %block0, %block_count : index
+    %contribution = scf.if %valid_block -> (f32) {
+      %block = index.assume %block0 [range(%block0, 0, 1023), lt(%block0, %block_count)] : index
+      %weight_values, %weight_d = template.apply<@ggml.block32.word>(%weight_tag, %weight, %weight_row_byte_base, %block, %word) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32)
+      %q8_values, %q8_d = template.apply<@ggml.q8_1_x4.word>(%q8_input, %q8_row_byte_base, %block, %word) : (buffer, offset, index, index) -> (vector<4xi8>, f32)
+      %dot = vector.dot4i<s8s8> %weight_values, %q8_values, %c0_i32v : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %dot_i32 = vector.extract %dot[0] : vector<1xi32> -> i32
+      %dot_f32 = scalar.sitofp %dot_i32 : i32 to f32
+      %scale = scalar.mulf<reassoc|nnan|ninf|nsz> %weight_d, %q8_d : f32
+      %scaled_dot = scalar.mulf<reassoc|nnan|ninf|nsz> %dot_f32, %scale : f32
+      scf.yield %scaled_dot : f32
+    } else {
+      scf.yield %c0_f32 : f32
+    }
+    %next = scalar.addf<reassoc|nnan|ninf|nsz> %row_acc, %contribution : f32
+    scf.yield %next : f32
+  }
+  func.return %result : f32
+}

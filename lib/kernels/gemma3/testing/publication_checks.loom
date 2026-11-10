@@ -1,0 +1,177 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Fixed observable policy cases; selected logical ID0 publishes at physical S7.
+func.decl @fixture.publication.epoch(%outputs: i32, %epoch: buffer)
+command.program.decl @fixture.publication.actual_0() launch(%epoch: buffer, %private: buffer, %output: buffer)
+command.program.decl @fixture.publication.actual_1() launch(%epoch: buffer, %private: buffer, %output: buffer)
+func.def @fixture.publication.expected_raw1_count1(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 1 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %expected = scalar.constant 106 : i32
+  view.store %expected, %view[7] : i32, view<16xi32>
+  func.return
+}
+check.scenario @fixture.publication.raw1_count1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(-75) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_1, @fixture.publication.expected_raw1_count1>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+func.def @fixture.publication.expected_raw106_count1(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 1 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %expected = scalar.constant 106 : i32
+  view.store %expected, %view[7] : i32, view<16xi32>
+  func.return
+}
+check.scenario @fixture.publication.raw106_count1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(30) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_1, @fixture.publication.expected_raw106_count1>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+func.def @fixture.publication.expected_raw0_count1(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 1 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %expected = scalar.constant 0 : i32
+  view.store %expected, %view[7] : i32, view<16xi32>
+  func.return
+}
+check.scenario @fixture.publication.raw0_count1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(-76) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_1, @fixture.publication.expected_raw0_count1>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+func.def @fixture.publication.expected_raw2_count1(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 1 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %expected = scalar.constant 2 : i32
+  view.store %expected, %view[7] : i32, view<16xi32>
+  func.return
+}
+check.scenario @fixture.publication.raw2_count1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(-74) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_1, @fixture.publication.expected_raw2_count1>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+func.def @fixture.publication.expected_raw3_count1(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 1 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %expected = scalar.constant 3 : i32
+  view.store %expected, %view[7] : i32, view<16xi32>
+  func.return
+}
+check.scenario @fixture.publication.raw3_count1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(-73) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_1, @fixture.publication.expected_raw3_count1>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+func.def @fixture.publication.expected_raw7_count1(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 1 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %expected = scalar.constant 7 : i32
+  view.store %expected, %view[7] : i32, view<16xi32>
+  func.return
+}
+check.scenario @fixture.publication.raw7_count1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(-69) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_1, @fixture.publication.expected_raw7_count1>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+func.def @fixture.publication.expected_raw1_count0(%epoch: buffer, %private: buffer, %output: buffer) {
+  %outputs = scalar.constant 0 : i32
+  func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
+  func.return
+}
+check.scenario @fixture.publication.raw1_count0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
+    %epoch = check.tensor.view %epoch_storage offset(16) : tensor<528xi32> -> tensor<520xi32>
+    %private_storage = check.generate.iota offset(-75) step(19) : tensor<12xi32>
+    %private = check.tensor.view %private_storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %output_storage = check.generate.iota offset(-99) step(-7) : tensor<24xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@fixture.publication.actual_0, @fixture.publication.expected_raw1_count0>(%epoch, %private, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<528xi32>
+      check.expect.bitwise actual(%private_storage) expected(%private_storage) : tensor<12xi32>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}

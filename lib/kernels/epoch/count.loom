@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Snapshot the descriptor count once for zero-origin numerical consumers.
-kernel.def @llama32_head_count() {
+kernel.def @llm.epoch.snapshot_count() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer) {

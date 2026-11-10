@@ -7,6 +7,8 @@ filegroup(
     name = "implementation_sources",
     srcs = [
         "projection.loom",
+        "//lib/kernels/projection:block32_sources",
+        "//lib/kernels/projection:q5_0.loom",
         "//lib/kernels/projection:q4k.loom",
         "//lib/kernels/projection:q4k_canonical.loom",
         "//lib/kernels/projection:q4k_compat.loom",

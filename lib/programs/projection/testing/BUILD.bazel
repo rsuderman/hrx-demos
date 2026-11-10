@@ -31,3 +31,10 @@ cc_test(
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]
 exports_files(["fixtures.py", "operations_checks.loom"])
+
+[loom_test(
+    name = "gemma3_operations_" + format + "_test",
+    srcs = ["gemma3_checks.loom", ":provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+) for format in ["text", "bc"]]

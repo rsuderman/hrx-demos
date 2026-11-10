@@ -165,7 +165,7 @@ bool ConfigurePackageData(const std::string &source_asset,
   for (const auto& marker : chat.markers)
     if (marker.require_single_token) atomic_markers.push_back(marker.text);
   BoundTokenPolicy tokens;
-  if (!BindTokenPolicy(input.get(), chat.family, text_metadata,
+  if (!BindTokenPolicy(input.get(), chat.tokens, text_metadata,
       publication_tokens, atomic_markers, tokenizer_json, &tokens, error)) return false;
   if (std::fclose(input.release()) != 0)
     return Fail(error, "cannot close package GGUF token input");

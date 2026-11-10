@@ -541,5 +541,75 @@ TEST_F(GgufPackageTest, Qualified27ProfilePublishesSourceAndBytecode) {
     Reload(directory / (format == LOOMC_SOURCE_FORMAT_TEXT ? "model.loom" : "model.loombc"));
   }
 }
+TEST_F(GgufPackageTest, GemmaProfilePublishesRelocatableSourceAndBytecode) {
+  const char* gguf = std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
+  const char* tokenizer = std::getenv("LOOMIFY_TEST_GEMMA_TOKENIZER");
+  ASSERT_NE(gguf, nullptr) << "immutable Gemma fixture required";
+  ASSERT_NE(tokenizer, nullptr) << "matching Gemma tokenizer required";
+  std::unique_ptr<GgufModelBuilder> builder;
+  std::string error;
+  ASSERT_TRUE(GgufModelBuilder::Open(gguf, &builder, &error)) << error;
+  EXPECT_EQ(builder->descriptor().family, "gemma3");
+  auto build = BuildOptions();
+  build.context_capacity = 1024;
+  for (const auto format : {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
+    const auto directory = scratch_ / ("gemma-" + std::to_string(format));
+    GgufPackageOptions package{directory.string(), tokenizer, format};
+    ASSERT_TRUE(Publish(*builder, build, package, &error)) << error;
+    EXPECT_TRUE(error.empty());
+    EXPECT_EQ(std::distance(fs::directory_iterator(directory), fs::directory_iterator()), 5);
+    EXPECT_FALSE(fs::exists(directory / "model.json.tmp"));
+    const auto document = Read(directory / "model.json");
+    EXPECT_NE(document.find("loomify-gemma3"), std::string::npos);
+    EXPECT_NE(document.find(fs::canonical(gguf).string()), std::string::npos);
+    EXPECT_NE(document.find(fs::canonical(tokenizer).string()), std::string::npos);
+    EXPECT_NE(document.find("\"context_capacity\": 1024"), std::string::npos);
+    const auto relocated = scratch_ / ("relocated-" + std::to_string(format));
+    fs::rename(directory, relocated);
+    EXPECT_EQ(Read(relocated / "model.json"), document);
+    Reload(relocated / "prepare.loom");
+    Reload(relocated / "control.loom");
+    Reload(relocated / (format == LOOMC_SOURCE_FORMAT_TEXT ? "model.loom" : "model.loombc"));
+    CheckPackageData(relocated, "loomify-gemma3", "<end_of_turn>");
+    package.output_directory = relocated.string();
+    EXPECT_FALSE(Publish(*builder, build, package, &error));
+    EXPECT_EQ(Read(relocated / "model.json"), document);
+  }
+}
+TEST_F(GgufPackageTest, GemmaCliUsesOnlySelectedDeclaredProductsOutsideCheckout) {
+  const char* gguf = std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
+  const char* tokenizer = std::getenv("LOOMIFY_TEST_GEMMA_TOKENIZER");
+  ASSERT_NE(gguf, nullptr);
+  ASSERT_NE(tokenizer, nullptr);
+  const auto executable = scratch_ / "converter";
+  fs::copy_file(root_ / "tools/loomify-gguf/loomify-gguf", executable);
+  const auto runfiles = fs::path(executable.string() + ".runfiles");
+  const auto library = runfiles / "_main";
+  const std::array<fs::path,7> products = {
+    "lib/architectures/gemma3/implementation.loombc",
+    "lib/architectures/gemma3/prepare_library.loombc",
+    "lib/architectures/gemma3/execution.loombc",
+    "lib/text/protocols/gemma_turns/implementation.loombc",
+    "lib/text/common/implementation.loombc", "lib/serving/greedy.loombc",
+    "lib/serving/weights.loom"};
+  for (const auto& relative : products) {
+    fs::create_directories((library / relative).parent_path());
+    fs::copy_file(root_ / relative, library / relative);
+  }
+  EXPECT_FALSE(fs::exists(library / "lib/architectures/gemma3/model.loom"));
+  EXPECT_FALSE(fs::exists(library / "lib/architectures/llama"));
+  EXPECT_FALSE(fs::exists(library / "lib/architectures/qwen35"));
+  for (const char* format : {"bc", "loom"}) {
+    const auto directory = scratch_ / (std::string("gemma-") + format);
+    ASSERT_EQ(RunCli(executable, runfiles, {"--gguf=" + std::string(gguf),
+      "--tokenizer=" + std::string(tokenizer), "--output-dir=" + directory.string(),
+      std::string("--format=") + format, "--context-capacity=1024", "--prefill-capacity=128"}), 0);
+    EXPECT_EQ(std::distance(fs::directory_iterator(directory), fs::directory_iterator()), 5);
+    Reload(directory / "prepare.loom");
+    Reload(directory / "control.loom");
+    Reload(directory / (std::string(format) == "bc" ? "model.loombc" : "model.loom"));
+    CheckPackageData(directory, "loomify-gemma3", "<end_of_turn>");
+  }
+}
 } // namespace
 } // namespace hrx::loomify_gguf

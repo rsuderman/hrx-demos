@@ -15,6 +15,8 @@ bool DeriveConfiguration(const model::ModelDescriptor &m,
     return internal::Fail(error, "unsupported configuration token/context capacities");
   if (m.family == "llama")
     return internal::EmitLlama(m, asset, s, out, error);
+  if (m.family == "gemma3")
+    return internal::EmitGemma(m, asset, s, out, error);
   if (m.family == "qwen35")
     return internal::EmitQwen(m, asset, s, out, error);
   return internal::Fail(error, "unsupported model family");

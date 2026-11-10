@@ -1,0 +1,40 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Plain visible content is never trimmed. Only canonical replay applies Jinja trim.
+func.decl @gemma.check(%condition: i1)
+func.decl @text.trim(%text: buffer) -> (buffer)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+func.decl @loomify.tokens.terminal_marker() -> (buffer)
+global.rodata.def @gemma_output.empty = bytes("")
+global.rodata.def @gemma_output.newline = bytes("0a")
+global.rodata.def @gemma_output.header = bytes("3c73746172745f6f665f7475726e3e6d6f64656c0a")
+func.def public @output_next(%response: buffer, %previous: i64, %state: i64, %phase: i32) -> (i64, i64, i64, i64) {
+  %length = buffer.length %response
+  %end = index.cast %length : offset to i64
+  %valid = scalar.cmpi ule, %previous, %end : i64
+  func.call @gemma.check(%valid) : (i1)
+  %content = scalar.constant 1 : i64
+  func.return %content, %previous, %end, %state : i64, i64, i64, i64
+}
+func.def public @complete_text(%prompt: buffer, %response: buffer, %content: buffer, %reasoning: buffer, %tools: buffer, %initial_state: i64, %final_state: i64) -> (buffer, i32) {
+  %zero = index.constant 0 : offset
+  %reason_bytes = buffer.length %reasoning
+  %tool_bytes = buffer.length %tools
+  %no_reason = index.cmp eq, %reason_bytes, %zero : offset
+  %no_tools = index.cmp eq, %tool_bytes, %zero : offset
+  %valid = scalar.andi %no_reason, %no_tools : i1
+  func.call @gemma.check(%valid) : (i1)
+  %four = scalar.constant 4 : i64
+  %zero64 = scalar.constant 0 : i64
+  %generation = scalar.andi %initial_state, %four : i64
+  %opened = scalar.cmpi ne, %generation, %zero64 : i64
+  %empty = global.load @gemma_output.empty : buffer
+  %model = global.load @gemma_output.header : buffer
+  %header = scf.select %opened, %empty, %model : buffer
+  %text = func.call @text.trim(%content) : (buffer) -> (buffer)
+  %eot = func.call @loomify.tokens.terminal_marker() : () -> (buffer)
+  %newline = global.load @gemma_output.newline : buffer
+  %result = func.call @text.join8(%prompt, %header, %text, %eot, %newline, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  %reusable = scalar.constant 0 : i32
+  func.return %result, %reusable : buffer, i32
+}
