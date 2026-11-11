@@ -126,7 +126,7 @@ kernel.def @q4.init() {
   func.call @q4.setup(%weights, %ids) : (buffer, buffer) -> ()
   kernel.return
 }
-command.program.def public @actual.q4() launch(%weights: buffer, %ids: buffer, %output: buffer) {
+command.def public @actual.q4() launch(%weights: buffer, %ids: buffer, %output: buffer) {
   kernel.launch @q4.init[](%weights, %ids) : [](buffer, buffer)
   %tokens = index.constant 3 : index
   %weight_begin = index.constant 256 : offset

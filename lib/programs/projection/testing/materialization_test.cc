@@ -124,7 +124,7 @@ TEST_P(ProjectionMaterializationTest, NormalConstructionEnforcesActualOperations
            << "_q8_1_x4.output_capacity = " << input.output_limit << " : index\n";
   source << "config.def @ggml.quantize_q8_1_x4.group_capacity = "
          << input.group_capacity << " : index\n"
-         << "command.program.def public @probe.root() launch(%count: buffer, %raw: buffer, %packed: buffer, %weights: buffer, %output: buffer) {\n";
+         << "command.def public @probe.root() launch(%count: buffer, %raw: buffer, %packed: buffer, %weights: buffer, %output: buffer) {\n";
   for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{
       {"policy", input.policy}, {"tag", input.tag}, {"rows", input.rows},
       {"capacity", input.capacity}, {"width", input.width}, {"cols", input.columns},

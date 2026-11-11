@@ -6,7 +6,7 @@ from types import MappingProxyType
 
 from ...hem_common import InvalidInput
 
-CAPACITIES = ('rows', 'context_capacity', 'pool_capacity', 'prefill_capacity')
+CAPACITIES = ('rows', 'context_capacity', 'prefill_capacity')
 NATIVE_CONTRACT = 'text-v1'
 PROTOCOL = MappingProxyType({'operation': 'chat', 'native_kind': 'text',
             'endpoint': '/v1/chat/completions', 'request_encoding': 'json',
@@ -19,7 +19,7 @@ def validate_contract(serving):
         raise InvalidInput('CHAT serving requires bounds, mtp_depth_max and defaults')
     bounds = serving['bounds']
     if not isinstance(bounds, Mapping) or set(bounds) != set(CAPACITIES):
-        raise InvalidInput('CHAT bounds require the four capacity fields')
+        raise InvalidInput('CHAT bounds require the three capacity fields')
     for key in CAPACITIES:
         interval = bounds[key]
         if (not isinstance(interval, (list, tuple)) or len(interval) != 2
@@ -91,7 +91,7 @@ def definition(settings, paths, directory, programs):
             'weights': str(paths['weights']), 'tokenizer': str(paths['tokenizer']),
             **{key: settings[key] for key in CAPACITIES},
             'draft_depth': settings['mtp_depth'] if settings['mtp'] else 0,
-            'options': {}}
+            'max_sessions': settings['rows'], 'options': {}}
 
 
 def vocabulary():

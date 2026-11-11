@@ -202,6 +202,20 @@ class ServerCliTest(unittest.TestCase):
         self.assertEqual(launched['record']['current_settings']['device'], selector)
         argv = Path(f"/proc/{launched['process']['pid']}/cmdline").read_bytes().split(b'\0')
         self.assertEqual(argv[1], os.fsencode('--device=' + selector))
+        self.assertNotIn('pool_backing', launched['record']['saved_settings'])
+        self.assertFalse(any(arg.startswith(b'--pool_backing=') for arg in argv))
+
+    def test_explicit_pool_backing_is_retained_and_reused(self):
+        launched, _ = self.invoke('start', '--name', 'one', '--device', 'local-task',
+                                 '--listen', f'127.0.0.1:{available_port()}', '--pool-backing', 'fixed')
+        self.assertEqual(launched['record']['saved_settings']['pool_backing'], 'fixed')
+        argv = Path(f"/proc/{launched['process']['pid']}/cmdline").read_bytes().split(b'\0')
+        self.assertIn(b'--pool_backing=fixed', argv)
+        self.stop_owned('one')
+        restarted, _ = self.invoke('start', 'one')
+        self.assertEqual(restarted['record']['current_settings']['pool_backing'], 'fixed')
+        argv = Path(f"/proc/{restarted['process']['pid']}/cmdline").read_bytes().split(b'\0')
+        self.assertIn(b'--pool_backing=fixed', argv)
 
     def test_invalid_new_settings_missing_server_and_shutdown(self):
         for args in (('start','--name','bad'),

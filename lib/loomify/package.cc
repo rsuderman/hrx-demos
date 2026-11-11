@@ -121,9 +121,9 @@ bool Publish(const fs::path& gguf, const fs::path& tokenizer,
            << Json(model_file) << "],\n"
            << "    \"weights\": " << Json(gguf.string()) << ",\n"
            << "    \"tokenizer\": " << Json(tokenizer.string()) << ",\n"
-           << "    \"rows\": 1,\n    \"context_capacity\": " << build.context_capacity << ",\n"
-           << "    \"pool_capacity\": " << ((build.context_capacity + 63) / 64) * 64
-           << ",\n    \"prefill_capacity\": " << build.prefill_capacity << ",\n"
+           << "    \"rows\": 1,\n    \"max_sessions\": 1,\n"
+           << "    \"context_capacity\": " << build.context_capacity << ",\n"
+           << "    \"prefill_capacity\": " << build.prefill_capacity << ",\n"
            << "    \"max_tokens\": 16,\n    \"session_cache_capacity\": 0,\n"
            << "    \"prefix_cache_capacity\": 0\n  }\n}\n";
   if (!Write(destination / "model.json.tmp", document.str(), error)) return cleanup();
@@ -189,12 +189,18 @@ bool GgufConfiguration::WritePackage(loomc_context_t* context, loomc_workspace_t
   if (!impl_ || !impl_->package || !context || !workspace ||
       !ValidPath(impl_->package->options.output_directory))
     return Fail(error, "invalid serving package output configuration");
+  if (impl_->options.context_capacity % 64 != 0)
+    return Fail(error, "Serve package context_capacity must be a multiple of 64");
   const auto &package = impl_->package->options;
   const auto &chat = impl_->package->chat;
   const fs::path gguf(impl_->source_asset), tokenizer(package.tokenizer);
   std::error_code ec;
   if (!fs::is_regular_file(gguf, ec) || ec)
     return Fail(error, "GGUF must be an existing regular file");
+  const fs::path source_alias(impl_->source_alias);
+  const auto current_source = fs::canonical(source_alias, ec);
+  if (ec || current_source != gguf)
+    return Fail(error, "GGUF input alias no longer resolves to the opened source");
   if (!fs::is_regular_file(tokenizer, ec) || ec)
     return Fail(error, "tokenizer must be an existing tokenizer.json file");
   if (fs::exists(package.output_directory, ec) || ec)
@@ -232,7 +238,7 @@ bool GgufConfiguration::WritePackage(loomc_context_t* context, loomc_workspace_t
       " Semantic skeleton SHA256 " + chat.skeleton_sha256 + "\n// Text policy " + Json(chat.text_product) +
       (chat.preserved_baseline ? " (preserved greedy text baseline)" : "") +
       "\n" + companions.control;
-  return Publish(gguf, tokenizer, impl_->options, package, files.package_name,
+  return Publish(source_alias, tokenizer, impl_->options, package, files.package_name,
       companions, numerical->module(), error);
 }
 } // namespace hrx::loomify_gguf

@@ -1,7 +1,7 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 loom_test(
     name = "query_execution_test",
     srcs = ["config.loom", "preparation_reference.loom", "query_checks.loom",
@@ -13,7 +13,7 @@ loom_test(
             "//lib/kernels/qwen/attention:attention_prefill.loom",
             "//lib/kernels/qwen:common/spans.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 
 loom_test(
@@ -31,7 +31,7 @@ loom_test(
             "//lib/kernels/qwen/attention:attention_spans.loom",
             "//lib/kernels/qwen:common/spans.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 
 loom_test(
@@ -49,13 +49,13 @@ loom_test(
             "//lib/kernels/qwen/attention:attention_spans.loom",
             "//lib/kernels/qwen:common/spans.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 loom_test(
     name = "clear_execution_test",
     srcs = ["config.loom", "clear_checks.loom", "//lib/kernels/qwen/attention:clear.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 
 # Full-layer fixtures call the owned numerical layer directly. The independent
@@ -93,9 +93,9 @@ loom_test(
             "//lib/kernels/qwen/attention:attention_spans.loom",
             "//lib/kernels/qwen:common/spans.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 
-loom_test(name = "clear_2048_execution_test", srcs = ["config.loom", "clear_2048_checks.loom", "//lib/kernels/qwen/attention:clear.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+loom_test(name = "clear_2048_execution_test", srcs = ["config.loom", "clear_2048_checks.loom", "//lib/kernels/qwen/attention:clear.loom"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
 
-loom_test(name = "clear_6144_execution_test", srcs = ["config27.loom", "clear_6144_checks.loom", "//lib/kernels/qwen/attention:clear.loom"], benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE])
+loom_test(name = "clear_6144_execution_test", srcs = ["config27.loom", "clear_6144_checks.loom", "//lib/kernels/qwen/attention:clear.loom"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])

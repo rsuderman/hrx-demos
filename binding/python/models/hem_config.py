@@ -305,7 +305,7 @@ def _matching_catalog(resolved, catalog, deadline):
 
 
 def deployment_document(resolved: ResolvedConfiguration, name: str, *,
-                        catalog: Path, device: int = 0, deadline: Optional[Deadline] = None) -> dict:
+                        catalog: Path, device: Optional[str] = None, deadline: Optional[Deadline] = None) -> dict:
     """Create the native drained document using an immutable retained catalog.
 
     The caller supplies a catalog independent of the deployment name, retaining
@@ -315,15 +315,20 @@ def deployment_document(resolved: ResolvedConfiguration, name: str, *,
     """
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise InvalidInput("Instance name must contain letters, digits, '.', '_' or '-'")
-    if type(device) is not int or device < 0:
-        raise InvalidInput("Device group index must be a nonnegative integer")
+    if device is not None and (not isinstance(device, str) or not device
+                               or any(ord(c) < 0x21 or ord(c) > 0x7e for c in device)):
+        raise InvalidInput("Device must be a nonempty native device name using visible ASCII")
     budget = deadline or Deadline.after()
     budget.remaining()
     catalog = _matching_catalog(resolved, catalog, budget)
     definition = resolved.definition_document()
     budget.remaining()
-    return {"name": name, "device": device, "admission": "drained",
-            "base_directory": str(catalog), "definition": definition}
+    document = {"name": name, "admission": "drained",
+                "base_directory": str(catalog), "definition": definition}
+    # An omitted selector lets native resolve the sole configured device.
+    if device is not None:
+        document["device"] = device
+    return document
 
 
 def export_deployment(record, paths, dependencies, evidence, output: Path, name: str, *,

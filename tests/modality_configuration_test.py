@@ -6,9 +6,9 @@ from binding.python.models.modalities import chat, asr
 
 def text_serving(depth=0):
     return {'bounds': {'rows':[1,16], 'context_capacity':[1,262144],
-                       'pool_capacity':[1,4194304], 'prefill_capacity':[1,262144]},
+                       'prefill_capacity':[1,262144]},
             'mtp_depth_max':depth,
-            'defaults':dict(rows=4,context_capacity=8192,pool_capacity=32768,prefill_capacity=128,
+            'defaults':dict(rows=4,context_capacity=8192,prefill_capacity=128,
                             mtp=bool(depth),**({'mtp_depth':3} if depth else {}))}
 
 
@@ -29,7 +29,9 @@ class ModalityConfigurationTest(unittest.TestCase):
                 if module is chat:
                     self.assertEqual(native['draft_depth'],serving['mtp_depth_max'])
                     self.assertEqual(native['rows'],4)
+                    self.assertEqual(native['max_sessions'],native['rows'])
                     self.assertEqual(native['context_capacity'],8192)
+                    self.assertNotIn('pool_capacity', native)
                 else:
                     self.assertEqual(native['pending_requests'],4)
                     values['options']['not_shared']=True
@@ -37,6 +39,7 @@ class ModalityConfigurationTest(unittest.TestCase):
 
     def test_invalid_contracts_and_invalid_defaults_fail_before_execution(self):
         mutations=[lambda s:s.update(extra=1), lambda s:s['bounds'].update(other=[1,2]),
+                   lambda s:s['bounds'].update(pool_capacity=[1,4194304]),
                    lambda s:s['bounds'].update(rows=[True,16]),lambda s:s['bounds'].update(rows=[2,1]),
                    lambda s:s.update(mtp_depth_max=-1),lambda s:s.update(mtp_depth_max=True),
                    lambda s:s['defaults'].update(rows='4'),lambda s:s['defaults'].update(mtp=True),

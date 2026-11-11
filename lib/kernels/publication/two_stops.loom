@@ -1,0 +1,10 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Publication policy receives source-derived identities; it owns no model IDs.
+func.def public pure inline @llm.publication.map_two_stops(%token: i32, %first_stop: i32, %second_stop: i32, %terminal: i32) -> (i32) {
+  %a = scalar.cmpi eq, %token, %first_stop : i32
+  %b = scalar.cmpi eq, %token, %second_stop : i32
+  %stop = scalar.ori %a, %b : i1
+  %mapped = scf.select %stop, %terminal, %token : i32
+  func.return %mapped : i32
+}

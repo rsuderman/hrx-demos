@@ -8,5 +8,5 @@ _IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + ["//lib/kernels/gemma3:impleme
 filegroup(name = "architecture_sources", srcs = _ARCHITECTURE_SOURCES)
 loom_merge(name = "implementation", srcs = _IMPLEMENTATION_SOURCES)
 loom_merge(name = "implementation_text", srcs = _IMPLEMENTATION_SOURCES, output_format = "text", testonly = True)
-loom_merge(name = "prepare_library", srcs = ["prepare.loom"])
-loom_merge(name = "execution", srcs = ["control_core.loom", "//lib/serving:ordinary_control.loom"])
+loom_merge(name = "prepare_library", srcs = ["prepare.loom", "//lib/serving:ordinary_prepare.loom"])
+loom_merge(name = "execution", srcs = ["control_core.loom", "//loom-pipeline:llm/common/fixed_epoch_abi.loom", "//lib/serving:ordinary_control.loom", "//lib/kernels/publication:two_stops.loom"])

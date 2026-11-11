@@ -299,7 +299,7 @@ template.def<@pocket.voice.step> @pocket_voice_step(%phase: buffer, %backbone: b
   template.return
 }
 
-command.program.def public @voice() launch(%phase: buffer, %backbone: buffer, %rotary: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
+command.def public @voice() launch(%phase: buffer, %backbone: buffer, %rotary: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
   template.apply<@pocket.voice.step>(%phase, %backbone, %rotary, %request, %conditioning, %state, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

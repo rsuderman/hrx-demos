@@ -170,11 +170,11 @@ check.case public @qwen38_attention_decode_known_case {
   kernel.launch @qwen38_attention_query_prepare_decode(%epsilon, %control, %query_gate_projection, %norm_weight, %query, %gate) : (f32, tensor<1xi32>, tensor<[%shape_query_gate_size]xf32>, tensor<[%shape_head_size]xf32>, tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>)
   kernel.launch @qwen38_attention_kv_prepare_decode(%epsilon, %control, %key_projection, %value_projection, %norm_weight, %key_cache, %value_cache) : (f32, tensor<1xi32>, tensor<[%shape_kv_size]xf32>, tensor<[%shape_kv_size]xf32>, tensor<[%shape_head_size]xf32>, tensor<[%shape_kv_size]xf16>, tensor<[%shape_kv_size]xf16>)
   kernel.launch @qwen38_attention_decode(%control, %query, %gate, %key_cache, %value_cache, %output) : (tensor<1xi32>, tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>, tensor<[%shape_kv_size]xf16>, tensor<[%shape_kv_size]xf16>, tensor<[%shape_attention_width]xf32>)
-  check.expect.close actual(%query) expected(%expected_query) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_attention_width]xf32>
-  check.expect.close actual(%gate) expected(%expected_gate) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_attention_width]xf32>
-  check.expect.close actual(%key_cache) expected(%expected_key) atol(0.0009765625) rtol(0.000001) nan(same) : tensor<[%shape_kv_size]xf16>
-  check.expect.close actual(%value_cache) expected(%expected_value) atol(0.0) rtol(0.0) nan(same) : tensor<[%shape_kv_size]xf16>
-  check.expect.close actual(%output) expected(%expected_output) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_attention_width]xf32>
+  check.expect.approximate actual(%query) expected(%expected_query) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
+  check.expect.approximate actual(%gate) expected(%expected_gate) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
+  check.expect.approximate actual(%key_cache) expected(%expected_key) atol(0.0009765625) rtol(0.000001) nan(same) : tensor<[%shape_kv_size]xf16>, tensor<[%shape_kv_size]xf16>
+  check.expect.approximate actual(%value_cache) expected(%expected_value) atol(0.0) rtol(0.0) nan(same) : tensor<[%shape_kv_size]xf16>, tensor<[%shape_kv_size]xf16>
+  check.expect.approximate actual(%output) expected(%expected_output) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
   check.return
 }
 

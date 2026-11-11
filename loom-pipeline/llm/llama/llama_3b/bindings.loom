@@ -32,7 +32,7 @@ kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%capacity: index, %input_size: index
 kernel.decl @ggml_linear_q4k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
 kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
 
-command.program.def public @llama32_project_q(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_q(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -44,7 +44,7 @@ command.program.def public @llama32_project_q(%layer: index, %token_count: index
   command.return
 }
 
-command.program.def public @llama32_project_k(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_k(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -56,7 +56,7 @@ command.program.def public @llama32_project_k(%layer: index, %token_count: index
   command.return
 }
 
-command.program.def public @llama32_project_v(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_v(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -83,7 +83,7 @@ command.program.def public @llama32_project_v(%layer: index, %token_count: index
   command.return
 }
 
-command.program.def public @llama32_project_attention_output(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_attention_output(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -95,7 +95,7 @@ command.program.def public @llama32_project_attention_output(%layer: index, %tok
   command.return
 }
 
-command.program.def public @llama32_project_ffn_gate(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_ffn_gate(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -107,7 +107,7 @@ command.program.def public @llama32_project_ffn_gate(%layer: index, %token_count
   command.return
 }
 
-command.program.def public @llama32_project_ffn_up(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_ffn_up(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -119,7 +119,7 @@ command.program.def public @llama32_project_ffn_up(%layer: index, %token_count: 
   command.return
 }
 
-command.program.def public @llama32_project_ffn_down(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_ffn_down(%layer: index, %token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -146,7 +146,7 @@ command.program.def public @llama32_project_ffn_down(%layer: index, %token_count
   command.return
 }
 
-command.program.def public @llama32_project_output(%token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%token_count, 1, 2048)] {
+command.def public @llama32_project_output(%token_count: index) launch(%parameters: buffer, %packed_input: buffer, %output: buffer) where [range(%token_count, 1, 2048)] {
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
   %projection_count = index.cast %token_count : index to i32
@@ -192,7 +192,7 @@ kernel.def export("llama32_token_embedding_q6k_f32") @llama32_token_embedding_q6
 }
 
 // T=1 serves decode; a prepared known-input stage passes its explicit T.
-command.program.def public @llama32_embedding(%token_count: index) launch(%parameters: buffer, %token_ids: buffer, %residual: buffer) where [range(%token_count, 1, 2048)] {
+command.def public @llama32_embedding(%token_count: index) launch(%parameters: buffer, %token_ids: buffer, %residual: buffer) where [range(%token_count, 1, 2048)] {
   %weight_bytes = config.get @llama.model.embedding_weight_bytes : index
   %weight = command.parameter %parameters, "token_embd.weight" : view<[%weight_bytes]xi8>
   kernel.launch @llama32_token_embedding_q6k_f32[%token_count](%token_count, %token_ids, %weight, %residual) : [index](index, buffer, view<[%weight_bytes]xi8>, buffer)
@@ -225,21 +225,21 @@ kernel.def export("llama32_rmsnorm_f32") @llama32_rmsnorm_f32(%token_count0: ind
   kernel.return
 }
 
-command.program.def public @llama32_attention_norm(%layer: index, %token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_attention_norm(%layer: index, %token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %weight_bytes = config.get @llama.model.norm_weight_bytes : index
   %weight = command.parameter %parameters, "blk.{}.attn_norm.weight"[%layer] : view<[%weight_bytes]xi8>
   kernel.launch @llama32_rmsnorm_f32[%token_count](%token_count, %input, %weight, %output) : [index](index, buffer, view<[%weight_bytes]xi8>, buffer)
   command.return
 }
 
-command.program.def public @llama32_ffn_norm(%layer: index, %token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_ffn_norm(%layer: index, %token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %weight_bytes = config.get @llama.model.norm_weight_bytes : index
   %weight = command.parameter %parameters, "blk.{}.ffn_norm.weight"[%layer] : view<[%weight_bytes]xi8>
   kernel.launch @llama32_rmsnorm_f32[%token_count](%token_count, %input, %weight, %output) : [index](index, buffer, view<[%weight_bytes]xi8>, buffer)
   command.return
 }
 
-command.program.def public @llama32_output_norm(%token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer) where [range(%token_count, 1, 2048)] {
+command.def public @llama32_output_norm(%token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer) where [range(%token_count, 1, 2048)] {
   %weight_bytes = config.get @llama.model.norm_weight_bytes : index
   %weight = command.parameter %parameters, "output_norm.weight" : view<[%weight_bytes]xi8>
   kernel.launch @llama32_rmsnorm_f32[%token_count](%token_count, %input, %weight, %output) : [index](index, buffer, view<[%weight_bytes]xi8>, buffer)
@@ -247,7 +247,7 @@ command.program.def public @llama32_output_norm(%token_count: index) launch(%par
 }
 
 // Model-owned active-count adapters; decode count is fixed independently of position.
-command.program.def public @llama32_quantize_q8_controlled(%capacity: index, %input_size: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%input: buffer, %control: buffer, %output: buffer) where [range(%capacity, 1, 2048)] {
+command.def public @llama32_quantize_q8_controlled(%capacity: index, %input_size: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%input: buffer, %control: buffer, %output: buffer) where [range(%capacity, 1, 2048)] {
   %decode_kind = index.constant 1 : index
   %decode = index.cmp eq, %kind, %decode_kind : index
   %fixed_count = scf.if %decode -> (i32) {
@@ -261,7 +261,7 @@ command.program.def public @llama32_quantize_q8_controlled(%capacity: index, %in
   command.return
 }
 
-command.program.def public @llama32_project_q_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_q_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %decode_kind = index.constant 1 : index
   %decode = index.cmp eq, %kind, %decode_kind : index
   %fixed_count = scf.if %decode -> (i32) {
@@ -279,7 +279,7 @@ command.program.def public @llama32_project_q_controlled(%layer: index, %token_c
   command.return
 }
 
-command.program.def public @llama32_project_k_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_k_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %decode_kind = index.constant 1 : index
   %decode = index.cmp eq, %kind, %decode_kind : index
   %fixed_count = scf.if %decode -> (i32) {
@@ -297,7 +297,7 @@ command.program.def public @llama32_project_k_controlled(%layer: index, %token_c
   command.return
 }
 
-command.program.def public @llama32_project_v_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_v_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %decode_kind = index.constant 1 : index
   %decode = index.cmp eq, %kind, %decode_kind : index
   %fixed_count = scf.if %decode -> (i32) {
@@ -330,7 +330,7 @@ command.program.def public @llama32_project_v_controlled(%layer: index, %token_c
   command.return
 }
 
-command.program.def public @llama32_project_attention_output_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
+command.def public @llama32_project_attention_output_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer) where [range(%layer, 0, 27), range(%token_count, 1, 2048)] {
   %decode_kind = index.constant 1 : index
   %decode = index.cmp eq, %kind, %decode_kind : index
   %fixed_count = scf.if %decode -> (i32) {

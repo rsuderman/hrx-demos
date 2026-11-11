@@ -14,7 +14,6 @@
     "tokenizer": "ABSOLUTE_TOKENIZER_PATH",
     "rows": 1,
     "context_capacity": 8192,
-    "pool_capacity": 8192,
     "prefill_capacity": 128,
     "max_tokens": 512,
     "draft_depth": 0,

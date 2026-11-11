@@ -83,7 +83,7 @@ for tag,K,N,R,zero_weights,mode in cases:
         text.append('    }\n  }\n')
     text.append('  func.return\n}\n')
     args='%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer'
-    text.append(f'command.program.def @{name}.actual() launch({args}) {{\n')
+    text.append(f'command.def @{name}.actual() launch({args}) {{\n')
     for key,v in [('policy',1),('tag',tag),('r',R),('k',K),('n',N),('wb',W),('begin',0)]:text.append(f'  %{key} = index.constant {v} : index\n')
     text.append('  %o = index.constant 0 : offset\n  %fixed = scalar.constant -1 : i32\n  %w = buffer.view %weight[%o] : buffer -> view<[%wb]xi8>\n')
     text.append('  kernel.launch @ggml_quantize_q8_1_x4_f32[%r,%k](%r,%k,%input,%p0) : [index,index](index,index,buffer,buffer)\n  template.apply<@llm.projection.pack_input>(%policy,%r,%r,%k,%begin,%fixed,%o,%count,%input,%p1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)\n')

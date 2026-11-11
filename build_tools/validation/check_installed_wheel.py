@@ -218,8 +218,8 @@ def check_recipe_consumers(package_root, *, release=None):
                 native = dict(kind='text', **programs, weights=str(paths['weights']),
                     tokenizer=str(paths['tokenizer']),
                     **{key: expected[key] for key in
-                       ('rows', 'context_capacity', 'pool_capacity', 'prefill_capacity')},
-                    draft_depth=expected['mtp_depth'] if expected['mtp'] else 0, options={})
+                       ('rows', 'context_capacity',  'prefill_capacity')},
+                    max_sessions=expected['rows'], draft_depth=expected['mtp_depth'] if expected['mtp'] else 0, options={})
             elif executable['modality'] == 'asr':
                 native = dict(kind='recognition', **programs, assets=str(directory),
                               pending_requests=expected['pending_requests'], options=expected['options'])

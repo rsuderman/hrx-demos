@@ -7,12 +7,10 @@ func.def @loomify.serving.terminal_id() -> (i32) {
   %terminal = config.get @gemma3.publication.end_turn_id : i32
   func.return %terminal : i32
 }
+func.decl pure @llm.publication.map_two_stops(%token: i32, %first_stop: i32, %second_stop: i32, %terminal: i32) -> (i32)
 func.def public inline @loomify_serving_native_token(%token: i32, %terminal: i32) -> (i32) {
   %eos = config.get @gemma3.publication.eos_id : i32
   %eot = config.get @gemma3.publication.end_turn_id : i32
-  %a = scalar.cmpi eq, %token, %eos : i32
-  %b = scalar.cmpi eq, %token, %eot : i32
-  %stop = scalar.ori %a, %b : i1
-  %mapped = scf.select %stop, %terminal, %token : i32
+  %mapped = func.call pure @llm.publication.map_two_stops(%token, %eos, %eot, %terminal) : (i32, i32, i32, i32) -> (i32)
   func.return %mapped : i32
 }

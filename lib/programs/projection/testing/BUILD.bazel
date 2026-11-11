@@ -3,7 +3,7 @@
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 package(default_visibility = ["//visibility:public"])
 cc_test(
     name = "materialization_test",
@@ -28,7 +28,7 @@ cc_test(
     name = "operations_" + format + "_test",
     srcs = ["operations_checks.loom", ":provider_" + format],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]
 exports_files(["fixtures.py", "operations_checks.loom"])
 
@@ -36,5 +36,5 @@ exports_files(["fixtures.py", "operations_checks.loom"])
     name = "gemma3_operations_" + format + "_test",
     srcs = ["gemma3_checks.loom", ":provider_" + format],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]

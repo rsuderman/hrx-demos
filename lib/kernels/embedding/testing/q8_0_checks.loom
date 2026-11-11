@@ -394,7 +394,7 @@ func.def @q8_0_test.expected(%token:i32,%scale:f32,%weight:buffer,%out:buffer) {
   }
   func.return
 }
-command.program.def @q8_0_token0_scale0.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token0_scale0.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 0 : i32
   %scale = scalar.constant 0.0 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -419,7 +419,7 @@ check.scenario @q8_0_token0_scale0 {
   }
   check.return
 }
-command.program.def @q8_0_token0_scale1.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token0_scale1.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 0 : i32
   %scale = scalar.constant 1.0 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -444,7 +444,7 @@ check.scenario @q8_0_token0_scale1 {
   }
   check.return
 }
-command.program.def @q8_0_token0_scale2.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token0_scale2.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 0 : i32
   %scale = scalar.constant 33.941123962402344 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -469,7 +469,7 @@ check.scenario @q8_0_token0_scale2 {
   }
   check.return
 }
-command.program.def @q8_0_token0_scale3.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token0_scale3.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 0 : i32
   %scale = scalar.constant -0.5 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -494,7 +494,7 @@ check.scenario @q8_0_token0_scale3 {
   }
   check.return
 }
-command.program.def @q8_0_token262143_scale0.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token262143_scale0.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 262143 : i32
   %scale = scalar.constant 0.0 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -519,7 +519,7 @@ check.scenario @q8_0_token262143_scale0 {
   }
   check.return
 }
-command.program.def @q8_0_token262143_scale1.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token262143_scale1.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 262143 : i32
   %scale = scalar.constant 1.0 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -544,7 +544,7 @@ check.scenario @q8_0_token262143_scale1 {
   }
   check.return
 }
-command.program.def @q8_0_token262143_scale2.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token262143_scale2.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 262143 : i32
   %scale = scalar.constant 33.941123962402344 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)
@@ -569,7 +569,7 @@ check.scenario @q8_0_token262143_scale2 {
   }
   check.return
 }
-command.program.def @q8_0_token262143_scale3.actual() launch(%weight:buffer,%out:buffer) {
+command.def @q8_0_token262143_scale3.actual() launch(%weight:buffer,%out:buffer) {
   %token = scalar.constant 262143 : i32
   %scale = scalar.constant -0.5 : f32
   kernel.launch @q8_0_test.gather[](%token,%scale,%weight,%out) : [](i32,f32,buffer,buffer)

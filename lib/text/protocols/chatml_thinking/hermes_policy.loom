@@ -1,0 +1,74 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+func.decl @text.trim(%text: buffer) -> (buffer)
+func.decl @chatml.check(%condition: i1)
+func.decl @text.trim_lf(%text: buffer, %left: i1, %right: i1) -> (buffer)
+func.def pure inline @chatml.default_thinking() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.keep_reasoning_default() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.inline_reasoning() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.emit_empty_system() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.has_effort() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def inline @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }
+func.def inline @chatml.normalize_reason(%text: buffer) -> (buffer) {
+  %yes = scalar.constant true : i1
+  %result = func.call @text.trim_lf(%text, %yes, %yes) : (buffer, i1, i1) -> (buffer)
+  func.return %result : buffer
+}
+func.def inline @chatml.retained_body(%text: buffer) -> (buffer) {
+  %yes = scalar.constant true : i1
+  %no = scalar.constant false : i1
+  %result = func.call @text.trim_lf(%text, %yes, %no) : (buffer, i1, i1) -> (buffer)
+  func.return %result : buffer
+}
+func.def pure inline @chatml.allow_later_system() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.system_before_tools() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.model_emits_think_open() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+global.rodata.def @chatml_hermes_policy.empty = bytes("")
+global.rodata.def @chatml_hermes_policy.empty_think = bytes("3c7468696e6b3e0a0a3c2f7468696e6b3e0a0a")
+func.def inline @chatml.generation_thought(%thinking: i1) -> (buffer) {
+  %empty = global.load @chatml_hermes_policy.empty : buffer
+  %closed = global.load @chatml_hermes_policy.empty_think : buffer
+  %result = scf.select %thinking, %empty, %closed : buffer
+  func.return %result : buffer
+}
+// Two28bit ordinals plus low8 flags fit the existing opaque i64 host state.
+// This new provider admits at most268435455messages; old providers unchanged.
+func.def inline @chatml.history_state(%last_user: i64, %count: i64) -> (i64) {
+  %limit = scalar.constant 268435455 : i64
+  %valid = scalar.cmpi ule, %count, %limit : i64
+  func.call @chatml.check(%valid) : (i1) -> ()
+  %one = scalar.constant 1 : i64
+  %eight = scalar.constant 8 : i64
+  %thirty_six = scalar.constant 36 : i64
+  %last = scalar.subi %count, %one : i64
+  %user_bits = scalar.shli %last_user, %eight : i64
+  %last_bits = scalar.shli %last, %thirty_six : i64
+  %bits = scalar.ori %user_bits, %last_bits : i64
+  func.return %bits : i64
+}
+func.def inline @chatml.history_thought(%state: i64, %ordinal: i64, %reason: buffer) -> (i1) {
+  %eight = scalar.constant 8 : i64
+  %thirty_six = scalar.constant 36 : i64
+  %mask = scalar.constant 268435455 : i64
+  %shifted_user = scalar.shrui %state, %eight : i64
+  %last_user = scalar.andi %shifted_user, %mask : i64
+  %last = scalar.shrui %state, %thirty_six : i64
+  %after = scalar.cmpi ugt, %ordinal, %last_user : i64
+  %final = scalar.cmpi eq, %ordinal, %last : i64
+  %trimmed = func.call @text.trim(%reason) : (buffer) -> (buffer)
+  %size = buffer.length %trimmed
+  %zero = index.constant 0 : offset
+  %nonempty = index.cmp ne, %size, %zero : offset
+  %show = scalar.ori %final, %nonempty : i1
+  %retain = scalar.andi %after, %show : i1
+  func.return %retain : i1
+}
+
+global.rodata.def @chatml_hermes_policy.newline = bytes("0a")
+func.def inline @chatml.call_separator() -> (buffer) {
+  %value = global.load @chatml_hermes_policy.newline : buffer
+  func.return %value : buffer
+}
+
+func.def pure inline @chatml.require_user() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.first_tool_header() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }

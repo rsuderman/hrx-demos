@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 package(default_visibility = ["//visibility:public"])
 [loom_merge(
     name = "gemma3_window_provider_" + format,
@@ -13,5 +13,5 @@ package(default_visibility = ["//visibility:public"])
     name = "gemma3_window_" + format + "_test",
     srcs = ["gemma3_window_checks.loom", ":gemma3_window_provider_" + format],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]

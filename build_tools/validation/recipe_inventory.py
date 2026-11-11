@@ -250,7 +250,7 @@ def source_paths(release=None):
 def validate_source_proofs(read, *, release=None):
     """Independently check reviewed source-group membership and root observations."""
     patterns = {'functions': r'^func\.def public @([^\s(]+)',
-                'commands': r'^command\.program\.def public @([^\s(]+)',
+                'commands': r'^command\.def public @([^\s(]+)',
                 'configs': r'^config\.(?:def|decl) @([^\s=:(]+)'}
     for expected in _release(release)['executables'].values():
         programs = expected['source']['programs']

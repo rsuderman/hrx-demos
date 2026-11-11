@@ -8,10 +8,12 @@
 #include "iree/vm/sync.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tokenizer/tokenizer.h"
-#include "loom/serve/runtime/program/input.h"
-#include "loom/serve/runtime/program/json.h"
-#include "loom/serve/runtime/program/program.h"
+#include "loom/runtime/program/input.h"
+#include "loom/runtime/program/json.h"
+#include "loom/runtime/program/program.h"
 #include "loom/serve/service/text/chat.h"
+#include "loom/serve/service/text/tool_xml.h"
+#include <cstring>
 #include "loom/serve/service/text/input.h"
 #include "loomc/target/vm.h"
 #include "gtest/gtest.h"
@@ -128,11 +130,20 @@ bool TransportRequest(iree_string_view_t row, std::string_view route, std::strin
   }
   return AddModelRoute(request, route);
 }
+// Inspect current API-owned token storage without altering native IDs.
+iree_status_t CopyPreparedTokenIds(iree_vm_buffer_t* storage, size_t count,
+                                  size_t capacity, int32_t* destination) {
+  if (count > capacity || (count && (!storage ||
+      iree_vm_buffer_length(storage) / sizeof(int32_t) < count)))
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE, "invalid prepared token storage");
+  if (count) std::memcpy(destination, iree_vm_buffer_const_data(storage), count * sizeof(int32_t));
+  return iree_ok_status();
+}
 class ChatVM {
 public:
   ~ChatVM() {
     if (policy_ready_) loom_serve_text_chat_policy_deinitialize(&policy_);
-    loom_serve_program_free(program_);
+    loom_runtime_program_free(program_);
     iree_vm_module_release(tools_);
     iree_vm_module_release(input_);
     iree_vm_module_release(json_);
@@ -152,18 +163,18 @@ public:
     if (!Read(tokenizer_path, &tokenizer_json) ||
         !Ok(iree_tokenizer_from_huggingface_json(View(tokenizer_json), iree_allocator_system(), &tokenizer_)) ||
         !Ok(iree_vm_environment_allocate(iree_allocator_system(), &environment_)) ||
-        !Ok(loom_serve_json_module_create(environment_, iree_allocator_system(), &json_)) ||
-        !Ok(loom_serve_input_module_create(environment_, tokenizer_, iree_allocator_system(), &input_)) ||
-        !Ok(loom_serve_text_chat_tools_module_create(environment_, iree_allocator_system(), &tools_))) return false;
+        !Ok(loom_runtime_json_module_create(environment_, iree_allocator_system(), &json_)) ||
+        !Ok(loom_runtime_input_module_create(environment_, tokenizer_, iree_allocator_system(), &input_)) ||
+        !Ok(loom_serve_text_tool_xml_module_create(environment_, iree_allocator_system(), &tools_))) return false;
     const iree_string_view_t roots[] = {
-      IREE_SV("model_name"), IREE_SV("chat_image_limits"), IREE_SV("chat_begin"),
+      IREE_SV("model_name"), IREE_SV("chat_reasoning"), IREE_SV("chat_image_limits"), IREE_SV("chat_begin"),
       IREE_SV("chat_message"), IREE_SV("chat_end"), IREE_SV("parse_tools"),
       IREE_SV("render_tool"), IREE_SV("prepare_input"), IREE_SV("output_next"),
       IREE_SV("complete_text"), IREE_SV("request_defaults"), IREE_SV("request_options")};
     iree_vm_module_t* libraries[] = {json_, input_, tools_};
-    loom_serve_sources_t sources{};
-    loom_serve_compilation_report_t report{};
-    auto compiled = loom_serve_program_allocate(target_, environment_, &sources,
+    loom_runtime_sources_t sources{};
+    loom_runtime_compilation_report_t report{};
+    auto compiled = loom_runtime_program_allocate(target_, environment_, &sources,
         View(product), IREE_ARRAYSIZE(roots), roots,
         iree_vm_module_span_from_array(libraries), &report, iree_allocator_system(), &program_);
     if (!iree_status_is_ok(compiled)) {
@@ -181,6 +192,12 @@ public:
     if (!Ok(bound)) return false;
     policy_ready_ = true;
     EXPECT_EQ(Copy(policy_.name), expected_name);
+    // Both current host flag values retain the provider's complete-response ABI.
+    for (bool truncated : {false, true}) {
+      std::string calls;
+      if (!Ok(ParseTools("[]", "", &calls, truncated))) return false;
+      EXPECT_EQ(calls, "[]");
+    }
     return true;
   }
   std::string_view name() const { return {policy_.name.data, policy_.name.size}; }
@@ -219,9 +236,10 @@ public:
         123, 128, iree_allocator_system(), chat);
   }
   iree_status_t ParseTools(std::string_view schemas, std::string_view response,
-                          std::string* out) {
+                          std::string* out, bool truncated = false) {
     const std::string_view inputs[] = {schemas, response};
-    iree_vm_variant_t args[2] = {}, result[1] = {};
+    iree_vm_variant_t args[3] = {}, result[1] = {};
+    args[2] = iree_vm_variant_from_i64(truncated);
     auto status = iree_ok_status();
     for (size_t i = 0; i < 2 && iree_status_is_ok(status); ++i) {
       iree_vm_buffer_t* buffer = nullptr;
@@ -260,10 +278,13 @@ public:
     tokens->resize(capacity);
     iree_host_size_t count = 0, span_count = 0;
     loom_serve_text_media_span_t* spans = nullptr;
+    iree_vm_buffer_t* token_storage = nullptr;
     auto status = loom_serve_text_chat_prepare_input(&chat, 0,
         LOOM_SERVE_TEXT_CHAT_INPUT_RENDERED, LOOM_SERVE_TEXT_CHAT_BOUNDARY_FRESH,
-        capacity, 0, iree_allocator_system(), tokens->data(), &count, &spans, &span_count);
+        capacity, 0, iree_allocator_system(), &token_storage, &count, &spans, &span_count);
     iree_allocator_free(iree_allocator_system(), spans);
+    if (iree_status_is_ok(status)) status = CopyPreparedTokenIds(token_storage, count, capacity, tokens->data());
+    iree_vm_buffer_release(token_storage);
     if (!Ok(status)) return false;
     EXPECT_EQ(span_count, 0u);
     tokens->resize(count);
@@ -276,7 +297,7 @@ private:
   iree_vm_module_t* json_ = nullptr;
   iree_vm_module_t* input_ = nullptr;
   iree_vm_module_t* tools_ = nullptr;
-  loom_serve_program_t* program_ = nullptr;
+  loom_runtime_program_t* program_ = nullptr;
   loom_serve_text_chat_policy_t policy_{};
   bool policy_ready_ = false;
   std::string body_; // Native chat borrows request bytes through deinitialize.
@@ -358,8 +379,11 @@ iree_status_t PrepareMode(const loom_serve_text_chat_t& chat,
     size_t capacity, int32_t* tokens, iree_host_size_t* count) {
   loom_serve_text_media_span_t* spans = nullptr;
   iree_host_size_t span_count = 0;
+  iree_vm_buffer_t* token_storage = nullptr;
   auto status = loom_serve_text_chat_prepare_input(&chat, 0, format, boundary,
-      capacity, 0, iree_allocator_system(), tokens, count, &spans, &span_count);
+      capacity, 0, iree_allocator_system(), &token_storage, count, &spans, &span_count);
+  if (iree_status_is_ok(status)) status = CopyPreparedTokenIds(token_storage, *count, capacity, tokens);
+  iree_vm_buffer_release(token_storage);
   iree_allocator_free(iree_allocator_system(), spans);
   EXPECT_EQ(span_count, 0u);
   return status;
@@ -367,6 +391,9 @@ iree_status_t PrepareMode(const loom_serve_text_chat_t& chat,
 void CheckInputPolicy(ChatVM& vm, std::string_view revision,
                       const std::string& one_user_reference) {
   const bool llama = revision == "5816fce1";
+  const bool preserve = revision == "5da44855";
+  auto fresh_reference = one_user_reference;
+  if (preserve) fresh_reference.replace(fresh_reference.find("Hello"), 5, u8" \u2003Hello\u00a0 ");
   const std::string assistant = llama
       ? "<|start_header_id|>assistant<|end_header_id|>\n\n"
       : "<|im_start|>assistant\n";
@@ -375,7 +402,7 @@ void CheckInputPolicy(ChatVM& vm, std::string_view revision,
   const auto suffix = one_user_reference.substr(generation);
   const std::string user_turn = llama
       ? "<|start_header_id|>user<|end_header_id|>\n\nHello<|eot_id|>"
-      : "<|im_start|>user\nHello<|im_end|>\n";
+      : preserve ? u8"<|im_start|>user\n \u2003Hello\u00a0 <|im_end|>\n" : "<|im_start|>user\nHello<|im_end|>\n";
   const std::string raw = llama ? u8"<|begin_of_text|> \u2003Hello\u00a0 "
                                 : u8"<|im_start|>assistant\n \u2003Hello\u00a0 ";
   auto separator = [&](loom_serve_text_chat_boundary_t boundary) {
@@ -394,7 +421,7 @@ void CheckInputPolicy(ChatVM& vm, std::string_view revision,
       const std::string text = user ? u8" \u2003Hello\u00a0 " : raw;
       const auto expected_text = user
           ? (boundary == LOOM_SERVE_TEXT_CHAT_BOUNDARY_FRESH
-              ? one_user_reference : separator(boundary) + user_turn + suffix)
+              ? fresh_reference : separator(boundary) + user_turn + suffix)
           : separator(boundary) + raw;
       std::vector<int32_t> expected;
       ASSERT_TRUE(vm.Encode(expected_text, &expected)); ASSERT_FALSE(expected.empty());
@@ -445,7 +472,7 @@ void CheckInputPolicy(ChatVM& vm, std::string_view revision,
     struct InputCleanup { loom_serve_text_input_t* value;
       ~InputCleanup() { loom_serve_text_input_deinitialize(value, iree_allocator_system()); } } input_cleanup{&input};
     ASSERT_TRUE(Ok(loom_serve_text_input_prepare(&chat, prefix, true, capacity,
-        scratch.data(), &input, iree_allocator_system())));
+        &input, iree_allocator_system())));
     ASSERT_EQ(input.count, expected.size()); ASSERT_NE(input.tokens, nullptr);
     EXPECT_EQ(std::vector<int32_t>(input.tokens, input.tokens + input.count), expected);
     EXPECT_EQ(input.tokens[0], anchor);
@@ -481,10 +508,20 @@ void CheckPublicToolParser(ChatVM& vm, std::string_view revision) {
         ",\"word\":\"True\",\"nested\":{\"label\":\"True\",\"z\":[true,false]}}");
   }
   if (revision == "c3cf9e34") {
-    std::string parsed = "unchanged";
-    auto status = vm.ParseTools(schemas, xml("True"), &parsed);
-    const bool accepted = iree_status_is_ok(status); Diagnostic(status);
-    EXPECT_FALSE(accepted); EXPECT_EQ(parsed, "unchanged");
+    // The native XML codec uses schema types as hints, not validation. A
+    // non-JSON Boolean spelling remains a string; callers own schema and
+    // permission validation before executing a generated tool call.
+    std::string parsed;
+    ASSERT_TRUE(Ok(vm.ParseTools(schemas, xml("True"), &parsed)));
+    std::vector<iree_string_view_t> calls;
+    ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(parsed), Row, &calls)));
+    ASSERT_EQ(calls.size(), 1u);
+    iree_string_view_t function{}, raw_arguments{};
+    ASSERT_TRUE(Field(calls[0], "function", &function));
+    ASSERT_TRUE(Field(function, "arguments", &raw_arguments));
+    std::string arguments; ASSERT_TRUE(Decode(raw_arguments, &arguments));
+    EXPECT_EQ(arguments,
+        "{\"flag\":\"True\",\"word\":\"True\",\"nested\":{\"label\":\"True\",\"z\":[true,false]}}");
   }
   std::cout << "PUBLIC_TOOL_PARSER_COVERAGE " << revision
             << " typed_booleans=2 string_True_preserved nested_JSON_preserved\n";
@@ -525,7 +562,7 @@ void CheckCanonicalReplay(ChatVM& vm, std::string_view revision,
     loom_serve_text_chat_scratch_initialize(iree_allocator_system(), &scratch);
     struct ScratchCleanup { loom_serve_text_chat_scratch_t* value;
       ~ScratchCleanup() { loom_serve_text_chat_scratch_deinitialize(value); } } scratch_cleanup{&scratch};
-    ASSERT_TRUE(Ok(loom_serve_text_chat_complete(&chat, View(response), 123, &calls,
+    ASSERT_TRUE(Ok(loom_serve_text_chat_complete(&chat, View(response), false, 123, &calls,
         &scratch, iree_allocator_system(), &completion)));
     ASSERT_EQ(calls.count, 2u);
     for (size_t i = 0; i < calls.count; ++i) {
@@ -554,7 +591,7 @@ void CheckCanonicalReplay(ChatVM& vm, std::string_view revision,
   struct InputCleanup { loom_serve_text_input_t* value;
     ~InputCleanup() { loom_serve_text_input_deinitialize(value, iree_allocator_system()); } } input_cleanup{&input};
   ASSERT_TRUE(Ok(loom_serve_text_input_prepare(&fresh, prefix, false, scratch.size(),
-      scratch.data(), &input, iree_allocator_system())));
+      &input, iree_allocator_system())));
   EXPECT_EQ(input.history, nullptr); EXPECT_EQ(input.retained_count, 0u);
   ASSERT_EQ(input.count, history_ids.size());
   EXPECT_EQ(std::vector<int32_t>(input.tokens, input.tokens + input.count), history_ids);
@@ -689,6 +726,129 @@ TEST_P(RenderTest, ActualTransportMatchesPinnedReference) {
             << " rows=" << count << " exact=" << exact << " negative=" << negative
             << " deferred_float=" << deferred << '\n';
 }
+class Qwen3RenderTest : public ::testing::TestWithParam<bool> {};
+TEST_P(Qwen3RenderTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
+  const bool bc = GetParam();
+  ChatVM vm;
+  ASSERT_TRUE(vm.Init(Env(bc ? "LOOMIFY_RENDER_5DA44855_BC" : "LOOMIFY_RENDER_5DA44855_TEXT"),
+      Env("LOOMIFY_RENDER_TOKENIZER_5DA44855"), "loomify-qwen3"));
+  std::string data;
+  ASSERT_TRUE(Read(Env("LOOMIFY_RENDER_REFERENCE"), &data));
+  std::vector<iree_string_view_t> rows;
+  ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(data), Row, &rows)));
+  size_t count = 0, negative = 0, admission_negative = 0;
+  std::string one_user_reference;
+  for (const auto row : rows) {
+    iree_string_view_t revision{}, name{};
+    ASSERT_TRUE(Field(row, "revision", &revision));
+    if (Copy(revision) != "5da44855") continue;
+    ASSERT_TRUE(Field(row, "case", &name));
+    SCOPED_TRACE(Copy(name));
+    std::cout << "QWEN3_CASE_BEGIN format=" << (bc ? "bc" : "text") << " case=" << Copy(name) << std::endl;
+    ++count;
+    std::string request;
+    ASSERT_TRUE(TransportRequest(row, vm.name(), &request));
+    loom_serve_text_chat_t chat{};
+    iree_string_view_t error{};
+    ASSERT_TRUE(Field(row, "error", &error));
+    iree_string_view_t admission_error{};
+    ASSERT_TRUE(Field(row, "native_admission_error", &admission_error));
+    auto render_status = vm.Render(request, &chat);
+    if (admission_error.data) {
+      // These remain valid template-domain oracle rows. Native request
+      // admission is a separate contract, exercised by an explicit negative;
+      // supported counterparts below still require exact bytes and token IDs.
+      ++admission_negative;
+      std::string expected_diagnostic;
+      ASSERT_TRUE(Decode(admission_error, &expected_diagnostic));
+      const bool accepted = iree_status_is_ok(render_status);
+      const auto diagnostic = Diagnostic(render_status);
+      EXPECT_FALSE(accepted);
+      EXPECT_NE(diagnostic.find(expected_diagnostic), std::string::npos);
+      if (accepted) loom_serve_text_chat_deinitialize(&chat);
+      const bool matches = !accepted &&
+          diagnostic.find(expected_diagnostic) != std::string::npos;
+      std::cout << "QWEN3_CASE_RESULT format=" << (bc ? "bc" : "text")
+                << " case=" << Copy(name) << " status="
+                << (matches ? "PASS_HOST_REJECTION" : "FAIL_HOST_REJECTION")
+                << std::endl;
+      continue;
+    }
+    if (error.data) {
+      ++negative;
+      const bool accepted = iree_status_is_ok(render_status);
+      const auto diagnostic = Diagnostic(render_status);
+      EXPECT_FALSE(accepted);
+      if (accepted) loom_serve_text_chat_deinitialize(&chat);
+      std::cout << "QWEN3_CASE_RESULT format=" << (bc ? "bc" : "text") << " case=" << Copy(name)
+                << " status=" << (accepted ? "FAIL_TEMPLATE_REJECTION" : "PASS_TEMPLATE_REJECTION") << std::endl;
+      continue;
+    }
+    if (!Ok(render_status)) {
+      // Keep the failure, then execute the remaining independent oracle rows.
+      std::cout << "QWEN3_CASE_RESULT format=" << (bc ? "bc" : "text") << " case=" << Copy(name)
+                << " status=FAIL_HOST_ADMISSION" << std::endl;
+      continue;
+    }
+    struct Cleanup { loom_serve_text_chat_t* c; ~Cleanup() { loom_serve_text_chat_deinitialize(c); } } cleanup{&chat};
+    const auto actual = Copy(iree_string_builder_view(&chat.prompt));
+    iree_string_view_t text{}, ids{};
+    ASSERT_TRUE(Field(row, "text", &text));
+    ASSERT_TRUE(Field(row, "token_ids", &ids));
+    std::string expected;
+    ASSERT_TRUE(Decode(text, &expected));
+    if (Copy(name) == "qwen3-one-user") one_user_reference = expected;
+    std::vector<int32_t> expected_ids, actual_ids, prepared_ids;
+    ASSERT_TRUE(Ok(iree_json_enumerate_array(ids, Token, &expected_ids)));
+    ASSERT_TRUE(vm.Encode(actual, &actual_ids));
+    ASSERT_TRUE(vm.Prepare(chat, actual.size() + 16, &prepared_ids));
+    EXPECT_EQ(actual, expected);
+    EXPECT_EQ(actual_ids, expected_ids);
+    EXPECT_EQ(prepared_ids, expected_ids);
+    std::cout << "QWEN3_CASE_RESULT format=" << (bc ? "bc" : "text") << " case=" << Copy(name)
+              << " status=" << ((actual == expected && actual_ids == expected_ids && prepared_ids == expected_ids) ? "PASS" : "FAIL_PARITY")
+              << " bytes_equal=" << (actual == expected) << " native_tokens_equal=" << (actual_ids == expected_ids)
+              << " prepared_tokens_equal=" << (prepared_ids == expected_ids) << std::endl;
+  }
+  ASSERT_FALSE(one_user_reference.empty());
+  CheckInputPolicy(vm, "5da44855", one_user_reference);
+  const std::string schemas = R"([{"type":"function","function":{"name":"f","parameters":{"type":"object","properties":{}}}}])";
+  const std::string call = R"(<tool_call>{"name":"f","arguments":{"text":"é </tool_call>","nested":{"ok":true},"n":1}}</tool_call>)";
+  std::string parsed;
+  ASSERT_TRUE(Ok(vm.ParseTools(schemas, call + "\n" + call, &parsed)));
+  std::vector<iree_string_view_t> calls;
+  ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(parsed), Row, &calls)));
+  ASSERT_EQ(calls.size(), 2u);
+  for (auto item : calls) {
+    iree_string_view_t function{}, name{}, raw_args{};
+    ASSERT_TRUE(Field(item, "function", &function));
+    ASSERT_TRUE(Field(function, "name", &name)); EXPECT_EQ(Copy(name), "f");
+    ASSERT_TRUE(Field(function, "arguments", &raw_args));
+    std::string args;
+    ASSERT_TRUE(Decode(raw_args, &args));
+    EXPECT_EQ(args, R"({"text":"é </tool_call>","nested":{"ok":true},"n":1})");
+  }
+  ASSERT_TRUE(Ok(vm.ParseTools(schemas, "<tool_call>{\"name\":\"f\"", &parsed)));
+  EXPECT_EQ(parsed, "[]"); // Incomplete generation is not a complete call.
+  for (const auto& bad : {
+      R"(<tool_call>{"name":"other","arguments":{}}</tool_call>)",
+      R"(<tool_call>{"name":"f","name":"f","arguments":{}}</tool_call>)",
+      R"(<tool_call>{"name":"f","arguments":[],}</tool_call>)",
+      R"(<tool_call>{"name":"f","arguments":[]}</tool_call>)"}) {
+    parsed = "unchanged";
+    auto status = vm.ParseTools(schemas, bad, &parsed);
+    const bool accepted = iree_status_is_ok(status);
+    const auto diagnostic = Diagnostic(status);
+    EXPECT_FALSE(accepted) << bad;
+    EXPECT_EQ(parsed, "unchanged");
+  }
+  EXPECT_EQ(count, 40u);
+  EXPECT_EQ(negative, 1u);
+  EXPECT_EQ(admission_negative, 5u);
+  std::cout << "QWEN3_GGUF_RENDER_COVERAGE " << (bc ? "bc" : "text") << " oracle_rows_seen=" << count << " expected_template_errors=" << negative << " expected_host_errors=" << admission_negative << " float_parity=deferred" << std::endl;
+}
+INSTANTIATE_TEST_SUITE_P(Qwen3SourceAndBytecode, Qwen3RenderTest, ::testing::Values(false,true));
+
 INSTANTIATE_TEST_SUITE_P(KnownRevisions, RenderTest, ::testing::Values(
     Revision{"7f0e5290", "7F0E5290", false}, Revision{"7f0e5290", "7F0E5290", true},
     Revision{"c3cf9e34", "C3CF9E34", false}, Revision{"c3cf9e34", "C3CF9E34", true},
@@ -730,7 +890,7 @@ void CheckGemmaInput(ChatVM& vm, const std::string& fresh_user) {
     std::vector<int32_t> expected;ASSERT_TRUE(vm.Encode(sep+"NEXT",&expected));expected.insert(expected.begin(),anchor);
     const loom_serve_text_input_prefix_t prefix{&completion,3,anchor,boundary};
     std::vector<int32_t> scratch(expected.size()+3,-991);loom_serve_text_input_t input{};
-    ASSERT_TRUE(Ok(loom_serve_text_input_prepare(&chat,prefix,true,scratch.size(),scratch.data(),&input,iree_allocator_system())));
+    ASSERT_TRUE(Ok(loom_serve_text_input_prepare(&chat,prefix,true,scratch.size(),&input,iree_allocator_system())));
     EXPECT_EQ(input.retained_count,3u);EXPECT_EQ(input.count,expected.size());
     EXPECT_EQ(std::vector<int32_t>(input.tokens,input.tokens+input.count),expected);
     loom_serve_text_input_deinitialize(&input,iree_allocator_system());loom_serve_text_chat_completion_deinitialize(&completion);loom_serve_text_chat_deinitialize(&chat);
@@ -759,7 +919,7 @@ void CheckGemmaOutputReplay(ChatVM& vm,const std::string& replay_request,const s
     EXPECT_EQ(Copy(iree_string_builder_view(&chat.output.content)),visible);
     loom_serve_text_tool_calls_t calls{};loom_serve_text_tool_calls_initialize(iree_allocator_system(),&calls);
     loom_serve_text_chat_scratch_t scratch{};loom_serve_text_chat_scratch_initialize(iree_allocator_system(),&scratch);
-    ASSERT_TRUE(Ok(loom_serve_text_chat_complete(&chat,View(visible),last_token,&calls,&scratch,iree_allocator_system(),&completion)));
+    ASSERT_TRUE(Ok(loom_serve_text_chat_complete(&chat,View(visible),false,last_token,&calls,&scratch,iree_allocator_system(),&completion)));
     EXPECT_EQ(calls.count,0u);EXPECT_FALSE(completion.reusable);
     EXPECT_EQ(Copy(iree_string_builder_view(&chat.output.content)),visible);
     EXPECT_EQ(Copy(completion.transcript),std::string("<bos><start_of_turn>user\nHello<end_of_turn>\n<start_of_turn>model\n")+u8"spaced café 🙂<end_of_turn>\n");
@@ -773,7 +933,7 @@ void CheckGemmaOutputReplay(ChatVM& vm,const std::string& replay_request,const s
       stopped ? terminal[0] : 7,
       stopped ? LOOM_SERVE_TEXT_CHAT_BOUNDARY_TERMINATED : LOOM_SERVE_TEXT_CHAT_BOUNDARY_OPEN};
   std::vector<int32_t> scratch(replay_ids.size(),-991);loom_serve_text_input_t input{};
-  ASSERT_TRUE(Ok(loom_serve_text_input_prepare(&fresh,prefix,false,scratch.size(),scratch.data(),&input,iree_allocator_system())));
+  ASSERT_TRUE(Ok(loom_serve_text_input_prepare(&fresh,prefix,false,scratch.size(),&input,iree_allocator_system())));
   EXPECT_EQ(input.history,nullptr);EXPECT_EQ(input.retained_count,0u);EXPECT_EQ(input.count,replay_ids.size());
   EXPECT_EQ(std::vector<int32_t>(input.tokens,input.tokens+input.count),replay_ids);
   loom_serve_text_input_deinitialize(&input,iree_allocator_system());loom_serve_text_chat_deinitialize(&fresh);loom_serve_text_chat_completion_deinitialize(&completion);

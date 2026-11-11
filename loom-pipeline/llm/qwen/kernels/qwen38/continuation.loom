@@ -45,7 +45,7 @@ func.def public @qwen38_continue_spans(%context: index, %epoch: buffer, %tokens:
   %one_word = scalar.constant 1 : i32
   %none = scalar.constant -1 : i32
   %true = scalar.constant true : i1
-  %zeros = vector.constant 0 : vector<4xi32>
+  %zeros = vector.splati 0 : vector<4xi32>
   scf.for %i = [%zero to %capacity step %four] {
     vector.store %zeros, %inputs[%i] : vector<4xi32>, view<512xi32>
   }

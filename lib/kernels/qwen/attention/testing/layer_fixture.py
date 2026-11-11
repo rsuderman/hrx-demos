@@ -133,9 +133,9 @@ def build(reflection, destination, query_kind):
 def emit_check(path, size, cases):
     cache = cases[0][2]
     text = f'''// Generated bounded fixture. Offsets come only from fresh native reflection.
-command.program.decl @attention_layer() launch(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer)
-command.program.def @layer_actual() launch(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer, %expected: buffer, %expected_cache: buffer) {{
-  command.program.launch @attention_layer(%bank, %unused, %residual, %epoch, %rows, %cache) : (buffer, buffer, buffer, buffer, buffer, buffer)
+command.decl @attention_layer() launch(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer)
+command.def @layer_actual() launch(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer, %expected: buffer, %expected_cache: buffer) {{
+  command.launch @attention_layer(%bank, %unused, %residual, %epoch, %rows, %cache) : (buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }}
 func.def @layer_expected(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer, %expected: buffer, %expected_cache: buffer) {{
@@ -174,8 +174,8 @@ func.def @layer_expected(%bank: buffer, %unused: buffer, %residual: buffer, %epo
     %other_planes = check.tensor.view %cache offset(262208) : tensor<{cache}xf16> -> tensor<{cache-131104}xf16>
     %prefix = check.tensor.view %cache offset(0) : tensor<{cache}xf16> -> tensor<32xf16>
     check.compare<@layer_actual, @layer_expected>(%bank, %unused, %residual, %epoch, %rows, %cache, %expected, %expected_cache) : ({types}) -> () {{
-      check.expect.close actual(%residual) expected(%residual) atol(0.004) rtol(0.004) nan(same) : tensor<4112xf32>
-      check.expect.close actual(%cache) expected(%cache) atol(0.002) rtol(0.002) nan(same) : tensor<{cache}xf16>
+      check.expect.approximate actual(%residual) expected(%residual) atol(0.004) rtol(0.004) nan(same) : tensor<4112xf32>, tensor<4112xf32>
+      check.expect.approximate actual(%cache) expected(%cache) atol(0.002) rtol(0.002) nan(same) : tensor<{cache}xf16>, tensor<{cache}xf16>
       check.expect.bitwise actual(%outside) expected(%outside) : tensor<16xf32>
       check.expect.bitwise actual(%other_planes) expected(%other_planes) : tensor<{cache-131104}xf16>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<32xf16>
@@ -274,7 +274,7 @@ def build_chain(destination, size, reflection, bank):
 
 def emit_chain_check(path, destination, case, size, cache, steps):
     # Four complete calls reuse the actual session-emitted native entrypoint.
-    text='command.program.decl @attention_layer() launch(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer)\n'
+    text='command.decl @attention_layer() launch(%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer)\n'
     for step,(count,position,begin) in enumerate(steps):
         text+=f'func.def @chain_metadata{step}(%epoch: buffer) {{\n  %origin = index.constant 0 : offset\n  %e = buffer.view %epoch[%origin] : buffer -> view<1048xi32>\n'
         for i,value in enumerate([begin+count,1,0,count,position,begin,0,-1]):
@@ -306,10 +306,10 @@ kernel.def @chain_snapshot{step}() {{
 }}
 '''
     signature='%bank: buffer, %unused: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %cache: buffer, %expected: buffer, %expected_cache: buffer, %transcript: buffer, %expected_transcript: buffer'
-    text+=f'command.program.def @chain_actual() launch({signature}) {{\n'
+    text+=f'command.def @chain_actual() launch({signature}) {{\n'
     for step in range(4):
         text+=f'''  kernel.launch @chain_step{step}[](%epoch) : [](buffer)
-  command.program.launch @attention_layer(%bank, %unused, %residual, %epoch, %rows, %cache) : (buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @attention_layer(%bank, %unused, %residual, %epoch, %rows, %cache) : (buffer, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @chain_snapshot{step}[](%residual, %transcript) : [](buffer, buffer)
 '''
     text+='  command.return\n}\n'
@@ -337,7 +337,7 @@ kernel.def @chain_snapshot{step}() {{
     types=f'tensor<{size}xi8>, tensor<1xi8>, tensor<4112xf32>, tensor<1048xi32>, tensor<2056xi8>, tensor<{cache}xf16>, tensor<4112xf32>, tensor<{cache}xf16>, tensor<16400xf32>, tensor<16400xf32>'
     text+=f'    check.compare<@chain_actual, @chain_expected>(%bank, %unused, %residual, %epoch, %rows, %cache, %expected, %expected_cache, %transcript, %expected_transcript) : ({types}) -> () {{\n'
     for name,tensor in [('residual','4112xf32'),('transcript','16400xf32'),('cache',f'{cache}xf16')]:
-        text+=f'      check.expect.close actual(%{name}) expected(%{name}) atol(0.006) rtol(0.006) nan(same) : tensor<{tensor}>\n'
+        text+=f'      check.expect.approximate actual(%{name}) expected(%{name}) atol(0.006) rtol(0.006) nan(same) : tensor<{tensor}>, tensor<{tensor}>\n'
     for name,tensor in [('outside','16xf32'),('transcript_guard','16xf32'),('bank',f'{size}xi8'),('unused','1xi8'),('epoch','1048xi32'),('rows','2056xi8')]+[(name,f'{length}xf16') for name,_,length in protected]:
         text+=f'      check.expect.bitwise actual(%{name}) expected(%{name}) : tensor<{tensor}>\n'
     text+='    }\n  }\n  check.return\n}\n'

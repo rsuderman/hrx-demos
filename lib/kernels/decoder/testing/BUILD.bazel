@@ -1,0 +1,56 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+package(default_visibility = ["//visibility:public"])
+genrule(
+    name = "reference_data",
+    srcs = ["reference.py"],
+    outs = ["reference_data.loom"],
+    cmd = "python3 $(location reference.py) $@",
+)
+[loom_merge(
+    name = "rows_provider_" + format,
+    srcs = ["rows_programs.loom", ":reference_data", "//lib/kernels/decoder:implementation_sources"],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+[loom_test(
+    name = "rows_" + format + "_test",
+    srcs = ["rows_checks.loom", ":rows_provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in ["text", "bc"]]
+
+genrule(
+    name = "attention_reference_data",
+    srcs = ["attention_reference.py", "reference.py"],
+    outs = ["attention_reference_data.loom"],
+    cmd = "python3 $(location attention_reference.py) $@",
+)
+[loom_merge(
+    name = "attention_provider_" + format,
+    srcs = ["attention_programs.loom", ":attention_reference_data", "//lib/kernels/decoder:implementation_sources"],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+[loom_test(
+    name = "attention_" + format + "_test",
+    srcs = ["attention_checks.loom", ":attention_provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in ["text", "bc"]]
+
+[loom_merge(
+    name = "embedding_provider_" + format,
+    srcs = ["embedding_programs.loom", "//lib/kernels/decoder:implementation_sources"],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+[loom_test(
+    name = "embedding_" + format + "_test",
+    srcs = ["embedding_checks.loom", ":embedding_provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in ["text", "bc"]]

@@ -1,0 +1,120 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Explicit activation preparation for scaled-F16 matrix products. Input rows
+// outside the snapshot active prefix need not be defined or allocated beyond T.
+kernel.def @llm.projection.prepare_scaled_f16(%capacity: index, %padded_capacity: index, %input_width: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%padded_capacity, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%capacity_arg: index, %padded_arg: index, %width_arg: index, %count_origin: offset, %count: buffer, %input: buffer, %scales: buffer, %output: buffer) {
+  %capacity = index.assume %capacity_arg [range(%capacity_arg, 1, 512)] : index
+  %padded = index.assume %padded_arg [range(%padded_arg, 64, 512), multiple_of(%padded_arg, 64), le(%capacity, %padded_arg)] : index
+  %width = index.assume %width_arg [range(%width_arg, 256, 32768), multiple_of(%width_arg, 256)] : index
+  %row_id = kernel.workgroup.id<x> : index
+  %row = index.assume %row_id [lt(%row_id, %padded)] : index
+  %lane = kernel.workitem.id<x> : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %step = index.constant 256 : index
+  %origin = index.constant 0 : offset
+  %control = buffer.view %count[%count_origin] : buffer -> view<3xi32>
+  %active32 = view.load %control[%zero] : view<3xi32> -> i32
+  %active = index.cast %active32 : i32 to index
+  %in_capacity = index.cmp ult, %row, %capacity : index
+  %in_active = index.cmp ult, %row, %active : index
+  %live = scalar.andi %in_capacity, %in_active : i1
+  %zero_f32 = scalar.constant 0.0 : f32
+  %zero_f16 = scalar.constant 0.0 : f16
+  %destination = buffer.view %output[%origin] : buffer -> view<[%padded]x[%width]xf16>
+  %metadata = buffer.view %scales[%origin] : buffer -> view<[%padded]x2xf32>
+  scf.if %live {
+    // Guard before loading, including padded rows beyond the input allocation.
+    %source_row = index.assume %row [lt(%row, %capacity)] : index
+    %source = buffer.view %input[%origin] : buffer -> view<[%capacity]x[%width]xf32>
+    %local = scf.for %column = [%lane to %width step %step](%maximum = %zero_f32 : f32) -> (f32) {
+      %bounded = index.assume %column [lt(%column, %width)] : index
+      %value = view.load %source[%source_row, %bounded] : view<[%capacity]x[%width]xf32> -> f32
+      %magnitude = scalar.absf %value : f32
+      %next = scalar.maxnumf %maximum, %magnitude : f32
+      scf.yield %next : f32
+    }
+    %maximum = kernel.workgroup.reduce<maxnumf> %local : f32
+    %bits = scalar.bitcast %maximum : f32 to i32
+    %c23 = scalar.constant 23 : i32
+    %c255 = scalar.constant 255 : i32
+    %c127 = scalar.constant 127 : i32
+    %c13 = scalar.constant 13 : i32
+    %c0 = scalar.constant 0 : i32
+    %c100 = scalar.constant 100 : i32
+    %shifted = scalar.shrui %bits, %c23 : i32
+    %biased = scalar.andi %shifted, %c255 : i32
+    %unbiased = scalar.subi %biased, %c127 : i32
+    %raw = scalar.subi %unbiased, %c13 : i32
+    %positive = scalar.maxsi %raw, %c0 : i32
+    %exponent = scalar.minsi %positive, %c100 : i32
+    %scale_exponent = scalar.subi %c127, %exponent : i32
+    %inverse_exponent = scalar.addi %c127, %exponent : i32
+    %scale_bits = scalar.shli %scale_exponent, %c23 : i32
+    %inverse_bits = scalar.shli %inverse_exponent, %c23 : i32
+    %scale = scalar.bitcast %scale_bits : i32 to f32
+    %inverse = scalar.bitcast %inverse_bits : i32 to f32
+    scf.for %column = [%lane to %width step %step] {
+      %bounded = index.assume %column [lt(%column, %width)] : index
+      %value = view.load %source[%source_row, %bounded] : view<[%capacity]x[%width]xf32> -> f32
+      %scaled = scalar.mulf %value, %scale : f32
+      %half = scalar.fptrunc %scaled : f32 to f16
+      view.store %half, %destination[%row, %bounded] : f16, view<[%padded]x[%width]xf16>
+    }
+    %writer = index.cmp eq, %lane, %zero : index
+    scf.if %writer {
+      view.store %scale, %metadata[%row, %zero] : f32, view<[%padded]x2xf32>
+      view.store %inverse, %metadata[%row, %one] : f32, view<[%padded]x2xf32>
+    }
+  } else {
+    scf.for %column = [%lane to %width step %step] {
+      %bounded = index.assume %column [lt(%column, %width)] : index
+      view.store %zero_f16, %destination[%row, %bounded] : f16, view<[%padded]x[%width]xf16>
+    }
+    %writer = index.cmp eq, %lane, %zero : index
+    scf.if %writer {
+      view.store %zero_f32, %metadata[%row, %zero] : f32, view<[%padded]x2xf32>
+      view.store %zero_f32, %metadata[%row, %one] : f32, view<[%padded]x2xf32>
+    }
+  }
+  kernel.return
+}
+
+// Canonical Q8 packing consumes the full launch capacity. Materialize an owned
+// zero-padded F32 prefix first, without reading inactive source rows.
+kernel.def @llm.projection.prepare_f32_prefix(%capacity: index, %input_width: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%capacity, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%capacity_arg: index, %width_arg: index, %count: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.assume %capacity_arg [range(%capacity_arg, 1, 512)] : index
+  %width = index.assume %width_arg [range(%width_arg, 256, 32768), multiple_of(%width_arg, 256)] : index
+  %row_id = kernel.workgroup.id<x> : index
+  %row = index.assume %row_id [lt(%row_id, %capacity)] : index
+  %lane = kernel.workitem.id<x> : index
+  %zero = index.constant 0 : index
+  %step = index.constant 256 : index
+  %origin = index.constant 0 : offset
+  %control = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %active32 = view.load %control[%zero] : view<3xi32> -> i32
+  %active = index.cast %active32 : i32 to index
+  %live = index.cmp ult, %row, %active : index
+  %destination = buffer.view %output[%origin] : buffer -> view<[%capacity]x[%width]xf32>
+  %zero_f32 = scalar.constant 0.0 : f32
+  scf.for %column = [%lane to %width step %step] {
+    %bounded = index.assume %column [lt(%column, %width)] : index
+    %value = scf.if %live -> (f32) {
+      %source = buffer.view %input[%origin] : buffer -> view<[%capacity]x[%width]xf32>
+      %loaded = view.load %source[%row, %bounded] : view<[%capacity]x[%width]xf32> -> f32
+      scf.yield %loaded : f32
+    } else {
+      scf.yield %zero_f32 : f32
+    }
+    view.store %value, %destination[%row, %bounded] : f32, view<[%capacity]x[%width]xf32>
+  }
+  kernel.return
+}

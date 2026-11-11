@@ -282,3 +282,44 @@ func.def public @text.trim(%text: buffer) -> (buffer) {
   buffer.copy %text[%begin], %result[%zero], %size
   func.return %result : buffer
 }
+
+// Strip only LF at selected ends; preserve spaces, tabs and every UTF8 byte.
+func.def public @text.trim_lf(%text: buffer, %left: i1, %right: i1) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %size = buffer.length %text
+  %false = scalar.constant false : i1
+  %lf = scalar.constant 10 : i32
+  %begin = scf.while(%p = %zero : offset) -> (offset) {
+    %has = index.cmp ult, %p, %size : offset
+    %active = scalar.andi %has, %left : i1
+    %advance = scf.if %active -> (i1) {
+      %byte = buffer.load.i8.u %text[%p]
+      %match = scalar.cmpi eq, %byte, %lf : i32
+      scf.yield %match : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %advance, %p : i1, offset
+  } do(%p: offset) {
+    %next = index.add %p, %one : offset
+    scf.yield %next : offset
+  }
+  %end = scf.while(%p = %size : offset) -> (offset) {
+    %has = index.cmp ugt, %p, %begin : offset
+    %active = scalar.andi %has, %right : i1
+    %advance = scf.if %active -> (i1) {
+      %at = index.sub %p, %one : offset
+      %byte = buffer.load.i8.u %text[%at]
+      %match = scalar.cmpi eq, %byte, %lf : i32
+      scf.yield %match : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %advance, %p : i1, offset
+  } do(%p: offset) {
+    %next = index.sub %p, %one : offset
+    scf.yield %next : offset
+  }
+  %size_out = index.sub %end, %begin : offset
+  %start64 = index.cast %begin : offset to i64
+  %size64 = index.cast %size_out : offset to i64
+  %result = func.call @text.range(%text, %start64, %size64) : (buffer, i64, i64) -> (buffer)
+  func.return %result : buffer
+}

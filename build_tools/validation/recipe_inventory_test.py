@@ -34,9 +34,9 @@ def fixture():
         if modality == 'chat':
             assets = {'weights': {'format': 'gguf', 'path': None}, 'tokenizer': {'format': 'json', 'path': None}}
             serving = {'bounds': {name: [1, 99] for name in
-                       ('rows', 'context_capacity', 'pool_capacity', 'prefill_capacity')},
+                       ('rows', 'context_capacity',  'prefill_capacity')},
                        'mtp_depth_max': 5, 'defaults': {'rows': 3, 'context_capacity': 30,
-                       'pool_capacity': 60, 'prefill_capacity': 7, 'mtp': True, 'mtp_depth': 4}}
+                       'prefill_capacity': 7, 'mtp': True, 'mtp_depth': 4}}
         else:
             assets = {'audio-parameters': {'format': 'safetensors', 'path': 'parameters.safetensors'}}
             serving = {'pending_requests': [1, 9], 'defaults': {'pending_requests': 2, 'options': {}}}

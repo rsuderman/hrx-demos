@@ -7,12 +7,12 @@ config.decl @gemma3.model.vocabulary_size : index
 config.decl @gemma3.model.layer_count : index
 config.decl @gemma3.model.embedding_weight_bytes : index
 config.decl @gemma3.model.output_weight_bytes : index
-command.program.decl @loomify.gemma3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
+command.decl @loomify.gemma3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 kernel.decl @gemma3_token_embedding_epoch_q8_f32(%rows: index) launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
 template.decl @loomify.gemma3.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
 
-command.program.def @loomify.gemma3.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %input_ids: buffer, %selected_ids: buffer) {
+command.def @loomify.gemma3.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %input_ids: buffer, %selected_ids: buffer) {
   %phase = index.constant 0 : index
   %rows = config.get @runner.gemma3.prefill_token_count : index
   %descriptor_origin = index.constant 12 : offset
@@ -28,7 +28,7 @@ command.program.def @loomify.gemma3.model() launch(%parameters: buffer, %residua
   kernel.launch @gemma3_token_embedding_epoch_q8_f32[%rows](%epoch, %count, %input_ids, %embedding, %residual) : [index](buffer, buffer, buffer, view<[%embedding_bytes]xi8>, buffer)
   %layers = config.get @gemma3.model.layer_count : index
   scf.for %layer = [%zero to %layers step %one] unroll {
-    command.program.launch @loomify.gemma3.layer[%layer, %phase, %rows, %descriptor_origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @loomify.gemma3.layer[%layer, %phase, %rows, %descriptor_origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   }
   %hidden = config.get @gemma3.model.hidden_size : index
   %vocab = config.get @gemma3.model.vocabulary_size : index

@@ -10,8 +10,10 @@ build --enable_runfiles
 build --incompatible_default_to_explicit_init_py
 
 # Native runtime drivers and compiler targets for the serving solution.
-build --@hrx_system//runtime/config/hal:drivers=task,amdgpu
-build --@hrx_system//loom/config/target:enable=amdgpu,vm,x86
+build --@hrx_system//runtime/config/hal:drivers=task,amd
+build --@hrx_system//loom/config/arch:enable=amdgpu,vm,x86
+build --@hrx_system//loom/config/emit:enable=elf,vm
+build --@hrx_system//loom/config/execute:enable=iree_hal,iree_vm
 
 common --repo_env=IREE_DEPENDENCY_MODE=pinned
 common --repo_env=IREE_ROCM_DEPENDENCY_MODE=pinned

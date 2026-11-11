@@ -74,7 +74,7 @@ config.def @{family}.model.rms_epsilon = 0.000001 : f32
   %bytes = scf.select %first, %bytes0, %bytes1 : index
   func.return %width, %gate, %gate, %down, %gate_bytes, %gate_bytes, %bytes : index, index, index, index, index, index, index
 }}
-command.program.decl @loomify.{family}.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+command.decl @loomify.{family}.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
 ''')
     checks = [HEADER]
     for layer, down_tag in enumerate(down_tags):
@@ -98,7 +98,7 @@ command.program.decl @loomify.{family}.ffn(%layer: index, %phase: index, %rows: 
             expected += f'  scf.if %is_zero {{\n    %control = buffer.view %count[%origin] : buffer -> view<3xi32>\n    %n = scalar.constant {rows} : i32\n    %z = scalar.constant 0 : i32\n    view.store %n, %control[0] : i32, view<3xi32>\n    view.store %z, %control[1] : i32, view<3xi32>\n    view.store %z, %control[2] : i32, view<3xi32>\n  }}\n'
             h.kernel('test.expected.' + suffix, intermediate, '%residual: buffer, %count: buffer', expected)
             h.reference(suffix, intermediate, '%root: buffer, %residual: buffer, %count: buffer', f'    func.call @test.expected.{suffix}.body(%channel, %residual, %count) : (index, buffer, buffer) -> ()')
-            h.emit(f'''command.program.def public retain @actual.{suffix}() launch(%root: buffer, %residual: buffer, %count: buffer) {{
+            h.emit(f'''command.def public retain @actual.{suffix}() launch(%root: buffer, %residual: buffer, %count: buffer) {{
   %layer = index.constant {layer} : index
   %phase = index.constant {1 if rows == 1 else 0} : index
   %rows = index.constant {rows} : index
@@ -110,12 +110,12 @@ command.program.decl @loomify.{family}.ffn(%layer: index, %phase: index, %rows: 
   %down = command.parameter %root, "blk.{{}}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
   %gamma = command.parameter %root, "blk.{{}}.{gamma_role}.weight"[%layer] : view<[%hidden]xf32>
   kernel.launch @test.init.{suffix}[](%gate, %up, %down, %gamma, %residual, %count) : [](view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>, view<[%hidden]xf32>, buffer, buffer)
-  command.program.launch @loomify.{family}.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.launch @loomify.{family}.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }}
 ''')
             count = rows * hidden
-            checks.append(f'''command.program.decl @actual.{suffix}() launch(%root: buffer, %residual: buffer, %count: buffer)
+            checks.append(f'''command.decl @actual.{suffix}() launch(%root: buffer, %residual: buffer, %count: buffer)
 func.decl @reference.{suffix}(%root: buffer, %residual: buffer, %count: buffer)
 check.scenario @{suffix} {{
   check.trial[1](%trial: index, %entropy: check.entropy) {{
@@ -127,7 +127,7 @@ check.scenario @{suffix} {{
     %residual = check.tensor.view %residual_storage offset(8) : tensor<{count+4}xf32> -> tensor<{count}xf32>
     %count = check.generate.fill value(-7) : tensor<3xi32>
     check.compare<@actual.{suffix},@reference.{suffix}>(%root, %residual, %count) : (tensor<{bank}xi8>, tensor<{count}xf32>, tensor<3xi32>) -> () {{
-      check.expect.close actual(%residual_storage) expected(%residual_storage) atol(0.0001) rtol(0.0001) nan(same) : tensor<{count+4}xf32>
+      check.expect.approximate actual(%residual_storage) expected(%residual_storage) atol(0.0001) rtol(0.0001) nan(same) : tensor<{count+4}xf32>, tensor<{count+4}xf32>
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%root_before) expected(%root_before) : tensor<256xi8>
       check.expect.bitwise actual(%root_after) expected(%root_after) : tensor<256xi8>

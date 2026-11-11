@@ -30,7 +30,7 @@ func.def public pure inline @loomify.config.layer_ffn(%layer: index) -> (index, 
   %bytes = scf.select %first, %bytes0, %bytes1 : index
   func.return %width, %gate, %gate, %down, %gate_bytes, %gate_bytes, %bytes : index, index, index, index, index, index, index
 }
-command.program.decl @loomify.qwen.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+command.decl @loomify.qwen.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
 func.def @test.init.same_hidden_q13_rows1.body(%channel0: index, %gate: buffer, %up: buffer, %down: buffer, %gamma: buffer, %residual: buffer, %count: buffer) {
   %channel = index.assume %channel0 [range(%channel0, 0, 4095)] : index
   %zero = index.constant 0 : index
@@ -295,7 +295,7 @@ func.def @reference.same_hidden_q13_rows1(%root: buffer, %residual: buffer, %cou
   }
   func.return
 }
-command.program.def public retain @actual.same_hidden_q13_rows1() launch(%root: buffer, %residual: buffer, %count: buffer) {
+command.def public retain @actual.same_hidden_q13_rows1() launch(%root: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
@@ -307,7 +307,7 @@ command.program.def public retain @actual.same_hidden_q13_rows1() launch(%root: 
   %down = command.parameter %root, "blk.{}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
   %gamma = command.parameter %root, "blk.{}.post_attention_norm.weight"[%layer] : view<[%hidden]xf32>
   kernel.launch @test.init.same_hidden_q13_rows1[](%gate, %up, %down, %gamma, %residual, %count) : [](view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>, view<[%hidden]xf32>, buffer, buffer)
-  command.program.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
 func.def @test.init.same_hidden_q13_rows3.body(%channel0: index, %gate: buffer, %up: buffer, %down: buffer, %gamma: buffer, %residual: buffer, %count: buffer) {
@@ -608,7 +608,7 @@ func.def @reference.same_hidden_q13_rows3(%root: buffer, %residual: buffer, %cou
   }
   func.return
 }
-command.program.def public retain @actual.same_hidden_q13_rows3() launch(%root: buffer, %residual: buffer, %count: buffer) {
+command.def public retain @actual.same_hidden_q13_rows3() launch(%root: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 0 : index
   %rows = index.constant 3 : index
@@ -620,7 +620,7 @@ command.program.def public retain @actual.same_hidden_q13_rows3() launch(%root: 
   %down = command.parameter %root, "blk.{}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
   %gamma = command.parameter %root, "blk.{}.post_attention_norm.weight"[%layer] : view<[%hidden]xf32>
   kernel.launch @test.init.same_hidden_q13_rows3[](%gate, %up, %down, %gamma, %residual, %count) : [](view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>, view<[%hidden]xf32>, buffer, buffer)
-  command.program.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
 func.def @test.init.same_hidden_q14_rows1.body(%channel0: index, %gate: buffer, %up: buffer, %down: buffer, %gamma: buffer, %residual: buffer, %count: buffer) {
@@ -869,7 +869,7 @@ func.def @reference.same_hidden_q14_rows1(%root: buffer, %residual: buffer, %cou
   }
   func.return
 }
-command.program.def public retain @actual.same_hidden_q14_rows1() launch(%root: buffer, %residual: buffer, %count: buffer) {
+command.def public retain @actual.same_hidden_q14_rows1() launch(%root: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
@@ -881,7 +881,7 @@ command.program.def public retain @actual.same_hidden_q14_rows1() launch(%root: 
   %down = command.parameter %root, "blk.{}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
   %gamma = command.parameter %root, "blk.{}.post_attention_norm.weight"[%layer] : view<[%hidden]xf32>
   kernel.launch @test.init.same_hidden_q14_rows1[](%gate, %up, %down, %gamma, %residual, %count) : [](view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>, view<[%hidden]xf32>, buffer, buffer)
-  command.program.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
 func.def @test.init.same_hidden_q14_rows3.body(%channel0: index, %gate: buffer, %up: buffer, %down: buffer, %gamma: buffer, %residual: buffer, %count: buffer) {
@@ -1164,7 +1164,7 @@ func.def @reference.same_hidden_q14_rows3(%root: buffer, %residual: buffer, %cou
   }
   func.return
 }
-command.program.def public retain @actual.same_hidden_q14_rows3() launch(%root: buffer, %residual: buffer, %count: buffer) {
+command.def public retain @actual.same_hidden_q14_rows3() launch(%root: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 0 : index
   %rows = index.constant 3 : index
@@ -1176,6 +1176,6 @@ command.program.def public retain @actual.same_hidden_q14_rows3() launch(%root: 
   %down = command.parameter %root, "blk.{}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
   %gamma = command.parameter %root, "blk.{}.post_attention_norm.weight"[%layer] : view<[%hidden]xf32>
   kernel.launch @test.init.same_hidden_q14_rows3[](%gate, %up, %down, %gamma, %residual, %count) : [](view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>, view<[%hidden]xf32>, buffer, buffer)
-  command.program.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.launch @loomify.qwen.ffn[%layer, %phase, %rows](%root, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }

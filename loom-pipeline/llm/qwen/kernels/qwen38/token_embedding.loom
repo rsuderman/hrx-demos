@@ -360,7 +360,7 @@ check.case public @qwen38_token_embedding_q5k_f32_differential_case {
   kernel.launch @qwen38_token_embedding_fix_differential_headers(%weight) : (tensor<4x[%shape_hidden_qk_blocks]x176xi8>)
   kernel.launch @qwen38_token_embedding_q5k_f32_reference[%token_count](%token_count, %token_ids, %weight, %expected) : [index](index, tensor<2xi32>, tensor<4x[%shape_hidden_qk_blocks]x176xi8>, tensor<2x[%shape_hidden_size]xf32>)
   kernel.launch @qwen38_token_embedding_q5k_f32_prefill[%token_count](%token_ids, %weight, %actual) : [index](tensor<2xi32>, tensor<4x[%shape_hidden_qk_blocks]x176xi8>, tensor<2x[%shape_hidden_size]xf32>)
-  check.expect.close actual(%actual) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<2x[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<2x[%shape_hidden_size]xf32>, tensor<2x[%shape_hidden_size]xf32>
   check.return
 }
 

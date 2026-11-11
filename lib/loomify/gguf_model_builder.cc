@@ -45,6 +45,8 @@ bool GgufModelBuilder::Open(const std::string &path,
   std::error_code ec;
   auto asset = std::filesystem::canonical(path, ec);
   if (ec) return Fail(error, "cannot resolve GGUF input: " + ec.message());
+  const auto alias = std::filesystem::absolute(path, ec);
+  if (ec) return Fail(error, "cannot resolve GGUF input path: " + ec.message());
   std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(asset.c_str(), "rb"), &std::fclose);
   if (!file) return Fail(error, "cannot open GGUF input: " + std::string(std::strerror(errno)));
   if (std::setvbuf(file.get(), nullptr, _IONBF, 0) != 0)
@@ -61,6 +63,7 @@ bool GgufModelBuilder::Open(const std::string &path,
       impl->text_metadata, &impl->publication_tokens,
       &impl->publication_token_error);
   impl->source_asset = asset.string();
+  impl->source_alias = alias.string();
   if (std::fclose(file.release()) != 0) return Fail(error, "cannot close GGUF input");
   auto built = std::unique_ptr<GgufModelBuilder>(new GgufModelBuilder(std::move(impl)));
   *out = std::move(built);
@@ -89,6 +92,7 @@ bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
     prepared->numerical.source += impl_->publication_tokens->configuration_source;
   prepared->numerical.source.insert(0, "// loomify platform: " + options.platform + "\n");
   prepared->source_asset = impl_->source_asset;
+  prepared->source_alias = impl_->source_alias;
   prepared->options = options;
   prepared->architecture = architecture;
   prepared->platform = platform;
@@ -111,15 +115,10 @@ bool GgufConfiguration::BuildModule(loomc_context_t *context, loomc_workspace_t 
   if (!impl_ || !context || !workspace || !out || impl_->options.library_root.empty())
     return Fail(error, "module build requires context, workspace, library root and output");
   const auto &architecture = *impl_->architecture;
-  const auto product = (std::filesystem::path(impl_->options.library_root) /
-                        architecture.implementation).string();
   loomc_module_t *module = nullptr;
-  // Registered BUILD-produced platform resources are mandatory construction
-  // inputs. Native LINK permits abstract targets and cannot replace this load.
-  const auto targets = (std::filesystem::path(impl_->options.library_root) /
-                        impl_->platform->targets).string();
-  if (!LinkConfiguredProducts(context, workspace, impl_->numerical.source, {product, targets},
-                              architecture.roots, true, &module, error)) return false;
+  if (!LinkNumericalProducts(context, workspace, impl_->options.library_root,
+                             impl_->numerical.source, architecture,
+                             *impl_->platform, &module, error)) return false;
   auto built_impl = std::make_unique<BuiltGgufModule::Impl>();
   built_impl->module.reset(module);
   built_impl->configuration_source = impl_->numerical.source;

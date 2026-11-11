@@ -142,7 +142,7 @@ def main():
                                ('map', map_bytes), ('cache', before_cache)]:
                 save(work / (name + '.npy'), '|i1', data)
             fixture = work / 'fixture.loom'
-            fixture.write_text(f'''command.program.decl @{root}() launch(%p:buffer,%r:buffer,%c:buffer,%m:buffer,%k:buffer)
+            fixture.write_text(f'''command.decl @{root}() launch(%p:buffer,%r:buffer,%c:buffer,%m:buffer,%k:buffer)
 func.def @noop(%p:buffer,%r:buffer,%c:buffer,%m:buffer,%k:buffer) {{ func.return }}
 check.scenario @layer_validation {{
  check.trial[1](%trial:index,%entropy:check.entropy) {{

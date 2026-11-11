@@ -18,6 +18,7 @@ import sys
 
 PINNED = {"transformers": "4.57.1", "Jinja2": "3.1.6", "tokenizers": "0.22.2", "MarkupSafe": "3.0.4"}
 REVISIONS = {
+    "5da44855": ("qwen3", "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4"),
     "7f0e5290": ("qwen35", "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67"),
     "c3cf9e34": ("qwen35", "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"),
     "5816fce1": ("llama", "5816fce10444e03c2e9ee1ef8a4a1ea61ae7e69e438613f3b17b69d0426223a4"),
@@ -42,6 +43,8 @@ def main():
         assert Path(module.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
     cases_path = a.source_root / "lib/text/qwen35/testing/render_cases.json"
     cases = json.loads(cases_path.read_text())
+    qwen3_cases_path = a.source_root / "lib/text/qwen3/testing/render_cases.json"
+    cases += json.loads(qwen3_cases_path.read_text())
     rows = []
     tokenizers_by_revision = {}
     tokenizer_identities = {}
@@ -74,7 +77,7 @@ def main():
             for message in request["messages"]:
                 for call in message.get("tool_calls", []):
                     function = call.get("function", call)
-                    if isinstance(function.get("arguments"), str):
+                    if revision != "5da44855" and isinstance(function.get("arguments"), str):
                         function["arguments"] = json.loads(function["arguments"])
             kwargs = {"add_generation_prompt": True}
             kwargs.update(request.get("model_options", {}))
@@ -92,6 +95,12 @@ def main():
                     kwargs.update(date_string="26 Jul 2024")
             row = {"case": case["id"], "revision": revision, "template_sha256": actual_identity,
                    "request": case["request"], "kwargs": kwargs, "tools": tools}
+            # Template inputs can be broader than the native transport schema.
+            # Preserve their independent expectations, and declare native
+            # admission negatives separately from rendering/token parity.
+            for key in ("native_admission_error", "native_counterpart", "template_case"):
+                if key in case:
+                    row[key] = case[key]
             try:
                 render_kwargs = dict(kwargs)
                 if revision == "5816fce1" and override:
@@ -116,7 +125,8 @@ def main():
     helper_path = Path(inspect.getsourcefile(inspect.unwrap(_compile_jinja_template)))
     manifest = {"versions": versions, "python": sys.version, "interpreter": sys.executable,
                 "helper": str(helper_path), "helper_sha256": hashlib.sha256(helper_path.read_bytes()).hexdigest(),
-                "cases_sha256": hashlib.sha256(cases_path.read_bytes()).hexdigest(), "rows": len(rows),
+                "cases_sha256": hashlib.sha256(cases_path.read_bytes()).hexdigest(),
+                "qwen3_cases_sha256": hashlib.sha256(qwen3_cases_path.read_bytes()).hexdigest(), "rows": len(rows),
                 "token_vector_rows": sum("token_ids" in row for row in rows),
                 "tokenizers": tokenizer_identities, "templates": template_identities, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "scope": "independent reference only; no native Loom parity claimed"}

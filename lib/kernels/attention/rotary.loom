@@ -18,7 +18,10 @@ template.def<@llm.attention.rope_neox_value> device @llm_attention_rope_neox_val
       %low_lane = index.sub %lane, %rope_half : index
       scf.yield %low_lane, %low_lane : index, index
     }
-    %partner_value = view.load %head_view[%partner] : view<[%head_size]xf32> -> f32
+    // Full/partial NeoX callers provide rope_half=rope_size/2 and
+    // rope_size<=head_size. Expose that branch-local footprint to native proof.
+    %bounded_partner = index.assume %partner [range(%partner, 0, 255), lt(%partner, %head_size)] : index
+    %partner_value = view.load %head_view[%bounded_partner] : view<[%head_size]xf32> -> f32
     %pair_i32 = index.cast %pair : index to i32
     %pair_f32 = scalar.uitofp %pair_i32 : i32 to f32
     %position_f32 = scalar.sitofp %position : i32 to f32

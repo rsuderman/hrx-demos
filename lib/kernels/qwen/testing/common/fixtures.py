@@ -99,7 +99,7 @@ for rows in (1,3):
     %before = check.tensor.view %storage offset(0) : tensor<{output+4}xf32> -> tensor<2xf32>
     %after = check.tensor.view %storage offset({(output+2)*4}) : tensor<{output+4}xf32> -> tensor<2xf32>
     check.compare<@actual.{name}, @reference.{name}>(%input, %weight, %packed, %output) : (tensor<{rows*width}xf32>, tensor<{weight}xi8>, tensor<{packed}xi8>, tensor<{output}xf32>) -> () {{
-      check.expect.close actual(%storage) expected(%storage) atol(0.0001) rtol(0.00001) nan(same) : tensor<{output+4}xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.0001) rtol(0.00001) nan(same) : tensor<{output+4}xf32>, tensor<{output+4}xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<{rows*width}xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<{weight}xi8>
       check.expect.bitwise actual(%packed_storage) expected(%packed_storage) : tensor<{packed+128}xi8>
@@ -131,8 +131,8 @@ for rows in (1,3):
     %activation_after = check.tensor.view %activation_storage offset({(activation+2)*4}) : tensor<{activation+4}xf32> -> tensor<2xf32>
     %control = check.generate.fill value(0) : tensor<1048xi32>
     check.compare<@actual.{name}, @reference.{name}>(%root, %input, %residual, %activation, %control) : (tensor<10000000xi8>, tensor<{residual}xf32>, tensor<{residual}xf32>, tensor<{activation}xf32>, tensor<1048xi32>) -> () {{
-      check.expect.close actual(%residual_storage) expected(%residual_storage) atol(0.0001) rtol(0.0001) nan(same) : tensor<{residual+4}xf32>
-      check.expect.close actual(%activation_storage) expected(%activation_storage) atol(0.000001) rtol(0.00001) nan(same) : tensor<{activation+4}xf32>
+      check.expect.approximate actual(%residual_storage) expected(%residual_storage) atol(0.0001) rtol(0.0001) nan(same) : tensor<{residual+4}xf32>, tensor<{residual+4}xf32>
+      check.expect.approximate actual(%activation_storage) expected(%activation_storage) atol(0.000001) rtol(0.00001) nan(same) : tensor<{activation+4}xf32>, tensor<{activation+4}xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<{residual}xf32>
       check.expect.bitwise actual(%control) expected(%control) : tensor<1048xi32>
       check.expect.bitwise actual(%root_before) expected(%root_before) : tensor<256xi8>
@@ -150,6 +150,6 @@ declarations=[]
 for name in anchors:
     args = '%a: buffer, %b: buffer, %c: buffer, %d: buffer'
     if name.startswith('ffn_'): args += ', %e: buffer'
-    declarations.append(f'command.program.decl @actual.{name}() launch({args})\n')
+    declarations.append(f'command.decl @actual.{name}() launch({args})\n')
     declarations.append(f'func.decl @reference.{name}({args})\n')
 (ROOT/'checks.loom').write_text(checks[0]+''.join(declarations)+''.join(checks[1:]))

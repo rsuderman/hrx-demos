@@ -1,0 +1,10 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// A launched write must stay a command dispatch during pre-target normalization.
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+command.def public @count_command_test() launch(%packet: buffer, %count: buffer) {
+  %prefill = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  kernel.launch @llm.epoch.snapshot_count[](%prefill, %origin, %packet, %count) : [](index, offset, buffer, buffer)
+  command.return
+}

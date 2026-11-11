@@ -2,7 +2,7 @@
 
 load(":loomcxx.bzl", "loom_fixture")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 
 def loom_gpu_test(name, srcs, deps, configs):
     """Runs a native numerical/contract fixture with the common target policy."""
@@ -12,7 +12,7 @@ def loom_gpu_test(name, srcs, deps, configs):
         deps = deps,
         configs = configs,
         benchmark_smoke = False,
-        execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+        execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
     )
 
 def loom_test_matrix(name, fixture, definitions, cases):

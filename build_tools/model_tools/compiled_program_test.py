@@ -15,7 +15,7 @@ class CompiledProgramTest(unittest.TestCase):
         self.source = self.root / 'novel/runtime/program.loom'
         self.source.parent.mkdir(parents=True)
         self.original = ('func.def public @entry()\nfunc.def private @internal()\n'
-                         'command.program.def public @step()\nconfig.def @capacity = 8\n')
+                         'command.def public @step()\nconfig.def @capacity = 8\n')
         self.source.write_text(self.original)
         self.artifact = self.root / 'module.loombc'
         self.artifact.write_bytes(b'LOOMfixture')
@@ -38,7 +38,7 @@ class CompiledProgramTest(unittest.TestCase):
     def test_missing_added_and_changed_roots_and_private_count_rejected(self):
         for changed in (
             self.original.replace('public @entry', 'public @other'),
-            self.original.replace('command.program.def public @step()\n', ''),
+            self.original.replace('command.def public @step()\n', ''),
             self.original.replace('private @internal', 'public @internal'),
             self.original.replace('func.def private @internal()\n', ''),
             self.original.replace('config.def @capacity = 8\n', ''),

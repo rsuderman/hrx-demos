@@ -167,7 +167,7 @@ func.def @q8_init_tiny(%activation:buffer,%weight:buffer) {
   func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
   func.return
 }
-command.program.def @q8_actual_tiny() launch(%activation:buffer,%weight:buffer,%output:buffer,%encoded:buffer,%known:buffer) {
+command.def @q8_actual_tiny() launch(%activation:buffer,%weight:buffer,%output:buffer,%encoded:buffer,%known:buffer) {
   %rows = index.constant 2 : index
   %width = index.constant 128 : index
   %cols = index.constant 9 : index
@@ -246,7 +246,7 @@ func.def @q8_init_k5120_c48(%activation:buffer,%weight:buffer) {
   func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
   func.return
 }
-command.program.def @q8_actual_k5120_c48() launch(%activation:buffer,%weight:buffer,%output:buffer) {
+command.def @q8_actual_k5120_c48() launch(%activation:buffer,%weight:buffer,%output:buffer) {
   %rows = index.constant 2 : index
   %width = index.constant 5120 : index
   %cols = index.constant 48 : index
@@ -285,7 +285,7 @@ func.def @q8_init_k6144_c49(%activation:buffer,%weight:buffer) {
   func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
   func.return
 }
-command.program.def @q8_actual_k6144_c49() launch(%activation:buffer,%weight:buffer,%output:buffer) {
+command.def @q8_actual_k6144_c49() launch(%activation:buffer,%weight:buffer,%output:buffer) {
   %rows = index.constant 2 : index
   %width = index.constant 6144 : index
   %cols = index.constant 49 : index
@@ -324,7 +324,7 @@ func.def @q8_init_large_output_tail(%activation:buffer,%weight:buffer) {
   func.call @q8_encode_fixture(%rows,%width,%cols,%activation,%weight) : (index,index,index,buffer,buffer) -> ()
   func.return
 }
-command.program.def @q8_actual_large_output_tail() launch(%activation:buffer,%weight:buffer,%output:buffer) {
+command.def @q8_actual_large_output_tail() launch(%activation:buffer,%weight:buffer,%output:buffer) {
   %rows = index.constant 1 : index
   %width = index.constant 5120 : index
   %cols = index.constant 1025 : index

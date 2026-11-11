@@ -102,7 +102,7 @@ kernel.def @window.compute() {
   kernel.return
 }
 
-command.program.def public @actual.p510_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p510_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant false : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -113,7 +113,7 @@ command.program.def public @actual.p510_w512_paged0_rows1() launch(%q: buffer, %
   command.return
 }
 
-command.program.def public @actual.p511_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p511_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -124,7 +124,7 @@ command.program.def public @actual.p511_w512_paged1_rows1() launch(%q: buffer, %
   command.return
 }
 
-command.program.def public @actual.p512_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p512_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -135,7 +135,7 @@ command.program.def public @actual.p512_w512_paged1_rows1() launch(%q: buffer, %
   command.return
 }
 
-command.program.def public @actual.p513_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p513_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant false : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -146,7 +146,7 @@ command.program.def public @actual.p513_w512_paged0_rows1() launch(%q: buffer, %
   command.return
 }
 
-command.program.def public @actual.p512_w0_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p512_w0_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 0 : index
@@ -157,7 +157,7 @@ command.program.def public @actual.p512_w0_paged1_rows1() launch(%q: buffer, %k:
   command.return
 }
 
-command.program.def public @actual.p63_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p63_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -168,7 +168,7 @@ command.program.def public @actual.p63_w512_paged1_rows1() launch(%q: buffer, %k
   command.return
 }
 
-command.program.def public @actual.p64_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p64_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -179,7 +179,7 @@ command.program.def public @actual.p64_w512_paged1_rows1() launch(%q: buffer, %k
   command.return
 }
 
-command.program.def public @actual.p511_w512_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p511_w512_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
@@ -196,7 +196,7 @@ command.program.def public @actual.p511_w512_paged1_rows3() launch(%q: buffer, %
   command.return
 }
 
-command.program.def public @actual.p511_w0_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
+command.def public @actual.p511_w0_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
   kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
   %window = index.constant 0 : index

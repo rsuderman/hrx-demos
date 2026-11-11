@@ -64,7 +64,7 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   options.structure_size = sizeof(options);
   options.root_symbols = &root;
   options.root_symbol_count = 1;
-  options.kernel_target_profile = profile;
+  options.target_profile = profile;
   options.request_sink.publish = [](void *user, loomc_request_t *request) {
     static_cast<std::vector<loomc_request_t *> *>(user)->push_back(request);
     return loomc_ok_status();

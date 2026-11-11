@@ -30,7 +30,7 @@ kernel.def target(@platform_test_wave64) @platform_test_kernel64() {
   view.store %value, %view[%zero] : i32, view<1xi32>
   kernel.return
 }
-command.program.def public @platform_test() launch(%output32: buffer, %output64: buffer) {
+command.def public @platform_test() launch(%output32: buffer, %output64: buffer) {
   kernel.launch @platform_test_kernel32[](%output32) : [](buffer)
   kernel.launch @platform_test_kernel64[](%output64) : [](buffer)
   command.return

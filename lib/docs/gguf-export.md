@@ -17,7 +17,7 @@ bazel-bin/tools/loomify-gguf/loomify-gguf \
   --gguf=/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
   --tokenizer=/path/to/tokenizer.json --output-dir=/path/to/exported-llama \
   --context-capacity=512 --prefill-capacity=128 --format=bc
-loom-serve --device=amdgpu --model=/path/to/exported-llama/model.json \
+loom-serve --device=amdgpu --pool_backing=fixed --model=/path/to/exported-llama/model.json \
   --listen=127.0.0.1:18081
 ```
 
@@ -25,9 +25,20 @@ loom-serve --device=amdgpu --model=/path/to/exported-llama/model.json \
 serialize the same configuration-linked module. The package contains `model.json`, `model.loombc` (or
 `model.loom`), `prepare.loom`, `control.loom` and `weights.loom`. Package-owned
 references are relative, so this directory can move; external asset references
-are absolute and still need their original files. The converter never copies
-checkpoint bytes or converts the tokenizer. It refuses an existing output
+are absolute and still need their original files. The GGUF reference retains the
+supplied path's format suffix, including a `.gguf` alias to an extensionless blob;
+publication checks that alias still resolves to the source opened for inspection.
+The converter never copies checkpoint bytes or converts the tokenizer. It refuses an existing output
 directory and publishes `model.json` only after provider serialization succeeds.
+
+Serve packages require `context_capacity` to be a multiple of64 and use
+`--pool_backing=fixed` with the current Loom Serve pin. Package export rejects
+an unaligned context before writing the destination; it never rounds the logical
+context silently. The model document omits `pool_capacity`: fixed backing derives
+that physical capacity from the context. `rows=1` and `max_sessions=1` retain
+the fixed one-resident-request ceiling; resident growth is unsupported.
+Numerical-only module generation and
+configuration inspection continue to support arbitrary admitted context sizes.
 
 The bounded Llama serving profile is ordinary greedy text with one active request,
 no draft/checkpoint/session/prefix cache, maximum prefill chunk T in1..512 and
@@ -156,7 +167,7 @@ bazel-bin/tools/loomify-gguf/loomify-gguf \
   --gguf=/path/to/Qwen3.5-0.8B-UD-Q5_K_XL.gguf \
   --tokenizer=/path/to/qwen/tokenizer.json --output-dir=/path/to/exported-qwen \
   --context-capacity=512 --prefill-capacity=128 --format=bc
-loom-serve --device=amdgpu --model=/path/to/exported-qwen/model.json \
+loom-serve --device=amdgpu --pool_backing=fixed --model=/path/to/exported-qwen/model.json \
   --listen=127.0.0.1:18081
 ```
 

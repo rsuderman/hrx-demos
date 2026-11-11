@@ -24,19 +24,19 @@ kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%token_count0: index) launch
 
 kernel.decl @qwen_output_init_tied_bank() launch(%weight: buffer, %gamma: buffer)
 
-command.program.decl @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer)
+command.decl @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer)
 kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch: buffer, %private_ids: buffer, %output: buffer)
 // Test-only composition retains the public-output oracle without restoring a
 // combined production head or giving numerical computation public output.
-command.program.def @qwen.output.compose_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
+command.def @qwen.output.compose_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
   %bytes = index.constant 16 : offset
   %ids = buffer.alloca<global> align(256) %bytes : buffer
-  command.program.launch @loomify.qwen.head[%token_capacity, %output_capacity](%parameters, %residual, %epoch, %ids) : [index, index](buffer, buffer, buffer, buffer)
+  command.launch @loomify.qwen.head[%token_capacity, %output_capacity](%parameters, %residual, %epoch, %ids) : [index, index](buffer, buffer, buffer, buffer)
   kernel.launch @qwen08_publish_selected_ids[%output_capacity](%epoch, %ids, %output) : [index](buffer, buffer, buffer)
   command.return
 }
 
-command.program.def public retain @qwen.output.init() launch(%v0: buffer) {
+command.def public retain @qwen.output.init() launch(%v0: buffer) {
   command.serial {
     %v1 = index.constant 1024 : index
     %v2 = index.constant 208588800 : index
@@ -52,7 +52,7 @@ command.program.def public retain @qwen.output.init() launch(%v0: buffer) {
 // Known tied rows1=[+1,+1 halves],2=[+1,-1 halves], others zero.
 // Gamma=[+1,-2 halves]. Thus embeddingID1 predicts2, ID2 predicts1.
 
-command.program.def public retain @qwen.output.embedding.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
+command.def public retain @qwen.output.embedding.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
   command.serial {
     %v3 = index.constant 4 : index
     %v4 = index.constant 208588800 : index
@@ -62,16 +62,16 @@ command.program.def public retain @qwen.output.embedding.t4() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @qwen.output.head.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @qwen.output.head.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 4 : index
     %v5 = index.constant 1 : index
-    command.program.launch @qwen.output.compose_head[%v4, %v5](%v0, %v1, %v2, %v3) : [index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen.output.compose_head[%v4, %v5](%v0, %v1, %v2, %v3) : [index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @qwen.output.chain.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @qwen.output.chain.t4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 4 : index
     %v5 = index.constant 208588800 : index
@@ -81,16 +81,16 @@ command.program.def public retain @qwen.output.chain.t4() launch(%v0: buffer, %v
     kernel.launch @qwen38_token_embedding_q6k_f16_prefill[%v4](%v1, %v6, %v8) : [index](buffer, view<[%v5]xi8>, buffer)
     %v9 = index.constant 4 : index
     %v10 = index.constant 1 : index
-    command.program.launch @qwen.output.compose_head[%v9, %v10](%v0, %v8, %v2, %v3) : [index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen.output.compose_head[%v9, %v10](%v0, %v8, %v2, %v3) : [index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
 // External test-owned selected storage allows checking all four ID stores and
 // a suffix guard independently of public publication.
-command.program.def public retain @qwen.output.compute.t4() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) {
+command.def public retain @qwen.output.compute.t4() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) {
   %tokens = index.constant 4 : index
   %one = index.constant 1 : index
-  command.program.launch @loomify.qwen.head[%tokens, %one](%parameters, %residual, %epoch, %selected_ids) : [index, index](buffer, buffer, buffer, buffer)
+  command.launch @loomify.qwen.head[%tokens, %one](%parameters, %residual, %epoch, %selected_ids) : [index, index](buffer, buffer, buffer, buffer)
   command.return
 }

@@ -48,9 +48,9 @@ template.def<@ggml.q5k.f16_wmma.split_k_5120x48.body> device @ggml_q5k_f16_wmma_
   %metadata_stage_bytes = index.constant 4096 : offset
   %wave_result_stage_bytes = index.constant 1024 : offset
   %result_stage_bytes = index.constant 4096 : offset
-  %c0_f16x4 = vector.constant 0.0 : vector<4xf16>
-  %c0_f32x2 = vector.constant 0.0 : vector<2xf32>
-  %zero_accumulator = vector.constant 0.0 : vector<4xf32>
+  %c0_f16x4 = vector.splatf 0.0 : vector<4xf16>
+  %c0_f32x2 = vector.splatf 0.0 : vector<2xf32>
+  %zero_accumulator = vector.splatf 0.0 : vector<4xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
@@ -235,7 +235,7 @@ kernel.def target(@qwen38_dense_gfx11_wave64_split_k) export("qwen38_linear_q5k_
   %c256 = index.constant 256 : index
   %c384 = index.constant 384 : index
   %c0_offset = index.constant 0 : offset
-  %zero = vector.constant 0.0 : vector<4xf32>
+  %zero = vector.splatf 0.0 : vector<4xf32>
   %workgroup = kernel.workgroup.id<x> : index
   %workitem = kernel.workitem.id<x> : index
   %workgroup_base = index.mul %workgroup, %c256 : index
@@ -275,7 +275,7 @@ check.case public @qwen38_linear_q5k_f16_wmma_alpha_split_k_differential_case {
   kernel.launch @qwen38_linear_q5k_f16_wmma[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %expected) : [index, index, index](tensor<1xi32>, index, index, tensor<32x[%shape_hidden_size]xf32>, tensor<48x[%shape_hidden_qk_blocks]x176xi8>, tensor<32x48xf32>)
   kernel.launch @qwen38_linear_q5k_f16_wmma_alpha_split_k[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %partials) : [index, index, index](tensor<1xi32>, index, index, tensor<32x[%shape_hidden_size]xf32>, tensor<48x[%shape_hidden_qk_blocks]x176xi8>, tensor<7x32x48xf32>)
   kernel.launch @qwen38_linear_q5k_f16_wmma_alpha_split_k_reduce[%token_count](%token_count_data, %partials, %actual) : [index](tensor<1xi32>, tensor<7x32x48xf32>, tensor<32x48xf32>)
-  check.expect.close actual(%actual) expected(%expected) atol(0.5) rtol(0.02) nan(same) : tensor<32x48xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(0.5) rtol(0.02) nan(same) : tensor<32x48xf32>, tensor<32x48xf32>
   check.return
 }
 

@@ -3,6 +3,7 @@
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+func.decl @generation.full_packet_transfers(%metadata: buffer, %tokens: buffer) -> (buffer)
 
 func.decl import("runner") @execute_3(%stage: i32, %b0: hal.buffer, %b1: hal.buffer, %b2: hal.buffer) -> (i64)
 func.decl import("runner") @execute_5(%stage: i32, %b0: hal.buffer, %b1: hal.buffer, %b2: hal.buffer, %b3: hal.buffer, %b4: hal.buffer) -> (i64)
@@ -128,7 +129,7 @@ func.def @encode_plan(%plan: buffer, %inputs: buffer, %count: index, %first: ind
 // consumed tokens. Media parameters are unused because image input is disabled.
 // All backing is cold retained storage. This transform allocates nothing and
 // completes before its opaque outputs are borrowed by queued host uploads.
-func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
+func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32, buffer, i64, i64) {
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -163,7 +164,10 @@ func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: bu
     }
     scf.yield
   }
-  func.return %outputs : i32
+  %transfer_plan = func.call @generation.full_packet_transfers(%metadata, %tokens) : (buffer, buffer) -> (buffer)
+  %transfer_offset = scalar.constant 0 : i64
+  %transfer_length = scalar.constant 80 : i64
+  func.return %outputs, %transfer_plan, %transfer_offset, %transfer_length : i32, buffer, i64, i64
 }
 
 // Qwen's verifier records are six words, with up to four IDs after the two
@@ -186,8 +190,9 @@ func.def @qwen_publish_result_tokens(%results: buffer, %record: index, %output_c
 // Current source recipes publish at most eight tokens; the remaining slots
 // stay zero from the whole-buffer initialization below.
 // Only completed feedback enters this transform; bank contents are immutable.
-func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative_mask: i32, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
+func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative: buffer, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
   %origin = index.constant 0 : offset
+  %continuations = buffer.view %next_speculative[%origin] : buffer -> view<16xi32>
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %zero32 = scalar.constant 0 : i32
@@ -244,8 +249,7 @@ func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, 
         %first = index.assume %tag_value [range(%tag_value, 0, 15)] : index
         %consumed = view.load %records[%i, 0] : view<16x6xi32> -> i32
         %output_count = view.load %records[%i, 1] : view<16x6xi32> -> i32
-        %bit = scalar.shli %one32, %tag : i32
-        %bits = scalar.andi %next_speculative_mask, %bit : i32
+        %bits = view.load %continuations[%first] : view<16xi32> -> i32
         %speculative = scalar.cmpi ne, %bits, %zero32 : i32
         %known = scf.select %speculative, %zero32, %consumed : i32
         %verification = scalar.extui %speculative : i1 to i32
@@ -652,7 +656,7 @@ global.rodata.def @chat_options_error = bytes("7468697320706f6c696379206465636c6
 global.rodata.def @chat_invalid = bytes("756e737570706f7274656420726f6c652c20726f6c65206669656c64732c206f72206d657373616765206f72646572")
 global.rodata.def @chat_end_invalid = bytes("63686174206d75737420636f6e7461696e2061207573657220717565727920616e6420656e6420776974682075736572206f7220746f6f6c20696e707574")
 global.rodata.def @chat_thinking_invalid = bytes("74686973206d6f64656c20706f6c69637920737570706f72747320656e61626c655f7468696e6b696e673d66616c7365")
-func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer) -> (buffer)
+func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer, %native_truncated: i64) -> (buffer)
 
 // This catalog implements greedy argmax only. Reject unsupported sampling
 // instead of silently accepting parameters that cannot affect execution.
@@ -756,8 +760,10 @@ func.def public @model_name() -> (buffer) {
   func.return %name : buffer
 }
 
-func.def public @parse_tools(%schemas: buffer, %response: buffer) -> (buffer) {
-  %calls = func.call @parse_xml(%schemas, %response) : (buffer, buffer) -> (buffer)
+// Retain strict complete-call parsing while accepting the current host ABI.
+func.def public @parse_tools(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer) {
+  %strict_complete = scalar.constant 0 : i64
+  %calls = func.call @parse_xml(%schemas, %response, %strict_complete) : (buffer, buffer, i64) -> (buffer)
   func.return %calls : buffer
 }
 
@@ -778,7 +784,7 @@ func.def @chat_equal(%a: buffer, %b: buffer) -> (i1) {
   func.return %same : i1
 }
 
-func.def @chat_join(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer) {
+func.def inline @chat_join(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer) {
   %a_size = buffer.length %a
   %b_size = buffer.length %b
   %c_size = buffer.length %c
@@ -1176,10 +1182,11 @@ func.def public @chat_image_limits() -> (i64, i64, i64, i64, i64) {
   func.return %zero, %zero, %zero, %zero, %zero : i64, i64, i64, i64, i64
 }
 
-func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer) {
+func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %frames: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer, i64) {
   %text, %next = func.call @chat_message_text(%raw, %role, %content, %reasoning, %calls, %state, %ordinal, %fields) : (buffer, buffer, buffer, buffer, buffer, i64, i64, i64) -> (buffer, i64)
   %empty = global.load @input_empty_boundary : buffer
-  func.return %text, %next, %empty : buffer, i64, buffer
+  %projection_count = scalar.constant 0 : i64
+  func.return %text, %next, %empty, %projection_count : buffer, i64, buffer, i64
 }
 
 // The shared native input ABI carries media spans. These catalogs have none.
@@ -1192,4 +1199,10 @@ func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64,
   %tokens, %count = func.call @prepare_text_input(%text, %format, %boundary, %capacity) : (buffer, i32, i32, i64) -> (buffer, i64)
   %empty = global.load @input_empty_boundary : buffer
   func.return %tokens, %count, %empty : buffer, i64, buffer
+}
+
+// This maintained policy does not admit reasoning controls.
+func.def public @chat_reasoning() -> (i32, i32, i32) {
+  %zero = scalar.constant 0 : i32
+  func.return %zero, %zero, %zero : i32, i32, i32
 }

@@ -97,7 +97,7 @@ kernel.def @route_value_seed() {
   scf.for %c = [%zero to %width step %one] { view.store %v, %out[%two, %c] : f32, view<3x512xf32> }
   kernel.return
 }
-command.program.def @route_step(%position: index) launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
+command.def @route_step(%position: index) launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %three = index.constant 3 : index
@@ -128,23 +128,23 @@ command.program.def @route_step(%position: index) launch(%epoch: buffer, %rows: 
   command.return
 }
 
-command.program.def public @route_actual_dependent() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
+command.def public @route_actual_dependent() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   kernel.launch @route_seed_state_kernel[](%state, %cache) : [](buffer, buffer)
-  command.program.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-  command.program.launch @route_step[%one](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @route_step[%one](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
-command.program.def public @route_actual_reset() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
+command.def public @route_actual_reset() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   kernel.launch @route_seed_state_kernel[](%state, %cache) : [](buffer, buffer)
-  command.program.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-  command.program.launch @route_step[%one](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @route_step[%one](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @route_seed_state_kernel[](%state, %cache) : [](buffer, buffer)
-  command.program.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @route_expected(%steps: index, %epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {

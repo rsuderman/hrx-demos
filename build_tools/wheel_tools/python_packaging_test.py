@@ -96,7 +96,7 @@ class PackagingTest(unittest.TestCase):
         prepare.assert_called_once_with(context.query,context.repository)
         package=Path(command.build_lib)/'hrx_solutions'
         stage.assert_called_once_with(package,prepared,context.repository)
-        helpers.assert_called_once_with(package/'_native',prepared,self.root/'hrx',repository=context.repository)
+        helpers.assert_called_once_with(package/'_native',prepared,repository=context.repository)
 
     @contextmanager
     def buildpy_fixture(self):

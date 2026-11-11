@@ -28,7 +28,6 @@
       "configuration": {
         "rows": 4,
         "context_capacity": 8192,
-        "pool_capacity": 32768,
         "prefill_capacity": 128,
         "mtp": false
       },
@@ -61,7 +60,6 @@
       "configuration": {
         "rows": 4,
         "context_capacity": 8192,
-        "pool_capacity": 32768,
         "prefill_capacity": 128,
         "mtp": false
       },
@@ -142,7 +140,6 @@
       "configuration": {
         "rows": 2,
         "context_capacity": 8192,
-        "pool_capacity": 32768,
         "prefill_capacity": 128,
         "mtp": false
       },
@@ -166,10 +163,6 @@
               1,
               262144
             ],
-            "pool_capacity": [
-              1,
-              4194304
-            ],
             "prefill_capacity": [
               1,
               262144
@@ -179,7 +172,6 @@
           "defaults": {
             "rows": 4,
             "context_capacity": 8192,
-            "pool_capacity": 32768,
             "prefill_capacity": 128,
             "mtp": false
           }
@@ -323,7 +315,7 @@
         "preparation": null,
         "provenance": null
       },
-      "source_sha256": "116b3a1002db898ed9d77a9b0d5b8f9e30e070bd5ea5e8b036110a6e987c6629",
+      "source_sha256": "98b33dc4581f30e64f9f195eb92955ff044d66deea32a73edbba19a8707303f3",
       "compiled": {
         "root": "orbit/base",
         "encoding": "bytecode",
@@ -650,10 +642,6 @@
               1,
               262144
             ],
-            "pool_capacity": [
-              1,
-              4194304
-            ],
             "prefill_capacity": [
               1,
               262144
@@ -663,7 +651,6 @@
           "defaults": {
             "rows": 4,
             "context_capacity": 8192,
-            "pool_capacity": 32768,
             "prefill_capacity": 128,
             "mtp": false
           }
@@ -807,7 +794,7 @@
         "preparation": null,
         "provenance": null
       },
-      "source_sha256": "31f1cea5ac23bf8608d1ac38e8c230cf6acaed4e8d402d81f865c5a3e1e7c61b",
+      "source_sha256": "bff40cedb1d47de05c7c19e62355ec5f98cc71f4e835b695858436f757772ee3",
       "compiled": {
         "root": "astronomy/comet",
         "encoding": "bytecode",

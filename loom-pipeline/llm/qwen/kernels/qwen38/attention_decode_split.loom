@@ -56,8 +56,8 @@ template.def<@llm.attention.split_partial_h256> device @llm_attention_split_part
   %c258 = index.constant 258 : index
   %group_partial_elements = index.mul %queries_per_kv, %c258 : index
   %c0_offset = index.constant 0 : offset
-  %zero6 = vector.constant 0.0 : vector<6xf32>
-  %negative_large6 = vector.constant -3.4028234663852886e+38 : vector<6xf32>
+  %zero6 = vector.splatf 0.0 : vector<6xf32>
+  %negative_large6 = vector.splatf -3.4028234663852886e+38 : vector<6xf32>
   %attention_scale6 = vector.splat %attention_scale : vector<6xf32>
 
   %control_noalias, %query_noalias, %key_cache_noalias, %value_cache_noalias, %partials_noalias = buffer.assume.noalias %control, %query, %key_cache, %value_cache, %partials : buffer, buffer, buffer, buffer, buffer
@@ -294,13 +294,13 @@ template.def<@llm.attention.split_wmma_partial_h256> device @llm_attention_split
   %probability_stage_bytes = index.constant 3072 : offset
   %product_stage_bytes = index.constant 2048 : offset
   %key_value_stage_bytes = index.constant 32768 : offset
-  %output_zero0 = vector.constant 0.0 : vector<4xf16>
-  %output_zero1 = vector.constant 0.0 : vector<4xf16>
-  %output_zero2 = vector.constant 0.0 : vector<4xf16>
-  %output_zero3 = vector.constant 0.0 : vector<4xf16>
-  %c0_f16x8 = vector.constant 0.0 : vector<8xf16>
-  %c0_f32x4 = vector.constant 0.0 : vector<4xf32>
-  %negative_f32x4 = vector.constant -1e+30 : vector<4xf32>
+  %output_zero0 = vector.splatf 0.0 : vector<4xf16>
+  %output_zero1 = vector.splatf 0.0 : vector<4xf16>
+  %output_zero2 = vector.splatf 0.0 : vector<4xf16>
+  %output_zero3 = vector.splatf 0.0 : vector<4xf16>
+  %c0_f16x8 = vector.splatf 0.0 : vector<8xf16>
+  %c0_f32x4 = vector.splatf 0.0 : vector<4xf32>
+  %negative_f32x4 = vector.splatf -1e+30 : vector<4xf32>
   %attention_scale8 = vector.splat %attention_scale : vector<8xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
@@ -413,7 +413,7 @@ template.def<@llm.attention.split_wmma_partial_h256> device @llm_attention_split
     }
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
 
-    %score_init_values = vector.constant 0.0 : vector<4xf32>
+    %score_init_values = vector.splatf 0.0 : vector<4xf32>
     %score_init = vector.fragment<init> %score_init_values shape [%m, %n] : vector<4xf32>
     %score_fragment = scf.for %head_tile = [%c0 to %head_size step %c16](%score_accumulator = %score_init : vector<4xf32>) -> (vector<4xf32>) unroll schedule(recurrence) {
       %key_fragment = vector.fragment.load<lhs> %key_value_stage_view[%subgroup_score_row, %head_tile] shape [%m, %k] : view<64x256xf16> -> vector<16xf16>
@@ -681,8 +681,8 @@ check.case public @qwen38_attention_decode_split_differential_case {
   kernel.launch @qwen38_attention_decode_split_reduce(%token_count, %token_ordinal, %gate, %partials, %actual) : (index, index, tensor<[%shape_attention_width]xf32>, tensor<61920xf32>, tensor<[%shape_attention_width]xf32>)
   kernel.launch @qwen38_attention_decode_split_wmma_partial(%token_count, %token_ordinal, %control_position_index, %control, %query, %key_cache, %value_cache, %wmma_partials) : (index, index, index, tensor<2xi32>, tensor<[%shape_attention_width]xf32>, tensor<[%shape_gdn_qkv_size]xf16>, tensor<[%shape_gdn_qkv_size]xf16>, tensor<61920xf32>)
   kernel.launch @qwen38_attention_decode_split_reduce(%token_count, %token_ordinal, %gate, %wmma_partials, %wmma_actual) : (index, index, tensor<[%shape_attention_width]xf32>, tensor<61920xf32>, tensor<[%shape_attention_width]xf32>)
-  check.expect.close actual(%actual) expected(%expected) atol(0.00001) rtol(0.0001) nan(same) : tensor<[%shape_attention_width]xf32>
-  check.expect.close actual(%wmma_actual) expected(%expected) atol(0.002) rtol(0.002) nan(same) : tensor<[%shape_attention_width]xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(0.00001) rtol(0.0001) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
+  check.expect.approximate actual(%wmma_actual) expected(%expected) atol(0.002) rtol(0.002) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
   check.return
 }
 
@@ -719,7 +719,7 @@ check.case public @qwen38_attention_decode_split_m4_differential_case {
     kernel.launch @qwen38_attention_decode_split_reduce(%token_count, %token_ordinal2, %gate, %partials, %actual) : (index, index, tensor<4x[%shape_attention_width]xf32>, tensor<[%shape_attention_partial_bytes]xf32>, tensor<4x[%shape_attention_width]xf32>)
     kernel.launch @qwen38_attention_decode_split_reduce(%token_count, %token_ordinal3, %gate, %partials, %actual) : (index, index, tensor<4x[%shape_attention_width]xf32>, tensor<[%shape_attention_partial_bytes]xf32>, tensor<4x[%shape_attention_width]xf32>)
   }
-  check.expect.close actual(%actual) expected(%expected) atol(0.002) rtol(0.002) nan(same) : tensor<4x[%shape_attention_width]xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(0.002) rtol(0.002) nan(same) : tensor<4x[%shape_attention_width]xf32>, tensor<4x[%shape_attention_width]xf32>
   check.return
 }
 

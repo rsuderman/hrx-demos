@@ -107,15 +107,15 @@ kernel.decl @test.init.proj_14_3_256() launch(%input: buffer, %weight: buffer)
 
 kernel.decl @test.init.proj_14_3_512() launch(%input: buffer, %weight: buffer)
 
-command.program.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
+command.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
 
-command.program.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
+command.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
 
-command.program.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
+command.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
 
-command.program.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+command.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
-command.program.def public retain @actual.proj_12_1_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_12_1_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 256 : index
@@ -127,7 +127,7 @@ command.program.def public retain @actual.proj_12_1_256() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_13_1_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_13_1_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 256 : index
@@ -139,7 +139,7 @@ command.program.def public retain @actual.proj_13_1_256() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_14_1_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_14_1_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 256 : index
@@ -151,7 +151,7 @@ command.program.def public retain @actual.proj_14_1_256() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_12_1_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_12_1_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 512 : index
@@ -163,7 +163,7 @@ command.program.def public retain @actual.proj_12_1_512() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_13_1_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_13_1_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 512 : index
@@ -175,7 +175,7 @@ command.program.def public retain @actual.proj_13_1_512() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_14_1_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_14_1_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 512 : index
@@ -187,7 +187,7 @@ command.program.def public retain @actual.proj_14_1_512() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.ffn_0_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_0_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 0 : index
     %v6 = index.constant 1 : index
@@ -203,13 +203,13 @@ command.program.def public retain @actual.ffn_0_1() launch(%v0: buffer, %v1: buf
     %v15 = index.constant 1152 : offset
     %v16 = buffer.alloca<global> align(256) %v15 : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%v6, %v7](%v6, %v7, %v1, %v16) : [index, index](index, index, buffer, buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_1_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_1_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 1 : index
     %v6 = index.constant 1 : index
@@ -225,13 +225,13 @@ command.program.def public retain @actual.ffn_1_1() launch(%v0: buffer, %v1: buf
     %v15 = index.constant 1152 : offset
     %v16 = buffer.alloca<global> align(256) %v15 : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%v6, %v7](%v6, %v7, %v1, %v16) : [index, index](index, index, buffer, buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_2_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_2_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 2 : index
     %v6 = index.constant 1 : index
@@ -247,13 +247,13 @@ command.program.def public retain @actual.ffn_2_1() launch(%v0: buffer, %v1: buf
     %v15 = index.constant 1152 : offset
     %v16 = buffer.alloca<global> align(256) %v15 : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%v6, %v7](%v6, %v7, %v1, %v16) : [index, index](index, index, buffer, buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_3_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_3_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 3 : index
     %v6 = index.constant 1 : index
@@ -269,13 +269,13 @@ command.program.def public retain @actual.ffn_3_1() launch(%v0: buffer, %v1: buf
     %v15 = index.constant 1152 : offset
     %v16 = buffer.alloca<global> align(256) %v15 : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%v6, %v7](%v6, %v7, %v1, %v16) : [index, index](index, index, buffer, buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_4_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_4_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 4 : index
     %v6 = index.constant 1 : index
@@ -291,13 +291,13 @@ command.program.def public retain @actual.ffn_4_1() launch(%v0: buffer, %v1: buf
     %v15 = index.constant 1152 : offset
     %v16 = buffer.alloca<global> align(256) %v15 : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%v6, %v7](%v6, %v7, %v1, %v16) : [index, index](index, index, buffer, buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_5_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_5_1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 5 : index
     %v6 = index.constant 1 : index
@@ -313,13 +313,13 @@ command.program.def public retain @actual.ffn_5_1() launch(%v0: buffer, %v1: buf
     %v15 = index.constant 1152 : offset
     %v16 = buffer.alloca<global> align(256) %v15 : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%v6, %v7](%v6, %v7, %v1, %v16) : [index, index](index, index, buffer, buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%v5](%v0, %v16, %v3) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%v5](%v0, %v3, %v2) : [index](buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.proj_12_3_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_12_3_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 256 : index
@@ -331,7 +331,7 @@ command.program.def public retain @actual.proj_12_3_256() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_13_3_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_13_3_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 256 : index
@@ -343,7 +343,7 @@ command.program.def public retain @actual.proj_13_3_256() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_14_3_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_14_3_256() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 256 : index
@@ -355,7 +355,7 @@ command.program.def public retain @actual.proj_14_3_256() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_12_3_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_12_3_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 512 : index
@@ -367,7 +367,7 @@ command.program.def public retain @actual.proj_12_3_512() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_13_3_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_13_3_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 512 : index
@@ -379,7 +379,7 @@ command.program.def public retain @actual.proj_13_3_512() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.proj_14_3_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @actual.proj_14_3_512() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 512 : index
@@ -391,7 +391,7 @@ command.program.def public retain @actual.proj_14_3_512() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @actual.ffn_0_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_0_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 0 : index
     %v6 = index.constant 3 : index
@@ -404,13 +404,13 @@ command.program.def public retain @actual.ffn_0_3() launch(%v0: buffer, %v1: buf
     %v13 = command.parameter %v0, "blk.{}.ffn_up.weight"[%v5] : view<[%v10]xi8>
     %v14 = command.parameter %v0, "blk.{}.ffn_down.weight"[%v5] : view<[%v11]xi8>
     kernel.launch @test.init.ffn_0_3(%v1, %v12, %v13, %v14, %v2) : (buffer, view<[%v10]xi8>, view<[%v10]xi8>, view<[%v11]xi8>, buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_1_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_1_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 1 : index
     %v6 = index.constant 3 : index
@@ -423,13 +423,13 @@ command.program.def public retain @actual.ffn_1_3() launch(%v0: buffer, %v1: buf
     %v13 = command.parameter %v0, "blk.{}.ffn_up.weight"[%v5] : view<[%v10]xi8>
     %v14 = command.parameter %v0, "blk.{}.ffn_down.weight"[%v5] : view<[%v11]xi8>
     kernel.launch @test.init.ffn_1_3(%v1, %v12, %v13, %v14, %v2) : (buffer, view<[%v10]xi8>, view<[%v10]xi8>, view<[%v11]xi8>, buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_2_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_2_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 2 : index
     %v6 = index.constant 3 : index
@@ -442,13 +442,13 @@ command.program.def public retain @actual.ffn_2_3() launch(%v0: buffer, %v1: buf
     %v13 = command.parameter %v0, "blk.{}.ffn_up.weight"[%v5] : view<[%v10]xi8>
     %v14 = command.parameter %v0, "blk.{}.ffn_down.weight"[%v5] : view<[%v11]xi8>
     kernel.launch @test.init.ffn_2_3(%v1, %v12, %v13, %v14, %v2) : (buffer, view<[%v10]xi8>, view<[%v10]xi8>, view<[%v11]xi8>, buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_3_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_3_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 3 : index
     %v6 = index.constant 3 : index
@@ -461,13 +461,13 @@ command.program.def public retain @actual.ffn_3_3() launch(%v0: buffer, %v1: buf
     %v13 = command.parameter %v0, "blk.{}.ffn_up.weight"[%v5] : view<[%v10]xi8>
     %v14 = command.parameter %v0, "blk.{}.ffn_down.weight"[%v5] : view<[%v11]xi8>
     kernel.launch @test.init.ffn_3_3(%v1, %v12, %v13, %v14, %v2) : (buffer, view<[%v10]xi8>, view<[%v10]xi8>, view<[%v11]xi8>, buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_4_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_4_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 4 : index
     %v6 = index.constant 3 : index
@@ -480,13 +480,13 @@ command.program.def public retain @actual.ffn_4_3() launch(%v0: buffer, %v1: buf
     %v13 = command.parameter %v0, "blk.{}.ffn_up.weight"[%v5] : view<[%v10]xi8>
     %v14 = command.parameter %v0, "blk.{}.ffn_down.weight"[%v5] : view<[%v11]xi8>
     kernel.launch @test.init.ffn_4_3(%v1, %v12, %v13, %v14, %v2) : (buffer, view<[%v10]xi8>, view<[%v10]xi8>, view<[%v11]xi8>, buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @actual.ffn_5_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @actual.ffn_5_3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
     %v5 = index.constant 5 : index
     %v6 = index.constant 3 : index
@@ -499,8 +499,8 @@ command.program.def public retain @actual.ffn_5_3() launch(%v0: buffer, %v1: buf
     %v13 = command.parameter %v0, "blk.{}.ffn_up.weight"[%v5] : view<[%v10]xi8>
     %v14 = command.parameter %v0, "blk.{}.ffn_down.weight"[%v5] : view<[%v11]xi8>
     kernel.launch @test.init.ffn_5_3(%v1, %v12, %v13, %v14, %v2) : (buffer, view<[%v10]xi8>, view<[%v10]xi8>, view<[%v11]xi8>, buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v1, %v4, %v3) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%v6, %v6, %v5, %v8, %v9](%v0, %v4, %v3, %v2) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }

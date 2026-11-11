@@ -38,7 +38,7 @@ class CatalogTest(unittest.TestCase):
                 self.inventory.write_text(text); catalog.load_builds(self.inventory)
 
     def test_build_paths_group_membership_roles_and_policy_remain_strict(self):
-        for mutation in ('source', 'duplicate', 'output', 'role', 'support', 'helper', 'notice', 'projection'):
+        for mutation in ('source', 'duplicate', 'output', 'role', 'support', 'helper', 'helper-source', 'notice', 'projection'):
             builds = deepcopy(self.builds)
             build = next(iter(builds.values())); group = next(iter(build['groups'].values()))
             if mutation == 'source': group['sources'][0] = '../escape.loom'
@@ -46,7 +46,10 @@ class CatalogTest(unittest.TestCase):
             elif mutation == 'output': build['groups']['raw.loom'] = group
             elif mutation == 'role': build['roles']['control'] = 'missing.loombc'
             elif mutation == 'support': build['roles']['support'].append(build['roles']['control'])
-            elif mutation == 'helper': build['helper'] = dict(contract='x.json', upstream='tools', destination='outside')
+            elif mutation == 'helper': build['helper'] = dict(contract='x.json', source='owned', upstream='tools', destination='outside')
+            elif mutation == 'helper-source':
+                build['helper'] = deepcopy(next(value['helper'] for value in builds.values() if value['helper']))
+                build['helper']['source'] = '../outside'
             elif mutation == 'notice': build['notices'].append('model.gguf')
             else: group['policy']['source'] = 'absent.loom'
             self.save(builds)

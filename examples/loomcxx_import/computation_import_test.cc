@@ -79,7 +79,7 @@ TEST(ComputationImport,
   EXPECT_NE(ir.find("func.call pure @motif.affine"), std::string::npos);
   EXPECT_NE(ir.find("kernel.launch @authored.affine"), std::string::npos);
   EXPECT_NE(ir.find("@example.authored_affine"), std::string::npos);
-  EXPECT_EQ(ir.find("command.program.launch"), std::string::npos);
+  EXPECT_EQ(ir.find("command.launch"), std::string::npos);
   EXPECT_EQ(ir.find("kernel.decl"), std::string::npos);
   EXPECT_EQ(ir.find("func.decl"), std::string::npos);
   module_owner.reset();

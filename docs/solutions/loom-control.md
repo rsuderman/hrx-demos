@@ -320,7 +320,6 @@ Server device/listener settings are separate from per-instance capacities.
 | --- | --- | --- | --- |
 | `--rows` / `rows` | Maximum simultaneous execution rows; requests can queue beyond this count. | 4 | 1–16 |
 | `--context-capacity` / `context_capacity` | Logical context token ceiling per row, not eagerly allocated storage. | 8192 | 1–262144 |
-| `--pool-capacity` / `pool_capacity` | Shared KV token positions across rows, divisible by the pipeline's page size; reservations round to pages. | 32768 | 1–4194304 |
 | `--prefill-capacity` / `prefill_capacity` | Maximum packed input tokens per model traversal across rows; also limits isolated prefill chunks. | 128 | 1–262144 |
 | `--mtp` / `--no-mtp` / `mtp` | Multi-token prediction proposes tokens for verification. | Enabled on 27B; disabled on 0.8B | Boolean; requires pipeline support |
 | `--mtp-depth` / `mtp_depth` | Proposal tokens after each anchor. | 3 on 27B; not applicable on 0.8B | 1–3 when enabled/supported |
@@ -340,7 +339,7 @@ For an optional 27B profile, create a flat JSON file:
 
 ```bash
 cat > qwen27.json <<'JSON'
-{"rows":4,"context_capacity":8192,"pool_capacity":32768,"prefill_capacity":128,"mtp":true,"mtp_depth":3}
+{"rows":4,"context_capacity":8192,"prefill_capacity":128,"mtp":true,"mtp_depth":3}
 JSON
 loom-control model download qwen38-27b-q5-k-xl --id qwen27
 loom-control instance start qwen27 --name chat-large --server local \
@@ -587,10 +586,10 @@ and sufficient GPU memory. Use a fresh server name if `local` already exists:
 ```bash
 loom-control server start --name pi-local --device amdgpu --listen 127.0.0.1:8081
 loom-control instance start qwen08 --name pi-small-a --server pi-local \
-  --pipeline qwen-08b --context-capacity 262144 --pool-capacity 262144 \
+  --pipeline qwen-08b --context-capacity 262144 \
   --rows 4 --prefill-capacity 128
 loom-control instance start qwen08 --name pi-small-b --server pi-local \
-  --pipeline qwen-08b --context-capacity 262144 --pool-capacity 262144 \
+  --pipeline qwen-08b --context-capacity 262144 \
   --rows 4 --prefill-capacity 128
 loom-control pi configure
 pi
@@ -713,10 +712,10 @@ After importing the `qwen08` model as described above, for example:
 ```bash
 loom-control server start --name oc-local --device amdgpu --listen 127.0.0.1:8082
 loom-control instance start qwen08 --name oc-small-a --server oc-local \
-  --pipeline qwen-08b --context-capacity 32768 --pool-capacity 32768 \
+  --pipeline qwen-08b --context-capacity 32768 \
   --rows 4 --prefill-capacity 128
 loom-control instance start qwen08 --name oc-small-b --server oc-local \
-  --pipeline qwen-08b --context-capacity 32768 --pool-capacity 32768 \
+  --pipeline qwen-08b --context-capacity 32768 \
   --rows 4 --prefill-capacity 128
 loom-control opencode configure
 opencode
@@ -832,7 +831,7 @@ explicit adequate allocation; the standard client prompt exceeds the unchanged
 ```sh
 loom-control server start --name omp-local --device amdgpu --listen 127.0.0.1:8080
 loom-control instance start small --name qwen-local --server omp-local \
-  --pipeline qwen-08b --context-capacity 32768 --pool-capacity 32768
+  --pipeline qwen-08b --context-capacity 32768
 loom-control omp configure
 omp
 ```
@@ -1143,3 +1142,9 @@ to reconcile current remote truth and pending intent. Never blindly replay a
 whole configuration snapshot: a timed-out request may already have succeeded.
 An unconfirmed STT before-state requires operator reconciliation; another
 configure does not blindly replay that pending write.
+
+Managed server creation accepts `--pool-backing fixed|elastic`. Omit it to use
+Loom Serve’s default elastic backing. The choice is retained when restarting a
+saved server. With fixed backing, native derives physical text-pool capacity
+from the aligned context capacity; instance configuration does not set a
+separate pool capacity.

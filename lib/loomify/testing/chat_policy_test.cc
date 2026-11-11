@@ -42,9 +42,11 @@ TEST(ChatPolicy, ExactThreeIdentitiesAndDefaults) {
     EXPECT_EQ(policy.source_text, metadata.templates.front().text);
     EXPECT_FALSE(policy.configuration_source.empty());
     EXPECT_EQ(policy.data_roots.size(), i==0 ? 1u : 6u);
-    ASSERT_EQ(policy.roots.size(),18u);
+    ASSERT_EQ(policy.roots.size(),20u);
     std::set<std::string> roots(policy.roots.begin(),policy.roots.end());
-    EXPECT_EQ(roots.size(),18u); EXPECT_EQ(roots.count("render_tool"),1u);
+    EXPECT_EQ(roots.size(),20u); EXPECT_EQ(roots.count("render_tool"),1u);
+    EXPECT_EQ(roots.count("chat_reasoning"),1u);
+    EXPECT_EQ(roots.count("resize_state"),1u);
     EXPECT_EQ(roots.count("prepare_input"),1u); EXPECT_EQ(roots.count("output_next"),1u);
     EXPECT_FALSE(policy.markers.empty());
     for (const auto& marker : policy.markers) EXPECT_FALSE(marker.text.empty());
@@ -81,6 +83,33 @@ TEST(ChatPolicy, CapturesSupportedSourceDataAndKeepsActualProvenance) {
     }
   }
 }
+TEST(ChatPolicy, Qwen3HermesUsesSourceProseAndDistinctTokenRequirements) {
+  const auto source = Source("lib/text/qwen3/templates/5da44855.jinja");
+  model::TextMetadata metadata;
+  metadata.templates = {Candidate(source)};
+  ChatPolicySelection policy;
+  std::string error;
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_EQ(policy.revision, ChatRevision::ChatmlHermes);
+  EXPECT_EQ(policy.tokens.tokenizer_model, "gpt2");
+  EXPECT_EQ(policy.tokens.pre_tokenizer, "qwen2");
+  EXPECT_FALSE(policy.tokens.require_bos);
+  EXPECT_EQ(policy.tokens.terminal_piece, "<|im_end|>");
+  EXPECT_EQ(policy.skeleton_sha256, "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4");
+  EXPECT_NE(policy.text_product.find("chatml_thinking/hermes"), std::string::npos);
+  for (const auto& marker : policy.markers) EXPECT_NE(marker.text, "<function=");
+  const auto original = policy.configuration_source;
+  metadata.templates = {Candidate(Replace(source, "You may call one or more functions", "Call the supplied functions"))};
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_NE(policy.configuration_source, original);
+  EXPECT_NE(policy.configuration_source.find(Hex("Call the supplied functions")), std::string::npos);
+  // The template's actual semantics, not marker spellings, identify its policy.
+  metadata.templates = {Candidate(Replace(source, "enable_thinking is false", "enable_thinking is true"))};
+  EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+  metadata.templates = {Candidate(Replace(source, "<|im_end|>\\n\" }}", "<|im_end|>tail\\n\" }}"))};
+  EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+}
+
 TEST(ChatPolicy, RejectsNonSlotStructureMarkersEscapesAndOversizeData) {
   const auto source=Source("lib/text/qwen35/templates/c3cf9e34.jinja");
   const std::vector<std::pair<std::string,std::string>> changes={

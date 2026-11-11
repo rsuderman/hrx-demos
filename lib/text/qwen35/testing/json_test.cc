@@ -4,7 +4,7 @@
 #include "iree/vm/bytecode/module.h"
 #include "iree/vm/reflection.h"
 #include "iree/vm/sync.h"
-#include "loom/serve/runtime/program/json.h"
+#include "loom/runtime/program/json.h"
 #include "loomc/loomc.h"
 #include "loomc/target/vm.h"
 #include "gtest/gtest.h"
@@ -187,7 +187,7 @@ public:
              iree_allocator_null()},
             iree_allocator_system(), &bytecode)))
       return false;
-    if (!NativeOk(loom_serve_json_module_create(
+    if (!NativeOk(loom_runtime_json_module_create(
             runtime, iree_allocator_system(), &json)))
       return false;
     if (!NativeOk(iree_vm_program_create(

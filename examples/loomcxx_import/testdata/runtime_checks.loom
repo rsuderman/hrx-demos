@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 
-command.program.decl @example.authored_affine() launch(%input: buffer, %output: buffer)
+command.decl @example.authored_affine() launch(%input: buffer, %output: buffer)
 
 // Independent scalar oracle. It does not call the imported kernel or helper.
 func.def @expected_affine(%input: buffer, %output: buffer) {

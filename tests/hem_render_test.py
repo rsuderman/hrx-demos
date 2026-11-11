@@ -16,8 +16,7 @@ from binding.python.hem_common import HemError, DeadlineExpired, UncertainOutcom
 from binding.python.cli.hem_server_cli import ObservationResult
 
 
-SETTINGS = {'rows': 4, 'context_capacity': 8192, 'pool_capacity': 32768,
-            'prefill_capacity': 128, 'mtp': False, 'mtp_depth': None}
+SETTINGS = {'rows': 4, 'context_capacity': 8192, 'prefill_capacity': 128, 'mtp': False, 'mtp_depth': None}
 MODEL = dict(model='qwen08', id='qwen08', state='ready', completed=True,
              pipeline='demo/chat/executable.json', modality='chat', executable_id='demo-chat', executable='demo/chat/executable.json', accessible=True, directory='/models/qwen08',
              weights='/models/qwen08/model.gguf', tokenizer='/models/qwen08/tokenizer.json',

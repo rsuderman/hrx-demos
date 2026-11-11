@@ -64,7 +64,7 @@ class PlatformProviderTest : public ::testing::TestWithParam<bool> {
     auto root = loomc_make_cstring_view("platform_test");
     std::vector<loomc_request_t*> requests;
     loomc_cmd_program_module_options_t options{}; options.type = LOOMC_STRUCTURE_TYPE_CMD_PROGRAM_MODULE_OPTIONS; options.structure_size = sizeof(options);
-    options.root_symbols = &root; options.root_symbol_count = 1; options.kernel_target_profile = p;
+    options.root_symbols = &root; options.root_symbol_count = 1; options.target_profile = p;
     options.request_sink.publish = [](void* user, loomc_request_t* request) { static_cast<std::vector<loomc_request_t*>*>(user)->push_back(request); return loomc_ok_status(); };
     options.request_sink.user_data = &requests;
     loomc_product_t* raw_product = nullptr; loomc_result_t* raw_result = nullptr;
@@ -182,6 +182,50 @@ TEST_P(PlatformProviderTest, MissingSelectedProviderFileIsRejected) {
   Owner<loomc_module_t, loomc_module_release> module(raw, loomc_module_release);
   EXPECT_EQ(module.get(), nullptr);
   EXPECT_NE(error.find("missing_targets_"), std::string::npos) << error;
+}
+// A pre-target optional inliner must not turn this launched device write into
+// an ordinary effect in the command body. Exercise the production normalizer.
+TEST_P(PlatformProviderTest, NormalizationPreservesLaunchedSnapshotEffects) {
+  const std::string format = GetParam() ? "bc" : "text";
+  const std::string extension = GetParam() ? ".loombc" : ".loom";
+  loomc_module_t* raw_module = nullptr;
+  std::string error;
+  ASSERT_TRUE(hrx::loomify_gguf::LinkConfiguredProducts(
+      context.get(), workspace.get(), "",
+      {Runfile("count_command_" + format + extension)}, {"count_command_test"},
+      true, &raw_module, &error)) << error;
+  Owner<loomc_module_t, loomc_module_release> module(raw_module, loomc_module_release);
+  loomc_target_profile_t* raw_profile = nullptr;
+  ASSERT_TRUE(Ok(loomc_target_profile_select(environment.get(),
+      loomc_make_cstring_view("amdgpu:gfx1151"), loomc_allocator_system(),
+      &raw_profile)));
+  Owner<loomc_target_profile_t, loomc_target_profile_release> profile(
+      raw_profile, loomc_target_profile_release);
+  struct Requests {
+    std::vector<loomc_request_t*> values;
+    ~Requests() { for (auto* request : values) loomc_request_release(request); }
+  } requests;
+  auto root = loomc_make_cstring_view("count_command_test");
+  loomc_cmd_program_module_options_t options{};
+  options.type = LOOMC_STRUCTURE_TYPE_CMD_PROGRAM_MODULE_OPTIONS;
+  options.structure_size = sizeof(options);
+  options.root_symbols = &root;
+  options.root_symbol_count = 1;
+  options.target_profile = profile.get();
+  options.request_sink.publish = [](void* user, loomc_request_t* request) {
+    static_cast<Requests*>(user)->values.push_back(request);
+    return loomc_ok_status();
+  };
+  options.request_sink.user_data = &requests;
+  loomc_product_t* raw_product = nullptr;
+  loomc_result_t* raw_result = nullptr;
+  auto status = loomc_cmd_program_product_build_module(workspace.get(),
+      module.get(), &options, loomc_allocator_system(), &raw_product, &raw_result);
+  Owner<loomc_product_t, loomc_product_release> product(raw_product, loomc_product_release);
+  Owner<loomc_result_t, loomc_result_release> result(raw_result, loomc_result_release);
+  ASSERT_TRUE(Ok(status)) << Diagnostics(result.get());
+  ASSERT_TRUE(result && loomc_result_succeeded(result.get())) << Diagnostics(result.get());
+  EXPECT_EQ(requests.values.size(), 1u);
 }
 INSTANTIATE_TEST_SUITE_P(SourceAndBytecodeProducts, PlatformProviderTest, ::testing::Bool());
 }  // namespace

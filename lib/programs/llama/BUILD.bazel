@@ -10,4 +10,4 @@ _PROGRAM_SOURCES = [
     "output_interface.loom",
 ]
 exports_files(_PROGRAM_SOURCES)
-filegroup(name = "implementation_sources", srcs = _PROGRAM_SOURCES)
+filegroup(name = "implementation_sources", srcs = _PROGRAM_SOURCES + ["//lib/programs/output:last_greedy.loom"])

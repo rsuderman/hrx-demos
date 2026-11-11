@@ -53,7 +53,7 @@ def selector(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--url", help="native endpoint; does not grant process ownership")
 
 
-SERVING_OPTIONS = ("rows", "context_capacity", "pool_capacity", "prefill_capacity", "mtp_depth")
+SERVING_OPTIONS = ("rows", "context_capacity", "prefill_capacity", "mtp_depth")
 
 
 def serving(parser: argparse.ArgumentParser) -> None:

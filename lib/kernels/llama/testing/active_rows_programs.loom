@@ -57,7 +57,7 @@ template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %us
 
 template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
-command.program.def public retain @active.projection.q4.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 8 : index
@@ -87,7 +87,7 @@ command.program.def public retain @active.projection.q4.n1() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 8 : index
@@ -117,7 +117,7 @@ command.program.def public retain @active.projection.q4.n3() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 4 : index
     %v5 = index.constant 8 : index
@@ -147,7 +147,7 @@ command.program.def public retain @active.projection.q4.n4() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 8 : index
     %v5 = index.constant 12 : index
@@ -177,7 +177,7 @@ command.program.def public retain @active.projection.q4.n8() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 9 : index
     %v5 = index.constant 13 : index
@@ -207,7 +207,7 @@ command.program.def public retain @active.projection.q4.n9() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 16 : index
     %v5 = index.constant 20 : index
@@ -237,7 +237,7 @@ command.program.def public retain @active.projection.q4.n16() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 17 : index
     %v5 = index.constant 21 : index
@@ -267,7 +267,7 @@ command.program.def public retain @active.projection.q4.n17() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @active.projection.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 1 : index
@@ -297,7 +297,7 @@ command.program.def public retain @active.projection.q4.decode() launch(%v0: buf
   command.return
 }
 
-command.program.def public retain @active.projection.q4.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q4.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 5 : index
@@ -327,7 +327,7 @@ command.program.def public retain @active.projection.q4.tail() launch(%v0: buffe
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 8 : index
@@ -357,7 +357,7 @@ command.program.def public retain @active.projection.q6.n1() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 8 : index
@@ -387,7 +387,7 @@ command.program.def public retain @active.projection.q6.n3() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 4 : index
     %v5 = index.constant 8 : index
@@ -417,7 +417,7 @@ command.program.def public retain @active.projection.q6.n4() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 8 : index
     %v5 = index.constant 12 : index
@@ -447,7 +447,7 @@ command.program.def public retain @active.projection.q6.n8() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 9 : index
     %v5 = index.constant 13 : index
@@ -477,7 +477,7 @@ command.program.def public retain @active.projection.q6.n9() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 16 : index
     %v5 = index.constant 20 : index
@@ -507,7 +507,7 @@ command.program.def public retain @active.projection.q6.n16() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 17 : index
     %v5 = index.constant 21 : index
@@ -537,7 +537,7 @@ command.program.def public retain @active.projection.q6.n17() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @active.projection.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 1 : index
@@ -567,7 +567,7 @@ command.program.def public retain @active.projection.q6.decode() launch(%v0: buf
   command.return
 }
 
-command.program.def public retain @active.projection.q6.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.projection.q6.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 5 : index
@@ -597,7 +597,7 @@ command.program.def public retain @active.projection.q6.tail() launch(%v0: buffe
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 1 : index
     %v8 = index.constant 8 : index
@@ -650,7 +650,7 @@ command.program.def public retain @active.ffn.q4.n1() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 3 : index
     %v8 = index.constant 8 : index
@@ -703,7 +703,7 @@ command.program.def public retain @active.ffn.q4.n3() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 4 : index
     %v8 = index.constant 8 : index
@@ -756,7 +756,7 @@ command.program.def public retain @active.ffn.q4.n4() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 8 : index
     %v8 = index.constant 12 : index
@@ -809,7 +809,7 @@ command.program.def public retain @active.ffn.q4.n8() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 9 : index
     %v8 = index.constant 13 : index
@@ -862,7 +862,7 @@ command.program.def public retain @active.ffn.q4.n9() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 16 : index
     %v8 = index.constant 20 : index
@@ -915,7 +915,7 @@ command.program.def public retain @active.ffn.q4.n16() launch(%v0: buffer, %v1: 
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 17 : index
     %v8 = index.constant 21 : index
@@ -968,7 +968,7 @@ command.program.def public retain @active.ffn.q4.n17() launch(%v0: buffer, %v1: 
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 1 : index
     %v8 = index.constant 1 : index
@@ -1017,7 +1017,7 @@ command.program.def public retain @active.ffn.q4.decode() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 3 : index
     %v8 = index.constant 5 : index
@@ -1070,7 +1070,7 @@ command.program.def public retain @active.ffn.q4.tail() launch(%v0: buffer, %v1:
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n1() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 1 : index
     %v8 = index.constant 8 : index
@@ -1123,7 +1123,7 @@ command.program.def public retain @active.ffn.q6.n1() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n3() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 3 : index
     %v8 = index.constant 8 : index
@@ -1176,7 +1176,7 @@ command.program.def public retain @active.ffn.q6.n3() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n4() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 4 : index
     %v8 = index.constant 8 : index
@@ -1229,7 +1229,7 @@ command.program.def public retain @active.ffn.q6.n4() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n8() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 8 : index
     %v8 = index.constant 12 : index
@@ -1282,7 +1282,7 @@ command.program.def public retain @active.ffn.q6.n8() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n9() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 9 : index
     %v8 = index.constant 13 : index
@@ -1335,7 +1335,7 @@ command.program.def public retain @active.ffn.q6.n9() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n16() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 16 : index
     %v8 = index.constant 20 : index
@@ -1388,7 +1388,7 @@ command.program.def public retain @active.ffn.q6.n16() launch(%v0: buffer, %v1: 
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.n17() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 17 : index
     %v8 = index.constant 21 : index
@@ -1441,7 +1441,7 @@ command.program.def public retain @active.ffn.q6.n17() launch(%v0: buffer, %v1: 
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 1 : index
     %v8 = index.constant 1 : index
@@ -1490,7 +1490,7 @@ command.program.def public retain @active.ffn.q6.decode() launch(%v0: buffer, %v
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 3 : index
     %v8 = index.constant 5 : index
@@ -1543,7 +1543,7 @@ command.program.def public retain @active.ffn.q6.tail() launch(%v0: buffer, %v1:
   command.return
 }
 
-command.program.def public retain @active.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 8 : index
@@ -1565,7 +1565,7 @@ command.program.def public retain @active.norm() launch(%v0: buffer, %v1: buffer
   command.return
 }
 
-command.program.def public retain @active.norm.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.norm.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 1 : index
@@ -1587,7 +1587,7 @@ command.program.def public retain @active.norm.decode() launch(%v0: buffer, %v1:
   command.return
 }
 
-command.program.def public retain @active.norm.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.norm.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 5 : index
@@ -1609,7 +1609,7 @@ command.program.def public retain @active.norm.tail() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.embedding() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.embedding() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 8 : index
@@ -1632,7 +1632,7 @@ command.program.def public retain @active.embedding() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @active.embedding.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.embedding.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 1 : index
     %v5 = index.constant 1 : index
@@ -1655,7 +1655,7 @@ command.program.def public retain @active.embedding.decode() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @active.embedding.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @active.embedding.tail() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 3 : index
     %v5 = index.constant 5 : index
@@ -1678,7 +1678,7 @@ command.program.def public retain @active.embedding.tail() launch(%v0: buffer, %
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q4.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 3 : index
     %v8 = index.constant 3 : index
@@ -1731,7 +1731,7 @@ command.program.def public retain @active.ffn.q4.compact() launch(%v0: buffer, %
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.prefill.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+command.def public retain @active.ffn.q4.prefill.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
   command.serial {
     %v9 = index.constant 3 : index
     %v10 = index.constant 8 : index
@@ -1744,14 +1744,14 @@ command.program.def public retain @active.ffn.q4.prefill.wiring() launch(%v0: bu
     %v17 = buffer.alloca<global> align(256) %v14 : buffer
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
-    command.program.launch @active.ffn.q4.n3(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @active.ffn.q4.compact(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q4.n3(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q4.compact(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.ffn.q4.decode.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+command.def public retain @active.ffn.q4.decode.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
   command.serial {
     %v9 = index.constant 1 : index
     %v10 = index.constant 1 : index
@@ -1764,14 +1764,14 @@ command.program.def public retain @active.ffn.q4.decode.wiring() launch(%v0: buf
     %v17 = buffer.alloca<global> align(256) %v14 : buffer
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
-    command.program.launch @active.ffn.q4.decode(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @active.ffn.q4.decode(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q4.decode(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q4.decode(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @active.ffn.q6.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 3 : index
     %v8 = index.constant 3 : index
@@ -1824,7 +1824,7 @@ command.program.def public retain @active.ffn.q6.compact() launch(%v0: buffer, %
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.prefill.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+command.def public retain @active.ffn.q6.prefill.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
   command.serial {
     %v9 = index.constant 3 : index
     %v10 = index.constant 8 : index
@@ -1837,14 +1837,14 @@ command.program.def public retain @active.ffn.q6.prefill.wiring() launch(%v0: bu
     %v17 = buffer.alloca<global> align(256) %v14 : buffer
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
-    command.program.launch @active.ffn.q6.n3(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @active.ffn.q6.compact(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q6.n3(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q6.compact(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.ffn.q6.decode.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
+command.def public retain @active.ffn.q6.decode.wiring() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer) {
   command.serial {
     %v9 = index.constant 1 : index
     %v10 = index.constant 1 : index
@@ -1857,51 +1857,51 @@ command.program.def public retain @active.ffn.q6.decode.wiring() launch(%v0: buf
     %v17 = buffer.alloca<global> align(256) %v14 : buffer
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v10, %v11, %v7, %v5) : [index, index](index, index, index, index, buffer, buffer)
     kernel.launch @test.seed_active_f32[%v9, %v13](%v9, %v13, %v9, %v12, %v7, %v16) : [index, index](index, index, index, index, buffer, buffer)
-    command.program.launch @active.ffn.q6.decode(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @active.ffn.q6.decode(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q6.decode(%v0, %v1, %v2, %v3, %v4, %v5, %v6) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @active.ffn.q6.decode(%v0, %v1, %v2, %v3, %v4, %v16, %v17) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.compare_ffn[%v9, %v10](%v9, %v10, %v11, %v5, %v6, %v16, %v17, %v7, %v8) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n1.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @active.projection.q4.n1.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
-    command.program.launch @active.projection.q4.n1(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+    command.launch @active.projection.q4.n1(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n3.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @active.projection.q4.n3.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
-    command.program.launch @active.projection.q4.n3(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+    command.launch @active.projection.q4.n3(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.projection.q4.n9.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @active.projection.q4.n9.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
-    command.program.launch @active.projection.q4.n9(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+    command.launch @active.projection.q4.n9(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n1.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @active.projection.q6.n1.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
-    command.program.launch @active.projection.q6.n1(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+    command.launch @active.projection.q6.n1(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n3.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @active.projection.q6.n3.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
-    command.program.launch @active.projection.q6.n3(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+    command.launch @active.projection.q6.n3(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @active.projection.q6.n9.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
+command.def public retain @active.projection.q6.n9.reference() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer) {
   command.serial {
-    command.program.launch @active.projection.q6.n9(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
+    command.launch @active.projection.q6.n9(%v0, %v1, %v2, %v3) : (buffer, buffer, buffer, buffer)
   }
   command.return
 }

@@ -36,8 +36,8 @@ class UniformCatalogTest(unittest.TestCase):
             (directory/name).write_text('func.def public @root_'+str(index)+'()\n'+(policy if index==0 else ''))
         hashes={name:compiler.digest((directory/name).read_bytes()) for name in names}
         if modality=='chat':
-            serving=dict(bounds={key:[1,1024] for key in ('rows','context_capacity','pool_capacity','prefill_capacity')},
-                         mtp_depth_max=0,defaults=dict(rows=2,context_capacity=64,pool_capacity=128,prefill_capacity=16,mtp=False))
+            serving=dict(bounds={key:[1,1024] for key in ('rows','context_capacity','prefill_capacity')},
+                         mtp_depth_max=0,defaults=dict(rows=2,context_capacity=64,prefill_capacity=16,mtp=False))
             assets={'weights':{'format':'gguf','path':None},'tokenizer':{'format':'json','path':None}}
             groups={'engine.loombc':dict(sources=[folder+'/'+name for name in names],
                 policy={'source':folder+'/prepare.loom','from':'policy.loom','to':'engine.loombc'},exact_configs=True)}
@@ -121,7 +121,7 @@ class UniformCatalogTest(unittest.TestCase):
         self.assertFalse(list(package.rglob('*.loom')))
         self.assertFalse(list(package.rglob('*.gguf')))
         self.assertFalse(list(package.rglob('*.safetensors')))
-        self.assertEqual(packaging.stage_helpers(package/'_native',prepared,self.root/'absent-hrx',repository=self.repository),[])
+        self.assertEqual(packaging.stage_helpers(package/'_native',prepared,repository=self.repository),[])
         self.assertEqual(sum(p.name=='NOTICE' for p in outputs),1)
 
     def test_executable_without_recipe_is_still_a_selected_build_output(self):

@@ -54,7 +54,7 @@ template.def<@pocket.prefill.step> @pocket_prefill_step(%phase: buffer, %backbon
   template.return
 }
 
-command.program.def public @prefill() launch(%phase: buffer, %backbone: buffer, %rotary: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
+command.def public @prefill() launch(%phase: buffer, %backbone: buffer, %rotary: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
   template.apply<@pocket.prefill.step>(%phase, %backbone, %rotary, %request, %conditioning, %state, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

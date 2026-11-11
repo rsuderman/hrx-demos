@@ -1,0 +1,17 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+package(default_visibility = ["//visibility:public"])
+exports_files(["rows.loom"])
+filegroup(
+    name = "implementation_sources",
+    srcs = [
+        "rows.loom",
+        "//lib/kernels/embedding:q6k_rows.loom",
+        "//lib/kernels/normalization:rmsnorm_row.loom",
+        "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/kernels/attention:core.loom",
+        "//lib/kernels/attention:kv_position.loom",
+        "//lib/kernels/attention:normalization.loom",
+        "//lib/kernels/attention:rotary.loom",
+    ],
+)

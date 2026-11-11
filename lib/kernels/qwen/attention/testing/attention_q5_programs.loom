@@ -117,9 +117,9 @@ config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %52: index where [ran
 
 config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %53: index where [range(%53, 1, 524288)]
 
-command.program.decl @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer)
+command.decl @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer)
 
-command.program.def public retain @attention_layer() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer) {
+command.def public retain @attention_layer() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer) {
   command.serial {
     %v6 = index.constant 4194304 : offset
     %v7 = buffer.alloca<global> align(256) %v6 : buffer
@@ -128,7 +128,7 @@ command.program.def public retain @attention_layer() launch(%v0: buffer, %v1: bu
     %v10 = index.constant 0 : index
     %v11 = index.constant 0 : index
     %v12 = index.constant 1 : index
-    command.program.launch @qwen38_attention_layer_prefill[%v8, %v8, %v9, %v10, %v11, %v12](%v0, %v2, %v5, %v3, %v7, %v4) : [index, index, index, index, index, index](buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @qwen38_attention_layer_prefill[%v8, %v8, %v9, %v10, %v11, %v12](%v0, %v2, %v5, %v3, %v7, %v4) : [index, index, index, index, index, index](buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }

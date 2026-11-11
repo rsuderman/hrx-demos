@@ -268,7 +268,7 @@ for policy,tag,K,N,R,C,begin,count,dynamic,complex_ in cases:
     text.append(f'kernel.decl @{packer}(%rows:index,%width:index) launch('+('%capacity:index,%width:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%input:buffer,%packed:buffer)' if compat else '%capacity:index,%width:index,%input:buffer,%packed:buffer)')+'\n')
     text.append(f'kernel.decl @{projection}(%rows:index,%width:index,%cols:index) launch('+('%capacity:index,%width:index,%cols:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%weight:buffer,%output:buffer)' if compat else '%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)')+'\n')
     args='%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer'
-    text.append(f'command.program.def @actual.{name}() launch({args}) {{\n')
+    text.append(f'command.def @actual.{name}() launch({args}) {{\n')
     for key,value in [('policy',policy),('tag',tag),('rows',R),('capacity',C),('width',K),('columns',N),('weight_bytes',weight_bytes),('begin',begin),('packed_bytes',packed),('output_bytes',C*N*4)]:
         text.append(f'  %{key} = index.constant {value} : index\n')
     text.append(f'  %fixed = scalar.constant {-1 if dynamic else count} : i32\n  %count_origin = index.constant 8 : offset\n  %origin = index.constant 0 : offset\n  %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>\n')

@@ -202,7 +202,7 @@ func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
   %bos = func.call @loomify.tokens.bos_marker() : () -> (buffer)
   func.return %bos, %state : buffer, i64
 }
-func.def public @chat_message(%raw: buffer, %role_payload: buffer, %content: buffer, %parts: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer) {
+func.def public @chat_message(%raw: buffer, %role_payload: buffer, %content: buffer, %parts: buffer, %frames: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer, i64) {
   %zero = scalar.constant 0 : i64
   %one = scalar.constant 1 : i64
   %two = scalar.constant 2 : i64
@@ -257,7 +257,8 @@ func.def public @chat_message(%raw: buffer, %role_payload: buffer, %content: buf
     %updated = scalar.ori %keep, %expected : i64
     scf.yield %value, %updated : buffer, i64
   }
-  func.return %fragment, %next, %empty : buffer, i64, buffer
+  %projection_count = scalar.constant 0 : i64
+  func.return %fragment, %next, %empty, %projection_count : buffer, i64, buffer, i64
 }
 func.def public @chat_end(%state: i64) -> (buffer, i64) {
   %four = scalar.constant 4 : i64
@@ -273,7 +274,8 @@ func.def public @text.validate_request(%request: buffer) {
   %generation = func.call @gemma.generation(%request) : (buffer) -> (i1)
   func.return
 }
-func.def public @parse_tools(%schemas: buffer, %response: buffer) -> (buffer) {
+// Retain strict complete-call parsing while accepting the current host ABI.
+func.def public @parse_tools(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer) {
   func.call @gemma.no_tools(%schemas) : (buffer)
   %empty = global.load @gemma.array : buffer
   func.return %empty : buffer
@@ -343,4 +345,10 @@ func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64,
     scf.yield
   }
   func.return %tokens, %count, %empty : buffer, i64, buffer
+}
+
+// This maintained policy does not admit reasoning controls.
+func.def public @chat_reasoning() -> (i32, i32, i32) {
+  %zero = scalar.constant 0 : i32
+  func.return %zero, %zero, %zero : i32, i32, i32
 }

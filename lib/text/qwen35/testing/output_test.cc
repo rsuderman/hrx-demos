@@ -61,7 +61,7 @@ public:
     loomc_allocator_free(loomc_allocator_system(),
                          const_cast<uint8_t *>(image.data));
   }
-  bool Init(bool thinking, bool bc) {
+  bool Init(bool thinking, bool bc, bool model_opens = false) {
     loomc_target_environment_t *e = nullptr;
     if (!Ok(loomc_target_environment_create_vm(loomc_allocator_system(), &e)))
       return false;
@@ -94,6 +94,7 @@ public:
     std::ifstream strings_file(strings_path);
     if (!strings_file) { ADD_FAILURE() << strings_path; return false; }
     const std::string strings{std::istreambuf_iterator<char>(strings_file), {}};
+    text = "func.decl @text.trim_lf(%text: buffer,%left: i1,%right: i1) -> (buffer)\n" + text;
     // These are independent fixture values for the selected revision default.
     // The production output implementation is read from its BUILD-owned file.
     auto decl = text.find("func.decl @chatml.default_thinking() -> (i1)");
@@ -103,6 +104,23 @@ public:
         std::string("func.def @chatml.default_thinking() -> (i1) { %v = "
                     "scalar.constant ") +
             (thinking ? "true" : "false") + " : i1 func.return %v : i1 }");
+    const auto replace = [&](const std::string& declaration, const std::string& definition) {
+      const auto at = text.find(declaration);
+      EXPECT_NE(at, std::string::npos);
+      if (at != std::string::npos) text.replace(at, declaration.size(), definition);
+    };
+    replace("func.decl @chatml.model_emits_think_open() -> (i1)",
+        std::string("func.def @chatml.model_emits_think_open() -> (i1) { %v = scalar.constant ") +
+        (model_opens ? "true" : "false") + " : i1 func.return %v : i1 }");
+    replace("func.decl @chatml.normalize_content(%text: buffer) -> (buffer)",
+        model_opens ? "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }" :
+        "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { %v = func.call @text.trim(%text) : (buffer) -> (buffer) func.return %v : buffer }");
+    replace("func.decl @chatml.normalize_reason(%text: buffer) -> (buffer)",
+        model_opens ? "func.def @chatml.normalize_reason(%text: buffer) -> (buffer) { %yes = scalar.constant true : i1 %v = func.call @text.trim_lf(%text,%yes,%yes) : (buffer,i1,i1) -> (buffer) func.return %v : buffer }" :
+        "func.def @chatml.normalize_reason(%text: buffer) -> (buffer) { %v = func.call @text.trim(%text) : (buffer) -> (buffer) func.return %v : buffer }");
+    replace("func.decl @chatml.call_separator() -> (buffer)", model_opens ?
+        "func.def @chatml.call_separator() -> (buffer) { %v = global.load @chatml_output.newline : buffer func.return %v : buffer }" :
+        "func.def @chatml.call_separator() -> (buffer) { %v = global.load @chatml_output.separator : buffer func.return %v : buffer }");
     // Parse the output provider and its real shared utilities separately.
     // Concatenating a declaration and definition into one source unit is invalid;
     // native MERGE resolves that interface without any fixture helper shim.
@@ -384,6 +402,47 @@ void Check(VM &vm, const Fixture &f, size_t split, bool bytewise) {
   EXPECT_EQ(content, f.content);
   EXPECT_EQ(f.response.substr(cursor), f.tail);
 }
+TEST(QwenOutput, ModelGeneratedOpenerAtEverySplitAndBytecode) {
+  for (bool bc : {false, true}) {
+    VM vm;
+    ASSERT_TRUE(vm.Init(true, bc, true));
+    EXPECT_EQ(vm.Initial(true, true), 34);
+    EXPECT_EQ(vm.Initial(false, true), 1);
+    EXPECT_EQ(vm.Initial(true, false), 17);
+    const std::vector<Fixture> fixtures = {
+      {"<think>\nreason 🦙</think>\n\nanswer", "reason 🦙", "answer", "", 34},
+      {"<think>reason</think>answer", "reason", "answer", "", 34},
+      {"<think>\nreason</think>answer", "reason", "answer", "", 0},
+      {"reason</think>answer", "reason", "answer", "", 34},
+      {"<think>\n<tool_call>{}", "", "", "<tool_call>{}", 34},
+      {"<thi", "<thi", "", "", 34},
+      {"plain", "", "plain", "", 1},
+      {"", "", "", "", 34},
+    };
+    for (const auto& f : fixtures) {
+      for (size_t split = 0; split <= f.response.size(); ++split) Check(vm, f, split, false);
+      Check(vm, f, 0, true);
+    }
+  }
+}
+
+TEST(QwenOutput, ModelGeneratedOpeningPreservesCanonicalWhitespace) {
+  for (bool bc : {false, true}) {
+    VM vm;
+    ASSERT_TRUE(vm.Init(true, bc, true));
+    const std::string prefix = "history<|im_start|>assistant\n";
+    auto result = vm.Complete(prefix, " answer ", "\n thought \n", "<tool_call>x</tool_call>", 34);
+    EXPECT_EQ(result.first, prefix + "<think>\n thought \n</think>\n\n answer \n<tool_call>x</tool_call><|im_end|>\n");
+    EXPECT_EQ(result.second, 0);
+    result = vm.Complete(prefix + "<think>\n\n</think>\n\n", " answer ", "", "", 1);
+    EXPECT_EQ(result.first, prefix + "<think>\n\n</think>\n\n answer <|im_end|>\n");
+    EXPECT_EQ(result.second, 0);
+    result = vm.Complete("history", " answer ", " thought ", "", 17);
+    EXPECT_EQ(result.first, "history<|im_start|>assistant\n<think>\n thought \n</think>\n\n answer <|im_end|>\n");
+    EXPECT_EQ(result.second, 0);
+  }
+}
+
 TEST(QwenOutput, EverySplitAndBytewiseGrowthFromSourceAndBytecode) {
   for (bool bc : {false, true})
     for (bool thinking : {false, true}) {

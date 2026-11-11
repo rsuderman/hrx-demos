@@ -20,10 +20,10 @@ func.def inline @ggml_q6k_compat_weighted_parts(%weight: buffer, %weight_row_byt
   %qh_byte_add = index.constant 128 : offset
   %scale_byte_add = index.constant 192 : offset
   %d_byte_add = index.constant 208 : offset
-  %c4_i32v = vector.constant 4 : vector<1xi32>
-  %c0_i32v = vector.constant 0 : vector<1xi32>
-  %nibble_mask = vector.constant 252645135 : vector<1xi32>
-  %high_mask = vector.constant 808464432 : vector<1xi32>
+  %c4_i32v = vector.splati 4 : vector<1xi32>
+  %c0_i32v = vector.splati 0 : vector<1xi32>
+  %nibble_mask = vector.splati 252645135 : vector<1xi32>
+  %high_mask = vector.splati 808464432 : vector<1xi32>
   %c0_f32 = scalar.constant 0.0 : f32
   %negative_zero = scalar.negf %c0_f32 : f32
   %bounded_lane = index.assume %lane [range(%lane, 0, 31)] : index

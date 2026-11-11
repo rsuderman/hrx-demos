@@ -10,7 +10,7 @@ kernel.decl @llama32_rmsnorm_f32(%token_count0: index) launch(%token_count0: ind
 
 kernel.decl @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size: index) launch(%token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
-command.program.def public retain @registered.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
+command.def public retain @registered.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
   command.serial {
     %v3 = index.constant 24576 : offset
     %v4 = buffer.alloca<global> align(256) %v3 : buffer

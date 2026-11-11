@@ -194,10 +194,9 @@ class DiscoveryCliTest(unittest.TestCase):
                         'weights': {'format': 'gguf', 'path': None},
                         'tokenizer': {'format': 'json', 'path': None}},
                     serving={'bounds': {key: [1, capacity * 4] for key in
-                        ('rows', 'context_capacity', 'pool_capacity', 'prefill_capacity')},
+                        ('rows', 'context_capacity', 'prefill_capacity')},
                         'mtp_depth_max': 0, 'defaults': {'rows': capacity,
-                            'context_capacity': capacity, 'pool_capacity': capacity,
-                            'prefill_capacity': capacity, 'mtp': False}},
+                            'context_capacity': capacity, 'prefill_capacity': capacity, 'mtp': False}},
                     programs={'root': Path(reference).parent.as_posix(), 'encoding': 'source',
                         'prepare': 'main.loom', 'control': 'main.loom', 'sources': ['main.loom'],
                         'support': [], 'files': {'main.loom': hashlib.sha256(content).hexdigest()}},

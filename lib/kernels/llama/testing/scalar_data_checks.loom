@@ -38,22 +38,22 @@ check.case @rotary_generated_step_nonzero_position {
   kernel.launch @llama32_rotary_query[%one](%one, %origin, %zero, %control, %factors, %input, %output) : [index](index, offset, index, tensor<3xi32>, tensor<64xf32>, tensor<128xf32>, tensor<192xf32>)
   %v0 = check.tensor.view %output offset(0) : tensor<192xf32> -> tensor<1xf32>
   %e0 = check.generate.fill value(-1.1311125046603125) : tensor<1xf32>
-  check.expect.close actual(%v0) expected(%e0) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>
+  check.expect.approximate actual(%v0) expected(%e0) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>, tensor<1xf32>
   %v1 = check.tensor.view %output offset(4) : tensor<192xf32> -> tensor<1xf32>
   %e1 = check.generate.fill value(-0.84887248854057817) : tensor<1xf32>
-  check.expect.close actual(%v1) expected(%e1) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>
+  check.expect.approximate actual(%v1) expected(%e1) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>, tensor<1xf32>
   %v2 = check.tensor.view %output offset(8) : tensor<192xf32> -> tensor<1xf32>
   %e2 = check.generate.fill value(-1.4062468196106603) : tensor<1xf32>
-  check.expect.close actual(%v2) expected(%e2) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>
+  check.expect.approximate actual(%v2) expected(%e2) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>, tensor<1xf32>
   %v3 = check.tensor.view %output offset(12) : tensor<192xf32> -> tensor<1xf32>
   %e3 = check.generate.fill value(0.14989957416518207) : tensor<1xf32>
-  check.expect.close actual(%v3) expected(%e3) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>
+  check.expect.approximate actual(%v3) expected(%e3) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>, tensor<1xf32>
   %v126 = check.tensor.view %output offset(504) : tensor<192xf32> -> tensor<1xf32>
   %e126 = check.generate.fill value(0.99999995963723987) : tensor<1xf32>
-  check.expect.close actual(%v126) expected(%e126) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>
+  check.expect.approximate actual(%v126) expected(%e126) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>, tensor<1xf32>
   %v127 = check.tensor.view %output offset(508) : tensor<192xf32> -> tensor<1xf32>
   %e127 = check.generate.fill value(1.0000000403627585) : tensor<1xf32>
-  check.expect.close actual(%v127) expected(%e127) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>
+  check.expect.approximate actual(%v127) expected(%e127) atol(0.000001) rtol(0.00001) nan(same) : tensor<1xf32>, tensor<1xf32>
   %guard = check.tensor.view %output offset(512) : tensor<192xf32> -> tensor<64xf32>
   %sentinel = check.generate.fill value(-99.0) : tensor<64xf32>
   check.expect.bitwise actual(%guard) expected(%sentinel) : tensor<64xf32>
@@ -98,7 +98,7 @@ check.case @attention_generated_scale_nonzero_scores {
   kernel.launch @scalar_test_control[](%position, %control) : [](i32, tensor<3xi32>)
   kernel.launch @scalar_test_cache[](%cache) : [](tensor<16384xf16>)
   kernel.launch @llama32_attention_rows[%one](%zero, %origin, %one, %origin, %zero, %origin, %control, %map, %query, %cache, %output) : [index](index, offset, index, offset, index, offset, tensor<3xi32>, tensor<1xi32>, tensor<128xf32>, tensor<16384xf16>, tensor<192xf32>)
-  check.expect.close actual(%values) expected(%expected) atol(0.00001) rtol(0.00001) nan(same) : tensor<128xf32>
+  check.expect.approximate actual(%values) expected(%expected) atol(0.00001) rtol(0.00001) nan(same) : tensor<128xf32>, tensor<128xf32>
   check.expect.bitwise actual(%guard) expected(%sentinel) : tensor<64xf32>
   check.return
 }

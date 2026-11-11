@@ -29,7 +29,7 @@ template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_g
 template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
-command.program.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer) where [range(%layer, 0, 64)] {
+command.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer) where [range(%layer, 0, 64)] {
   %projection_implementation = config.get @qwen.model.projection_implementation : index
   %recipe_zero = index.constant 0 : index
   %use_generic_quantized_projections = index.cmp ne, %projection_implementation, %recipe_zero : index
@@ -70,7 +70,7 @@ command.program.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%par
   command.return
 }
 
-command.program.def public @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer) where [range(%layer, 0, 64)] {
+command.def public @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer) where [range(%layer, 0, 64)] {
   %projection_implementation = config.get @qwen.model.projection_implementation : index
   %recipe_zero = index.constant 0 : index
   %use_generic_quantized_projections = index.cmp ne, %projection_implementation, %recipe_zero : index
@@ -107,7 +107,7 @@ command.program.def public @qwen38_ffn_down_decode(%layer: index) launch(%parame
   command.return
 }
 
-command.program.def public @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 64), range(%verification_depth, 0, 4), range(%span_capacity, 0, 64)] {
+command.def public @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 64), range(%verification_depth, 0, 4), range(%span_capacity, 0, 64)] {
   %projection_implementation = config.get @qwen.model.projection_implementation : index
   %recipe_zero = index.constant 0 : index
   %use_generic_quantized_projections = index.cmp ne, %projection_implementation, %recipe_zero : index
@@ -158,7 +158,7 @@ command.program.def public @qwen38_ffn_gate_up_prefill(%token_count: index, %sch
   command.return
 }
 
-command.program.def public @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 64), range(%verification_depth, 0, 4), range(%span_capacity, 0, 64)] {
+command.def public @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 64), range(%verification_depth, 0, 4), range(%span_capacity, 0, 64)] {
   %projection_implementation = config.get @qwen.model.projection_implementation : index
   %recipe_zero = index.constant 0 : index
   %use_generic_quantized_projections = index.cmp ne, %projection_implementation, %recipe_zero : index

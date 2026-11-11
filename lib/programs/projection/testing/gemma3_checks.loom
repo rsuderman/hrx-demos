@@ -139,7 +139,7 @@ func.def @gemma3_q6_k1152_n256_r1_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n256_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n256_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 1 : index
@@ -419,7 +419,7 @@ func.def @gemma3_q6_k1152_n256_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n256_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n256_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 3 : index
@@ -925,7 +925,7 @@ func.def @gemma3_q6_k1152_n1024_r1_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n1024_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n1024_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 1 : index
@@ -1205,7 +1205,7 @@ func.def @gemma3_q6_k1152_n1024_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n1024_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n1024_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 3 : index
@@ -1711,7 +1711,7 @@ func.def @gemma3_q6_k1152_n6912_r1_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n6912_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n6912_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 1 : index
@@ -1991,7 +1991,7 @@ func.def @gemma3_q6_k1152_n6912_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n6912_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n6912_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 3 : index
@@ -2497,7 +2497,7 @@ func.def @gemma3_q6_k1152_n49_r1_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n49_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n49_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 1 : index
@@ -2801,7 +2801,7 @@ func.def @gemma3_q8_k1152_n256_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q8_k1152_n256_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q8_k1152_n256_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %r = index.constant 3 : index
@@ -3228,7 +3228,7 @@ func.def @gemma3_q8_k1152_n262144_r1_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q8_k1152_n262144_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q8_k1152_n262144_r1_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %r = index.constant 1 : index
@@ -3746,7 +3746,7 @@ func.def @gemma3_q12_k1024_n1152_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q12_k1024_n1152_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q12_k1024_n1152_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 12 : index
   %r = index.constant 3 : index
@@ -4490,7 +4490,7 @@ func.def @gemma3_q12_k6912_n1152_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q12_k6912_n1152_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q12_k6912_n1152_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 12 : index
   %r = index.constant 3 : index
@@ -5363,7 +5363,7 @@ func.def @gemma3_q14_k6912_n1152_r3_mixed.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q14_k6912_n1152_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q14_k6912_n1152_r3_mixed.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %r = index.constant 3 : index
@@ -5869,7 +5869,7 @@ func.def @gemma3_q6_k1152_n49_r1_zero.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n49_r1_zero.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n49_r1_zero.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 1 : index
@@ -6152,7 +6152,7 @@ func.def @gemma3_q6_k1152_n49_r1_tie.init(%input:buffer,%weight:buffer) {
   }
   func.return
 }
-command.program.def @gemma3_q6_k1152_n49_r1_tie.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
+command.def @gemma3_q6_k1152_n49_r1_tie.actual() launch(%count:buffer,%input:buffer,%weight:buffer,%p0:buffer,%p1:buffer,%y0:buffer,%y1:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 6 : index
   %r = index.constant 1 : index

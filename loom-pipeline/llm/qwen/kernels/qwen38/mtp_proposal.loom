@@ -29,7 +29,7 @@ kernel.def export("qwen38_mtp_proposal_prepare") @qwen38_mtp_proposal_prepare() 
   %capacity = index.constant 512 : index
   %one_word = scalar.constant 1 : i32
   %generated_word = scalar.constant 2 : i32
-  %zeros = vector.constant 0 : vector<4xi32>
+  %zeros = vector.splati 0 : vector<4xi32>
   scf.for %token = [%zero to %capacity step %four] {
     vector.store %zeros, %inputs[%token] : vector<4xi32>, view<512xi32>
   }

@@ -1,0 +1,58 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Architecture facts for shared ordinary preparation.
+global.rodata.def @epoch_root = bytes("67656e6572617465642e7177656e335f65706f6368")
+global.rodata.def @unsupported = bytes("5177656e33207265717569726573206f7264696e617279206772656564792073746167657320616e64206d61746368696e672067656e6572617465642063617061636974696573")
+config.decl @qwen3.model.hidden_size : index
+func.def @ordinary.hidden_size() -> (index) {
+  %value = config.get @qwen3.model.hidden_size : index
+  func.return %value : index
+}
+config.decl @qwen3.model.layer_count : index
+func.def @ordinary.layer_count() -> (index) {
+  %value = config.get @qwen3.model.layer_count : index
+  func.return %value : index
+}
+config.decl @qwen3.model.kv_size : index
+func.def @ordinary.kv_size() -> (index) {
+  %value = config.get @qwen3.model.kv_size : index
+  func.return %value : index
+}
+config.decl @qwen3.model.history_capacity : index
+func.def @ordinary.history_capacity() -> (index) {
+  %value = config.get @qwen3.model.history_capacity : index
+  func.return %value : index
+}
+config.decl @runner.qwen3.prefill_token_count : index
+func.def @ordinary.token_capacity() -> (index) {
+  %value = config.get @runner.qwen3.prefill_token_count : index
+  func.return %value : index
+}
+config.decl @qwen3.attention.cache_capacity : index
+func.def @ordinary.cache_capacity() -> (index) {
+  %value = config.get @qwen3.attention.cache_capacity : index
+  func.return %value : index
+}
+config.decl @qwen3.attention.pool_capacity : index
+func.def @ordinary.pool_capacity() -> (index) {
+  %value = config.get @qwen3.attention.pool_capacity : index
+  func.return %value : index
+}
+config.decl @qwen3.attention.cache_base : offset
+func.def @ordinary.cache_base() -> (offset) {
+  %value = config.get @qwen3.attention.cache_base : offset
+  func.return %value : offset
+}
+config.decl @qwen3.attention.map_origin : offset
+func.def @ordinary.map_origin() -> (offset) {
+  %value = config.get @qwen3.attention.map_origin : offset
+  func.return %value : offset
+}
+func.def public inline @ordinary.epoch_root() -> (buffer) {
+  %value = global.load @epoch_root : buffer
+  func.return %value : buffer
+}
+func.def public inline @ordinary.unsupported() -> (buffer) {
+  %value = global.load @unsupported : buffer
+  func.return %value : buffer
+}

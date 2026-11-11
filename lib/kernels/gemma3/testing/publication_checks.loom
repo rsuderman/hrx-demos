@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Fixed observable policy cases; selected logical ID0 publishes at physical S7.
 func.decl @fixture.publication.epoch(%outputs: i32, %epoch: buffer)
-command.program.decl @fixture.publication.actual_0() launch(%epoch: buffer, %private: buffer, %output: buffer)
-command.program.decl @fixture.publication.actual_1() launch(%epoch: buffer, %private: buffer, %output: buffer)
+command.decl @fixture.publication.actual_0() launch(%epoch: buffer, %private: buffer, %output: buffer)
+command.decl @fixture.publication.actual_1() launch(%epoch: buffer, %private: buffer, %output: buffer)
 func.def @fixture.publication.expected_raw1_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)

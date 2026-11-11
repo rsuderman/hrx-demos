@@ -25,10 +25,10 @@ kernel.decl @qwen38_attention_query_prepare_spans(%token_capacity: index, %span_
 kernel.decl @qwen38_attention_kv_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %key_projection: buffer, %value_projection: buffer, %weight: buffer, %state: buffer)
 kernel.decl @qwen38_attention_spans_f16_wmma(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %query: buffer, %gate: buffer, %state: buffer, %output: buffer)
 kernel.decl @qwen38_attention_clear_attended(%token_capacity: index) launch(%token_capacity: index, %output: buffer)
-command.program.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
-command.program.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
+command.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+command.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
 func.decl pure @loomify.config.attention_projections(%ordinal: index) -> (index, index, index, index, index, index, index, index)
-command.program.def public @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 63), range(%attention_ordinal, 0, 15), eq(%verification_depth, 0), range(%span_capacity, 1, 64)] {
+command.def public @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 63), range(%attention_ordinal, 0, 15), eq(%verification_depth, 0), range(%span_capacity, 1, 64)] {
   %canonical = index.constant 1 : index
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
@@ -97,7 +97,7 @@ command.program.def public @qwen38_attention_layer_prefill(%token_count: index, 
   %post_normalized = buffer.alloca<global> align(256) %hidden_allocation : buffer
   kernel.launch @qwen38_rmsnorm_f32_prefill[%token_count](%capacity, %epsilon, %residual, %post_norm_weight, %post_normalized) : [index](index, f32, buffer, view<[%hidden_size]xf32>, buffer)
   %swiglu = buffer.alloca<global> align(256) %ffn_allocation : buffer
-  command.program.launch @qwen38_ffn_gate_up_prefill[%token_count, %schedule_token_count, %layer, %verification_depth, %span_capacity](%parameters, %post_normalized, %control, %swiglu) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
-  command.program.launch @qwen38_ffn_down_prefill[%token_count, %schedule_token_count, %layer, %verification_depth, %span_capacity](%parameters, %control, %swiglu, %residual) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+  command.launch @qwen38_ffn_gate_up_prefill[%token_count, %schedule_token_count, %layer, %verification_depth, %span_capacity](%parameters, %post_normalized, %control, %swiglu) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+  command.launch @qwen38_ffn_down_prefill[%token_count, %schedule_token_count, %layer, %verification_depth, %span_capacity](%parameters, %control, %swiglu, %residual) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   command.return
 }

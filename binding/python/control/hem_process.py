@@ -334,8 +334,12 @@ def validate_launch_settings(settings):
     Return the loopback origin; retain the supplied settings/selector unchanged.
     CLI-only missing-option and whitespace presentation belongs to the caller.
     """
-    if set(settings) != {'device', 'listen'} or not isinstance(settings['device'], str) or not settings['device']:
-        raise InvalidInput('server launch requires device and listen settings only')
+    if (not {'device', 'listen'} <= set(settings)
+            or set(settings) - {'device', 'listen', 'pool_backing'}
+            or not isinstance(settings['device'], str) or not settings['device']):
+        raise InvalidInput('server launch requires device/listen and optional pool_backing settings')
+    if 'pool_backing' in settings and settings['pool_backing'] not in ('fixed', 'elastic'):
+        raise InvalidInput('pool_backing must be fixed or elastic')
     try:
         host, port_text = settings['listen'].rsplit(':', 1)
         host = host.strip('[]')
@@ -522,6 +526,8 @@ class ProcessManager:
             record = self._update(record, dict(build=build))
             executable = str(Path(build['directory']) / '_native/bin/loom-serve')
             argv = [executable, f"--device={settings['device']}", f"--listen={settings['listen']}"]
+            if "pool_backing" in settings:
+                argv.append(f"--pool_backing={settings['pool_backing']}")
             # Managed launches use a retained closure, never package-upgrade paths
             # or caller library overrides. HOME/XDG/credentials remain inherited.
             try:

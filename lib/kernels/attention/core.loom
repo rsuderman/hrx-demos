@@ -47,7 +47,9 @@ template.def<@llm.attention.row_window_f32> device @llm_attention_row_window_f32
   %lane = index.assume %lane0 [range(%lane0, 0, 255), lt(%lane0, %head_size)] : index
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
-  %queries_per_kv = index.div %query_heads, %key_heads : index
+  // Callers provide positive, divisible GQA head counts and matching widths.
+  %queries_per_kv0 = index.div %query_heads, %key_heads : index
+  %queries_per_kv = index.assume %queries_per_kv0 [range(%queries_per_kv0, 1, 128)] : index
   %c0_offset = index.constant 0 : offset
   %c0_f32 = scalar.constant 0.0 : f32
   %negative_large = scalar.constant -3.4028234663852886e+38 : f32
@@ -83,7 +85,8 @@ template.def<@llm.attention.row_window_f32> device @llm_attention_row_window_f32
       scf.yield %token : index
     }
     %physical = index.assume %physical0 [lt(%physical0, %physical_capacity)] : index
-    %cache_column = index.add %key_head_base, %lane : index
+    %cache_column0 = index.add %key_head_base, %lane : index
+    %cache_column = index.assume %cache_column0 [range(%cache_column0, 0, 32767), lt(%cache_column0, %cache_width)] : index
     %key_f16 = view.load %key_cache_view[%physical, %cache_column] : view<[%physical_capacity]x[%cache_width]xf16> -> f16
     %value_f16 = view.load %value_cache_view[%physical, %cache_column] : view<[%physical_capacity]x[%cache_width]xf16> -> f16
     %key = scalar.extf %key_f16 : f16 to f32

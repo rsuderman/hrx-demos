@@ -4,8 +4,9 @@
 #include "iree/vm/bytecode/module.h"
 #include "iree/vm/reflection.h"
 #include "iree/vm/sync.h"
-#include "loom/serve/runtime/program/json.h"
+#include "loom/runtime/program/json.h"
 #include "loom/serve/service/text/chat.h"
+#include "loom/serve/service/text/tool_xml.h"
 #include "loomc/loomc.h"
 #include "loomc/target/vm.h"
 #include "gtest/gtest.h"
@@ -129,7 +130,7 @@ public:
         parse(read("TEXT_TOOL_OUTPUT_SOURCE_PATH", "protocols/chatml_thinking/tool_output.loom"));
     auto fixture = parse(R"(
       func.decl @chatml.normalize_tool_output(%schemas: buffer, %response: buffer) -> (buffer)
-      func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer) -> (buffer)
+      func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer)
       func.def public @tool_fixture(%schemas: buffer, %response: buffer, %enabled: i32) -> (buffer) {
         %zero = scalar.constant 0 : i32
         %normalize = scalar.cmpi ne, %enabled, %zero : i32
@@ -137,7 +138,8 @@ public:
           %value = func.call @chatml.normalize_tool_output(%schemas, %response) : (buffer, buffer) -> (buffer)
           scf.yield %value : buffer
         } else { scf.yield %response : buffer }
-        %calls = func.call @parse_xml(%schemas, %text) : (buffer, buffer) -> (buffer)
+        %complete = scalar.constant 0 : i64
+        %calls = func.call @parse_xml(%schemas, %text, %complete) : (buffer, buffer, i64) -> (buffer)
         func.return %calls : buffer
       }
     )");
@@ -242,10 +244,10 @@ public:
              iree_allocator_null()},
             iree_allocator_system(), &bytecode)))
       return false;
-    if (!NativeOk(loom_serve_json_module_create(
+    if (!NativeOk(loom_runtime_json_module_create(
             runtime, iree_allocator_system(), &json)))
       return false;
-    if (!NativeOk(loom_serve_text_chat_tools_module_create(
+    if (!NativeOk(loom_serve_text_tool_xml_module_create(
             runtime, iree_allocator_system(), &tools)))
       return false;
     iree_vm_module_t *libraries[] = {json, tools};

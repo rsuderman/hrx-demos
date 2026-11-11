@@ -4,7 +4,7 @@
 // rows independently imply greedy token zero. Embedding reads immutable IDs;
 // the private raw winner and selected public output are distinct guarded buffers.
 // M3 tests row selection numerically. No isolated history/progress mutation remains.
-command.program.decl @head.full.prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
+command.decl @head.full.prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
 func.def @init_prefill(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %descriptor_origin = index.constant 12 : offset
@@ -46,9 +46,9 @@ kernel.def @init_kernel_prefill() {
   func.call @init_prefill(%epoch) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
+command.def public @actual_prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
   kernel.launch @init_kernel_prefill[](%epoch) : [](buffer)
-  command.program.launch @head.full.prefill[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.full.prefill[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
@@ -106,7 +106,7 @@ check.scenario @registered_head_then_publication_prefill {
   }
   check.return
 }
-command.program.decl @head.full.decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
+command.decl @head.full.decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
 func.def @init_decode(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %descriptor_origin = index.constant 12 : offset
@@ -148,9 +148,9 @@ kernel.def @init_kernel_decode() {
   func.call @init_decode(%epoch) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
+command.def public @actual_decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
   kernel.launch @init_kernel_decode[](%epoch) : [](buffer)
-  command.program.launch @head.full.decode[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.full.decode[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {

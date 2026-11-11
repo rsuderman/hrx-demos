@@ -332,6 +332,22 @@ TEST_F(QwenPrepareTest, EffectivePrefillUsesRequestedShapeMaximum) {
     Records(request, observed);
   }
 }
+TEST_F(QwenPrepareTest, NativeSingleRowShapeInventoryPreservesStageOrdinals) {
+  for (bool bytecode : {false, true}) {
+    SCOPED_TRACE(bytecode);
+    auto module = Link(8, 512, bytecode);
+    ASSERT_TRUE(module);
+    PreparationRequest request;
+    request.prefill = 8;
+    request.shapes = {{1,1},{2,1},{2,2},{4,1},{4,2},{4,4},
+                      {8,1},{8,2},{8,4},{8,8}};
+    PreparationObservation observed;
+    std::string error;
+    ASSERT_TRUE(RunPreparation(environment.get(), context.get(), workspace.get(),
+        module.get(), request, &observed, &error)) << error;
+    Records(request, observed);
+  }
+}
 TEST_F(QwenPrepareTest, IndependentEightLayerGgufControlsNativeStorageRecords) {
   model::ModelDescriptor descriptor;
   std::string error;

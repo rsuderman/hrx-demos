@@ -26,6 +26,7 @@ struct GgufModelBuilder::Impl {
   std::optional<PublicationTokenFacts> publication_tokens;
   std::string publication_token_error;
   std::string source_asset;
+  std::string source_alias;
 };
 struct BuiltGgufModule::Impl {
   std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> module{nullptr, loomc_module_release};
@@ -35,6 +36,7 @@ struct BuiltGgufModule::Impl {
 struct GgufConfiguration::Impl {
   ConfigurationFacts numerical;
   std::string source_asset;
+  std::string source_alias;
   GgufBuildOptions options;
   const ArchitectureFiles *architecture = nullptr;
   const PlatformFiles *platform = nullptr;

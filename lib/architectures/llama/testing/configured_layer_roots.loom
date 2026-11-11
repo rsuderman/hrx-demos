@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 config.decl @runner.llama32.prefill_token_count : index
 kernel.decl @llm.epoch.snapshot_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
-command.program.decl @loomify.llama.layer(%layer:index,%phase:index,%rows:index,%control_origin:offset) launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer,%count:buffer)
-command.program.def public @validated.layer0.prefill() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
+command.decl @loomify.llama.layer(%layer:index,%phase:index,%rows:index,%control_origin:offset) launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer,%count:buffer)
+command.def public @validated.layer0.prefill() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 0 : index
   %rows = config.get @runner.llama32.prefill_token_count : index
@@ -11,10 +11,10 @@ command.program.def public @validated.layer0.prefill() launch(%parameters:buffer
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
   kernel.launch @llm.epoch.snapshot_count[](%phase,%origin,%control,%count) : [](index,offset,buffer,buffer)
-  command.program.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
   command.return
 }
-command.program.def public @validated.layer0.decode() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
+command.def public @validated.layer0.decode() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
@@ -22,10 +22,10 @@ command.program.def public @validated.layer0.decode() launch(%parameters:buffer,
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
   kernel.launch @llm.epoch.snapshot_count[](%phase,%origin,%control,%count) : [](index,offset,buffer,buffer)
-  command.program.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
   command.return
 }
-command.program.def public @validated.layer1.prefill() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
+command.def public @validated.layer1.prefill() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 0 : index
   %rows = config.get @runner.llama32.prefill_token_count : index
@@ -33,10 +33,10 @@ command.program.def public @validated.layer1.prefill() launch(%parameters:buffer
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
   kernel.launch @llm.epoch.snapshot_count[](%phase,%origin,%control,%count) : [](index,offset,buffer,buffer)
-  command.program.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
   command.return
 }
-command.program.def public @validated.layer1.decode() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
+command.def public @validated.layer1.decode() launch(%parameters:buffer,%residual:buffer,%control:buffer,%map:buffer,%cache:buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
@@ -44,6 +44,6 @@ command.program.def public @validated.layer1.decode() launch(%parameters:buffer,
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
   kernel.launch @llm.epoch.snapshot_count[](%phase,%origin,%control,%count) : [](index,offset,buffer,buffer)
-  command.program.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.launch @loomify.llama.layer[%layer,%phase,%rows,%origin](%parameters,%residual,%control,%map,%cache,%count) : [index,index,index,offset](buffer,buffer,buffer,buffer,buffer,buffer)
   command.return
 }

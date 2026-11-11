@@ -1,8 +1,10 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
+// Pre-target specialization preserves explicit kernel dispatches; optional
+// callable expansion belongs to the target compilation pipeline.
 pass.pipeline<module> @materialize pipeline {
   for func { canonicalize }
-  inline-callables
+  inline-callables(budget = 0, hot-budget = 0)
   for func {
     canonicalize
     unroll-scf-for
@@ -10,7 +12,7 @@ pass.pipeline<module> @materialize pipeline {
   }
   repeat until_converged(max_iterations = 32) {
     select-templates(mode = "early", rewrite = "inline")
-    inline-callables
+    inline-callables(budget = 0, hot-budget = 0)
     for func {
       canonicalize
       unroll-scf-for

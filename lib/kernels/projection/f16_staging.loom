@@ -1,0 +1,136 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent GGML half-FMA staging policy for scaled-F16 matrix products.
+// Metadata is rounded to half before one fused code*scale+bias half rounding.
+template.decl @ggml.qk.scale_min(%weight: buffer, %block_origin: offset, %group: index) -> (f32, f32)
+
+template.decl @ggml.q4k.f16_fma16(%weight: buffer, %row_origin: offset, %column: index) -> (vector<16xf16>)
+
+template.def<@ggml.q4k.f16_fma16> device @ggml_q4k_f16_fma16(%weight: buffer, %row_origin: offset, %column: index) -> (vector<16xf16>) {
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %c256 = index.constant 256 : index
+  %sixteen = index.constant 16 : offset
+  %block_bytes = index.constant 144 : offset
+  %nibble_mask = vector.splati 252645135 : vector<4xi32>
+      %deq0_super = index.div %column, %c256 : index
+      %deq0_within = index.rem %column, %c256 : index
+      %deq0_group_value = index.div %deq0_within, %c32 : index
+      %deq0_group = index.assume %deq0_group_value [range(%deq0_group_value, 0, 7)] : index
+      %deq0_in_group = index.rem %deq0_within, %c32 : index
+      %deq0_half = index.div %deq0_in_group, %c16 : index
+      %deq0_block_add = index.scale %deq0_super, %block_bytes : index, offset -> offset
+      %deq0_block_origin = index.add %row_origin, %deq0_block_add : offset
+      %deq0_scale, %deq0_minimum = template.apply<@ggml.qk.scale_min>(%weight, %deq0_block_origin, %deq0_group) : (buffer, offset, index) -> (f32, f32)
+      %deq0_page = index.div %deq0_group, %c2 : index
+      %deq0_nibble = index.rem %deq0_group, %c2 : index
+      %deq0_word_page = index.mul %deq0_page, %c8 : index
+      %deq0_word_half = index.mul %deq0_half, %c4 : index
+      %deq0_word = index.add %deq0_word_page, %deq0_word_half : index
+      %deq0_payload = index.add %deq0_block_origin, %sixteen : offset
+      %deq0_words = buffer.view %weight[%deq0_payload] : buffer -> view<32xi32>
+      %deq0_packed = vector.load %deq0_words[%deq0_word] : view<32xi32> -> vector<4xi32>
+      %deq0_shift_bits = index.mul %deq0_nibble, %c4 : index
+      %deq0_shift_i32 = index.cast %deq0_shift_bits : index to i32
+      %deq0_shift = vector.splat %deq0_shift_i32 : vector<4xi32>
+      %deq0_shifted = vector.shrui %deq0_packed, %deq0_shift : vector<4xi32>
+      %deq0_masked = vector.andi %deq0_shifted, %nibble_mask : vector<4xi32>
+      %deq0_bytes = vector.bitcast %deq0_masked : vector<4xi32> to vector<16xi8>
+      %deq0_codes = vector.uitofp %deq0_bytes : vector<16xi8> to vector<16xf16>
+      %deq0_scale_h = scalar.fptrunc %deq0_scale : f32 to f16
+      %deq0_neg_min = scalar.negf %deq0_minimum : f32
+      %deq0_neg_min_h = scalar.fptrunc %deq0_neg_min : f32 to f16
+      %deq0_scales = vector.splat %deq0_scale_h : vector<16xf16>
+      %deq0_minima = vector.splat %deq0_neg_min_h : vector<16xf16>
+      %deq0 = vector.fmaf %deq0_codes, %deq0_scales, %deq0_minima : vector<16xf16>
+  template.return %deq0 : vector<16xf16>
+}
+
+template.decl @ggml.q6k.f16_fma16(%weight: buffer, %row_origin: offset, %column: index) -> (vector<16xf16>)
+
+template.def<@ggml.q6k.f16_fma16> device @ggml_q6k_f16_fma16(%weight: buffer, %row_origin: offset, %column: index) -> (vector<16xf16>) {
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %c256 = index.constant 256 : index
+  %sixteen = index.constant 16 : offset
+  %block_bytes = index.constant 210 : offset
+  %nibble_mask = vector.splati 252645135 : vector<4xi32>
+      %deq0_c128 = index.constant 128 : index
+      %deq0_c64 = index.constant 64 : index
+      %deq0_qh_base = index.constant 128 : index
+      %deq0_sc_base = index.constant 192 : index
+      %deq0_d_bytes = index.constant 208 : offset
+      %deq0_super = index.div %column, %c256 : index
+      %deq0_within = index.rem %column, %c256 : index
+      %deq0_half = index.div %deq0_within, %deq0_c128 : index
+      %deq0_in_half = index.rem %deq0_within, %deq0_c128 : index
+      %deq0_j = index.div %deq0_in_half, %c32 : index
+      %deq0_l0 = index.rem %deq0_in_half, %c32 : index
+      %deq0_jl = index.rem %deq0_j, %c2 : index
+      %deq0_jh = index.div %deq0_j, %c2 : index
+      %deq0_ql_a = index.mul %deq0_half, %deq0_c64 : index
+      %deq0_ql_b = index.mul %deq0_jl, %c32 : index
+      %deq0_ql_c = index.add %deq0_ql_a, %deq0_ql_b : index
+      %deq0_ql_i = index.add %deq0_ql_c, %deq0_l0 : index
+      %deq0_qh_a = index.mul %deq0_half, %c32 : index
+      %deq0_qh_b = index.add %deq0_qh_base, %deq0_qh_a : index
+      %deq0_qh_i = index.add %deq0_qh_b, %deq0_l0 : index
+      %deq0_sc_a = index.mul %deq0_half, %c8 : index
+      %deq0_sc_b = index.mul %deq0_j, %c2 : index
+      %deq0_sc_c = index.div %deq0_l0, %c16 : index
+      %deq0_sc_d = index.add %deq0_sc_a, %deq0_sc_b : index
+      %deq0_sc_e = index.add %deq0_sc_d, %deq0_sc_c : index
+      %deq0_sc_i = index.add %deq0_sc_base, %deq0_sc_e : index
+      %deq0_block_add = index.scale %deq0_super, %block_bytes : index, offset -> offset
+      %deq0_block_origin = index.add %row_origin, %deq0_block_add : offset
+      %deq0_ql_off = index.cast %deq0_ql_i : index to offset
+      %deq0_qh_off = index.cast %deq0_qh_i : index to offset
+      %deq0_sc_off = index.cast %deq0_sc_i : index to offset
+      %deq0_ql_o = index.add %deq0_block_origin, %deq0_ql_off : offset
+      %deq0_qh_o = index.add %deq0_block_origin, %deq0_qh_off : offset
+      %deq0_sc_o = index.add %deq0_block_origin, %deq0_sc_off : offset
+      %deq0_d_o = index.add %deq0_block_origin, %deq0_d_bytes : offset
+      %deq0_ql_v = buffer.view %weight[%deq0_ql_o] : buffer -> view<4xi32>
+      %deq0_qh_v = buffer.view %weight[%deq0_qh_o] : buffer -> view<4xi32>
+      %deq0_sc_v = buffer.view %weight[%deq0_sc_o] : buffer -> view<1xi8>
+      %deq0_d_v = buffer.view %weight[%deq0_d_o] : buffer -> view<1xf16>
+      %deq0_ql = vector.load %deq0_ql_v[0] : view<4xi32> -> vector<4xi32>
+      %deq0_qh = vector.load %deq0_qh_v[0] : view<4xi32> -> vector<4xi32>
+      %deq0_sc8 = view.load %deq0_sc_v[0] : view<1xi8> -> i8
+      %deq0_dh = view.load %deq0_d_v[0] : view<1xf16> -> f16
+      %deq0_s1 = index.mul %deq0_jh, %c4 : index
+      %deq0_s2 = index.mul %deq0_j, %c2 : index
+      %deq0_s1_32 = index.cast %deq0_s1 : index to i32
+      %deq0_s2_32 = index.cast %deq0_s2 : index to i32
+      %deq0_s1_v = vector.splat %deq0_s1_32 : vector<4xi32>
+      %deq0_s2_v = vector.splat %deq0_s2_32 : vector<4xi32>
+      %deq0_m15 = vector.splati 252645135 : vector<4xi32>
+      %deq0_m3 = vector.splati 50529027 : vector<4xi32>
+      %deq0_f4 = vector.splati 4 : vector<4xi32>
+      // Word-wide bit work (4 codes per i32): a byte's bits shifted in from its neighbour are masked off.
+      %deq0_lo_s = vector.shrui %deq0_ql, %deq0_s1_v : vector<4xi32>
+      %deq0_lo = vector.andi %deq0_lo_s, %deq0_m15 : vector<4xi32>
+      %deq0_hi_s = vector.shrui %deq0_qh, %deq0_s2_v : vector<4xi32>
+      %deq0_hi_m = vector.andi %deq0_hi_s, %deq0_m3 : vector<4xi32>
+      %deq0_hi = vector.shli %deq0_hi_m, %deq0_f4 : vector<4xi32>
+      %deq0_qw = vector.ori %deq0_lo, %deq0_hi : vector<4xi32>
+      %deq0_q = vector.bitcast %deq0_qw : vector<4xi32> to vector<16xi8>
+      %deq0_codes = vector.uitofp %deq0_q : vector<16xi8> to vector<16xf16>
+      %deq0_d = scalar.extf %deq0_dh : f16 to f32
+      %deq0_scf = scalar.sitofp %deq0_sc8 : i8 to f32
+      %deq0_scale = scalar.mulf %deq0_d, %deq0_scf : f32
+      %deq0_bias32 = scalar.constant -32.0 : f32
+      %deq0_offset = scalar.mulf %deq0_scale, %deq0_bias32 : f32
+      %deq0_scale_h = scalar.fptrunc %deq0_scale : f32 to f16
+      %deq0_offset_h = scalar.fptrunc %deq0_offset : f32 to f16
+      %deq0_scales = vector.splat %deq0_scale_h : vector<16xf16>
+      %deq0_offsets = vector.splat %deq0_offset_h : vector<16xf16>
+      %deq0 = vector.fmaf %deq0_codes, %deq0_scales, %deq0_offsets : vector<16xf16>
+  template.return %deq0 : vector<16xf16>
+}

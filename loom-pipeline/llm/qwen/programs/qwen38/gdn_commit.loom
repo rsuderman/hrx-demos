@@ -29,7 +29,7 @@ kernel.decl @qwen38_gdn_recurrent_spans(%span_capacity: index) launch(%epoch: bu
 // traversal or copies the full recurrent state. Known spans are absent from
 // replay, having published in the target traversal. Scratch and captured rows
 // retain original_span*4 placement even when acceptance compacts descriptors.
-command.program.def public @qwen38_gdn_commit_layer(%span_capacity: index, %layer: index, %ordinal: index) launch(%parameters: buffer, %capture: buffer, %replay: buffer, %rows: buffer, %state: buffer) where [range(%span_capacity, 1, 16), range(%layer, 0, 63), range(%ordinal, 0, 47)] {
+command.def public @qwen38_gdn_commit_layer(%span_capacity: index, %layer: index, %ordinal: index) launch(%parameters: buffer, %capture: buffer, %replay: buffer, %rows: buffer, %state: buffer) where [range(%span_capacity, 1, 16), range(%layer, 0, 63), range(%ordinal, 0, 47)] {
   %shape_gdn_gate_capture_elements = config.get @qwen.model.gdn_gate_capture_elements : index
   %shape_gdn_norm_capture_bytes = config.get @qwen.model.gdn_norm_capture_bytes : index
   %shape_gdn_output_capture_bytes = config.get @qwen.model.gdn_output_capture_bytes : index
@@ -76,7 +76,7 @@ command.program.def public @qwen38_gdn_commit_layer(%span_capacity: index, %laye
   command.return
 }
 
-command.program.def public @qwen38_gdn_commit(%span_capacity: index) launch(%parameters: buffer, %capture: buffer, %replay: buffer, %rows: buffer, %state: buffer) where [range(%span_capacity, 1, 16)] {
+command.def public @qwen38_gdn_commit(%span_capacity: index) launch(%parameters: buffer, %capture: buffer, %replay: buffer, %rows: buffer, %state: buffer) where [range(%span_capacity, 1, 16)] {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -90,9 +90,9 @@ command.program.def public @qwen38_gdn_commit(%span_capacity: index) launch(%par
     %ordinal0 = index.mul %group, %three : index
     %ordinal1 = index.add %ordinal0, %one : index
     %ordinal2 = index.add %ordinal0, %two : index
-    command.program.launch @qwen38_gdn_commit_layer[%span_capacity, %layer0, %ordinal0](%parameters, %capture, %replay, %rows, %state) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_gdn_commit_layer[%span_capacity, %layer1, %ordinal1](%parameters, %capture, %replay, %rows, %state) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @qwen38_gdn_commit_layer[%span_capacity, %layer2, %ordinal2](%parameters, %capture, %replay, %rows, %state) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
+    command.launch @qwen38_gdn_commit_layer[%span_capacity, %layer0, %ordinal0](%parameters, %capture, %replay, %rows, %state) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
+    command.launch @qwen38_gdn_commit_layer[%span_capacity, %layer1, %ordinal1](%parameters, %capture, %replay, %rows, %state) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
+    command.launch @qwen38_gdn_commit_layer[%span_capacity, %layer2, %ordinal2](%parameters, %capture, %replay, %rows, %state) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }

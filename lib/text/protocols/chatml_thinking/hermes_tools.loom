@@ -1,0 +1,241 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Reusable Hermes JSON tool protocol. Float lexemes retain admitted spelling.
+func.decl @chatml.mapping_check(%condition: i1)
+func.decl @chatml.admit_mapping(%json: buffer)
+func.decl @text.json_dump(%json: buffer) -> (buffer)
+func.decl @text.json_quote(%text: buffer) -> (buffer)
+func.decl @text.range(%text: buffer,%begin: i64,%length: i64) -> (buffer)
+func.decl @text.lookup(%json: buffer,%key: buffer) -> (buffer,i64,i1)
+func.decl @text.string(%json: buffer,%key: buffer) -> (buffer,i1)
+func.decl @text.equal(%a: buffer,%b: buffer) -> (i1)
+func.decl @text.at(%text: buffer,%position: offset,%marker: buffer) -> (i1)
+func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
+func.decl import("json") @members(%json: buffer) -> (buffer,i32,i64)
+func.decl import("json") @compact(%text: buffer) -> (buffer)
+global.rodata.def @hermes.empty = bytes("")
+global.rodata.def @hermes.newline = bytes("0a")
+global.rodata.def @hermes.open = bytes("3c746f6f6c5f63616c6c3e")
+global.rodata.def @hermes.close = bytes("3c2f746f6f6c5f63616c6c3e")
+global.rodata.def @hermes.render_open = bytes("3c746f6f6c5f63616c6c3e0a7b226e616d65223a2022")
+global.rodata.def @hermes.render_middle = bytes("222c2022617267756d656e7473223a20")
+global.rodata.def @hermes.render_close = bytes("7d0a3c2f746f6f6c5f63616c6c3e")
+global.rodata.def @hermes.name = bytes("6e616d65")
+global.rodata.def @hermes.arguments = bytes("617267756d656e7473")
+global.rodata.def @hermes.function = bytes("66756e6374696f6e")
+global.rodata.def @hermes.list_open = bytes("5b")
+global.rodata.def @hermes.list_close = bytes("5d")
+global.rodata.def @hermes.comma = bytes("2c")
+global.rodata.def @hermes.record_open = bytes("7b2274797065223a2266756e6374696f6e222c2266756e6374696f6e223a7b226e616d65223a")
+global.rodata.def @hermes.record_middle = bytes("2c22617267756d656e7473223a")
+global.rodata.def @hermes.record_close = bytes("7d7d")
+
+// Formatting is shared by native canonical callbacks and raw history strings.
+func.def @hermes.render_arguments(%name: buffer,%arguments: buffer,%ordinal: i64) -> (buffer,i64) {
+  %zero64 = scalar.constant 0 : i64
+  %prior = scalar.cmpi ne,%ordinal,%zero64 : i64
+  %empty = global.load @hermes.empty : buffer
+  %newline = global.load @hermes.newline : buffer
+  %before = scf.select %prior,%newline,%empty : buffer
+  %open = global.load @hermes.render_open : buffer
+  %middle = global.load @hermes.render_middle : buffer
+  %close = global.load @hermes.render_close : buffer
+  %result = func.call @text.join8(%before,%open,%name,%middle,%arguments,%close,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  %size = buffer.length %result
+  %length = index.cast %size : offset to i64
+  func.return %result,%length : buffer,i64
+}
+func.def public @render_tool(%name: buffer,%arguments: buffer,%ordinal: i64) -> (buffer,i64) {
+  func.call @chatml.admit_mapping(%arguments) : (buffer) -> ()
+  %fields,%kind,%count = func.call @members(%arguments) : (buffer) -> (buffer,i32,i64)
+  %object = scalar.constant 2 : i32
+  %valid = scalar.cmpi eq,%kind,%object : i32
+  func.call @chatml.mapping_check(%valid) : (i1) -> ()
+  %json = func.call @text.json_dump(%arguments) : (buffer) -> (buffer)
+  %result,%length = func.call @hermes.render_arguments(%name,%json,%ordinal) : (buffer,buffer,i64) -> (buffer,i64)
+  func.return %result,%length : buffer,i64
+}
+
+global.rodata.def @hermes.tool_calls = bytes("746f6f6c5f63616c6c73")
+// Native render_tool receives normalized argument objects. Raw history retains
+// the original string-vs-object distinction required by this exact template.
+func.def @chatml.history_calls(%raw: buffer,%rendered: buffer) -> (buffer) {
+  %calls_key = global.load @hermes.tool_calls : buffer
+  %calls,%kind,%found = func.call @text.lookup(%raw,%calls_key) : (buffer,buffer) -> (buffer,i64,i1)
+  %array = scalar.constant 3 : i64
+  %is_array = scalar.cmpi eq,%kind,%array : i64
+  %has_calls = scalar.andi %found,%is_array : i1
+  %empty = global.load @hermes.empty : buffer
+  %result = scf.if %has_calls -> (buffer) {
+    %records,%type,%count = func.call @members(%calls) : (buffer) -> (buffer,i32,i64)
+    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+    %extent = index.cast %bounded : i64 to index
+    %origin = index.constant 0 : offset
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+    %function_key = global.load @hermes.function : buffer
+    %name_key = global.load @hermes.name : buffer
+    %arguments_key = global.load @hermes.arguments : buffer
+    %zero64 = scalar.constant 0 : i64
+    %body = scf.for %i = [%zero to %extent step %one](%prior = %empty : buffer) -> (buffer) {
+      %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
+      %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
+      %call = func.call @text.range(%calls,%begin,%length) : (buffer,i64,i64) -> (buffer)
+      %function,%function_kind,%has_function = func.call @text.lookup(%call,%function_key) : (buffer,buffer) -> (buffer,i64,i1)
+      %source = scf.select %has_function,%function,%call : buffer
+      %name,%has_name = func.call @text.string(%source,%name_key) : (buffer,buffer) -> (buffer,i1)
+      func.call @chatml.mapping_check(%has_name) : (i1) -> ()
+      %arguments,%arg_kind,%has_args = func.call @text.lookup(%source,%arguments_key) : (buffer,buffer) -> (buffer,i64,i1)
+      func.call @chatml.mapping_check(%has_args) : (i1) -> ()
+      %string = scalar.cmpi eq,%arg_kind,%zero64 : i64
+      %argument_text = scf.if %string -> (buffer) {
+        %text,%present = func.call @text.string(%source,%arguments_key) : (buffer,buffer) -> (buffer,i1)
+        scf.yield %text : buffer
+      } else {
+        %json = func.call @text.json_dump(%arguments) : (buffer) -> (buffer)
+        scf.yield %json : buffer
+      }
+      %ordinal = index.cast %i : index to i64
+      %fragment,%fragment_length = func.call @hermes.render_arguments(%name,%argument_text,%ordinal) : (buffer,buffer,i64) -> (buffer,i64)
+      %joined = func.call @text.join8(%prior,%fragment,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+      scf.yield %joined : buffer
+    }
+    scf.yield %body : buffer
+  } else { scf.yield %empty : buffer }
+  func.return %result : buffer
+}
+
+func.def @hermes.find(%text: buffer,%start: offset,%marker: buffer) -> (offset) {
+  %size = buffer.length %text
+  %one = index.constant 1 : offset
+  %false = scalar.constant false : i1
+  %p = scf.while(%p = %start : offset) -> (offset) {
+    %has = index.cmp ult,%p,%size : offset
+    %go = scf.if %has -> (i1) {
+      %found = func.call @text.at(%text,%p,%marker) : (buffer,offset,buffer) -> (i1)
+      %next = scalar.cmpi eq,%found,%false : i1
+      scf.yield %next : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %go,%p : i1,offset
+  } do(%p: offset) {
+    %next = index.add %p,%one : offset
+    scf.yield %next : offset
+  }
+  func.return %p : offset
+}
+
+// Closing markup inside a JSON string is data, not an envelope boundary.
+func.def @hermes.find_close(%text: buffer,%start: offset) -> (offset) {
+  %size = buffer.length %text
+  %one = index.constant 1 : offset
+  %quote = scalar.constant 34 : i32
+  %slash = scalar.constant 92 : i32
+  %false = scalar.constant false : i1
+  %close = global.load @hermes.close : buffer
+  %end,%quoted_end,%escaped_end = scf.while(%p = %start : offset,%quoted = %false : i1,%escaped = %false : i1) -> (offset,i1,i1) {
+    %has = index.cmp ult,%p,%size : offset
+    %go = scf.if %has -> (i1) {
+      %found = func.call @text.at(%text,%p,%close) : (buffer,offset,buffer) -> (i1)
+      %outside = scalar.cmpi eq,%quoted,%false : i1
+      %stop = scalar.andi %found,%outside : i1
+      %more = scalar.cmpi eq,%stop,%false : i1
+      scf.yield %more : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %go,%p,%quoted,%escaped : i1,offset,i1,i1
+  } do(%p: offset,%quoted: i1,%escaped: i1) {
+    %byte = buffer.load.i8.u %text[%p]
+    %is_quote = scalar.cmpi eq,%byte,%quote : i32
+    %is_slash = scalar.cmpi eq,%byte,%slash : i32
+    %unescaped = scalar.cmpi eq,%escaped,%false : i1
+    %toggle = scalar.andi %is_quote,%unescaped : i1
+    %next_quoted = scalar.xori %quoted,%toggle : i1
+    %escape0 = scalar.andi %quoted,%is_slash : i1
+    %next_escape = scalar.andi %escape0,%unescaped : i1
+    %next = index.add %p,%one : offset
+    scf.yield %next,%next_quoted,%next_escape : offset,i1,i1
+  }
+  func.return %end : offset
+}
+
+func.def @hermes.known_tool(%schemas: buffer,%name: buffer) -> (i1) {
+  %records,%kind,%count = func.call @members(%schemas) : (buffer) -> (buffer,i32,i64)
+  %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %one = index.constant 1 : index
+  %false = scalar.constant false : i1
+  %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+  %function_key = global.load @hermes.function : buffer
+  %name_key = global.load @hermes.name : buffer
+  %known = scf.for %i = [%zero to %extent step %one](%prior = %false : i1) -> (i1) {
+    %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
+    %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
+    %row = func.call @text.range(%schemas,%begin,%length) : (buffer,i64,i64) -> (buffer)
+    %function,%function_kind,%has_function = func.call @text.lookup(%row,%function_key) : (buffer,buffer) -> (buffer,i64,i1)
+    %schema = scf.select %has_function,%function,%row : buffer
+    %candidate,%found = func.call @text.string(%schema,%name_key) : (buffer,buffer) -> (buffer,i1)
+    %same = func.call @text.equal(%candidate,%name) : (buffer,buffer) -> (i1)
+    %matches = scalar.andi %found,%same : i1
+    %next = scalar.ori %prior,%matches : i1
+    scf.yield %next : i1
+  }
+  func.return %known : i1
+}
+
+// Retain strict complete-call parsing while accepting the current host ABI.
+func.def public @parse_tools(%schemas: buffer,%response: buffer, %truncated: i64) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %false = scalar.constant false : i1
+  %empty = global.load @hermes.empty : buffer
+  %open = global.load @hermes.open : buffer
+  %close = global.load @hermes.close : buffer
+  %open_size = buffer.length %open
+  %close_size = buffer.length %close
+  %size = buffer.length %response
+  %list_open = global.load @hermes.list_open : buffer
+  %list_close = global.load @hermes.list_close : buffer
+  %comma = global.load @hermes.comma : buffer
+  %record_open = global.load @hermes.record_open : buffer
+  %record_middle = global.load @hermes.record_middle : buffer
+  %record_close = global.load @hermes.record_close : buffer
+  %name_key = global.load @hermes.name : buffer
+  %arguments_key = global.load @hermes.arguments : buffer
+  %end,%records,%has_prior = scf.while(%p = %zero : offset,%prior = %list_open : buffer,%has = %false : i1) -> (offset,buffer,i1) {
+    %start = func.call @hermes.find(%response,%p,%open) : (buffer,offset,buffer) -> (offset)
+    %found = index.cmp ult,%start,%size : offset
+    scf.condition %found,%start,%prior,%has : i1,offset,buffer,i1
+  } do(%start: offset,%prior: buffer,%has: i1) {
+    %begin = index.add %start,%open_size : offset
+    %stop = func.call @hermes.find_close(%response,%begin) : (buffer,offset) -> (offset)
+    %complete = index.cmp ult,%stop,%size : offset
+    %next_p,%next_records,%next_has = scf.if %complete -> (offset,buffer,i1) {
+      %length = index.sub %stop,%begin : offset
+      %begin64 = index.cast %begin : offset to i64
+      %length64 = index.cast %length : offset to i64
+      %body = func.call @text.range(%response,%begin64,%length64) : (buffer,i64,i64) -> (buffer)
+      func.call @chatml.admit_mapping(%body) : (buffer) -> ()
+      %name,%found_name = func.call @text.string(%body,%name_key) : (buffer,buffer) -> (buffer,i1)
+      %arguments,%arg_kind,%found_args = func.call @text.lookup(%body,%arguments_key) : (buffer,buffer) -> (buffer,i64,i1)
+      %object = scalar.constant 2 : i64
+      %is_object = scalar.cmpi eq,%arg_kind,%object : i64
+      %valid_args = scalar.andi %found_args,%is_object : i1
+      %valid = scalar.andi %found_name,%valid_args : i1
+      func.call @chatml.mapping_check(%valid) : (i1) -> ()
+      %known = func.call @hermes.known_tool(%schemas,%name) : (buffer,buffer) -> (i1)
+      func.call @chatml.mapping_check(%known) : (i1) -> ()
+      %name_json = func.call @text.json_quote(%name) : (buffer) -> (buffer)
+      %args_compact = func.call @compact(%arguments) : (buffer) -> (buffer)
+      %args_json = func.call @text.json_quote(%args_compact) : (buffer) -> (buffer)
+      %separator = scf.select %has,%comma,%empty : buffer
+      %result = func.call @text.join8(%prior,%separator,%record_open,%name_json,%record_middle,%args_json,%record_close,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+      %next = index.add %stop,%close_size : offset
+      %true = scalar.constant true : i1
+      scf.yield %next,%result,%true : offset,buffer,i1
+    } else { scf.yield %size,%prior,%has : offset,buffer,i1 }
+    scf.yield %next_p,%next_records,%next_has : offset,buffer,i1
+  }
+  %result = func.call @text.join8(%records,%list_close,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  func.return %result : buffer
+}

@@ -38,7 +38,6 @@ class HemConfigTest(ConfigurationFixture, unittest.TestCase):
         self.assertEqual(result.settings['context_capacity'], 32768)
         self.assertEqual(result.sources['rows'], 'file')
         self.assertEqual(result.sources['context_capacity'], 'override')
-        self.assertEqual(result.sources['pool_capacity'], 'recipe')
         self.assertNotIn('mtp_depth', result.settings)
         with self.assertRaises(TypeError): result.settings['rows'] = 1
         path.write_text('{"rows":1}')

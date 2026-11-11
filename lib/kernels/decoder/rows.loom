@@ -1,0 +1,358 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Config-free ordinary-decoder packet adapters. Arithmetic is shared below.
+// Count buffers contain {active_rows, 0, 0}; epoch descriptors contain
+// {active_rows, absolute_position, input_begin, output_begin, ...}.
+// Inputs/weights are read-only, scratch outputs are disjoint, residual is RW.
+template.decl @llm.rmsnorm.row(%width: index, %divisor: f32, %rows: index, %row: index, %output_origin: offset, %half_output: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+template.decl @llm.residual_add_f32.row(%width: index, %rows: index, %row: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+template.decl @llm.token_embedding_q6k_f32.row(%width: index, %weight_row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+template.decl @llm.attention.head_rms_value(%raw: f32, %divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %weight: buffer) -> (f32)
+template.decl @llm.attention.rope_neox_value(%head_size: index, %half: index, %rope_size: index, %log_step: f32, %position: i32, %lane: index, %head: buffer) -> (f32)
+template.decl @llm.attention.row_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %scale: f32, %position: i32, %head: index, %lane: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
+
+func.def public inline @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1) {
+  %origin = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %words = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %n32 = view.load %words[0] : view<3xi32> -> i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %fits = index.cmp ule, %n, %rows : index
+  %inside = index.cmp ult, %row, %n : index
+  %valid_count = scalar.andi %positive, %fits : i1
+  %active = scalar.andi %valid_count, %inside : i1
+  func.return %active : i1
+}
+
+func.def public inline @llm.decoder.position(%row: index, %rows: index, %capacity: index, %origin: offset, %epoch: buffer) -> (i1, index) {
+  %zero32 = scalar.constant 0 : i32
+  %descriptor = buffer.view %epoch[%origin] : buffer -> view<5xi32>
+  %n32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %base32 = view.load %descriptor[1] : view<5xi32> -> i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %nonnegative = scalar.cmpi sge, %base32, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %base = index.cast %base32 : i32 to index
+  %fits_rows = index.cmp ule, %n, %rows : index
+  %inside = index.cmp ult, %row, %n : index
+  %position = index.add %base, %row : index
+  %fits_context = index.cmp ult, %position, %capacity : index
+  %a = scalar.andi %positive, %nonnegative : i1
+  %b = scalar.andi %fits_rows, %inside : i1
+  %c = scalar.andi %a, %b : i1
+  %valid = scalar.andi %c, %fits_context : i1
+  func.return %valid, %position : i1, index
+}
+
+// Defines every output row; inactive input rows are never loaded.
+kernel.def @llm.decoder.rmsnorm_active(%rows0: index, %width0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%one, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%rows0: index, %width0: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 1, 32768)] : index
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+  %origin = index.constant 0 : offset
+  scf.if %active {
+    %word = index.constant 4 : offset
+    %row_bytes = index.scale %width, %word : index, offset -> offset
+    %output_origin = index.scale %row, %row_bytes : index, offset -> offset
+    %width32 = index.cast %width : index to i32
+    %divisor = scalar.uitofp %width32 : i32 to f32
+    %half_output = scalar.constant false : i1
+    template.apply<@llm.rmsnorm.row>(%width, %divisor, %rows, %row, %output_origin, %half_output, %epsilon, %input, %gamma, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
+  } else {
+    %lane = kernel.workitem.id<x> : index
+    %step = index.constant 256 : index
+    %zero = scalar.constant 0.0 : f32
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    scf.for %element = [%lane to %width step %step] {
+      view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+    }
+  }
+  kernel.return
+}
+
+kernel.def @llm.decoder.residual(%rows0: index, %width0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 1024, 32768), multiple_of(%width0, 4)] : index
+  %bias = index.constant 1023 : index
+  %tile = index.constant 1024 : index
+  %rounded = index.add %width, %bias : index
+  %groups = index.div %rounded, %tile : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%groups, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%width0: index, %count: buffer, %source: buffer, %residual: buffer) {
+  %width = index.assume %width0 [range(%width0, 1024, 32768), multiple_of(%width0, 4)] : index
+  %rows = kernel.workgroup.count<y> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+  scf.if %active {
+    template.apply<@llm.residual_add_f32.row>(%width, %rows, %row, %residual, %source, %residual) : (index, index, index, buffer, buffer, buffer)
+  }
+  kernel.return
+}
+
+kernel.def @llm.decoder.embedding_q6(%rows0: index, %width0: index, %vocabulary0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%width0: index, %vocabulary0: index, %control_origin: offset, %epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer) {
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %vocabulary = index.assume %vocabulary0 [range(%vocabulary0, 1, 262144)] : index
+  %rows = kernel.workgroup.count<x> : index
+  %row = kernel.workgroup.id<x> : index
+  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+  %origin = index.constant 0 : offset
+  %word = index.constant 4 : offset
+  %row_bytes = index.scale %width, %word : index, offset -> offset
+  %output_origin = index.scale %row, %row_bytes : index, offset -> offset
+  %descriptor = buffer.view %epoch[%control_origin] : buffer -> view<5xi32>
+  %input_begin32 = view.load %descriptor[2] : view<5xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %nonnegative = scalar.cmpi sge, %input_begin32, %zero32 : i32
+  %input_begin = index.cast %input_begin32 : i32 to index
+  %input_row = index.add %input_begin, %row : index
+  %fits = index.cmp ult, %input_row, %rows : index
+  %a = scalar.andi %active, %nonnegative : i1
+  %valid = scalar.andi %a, %fits : i1
+  scf.if %valid {
+    %ids = buffer.view %tokens[%origin] : buffer -> view<[%rows]xi32>
+    %bounded_input_row = index.assume %input_row [range(%input_row, 0, 511), lt(%input_row, %rows)] : index
+    %id32 = view.load %ids[%bounded_input_row] : view<[%rows]xi32> -> i32
+    %id_value = index.cast %id32 : i32 to index
+    %id = index.assume %id_value [range(%id_value, 0, 262143), lt(%id_value, %vocabulary)] : index
+    %bounded_id = index.cast %id : index to i32
+    %block_values = index.constant 256 : index
+    %block_bytes = index.constant 210 : index
+    %blocks = index.div %width, %block_values : index
+    %weight_row_bytes = index.mul %blocks, %block_bytes : index
+    template.apply<@llm.token_embedding_q6k_f32.row>(%width, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+  } else {
+    %lane = kernel.workitem.id<x> : index
+    %step = index.constant 256 : index
+    %zero = scalar.constant 0.0 : f32
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    scf.for %element = [%lane to %width step %step] {
+      view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+    }
+  }
+  kernel.return
+}
+
+// H128 is an operation geometry variant: fixed workgroup reductions require
+// a compile-time thread count. Other head widths need a separately proven wrapper.
+kernel.def @llm.decoder.prepare_qk_h128(%rows0: index, %heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 128)] : index
+  %head_size = index.constant 128 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%head_size, %one, %one) : index
+} launch(%logical_capacity: index, %epsilon: f32, %rope_log_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer) {
+  %head0 = kernel.workgroup.id<x> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %heads = kernel.workgroup.count<x> : index
+  %rows = kernel.workgroup.count<y> : index
+  %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %heads)] : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %h_value = kernel.workgroup.size<x> : index
+  %h = index.assume %h_value [range(%h_value, 32, 256), multiple_of(%h_value, 32)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 255), lt(%lane0, %h)] : index
+  %capacity = index.assume %logical_capacity [range(%logical_capacity, 1, 262144)] : index
+  %valid, %position = func.call @llm.decoder.position(%row, %rows, %capacity, %control_origin, %epoch) : (index, index, index, offset, buffer) -> (i1, index)
+  %origin = index.constant 0 : offset
+  %width = index.mul %heads, %h : index
+  %head_base = index.mul %head, %h : index
+  %element0 = index.add %head_base, %lane : index
+  %element = index.assume %element0 [lt(%element0, %width)] : index
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  scf.if %valid {
+    %input = buffer.view %projection[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %raw = view.load %input[%row, %element] : view<[%rows]x[%width]xf32> -> f32
+    %h32 = index.cast %h : index to i32
+    %divisor = scalar.uitofp %h32 : i32 to f32
+    %normal = template.apply<@llm.attention.head_rms_value>(%raw, %divisor, %epsilon, %lane, %h, %gamma) : (f32, f32, f32, index, index, buffer) -> (f32)
+    %word = index.constant 4 : offset
+    %scratch_bytes = index.scale %h, %word : index, offset -> offset
+    %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+    %normalized = buffer.view %scratch[%origin] : buffer -> view<[%h]xf32>
+    view.store %normal, %normalized[%lane] : f32, view<[%h]xf32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %two = index.constant 2 : index
+    %half = index.div %h, %two : index
+    %position32 = index.cast %position : index to i32
+    %rotated = template.apply<@llm.attention.rope_neox_value>(%h, %half, %h, %rope_log_step, %position32, %lane, %scratch) : (index, index, index, f32, i32, index, buffer) -> (f32)
+    view.store %rotated, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  } else {
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  }
+  kernel.return
+}
+
+kernel.def @llm.decoder.publish_kv_h128(%rows0: index, %kv_heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %kv_heads0 [range(%kv_heads0, 1, 128)] : index
+  %h = index.constant 128 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%h, %one, %one) : index
+} launch(%layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer) {
+  %layer = index.assume %layer0 [range(%layer0, 0, 63), lt(%layer0, %layers)] : index
+  %pool = index.assume %pool_capacity [range(%pool_capacity, 0, 4194304), multiple_of(%pool_capacity, 64)] : index
+  %heads0 = kernel.workgroup.count<x> : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 128)] : index
+  %rows0 = kernel.workgroup.count<y> : index
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %h = index.constant 128 : index
+  %head0 = kernel.workgroup.id<x> : index
+  %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %heads)] : index
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 127)] : index
+  %capacity = index.assume %logical_capacity [range(%logical_capacity, 1, 262144)] : index
+  %valid, %position0 = func.call @llm.decoder.position(%row, %rows, %capacity, %control_origin, %epoch) : (index, index, index, offset, buffer) -> (i1, index)
+  scf.if %valid {
+    %position = index.assume %position0 [range(%position0, 0, 262143), lt(%position0, %capacity)] : index
+    %zero = index.constant 0 : index
+    %two = index.constant 2 : index
+    %one = index.constant 1 : index
+    %half_bytes = index.constant 2 : offset
+    %pooled = index.cmp ne, %pool, %zero : index
+    %physical_capacity0 = scf.select %pooled, %pool, %capacity : index
+    %physical_capacity = index.assume %physical_capacity0 [range(%physical_capacity0, 1, 4194304)] : index
+    %kv = index.mul %heads, %h : index
+    %row_bytes = index.scale %kv, %half_bytes : index, offset -> offset
+    %stride = index.scale %physical_capacity, %row_bytes : index, offset -> offset
+    %key_plane = index.mul %layer, %two : index
+    %value_plane = index.add %key_plane, %one : index
+    %key_add = index.scale %key_plane, %stride : index, offset -> offset
+    %value_add = index.scale %value_plane, %stride : index, offset -> offset
+    %key_origin = index.add %cache_base, %key_add : offset
+    %value_origin = index.add %cache_base, %value_add : offset
+    %physical0 = func.call @qwen38_kv_position(%capacity, %map, %map_origin, %position, %pool) : (index, buffer, offset, index, index) -> (index)
+    %physical = index.assume %physical0 [range(%physical0, 0, 4194303), lt(%physical0, %physical_capacity)] : index
+    %head_base = index.mul %head, %h : index
+    %element0 = index.add %head_base, %lane : index
+    %element = index.assume %element0 [range(%element0, 0, 16383), lt(%element0, %kv)] : index
+    %origin = index.constant 0 : offset
+    %k = buffer.view %key[%origin] : buffer -> view<[%rows]x[%kv]xf32>
+    %v = buffer.view %value[%origin] : buffer -> view<[%rows]x[%kv]xf32>
+    %kc = buffer.view %cache[%key_origin] : buffer -> view<[%physical_capacity]x[%kv]xf16>
+    %vc = buffer.view %cache[%value_origin] : buffer -> view<[%physical_capacity]x[%kv]xf16>
+    %key32 = view.load %k[%row, %element] : view<[%rows]x[%kv]xf32> -> f32
+    %value32 = view.load %v[%row, %element] : view<[%rows]x[%kv]xf32> -> f32
+    %key16 = scalar.fptrunc %key32 : f32 to f16
+    %value16 = scalar.fptrunc %value32 : f32 to f16
+    view.store %key16, %kc[%physical, %element] : f16, view<[%physical_capacity]x[%kv]xf16>
+    view.store %value16, %vc[%physical, %element] : f16, view<[%physical_capacity]x[%kv]xf16>
+  }
+  kernel.return
+}
+
+kernel.def @llm.decoder.attention_rows_h128(%rows0: index, %query_heads0: index, %kv_heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %query_heads0 [range(%query_heads0, 1, 128)] : index
+  %h = index.constant 128 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%h, %one, %one) : index
+} launch(%kv_heads0: index, %layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %attention_scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer) {
+  %layer = index.assume %layer0 [range(%layer0, 0, 63), lt(%layer0, %layers)] : index
+  %pool = index.assume %pool_capacity [range(%pool_capacity, 0, 4194304), multiple_of(%pool_capacity, 64)] : index
+  %qheads0 = kernel.workgroup.count<x> : index
+  %qheads = index.assume %qheads0 [range(%qheads0, 1, 128)] : index
+  %rows0 = kernel.workgroup.count<y> : index
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %h = index.constant 128 : index
+  %kheads = index.assume %kv_heads0 [range(%kv_heads0, 1, 128)] : index
+  %head0 = kernel.workgroup.id<x> : index
+  %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %qheads)] : index
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 127)] : index
+  %capacity = index.assume %logical_capacity [range(%logical_capacity, 1, 262144)] : index
+  %valid, %position0 = func.call @llm.decoder.position(%row, %rows, %capacity, %control_origin, %epoch) : (index, index, index, offset, buffer) -> (i1, index)
+  %qwidth = index.mul %qheads, %h : index
+  scf.if %valid {
+    %position = index.assume %position0 [range(%position0, 0, 262143), lt(%position0, %capacity)] : index
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %two = index.constant 2 : index
+    %half_bytes = index.constant 2 : offset
+    %pooled = index.cmp ne, %pool, %zero : index
+    %physical_capacity0 = scf.select %pooled, %pool, %capacity : index
+    %physical_capacity = index.assume %physical_capacity0 [range(%physical_capacity0, 1, 4194304)] : index
+    %kv = index.mul %kheads, %h : index
+    %row_bytes = index.scale %kv, %half_bytes : index, offset -> offset
+    %stride = index.scale %physical_capacity, %row_bytes : index, offset -> offset
+    %key_plane = index.mul %layer, %two : index
+    %value_plane = index.add %key_plane, %one : index
+    %key_add = index.scale %key_plane, %stride : index, offset -> offset
+    %value_add = index.scale %value_plane, %stride : index, offset -> offset
+    %key_origin = index.add %cache_base, %key_add : offset
+    %value_origin = index.add %cache_base, %value_add : offset
+    %word = index.constant 4 : offset
+    %query_bytes = index.scale %qwidth, %word : index, offset -> offset
+    %query_origin = index.scale %row, %query_bytes : index, offset -> offset
+    %position32 = index.cast %position : index to i32
+    %no_gate = scalar.constant false : i1
+    template.apply<@llm.attention.row_f32>(%qheads, %kheads, %h, %qwidth, %kv, %capacity, %pool, %map_origin, %query_origin, %query_origin, %key_origin, %value_origin, %map, %attention_scale, %position32, %head, %lane, %no_gate, %query, %query, %cache, %cache, %output) : (index, index, index, index, index, index, index, offset, offset, offset, offset, offset, buffer, f32, i32, index, index, i1, buffer, buffer, buffer, buffer, buffer)
+  } else {
+    %origin = index.constant 0 : offset
+    %base = index.mul %head, %h : index
+    %element0 = index.add %base, %lane : index
+    %element = index.assume %element0 [range(%element0, 0, 16383), lt(%element0, %qwidth)] : index
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%qwidth]xf32>
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%qwidth]xf32>
+  }
+  kernel.return
+}
+
+// Normalizes exactly the last active row into a compact one-row output.
+kernel.def @llm.decoder.output_norm_last(%capacity0: index, %width0: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%capacity0: index, %width0: index, %begin: index, %control_origin: offset, %epsilon: f32, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %capacity = index.assume %capacity0 [range(%capacity0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 1, 32768)] : index
+  %zero32 = scalar.constant 0 : i32
+  %words = buffer.view %control[%control_origin] : buffer -> view<3xi32>
+  %n32 = view.load %words[0] : view<3xi32> -> i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %end = index.add %begin, %n : index
+  %fits = index.cmp ule, %end, %capacity : index
+  %valid = scalar.andi %positive, %fits : i1
+  %origin = index.constant 0 : offset
+  scf.if %valid {
+    %one = index.constant 1 : index
+    %last0 = index.sub %end, %one : index
+    %last = index.assume %last0 [range(%last0, 0, 511), lt(%last0, %capacity)] : index
+    %width32 = index.cast %width : index to i32
+    %divisor = scalar.uitofp %width32 : i32 to f32
+    %half_output = scalar.constant false : i1
+    template.apply<@llm.rmsnorm.row>(%width, %divisor, %capacity, %last, %origin, %half_output, %epsilon, %input, %gamma, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
+  } else {
+    %lane = kernel.workitem.id<x> : index
+    %step = index.constant 256 : index
+    %zero = scalar.constant 0.0 : f32
+    %out = buffer.view %output[%origin] : buffer -> view<[%width]xf32>
+    scf.for %element = [%lane to %width step %step] {
+      view.store %zero, %out[%element] : f32, view<[%width]xf32>
+    }
+  }
+  kernel.return
+}

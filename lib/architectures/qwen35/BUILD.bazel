@@ -76,4 +76,4 @@ cc_binary(
     deps = ["//lib/loomify:configuration", "//lib/loomify:native_linking", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c/target/amdgpu"],
 )
 
-loom_merge(name = "execution", srcs = ["control_core.loom"])
+loom_merge(name = "execution", srcs = ["control_core.loom", "//loom-pipeline:llm/common/fixed_epoch_abi.loom"])

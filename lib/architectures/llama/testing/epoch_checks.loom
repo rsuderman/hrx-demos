@@ -1,6 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-command.program.decl @test.epoch8.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+command.decl @test.epoch8.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
 func.def @reference_epoch8_0(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
@@ -73,7 +73,7 @@ check.scenario @epoch8_0 {
   }
   check.return
 }
-command.program.decl @test.epoch8.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+command.decl @test.epoch8.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
 func.def @reference_epoch8_1(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
@@ -144,7 +144,7 @@ check.scenario @epoch8_1 {
   }
   check.return
 }
-command.program.decl @test.epoch8.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+command.decl @test.epoch8.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
 func.def @reference_epoch8_2(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
@@ -217,7 +217,7 @@ check.scenario @epoch8_2 {
   }
   check.return
 }
-command.program.decl @test.epoch256.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+command.decl @test.epoch256.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
 func.def @reference_epoch256_0(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
@@ -290,7 +290,7 @@ check.scenario @epoch256_0 {
   }
   check.return
 }
-command.program.decl @test.epoch256.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+command.decl @test.epoch256.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
 func.def @reference_epoch256_1(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
@@ -361,7 +361,7 @@ check.scenario @epoch256_1 {
   }
   check.return
 }
-command.program.decl @test.epoch256.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+command.decl @test.epoch256.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
 func.def @reference_epoch256_2(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
@@ -436,7 +436,7 @@ check.scenario @epoch256_2 {
 }
 
 // Independent expected stores; no packet-decoding helper or production arithmetic.
-command.program.decl @test.epoch.offset8() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer)
+command.decl @test.epoch.offset8() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer)
 func.def @reference_epoch_offset8(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>

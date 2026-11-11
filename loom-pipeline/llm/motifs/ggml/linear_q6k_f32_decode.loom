@@ -20,14 +20,14 @@ func.def inline @ggml_q6k_f32_block_row_lane(%weight: buffer, %weight_row_byte_b
   %qh_byte_add = index.constant 128 : offset
   %scale_byte_add = index.constant 192 : offset
   %d_byte_add = index.constant 208 : offset
-  %c2_i32v = vector.constant 2 : vector<1xi32>
-  %c4_i32v = vector.constant 4 : vector<1xi32>
-  %nibble_mask = vector.constant 252645135 : vector<1xi32>
-  %qh0_mask = vector.constant 50529027 : vector<1xi32>
-  %qh2_mask = vector.constant 202116108 : vector<1xi32>
-  %qh4_mask = vector.constant 808464432 : vector<1xi32>
-  %qh6_mask = vector.constant -1061109568 : vector<1xi32>
-  %c32_f32v = vector.constant 32.0 : vector<4xf32>
+  %c2_i32v = vector.splati 2 : vector<1xi32>
+  %c4_i32v = vector.splati 4 : vector<1xi32>
+  %nibble_mask = vector.splati 252645135 : vector<1xi32>
+  %qh0_mask = vector.splati 50529027 : vector<1xi32>
+  %qh2_mask = vector.splati 202116108 : vector<1xi32>
+  %qh4_mask = vector.splati 808464432 : vector<1xi32>
+  %qh6_mask = vector.splati -1061109568 : vector<1xi32>
+  %c32_f32v = vector.splatf 32.0 : vector<4xf32>
   %c0_f32 = scalar.constant 0.0 : f32
   %bounded_lane = index.assume %lane_in_block [range(%lane_in_block, 0, 15)] : index
   %block_byte_add = index.scale %q6_block, %block_bytes : index, offset -> offset
@@ -393,7 +393,7 @@ check.case public @ggml_linear_q6k_f32_decode_nonzero_tail_case {
   %output = check.generate.fill value(0.0) : tensor<1x9xf32>
   %expected = check.generate.fill value(358.1715087890625) : tensor<1x9xf32>
   kernel.launch @ggml_linear_q6k_f32_decode[%token_count, %input_size, %output_size](%token_count, %input_size, %output_size, %input, %weight, %output) : [index, index, index](index, index, index, tensor<1x2048xf32>, tensor<9x8x210xi8>, tensor<1x9xf32>)
-  check.expect.close actual(%output) expected(%expected) atol(0.25) rtol(9.9999999999999995e-07) nan(same) : tensor<1x9xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(0.25) rtol(9.9999999999999995e-07) nan(same) : tensor<1x9xf32>, tensor<1x9xf32>
   check.return
 }
 
@@ -423,7 +423,7 @@ check.case public @ggml_linear_q6k_f32_decode_ffn_down_benchmark_case {
   %output = check.generate.fill value(1.0) : tensor<1x5120xf32>
   %expected = check.generate.fill value(0.0) : tensor<1x5120xf32>
   kernel.launch @ggml_linear_q6k_f32_decode[%token_count, %input_size, %output_size](%token_count, %input_size, %output_size, %input, %weight, %output) : [index, index, index](index, index, index, tensor<1x17408xf32>, tensor<5120x68x210xi8>, tensor<1x5120xf32>)
-  check.expect.close actual(%output) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<1x5120xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<1x5120xf32>, tensor<1x5120xf32>
   check.return
 }
 

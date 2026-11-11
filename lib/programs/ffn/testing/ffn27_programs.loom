@@ -56,13 +56,13 @@ func.def public pure inline @loomify.config.layer_ffn(%layer:index) -> (index,in
   %bytes = index.constant 50135040 : index
   func.return %f,%q4,%q4,%q4,%bytes,%bytes,%bytes : index,index,index,index,index,index,index
 }
-command.program.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
+command.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
 
-command.program.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
+command.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
 
-command.program.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
+command.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
 
-command.program.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+command.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
 kernel.decl @ggml_quantize_q8_1_x4_f32(%rows:index,%width:index) launch(%rows:index,%width:index,%input:buffer,%output:buffer)
 func.def @test.init.ffn27_1.body(%channel0: index, %input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer) {
@@ -393,7 +393,7 @@ func.def @reference.ffn27_1(%root: buffer, %input: buffer, %residual: buffer, %a
   }
   func.return
 }
-command.program.def public retain @actual.ffn27_1() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {
+command.def public retain @actual.ffn27_1() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {
   command.serial {
     %layer = index.constant 0 : index
     %rows = index.constant 1 : index
@@ -408,8 +408,8 @@ command.program.def public retain @actual.ffn27_1() launch(%root:buffer,%input:b
     %packed_bytes = index.constant 5760 : offset
     %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%hidden](%rows,%hidden,%input,%packed) : [index,index](index,index,buffer,buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%layer](%root,%packed,%activation) : [index](buffer,buffer,buffer)
-    command.program.launch @qwen38_ffn_down_decode[%layer](%root,%activation,%residual) : [index](buffer,buffer,buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%layer](%root,%packed,%activation) : [index](buffer,buffer,buffer)
+    command.launch @qwen38_ffn_down_decode[%layer](%root,%activation,%residual) : [index](buffer,buffer,buffer)
   }
   command.return
 }
@@ -831,7 +831,7 @@ func.def @reference.ffn27_3(%root: buffer, %input: buffer, %residual: buffer, %a
   }
   func.return
 }
-command.program.def public retain @actual.ffn27_3() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {
+command.def public retain @actual.ffn27_3() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {
   command.serial {
     %layer = index.constant 0 : index
     %rows = index.constant 3 : index
@@ -843,8 +843,8 @@ command.program.def public retain @actual.ffn27_3() launch(%root:buffer,%input:b
     %up = command.parameter %root,"blk.{}.ffn_up.weight"[%layer] : view<[%bytes]xi8>
     %down = command.parameter %root,"blk.{}.ffn_down.weight"[%layer] : view<[%bytes]xi8>
     kernel.launch @test.init.ffn27_3(%input,%gate,%up,%down,%residual) : (buffer,view<[%bytes]xi8>,view<[%bytes]xi8>,view<[%bytes]xi8>,buffer)
-    command.program.launch @qwen38_ffn_gate_up_prefill[%rows,%rows,%layer,%zero,%one](%root,%input,%control,%activation) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%rows,%rows,%layer,%zero,%one](%root,%control,%activation,%residual) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%rows,%rows,%layer,%zero,%one](%root,%input,%control,%activation) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
+    command.launch @qwen38_ffn_down_prefill[%rows,%rows,%layer,%zero,%one](%root,%control,%activation,%residual) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
   }
   command.return
 }
@@ -915,7 +915,7 @@ func.def @reference.ffn27_quantize_257(%input:buffer,%packed:buffer) {
   }
   func.return
 }
-command.program.def public retain @actual.ffn27_quantize_257() launch(%input:buffer,%packed:buffer) {
+command.def public retain @actual.ffn27_quantize_257() launch(%input:buffer,%packed:buffer) {
   command.serial {
     kernel.launch @test.init.ffn27_quantize_257(%input) : (buffer)
     %rows = index.constant 257 : index
@@ -991,7 +991,7 @@ func.def @reference.ffn27_quantize_512(%input:buffer,%packed:buffer) {
   }
   func.return
 }
-command.program.def public retain @actual.ffn27_quantize_512() launch(%input:buffer,%packed:buffer) {
+command.def public retain @actual.ffn27_quantize_512() launch(%input:buffer,%packed:buffer) {
   command.serial {
     kernel.launch @test.init.ffn27_quantize_512(%input) : (buffer)
     %rows = index.constant 512 : index

@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 kernel.decl @authored.affine() launch(%input: buffer, %output: buffer)
-command.program.def public @example.authored_affine() launch(%input: buffer, %output: buffer) {
+command.def public @example.authored_affine() launch(%input: buffer, %output: buffer) {
   kernel.launch @authored.affine[](%input, %output) : [](buffer, buffer)
   command.return
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Wiring proof against separately emitted compact execution, not an independent
 // numerical model. M2 immutable anchors and M3 scalar oracles qualify arithmetic.
-command.program.decl @joined.1.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+command.decl @joined.1.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
 func.def @reference_1_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -71,7 +71,7 @@ check.scenario @joined_1_prefill_replay {
   }
   check.return
 }
-command.program.decl @joined.1.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+command.decl @joined.1.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
 func.def @reference_1_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -140,7 +140,7 @@ check.scenario @joined_1_decode_replay {
   }
   check.return
 }
-command.program.decl @joined.2.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+command.decl @joined.2.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
 func.def @reference_2_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -209,7 +209,7 @@ check.scenario @joined_2_prefill_replay {
   }
   check.return
 }
-command.program.decl @joined.2.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+command.decl @joined.2.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
 func.def @reference_2_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>

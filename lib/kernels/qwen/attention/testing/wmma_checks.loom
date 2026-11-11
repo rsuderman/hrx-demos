@@ -189,7 +189,7 @@ kernel.def @wmma_initialize_n2_p0_q1() {
   func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
   kernel.return
 }
-command.program.def public @wmma_actual_n2_p0_q1() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+command.def public @wmma_actual_n2_p0_q1() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
@@ -219,7 +219,7 @@ check.scenario @wmma_n2_p0_q1 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<4x2048xf32>
       check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x2048xf32>
       check.expect.bitwise actual(%arena) expected(%arena) : tensor<262208xf16>
-      check.expect.close actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<4096xf32>
     }
   }
@@ -236,7 +236,7 @@ kernel.def @wmma_initialize_n3_p63_q0() {
   func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
   kernel.return
 }
-command.program.def public @wmma_actual_n3_p63_q0() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+command.def public @wmma_actual_n3_p63_q0() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
@@ -266,7 +266,7 @@ check.scenario @wmma_n3_p63_q0 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<4x2048xf32>
       check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x2048xf32>
       check.expect.bitwise actual(%arena) expected(%arena) : tensor<262208xf16>
-      check.expect.close actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
     }
   }
@@ -283,7 +283,7 @@ kernel.def @wmma_initialize_n3_p63_q1() {
   func.call @wmma_init(%count, %position, %nonzero, %epoch, %rows, %query, %gate, %arena) : (index, index, index, buffer, buffer, buffer, buffer, buffer) -> ()
   kernel.return
 }
-command.program.def public @wmma_actual_n3_p63_q1() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
+command.def public @wmma_actual_n3_p63_q1() launch(%epoch: buffer, %rows: buffer, %query: buffer, %gate: buffer, %arena: buffer, %output: buffer) {
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
@@ -313,7 +313,7 @@ check.scenario @wmma_n3_p63_q1 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<4x2048xf32>
       check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x2048xf32>
       check.expect.bitwise actual(%arena) expected(%arena) : tensor<262208xf16>
-      check.expect.close actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.002) rtol(0.002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
     }
   }

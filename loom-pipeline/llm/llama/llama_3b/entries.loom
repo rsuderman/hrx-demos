@@ -55,12 +55,12 @@ kernel.def @llama32_mask_token_ids(%capacity0: index) {
   kernel.return
 }
 kernel.decl @llama32_publish_rows(%token_capacity0: index) launch(%all_rows: i1, %kind: index, %control: buffer, %source: buffer, %output: buffer)
-command.program.decl @llama32_embedding(%token_count: index) launch(%parameters: buffer, %token_ids: buffer, %residual: buffer)
-command.program.decl @llama32_layers(%tokens: index, %spans: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %origins: buffer, %arena: buffer)
-command.program.decl @llama32_output_head_rows_greedy(%token_count: index) launch(%parameters: buffer, %residual: buffer, %normalized: buffer, %token_ids: buffer)
-command.program.decl @llama32_output_head_last_greedy(%token_capacity: index, %token_begin: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %control: buffer, %normalized: buffer, %token_ids: buffer)
+command.decl @llama32_embedding(%token_count: index) launch(%parameters: buffer, %token_ids: buffer, %residual: buffer)
+command.decl @llama32_layers(%tokens: index, %spans: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %origins: buffer, %arena: buffer)
+command.decl @llama32_output_head_rows_greedy(%token_count: index) launch(%parameters: buffer, %residual: buffer, %normalized: buffer, %token_ids: buffer)
+command.decl @llama32_output_head_last_greedy(%token_capacity: index, %token_begin: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %control: buffer, %normalized: buffer, %token_ids: buffer)
 
-command.program.def @llama32_embed_active(%tokens: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %input_tokens: buffer) where [range(%tokens, 1, 512), range(%kind, 0, 2)] {
+command.def @llama32_embed_active(%tokens: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %input_tokens: buffer) where [range(%tokens, 1, 512), range(%kind, 0, 2)] {
   %hidden = config.get @llama.model.hidden_size : index
   %four = index.constant 4 : offset
   %token_bytes = index.scale %tokens, %four : index, offset -> offset
@@ -69,7 +69,7 @@ command.program.def @llama32_embed_active(%tokens: index, %kind: index) launch(%
   %safe_ids = buffer.alloca<global> align(16) %token_bytes : buffer
   %embedded = buffer.alloca<global> align(256) %hidden_bytes : buffer
   kernel.launch @llama32_mask_token_ids[%tokens](%kind, %control, %input_tokens, %safe_ids) : [index](index, buffer, buffer, buffer)
-  command.program.launch @llama32_embedding[%tokens](%parameters, %safe_ids, %embedded) : [index](buffer, buffer, buffer)
+  command.launch @llama32_embedding[%tokens](%parameters, %safe_ids, %embedded) : [index](buffer, buffer, buffer)
   %active_only = scalar.constant false : i1
   kernel.launch @llama32_publish_rows[%tokens](%active_only, %kind, %control, %embedded, %residual) : [index](i1, index, buffer, buffer, buffer)
   command.return
@@ -194,7 +194,7 @@ kernel.def @llama32_publish_selected(%output_capacity0: index) {
   kernel.return
 }
 
-command.program.def public @llama32_prefill() launch(%parameters: buffer, %residual: buffer, %control: buffer, %native_slot: buffer, %attention: buffer, %token_ids: buffer, %progress: buffer) {
+command.def public @llama32_prefill() launch(%parameters: buffer, %residual: buffer, %control: buffer, %native_slot: buffer, %attention: buffer, %token_ids: buffer, %progress: buffer) {
   %tokens = config.get @runner.llama32.prefill_token_count : index
   %hidden = config.get @llama.model.hidden_size : index
   %one = index.constant 1 : index
@@ -205,14 +205,14 @@ command.program.def public @llama32_prefill() launch(%parameters: buffer, %resid
   %row_bytes = index.scale %hidden, %four : index, offset -> offset
   %normalized = buffer.alloca<global> align(256) %row_bytes : buffer
   %raw = buffer.alloca<global> align(4) %four : buffer
-  command.program.launch @llama32_embed_active[%tokens, %kind](%parameters, %residual, %control, %token_ids) : [index, index](buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_layers[%tokens, %one, %kind](%parameters, %residual, %control, %native_slot, %attention) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_output_head_last_greedy[%tokens, %begin, %origin](%parameters, %residual, %control, %normalized, %raw) : [index, index, offset](buffer, buffer, buffer, buffer, buffer)
+  command.launch @llama32_embed_active[%tokens, %kind](%parameters, %residual, %control, %token_ids) : [index, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_layers[%tokens, %one, %kind](%parameters, %residual, %control, %native_slot, %attention) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.launch @llama32_output_head_last_greedy[%tokens, %begin, %origin](%parameters, %residual, %control, %normalized, %raw) : [index, index, offset](buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llama32_finish_isolated(%kind, %raw, %control, %token_ids, %progress) : (index, buffer, buffer, buffer, buffer)
   command.return
 }
 
-command.program.def public @llama32_text_decode_greedy() launch(%parameters: buffer, %residual: buffer, %control: buffer, %native_slot: buffer, %attention: buffer, %token_ids: buffer, %progress: buffer) {
+command.def public @llama32_text_decode_greedy() launch(%parameters: buffer, %residual: buffer, %control: buffer, %native_slot: buffer, %attention: buffer, %token_ids: buffer, %progress: buffer) {
   %one = index.constant 1 : index
   %hidden = config.get @llama.model.hidden_size : index
   %kind = index.constant 1 : index
@@ -220,14 +220,14 @@ command.program.def public @llama32_text_decode_greedy() launch(%parameters: buf
   %row_bytes = index.scale %hidden, %four : index, offset -> offset
   %normalized = buffer.alloca<global> align(256) %row_bytes : buffer
   %raw = buffer.alloca<global> align(4) %four : buffer
-  command.program.launch @llama32_embed_active[%one, %kind](%parameters, %residual, %control, %token_ids) : [index, index](buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_layers[%one, %one, %kind](%parameters, %residual, %control, %native_slot, %attention) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_output_head_rows_greedy[%one](%parameters, %residual, %normalized, %raw) : [index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_embed_active[%one, %kind](%parameters, %residual, %control, %token_ids) : [index, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_layers[%one, %one, %kind](%parameters, %residual, %control, %native_slot, %attention) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.launch @llama32_output_head_rows_greedy[%one](%parameters, %residual, %normalized, %raw) : [index](buffer, buffer, buffer, buffer)
   kernel.launch @llama32_finish_isolated(%kind, %raw, %control, %token_ids, %progress) : (index, buffer, buffer, buffer, buffer)
   command.return
 }
 
-command.program.def public @llama32_epoch() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input_tokens: buffer, %output_tokens: buffer) {
+command.def public @llama32_epoch() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input_tokens: buffer, %output_tokens: buffer) {
   %tokens = config.get @runner.llama32.prefill_token_count : index
   %outputs = config.get @runner.llama32.span_capacity : index
   %kind = index.constant 2 : index
@@ -239,10 +239,10 @@ command.program.def public @llama32_epoch() launch(%parameters: buffer, %residua
   %selected = buffer.alloca<global> align(256) %hidden_bytes : buffer
   %normalized = buffer.alloca<global> align(256) %hidden_bytes : buffer
   %raw = buffer.alloca<global> align(16) %id_bytes : buffer
-  command.program.launch @llama32_embed_active[%tokens, %kind](%parameters, %residual, %metadata, %input_tokens) : [index, index](buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_layers[%tokens, %outputs, %kind](%parameters, %residual, %metadata, %origins, %arena) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.launch @llama32_embed_active[%tokens, %kind](%parameters, %residual, %metadata, %input_tokens) : [index, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_layers[%tokens, %outputs, %kind](%parameters, %residual, %metadata, %origins, %arena) : [index, index, index](buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llama32_gather_selected[%tokens, %outputs](%tokens, %metadata, %residual, %selected) : [index, index](index, buffer, buffer, buffer)
-  command.program.launch @llama32_output_head_rows_greedy[%outputs](%parameters, %selected, %normalized, %raw) : [index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_output_head_rows_greedy[%outputs](%parameters, %selected, %normalized, %raw) : [index](buffer, buffer, buffer, buffer)
   kernel.launch @llama32_publish_selected[%outputs](%metadata, %raw, %output_tokens) : [index](buffer, buffer, buffer)
   command.return
 }

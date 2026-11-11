@@ -146,12 +146,12 @@ kernel.def target(@llama32_attention_wave32) @llama32_attention_residual(%token_
   kernel.return
 }
 
-command.program.decl @llama32_quantize_q8_controlled(%capacity: index, %input_size: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%input: buffer, %control: buffer, %output: buffer)
-command.program.decl @llama32_project_q_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
-command.program.decl @llama32_project_k_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
-command.program.decl @llama32_project_v_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
-command.program.decl @llama32_project_attention_output_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
-command.program.decl @llama32_prepare_attention(%layer0: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset, %control_kind: index) launch(%parameters: buffer, %control: buffer, %map: buffer, %query_projection: buffer, %key_projection: buffer, %value_projection: buffer, %query: buffer, %cache: buffer)
+command.decl @llama32_quantize_q8_controlled(%capacity: index, %input_size: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%input: buffer, %control: buffer, %output: buffer)
+command.decl @llama32_project_q_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
+command.decl @llama32_project_k_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
+command.decl @llama32_project_v_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
+command.decl @llama32_project_attention_output_controlled(%layer: index, %token_count: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%parameters: buffer, %packed_input: buffer, %control: buffer, %output: buffer)
+command.decl @llama32_prepare_attention(%layer0: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset, %control_kind: index) launch(%parameters: buffer, %control: buffer, %map: buffer, %query_projection: buffer, %key_projection: buffer, %value_projection: buffer, %query: buffer, %cache: buffer)
 
 // All normalized/residual matrices cover token_capacity rows. Native owners
 // guarantee token_begin+active_count<=token_capacity and an initialized valid
@@ -195,10 +195,10 @@ template.def<@llama32.attention.sequence> @llama32_attention_sequence(%layer: in
   } else {
     scf.yield %control_origin : offset
   }
-  command.program.launch @llama32_quantize_q8_controlled[%token_capacity, %hidden, %projection_row_origin, %projection_count_origin, %control_kind](%normalized, %control, %input_q8) : [index, index, index, offset, index](buffer, buffer, buffer)
-  command.program.launch @llama32_project_q_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %input_q8, %control, %query_projection) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_project_k_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %input_q8, %control, %key_projection) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
-  command.program.launch @llama32_project_v_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %input_q8, %control, %value_projection) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_quantize_q8_controlled[%token_capacity, %hidden, %projection_row_origin, %projection_count_origin, %control_kind](%normalized, %control, %input_q8) : [index, index, index, offset, index](buffer, buffer, buffer)
+  command.launch @llama32_project_q_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %input_q8, %control, %query_projection) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_project_k_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %input_q8, %control, %key_projection) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_project_v_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %input_q8, %control, %value_projection) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
   scf.if %native {
     %factors = command.parameter %parameters, "rope_freqs.weight" : view<64xf32>
     kernel.launch @llama32_native_prepare[%token_capacity, %spans](%spans, %layer, %control, %map, %factors, %query_projection, %key_projection, %value_projection, %query, %cache) : [index, index](index, index, buffer, buffer, view<64xf32>, buffer, buffer, buffer, buffer, buffer)
@@ -206,11 +206,11 @@ template.def<@llama32.attention.sequence> @llama32_attention_sequence(%layer: in
   } else {
     %remaining0 = index.sub %token_capacity, %token_begin : index
     %remaining = index.assume %remaining0 [range(%remaining0, 1, 512)] : index
-    command.program.launch @llama32_prepare_attention[%layer, %remaining, %control_origin, %token_begin, %cache_base, %map_origin, %control_kind](%parameters, %control, %map, %query_projection, %key_projection, %value_projection, %query, %cache) : [index, index, offset, index, offset, offset, index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @llama32_prepare_attention[%layer, %remaining, %control_origin, %token_begin, %cache_base, %map_origin, %control_kind](%parameters, %control, %map, %query_projection, %key_projection, %value_projection, %query, %cache) : [index, index, offset, index, offset, offset, index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @llama32_attention_rows[%token_capacity](%layer, %cache_base, %control_kind, %control_origin, %token_begin, %map_origin, %control, %map, %query, %cache, %attention) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
   }
-  command.program.launch @llama32_quantize_q8_controlled[%token_capacity, %hidden, %projection_row_origin, %projection_count_origin, %control_kind](%attention, %control, %attention_q8) : [index, index, index, offset, index](buffer, buffer, buffer)
-  command.program.launch @llama32_project_attention_output_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %attention_q8, %control, %projected) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
+  command.launch @llama32_quantize_q8_controlled[%token_capacity, %hidden, %projection_row_origin, %projection_count_origin, %control_kind](%attention, %control, %attention_q8) : [index, index, index, offset, index](buffer, buffer, buffer)
+  command.launch @llama32_project_attention_output_controlled[%layer, %token_capacity, %projection_row_origin, %projection_count_origin, %control_kind](%parameters, %attention_q8, %control, %projected) : [index, index, index, offset, index](buffer, buffer, buffer, buffer)
   scf.if %native {
     kernel.launch @llama32_native_attention_residual[%token_capacity](%control, %projected, %residual) : [index](buffer, buffer, buffer)
   } else {
@@ -219,31 +219,31 @@ template.def<@llama32.attention.sequence> @llama32_attention_sequence(%layer: in
   template.return
 }
 
-command.program.def public @llama32_attention(%layer: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset, %control_kind: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27), range(%token_capacity, 1, 512), range(%token_begin, 0, 511), lt(%token_begin, %token_capacity), range(%control_kind, 0, 1)] {
+command.def public @llama32_attention(%layer: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset, %control_kind: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27), range(%token_capacity, 1, 512), range(%token_begin, 0, 511), lt(%token_begin, %token_capacity), range(%control_kind, 0, 1)] {
   %native = scalar.constant false : i1
   %spans = index.constant 1 : index
   template.apply<@llama32.attention.sequence>(%layer, %token_capacity, %control_origin, %token_begin, %cache_base, %map_origin, %control_kind, %native, %spans, %parameters, %normalized, %residual, %control, %map, %cache) : (index, index, offset, index, offset, offset, index, i1, index, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
-command.program.def public @llama32_attention_prefill(%layer: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27), range(%token_capacity, 1, 512), range(%token_begin, 0, 511), lt(%token_begin, %token_capacity)] {
+command.def public @llama32_attention_prefill(%layer: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27), range(%token_capacity, 1, 512), range(%token_begin, 0, 511), lt(%token_begin, %token_capacity)] {
   %kind = index.constant 0 : index
-  command.program.launch @llama32_attention[%layer, %token_capacity, %control_origin, %token_begin, %cache_base, %map_origin, %kind](%parameters, %normalized, %residual, %control, %map, %cache) : [index, index, offset, index, offset, offset, index](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @llama32_attention[%layer, %token_capacity, %control_origin, %token_begin, %cache_base, %map_origin, %kind](%parameters, %normalized, %residual, %control, %map, %cache) : [index, index, offset, index, offset, offset, index](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
-command.program.def public @llama32_attention_decode(%layer: index, %cache_base: offset, %map_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27)] {
+command.def public @llama32_attention_decode(%layer: index, %cache_base: offset, %map_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27)] {
   %tokens = index.constant 1 : index
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
   %kind = index.constant 1 : index
-  command.program.launch @llama32_attention[%layer, %tokens, %origin, %zero, %cache_base, %map_origin, %kind](%parameters, %normalized, %residual, %control, %map, %cache) : [index, index, offset, index, offset, offset, index](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @llama32_attention[%layer, %tokens, %origin, %zero, %cache_base, %map_origin, %kind](%parameters, %normalized, %residual, %control, %map, %cache) : [index, index, offset, index, offset, offset, index](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 // Runtime packed descriptors and row origins remain device inputs. The shared
 // sequence owns the projections, scratch, attention and output publication.
-command.program.def public @llama32_attention_native(%layer: index, %token_capacity: index, %spans: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27), range(%token_capacity, 1, 512), range(%spans, 1, 16)] {
+command.def public @llama32_attention_native(%layer: index, %token_capacity: index, %spans: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%layer, 0, 27), range(%token_capacity, 1, 512), range(%spans, 1, 16)] {
   %native = scalar.constant true : i1
   %control_origin = index.constant 0 : offset
   %token_begin = index.constant 0 : index

@@ -33,7 +33,7 @@ func.def public inline @llm_output_projection_q6k_rows(%rows: index, %shape_outp
   %one = index.constant 1 : index
   %four = index.constant 4 : index
   %sixteen = index.constant 16 : index
-  %zeroes = vector.constant 0.0 : vector<32xf32>
+  %zeroes = vector.splatf 0.0 : vector<32xf32>
   %weight_stride = index.cast %shape_output_weight_row_bytes : index to offset
   %input_stride = index.cast %shape_hidden_q8_row_bytes : index to offset
   %output_stride = index.cast %shape_logits_row_bytes : index to offset
@@ -84,7 +84,8 @@ func.def inline @qwen38_output_projection_q6k_rows(%rows: index, %input: buffer,
 kernel.def target(@qwen38_output_projection_wave64) @qwen38_output_projection_q6k_m8(%vocabulary_size: index) {
   %threads = index.constant 64 : index
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%vocabulary_size, %one, %one) workgroup_size(%threads, %one, %one) : index
+  %bounded_vocabulary_size = index.assume %vocabulary_size [range(%vocabulary_size, 1, 248320)] : index
+  kernel.launch.config workgroups(%bounded_vocabulary_size, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%input: buffer, %weight: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   func.call @qwen38_output_projection_q6k_rows(%rows, %input, %weight, %output) : (index, buffer, buffer, buffer)
@@ -94,7 +95,8 @@ kernel.def target(@qwen38_output_projection_wave64) @qwen38_output_projection_q6
 kernel.def target(@qwen38_output_projection_wave64) @qwen38_output_projection_q6k_m32(%vocabulary_size: index) {
   %threads = index.constant 64 : index
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%vocabulary_size, %one, %one) workgroup_size(%threads, %one, %one) : index
+  %bounded_vocabulary_size = index.assume %vocabulary_size [range(%vocabulary_size, 1, 248320)] : index
+  kernel.launch.config workgroups(%bounded_vocabulary_size, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%input: buffer, %weight: buffer, %output: buffer) {
   %rows = index.constant 32 : index
   func.call @qwen38_output_projection_q6k_rows(%rows, %input, %weight, %output) : (index, buffer, buffer, buffer)

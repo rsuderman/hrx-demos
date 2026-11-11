@@ -109,17 +109,19 @@ class LlamaPreparationTest : public ::testing::Test {
     auto config = Parse(facts.source + EmitTerminalMarkerSource("<|eot_id|>"));
     auto prepare = Load(root_ / (bytecode ? "prepare_library.loombc" : "prepare.loom"));
     if (!config || !prepare) return {nullptr, loomc_module_release};
-    const loomc_link_module_provider_t providers[] = {
+    auto common = Load(root_.parent_path().parent_path() / "serving/ordinary_prepare.loom");
+    std::vector<loomc_link_module_provider_t> providers = {
       {config.get(), loomc_make_cstring_view("configuration"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
       {prepare.get(), loomc_make_cstring_view("preparation"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
     };
+    if (!bytecode) providers.push_back({common.get(), loomc_make_cstring_view("ordinary preparation"), LOOMC_LINK_PROVIDER_ROLE_INPUT});
     const auto root = loomc_make_cstring_view("prepare");
     loomc_link_options_t link_options{};
     link_options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
     link_options.structure_size = sizeof(link_options);
     link_options.mode = LOOMC_LINK_MODE_LINK;
-    link_options.module_providers = providers;
-    link_options.module_provider_count = 2;
+    link_options.module_providers = providers.data();
+    link_options.module_provider_count = providers.size();
     link_options.root_symbols = &root;
     link_options.root_symbol_count = 1;
     link_options.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
@@ -245,6 +247,24 @@ TEST_F(LlamaPreparationTest, EffectivePrefillUsesRequestedShapes) {
   std::string error;
   ASSERT_TRUE(testing::RunPreparation(environment_, context_, workspace_, linked.get(), request, &observed, &error)) << error;
   CheckRecords(request, observed);
+}
+TEST_F(LlamaPreparationTest, NativeSingleRowShapeInventoryPreservesStageOrdinals) {
+  for (bool bytecode : {false, true}) {
+    SCOPED_TRACE(bytecode);
+    auto linked = Build(8, 512, bytecode);
+    ASSERT_TRUE(linked);
+    PreparationRequest request;
+    request.prefill = 8;
+    request.shapes = {{1,1},{2,1},{2,2},{4,1},{4,2},{4,4},
+                      {8,1},{8,2},{8,4},{8,8}};
+    PreparationObservation observed;
+    std::string error;
+    ASSERT_TRUE(testing::RunPreparation(environment_, context_, workspace_,
+        linked.get(), request, &observed, &error)) << error;
+    // Native packing prefers the span-1 sibling for the admitted one row.
+    // Every advertised slot still registers the same token-specialized root.
+    CheckRecords(request, observed);
+  }
 }
 TEST_F(LlamaPreparationTest, UnsupportedRequestsReachRealRequireImport) {
   for (int variant = 0; variant < 12; ++variant) {

@@ -17,7 +17,7 @@ struct TokenIdentity {
   std::string piece;
 };
 // Source-only raw stop identities consumed by the numerical publication.
-// Qwen numerical construction has no tokenizer/EOS prerequisite.
+// Qwen35 numerical construction has no tokenizer/EOS prerequisite.
 struct PublicationTokenFacts {
   std::vector<TokenIdentity> raw_stops;
   size_t terminal_index = 0;
@@ -42,7 +42,7 @@ struct BoundTokenPolicy {
 std::string EmitTerminalMarkerSource(std::string_view piece);
 // Called once during Open with the same immutable catalog FILE. An unsupported
 // template or external tokenizer cannot affect this source-only operation.
-// Failure preserves output; Qwen succeeds with an empty optional result.
+// Failure preserves output; Qwen35 succeeds with an empty optional result.
 bool DerivePublicationTokenFacts(FILE*, std::string_view family,
     const model::TextMetadata&, std::optional<PublicationTokenFacts>* out,
     std::string* error);

@@ -81,7 +81,7 @@ kernel.def @gdn48_input_kernel() {
   func.call @gdn48_inputs(%qkv) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @gdn48_actual() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+command.def public @gdn48_actual() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
   %n = index.constant 2 : index
   %one = index.constant 1 : index
   %offset = index.constant 256 : offset
@@ -163,8 +163,8 @@ check.scenario @gdn48_modulo_heads_nonzero_state {
       check.expect.bitwise actual(%beta) expected(%beta) : tensor<384xf32>
       check.expect.bitwise actual(%a) expected(%a) : tensor<48xf32>
       check.expect.bitwise actual(%bias) expected(%bias) : tensor<48xf32>
-      check.expect.close actual(%state) expected(%state) atol(0.00002) rtol(0.00002) nan(same) : tensor<786560xf32>
-      check.expect.close actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<49152xf32>
+      check.expect.approximate actual(%state) expected(%state) atol(0.00002) rtol(0.00002) nan(same) : tensor<786560xf32>, tensor<786560xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<49152xf32>, tensor<49152xf32>
       check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
       check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
       check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
@@ -192,7 +192,7 @@ kernel.def @gdn48_continue_epoch() {
   view.store %three32, %e[%five] : i32, view<1048xi32>
   kernel.return
 }
-command.program.def public @gdn48_continued_actual() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
+command.def public @gdn48_continued_actual() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer) {
   %one = index.constant 1 : index
   %offset = index.constant 256 : offset
   kernel.launch @test_gdn48_epoch_kernel[](%one, %epoch, %rows) : [](index, buffer, buffer)
@@ -241,8 +241,8 @@ check.scenario @gdn48_committed_continuation {
       check.expect.bitwise actual(%beta) expected(%beta) : tensor<384xf32>
       check.expect.bitwise actual(%a) expected(%a) : tensor<48xf32>
       check.expect.bitwise actual(%bias) expected(%bias) : tensor<48xf32>
-      check.expect.close actual(%state) expected(%state) atol(0.00002) rtol(0.00002) nan(same) : tensor<786560xf32>
-      check.expect.close actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<49152xf32>
+      check.expect.approximate actual(%state) expected(%state) atol(0.00002) rtol(0.00002) nan(same) : tensor<786560xf32>, tensor<786560xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<49152xf32>, tensor<49152xf32>
       check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
       check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
       check.expect.bitwise actual(%output_prefix) expected(%output_prefix) : tensor<12288xf32>
@@ -255,7 +255,7 @@ check.scenario @gdn48_committed_continuation {
 // The second 256-lane V slab has exactly 128 active lanes per key head.
 // A constant-channel four-tap anchor checks every live channel and all guards.
 kernel.decl @qwen38_gdn_conv_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse_norm: buffer)
-command.program.def public @gdn48_conv_actual() launch(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
+command.def public @gdn48_conv_actual() launch(%epoch: buffer, %rows: buffer, %input: buffer, %weight: buffer, %history: buffer, %output: buffer, %inverse: buffer) {
   %one = index.constant 1 : index
   %offset = index.constant 256 : offset
   %epsilon = scalar.constant 0.000001 : f32
@@ -313,10 +313,10 @@ check.scenario @gdn48_convolution_second_slab {
       check.expect.bitwise actual(%history) expected(%history) : tensor<30848xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<64xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<64xf32>
-      check.expect.close actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<81920xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.000001) rtol(0.000001) nan(same) : tensor<81920xf32>, tensor<81920xf32>
       check.expect.bitwise actual(%before) expected(%before) : tensor<20480xf32>
       check.expect.bitwise actual(%after) expected(%after) : tensor<51200xf32>
-      check.expect.close actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>
+      check.expect.approximate actual(%inverse) expected(%inverse) atol(0.00001) rtol(0.000001) nan(same) : tensor<256xf32>, tensor<256xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<81920xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<40960xf32>
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>

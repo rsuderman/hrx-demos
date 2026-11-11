@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Numerical snapshot/norm witnesses preserve the source packet and unrelated
 // history/progress storage; direct epoch publication is tested separately.
-command.program.decl @head.rows.prefill() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer)
+command.decl @head.rows.prefill() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer)
 func.def @norm_prefill(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<8x3072xf32>
@@ -54,9 +54,9 @@ kernel.def @init_kernel_prefill_63() {
   func.call @init_prefill_63(%control) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_prefill_63() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
+command.def public @actual_prefill_63() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   kernel.launch @init_kernel_prefill_63[](%control) : [](buffer)
-  command.program.launch @head.rows.prefill[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.rows.prefill[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_prefill_63(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
@@ -81,12 +81,12 @@ check.scenario @snapshot_prefill_63 {
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
       check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.close actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
     }
   }
   check.return
 }
-command.program.decl @head.rows.decode() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer)
+command.decl @head.rows.decode() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer)
 func.def @norm_decode(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
@@ -138,9 +138,9 @@ kernel.def @init_kernel_decode_0() {
   func.call @init_decode_0(%control) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode_0() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
+command.def public @actual_decode_0() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   kernel.launch @init_kernel_decode_0[](%control) : [](buffer)
-  command.program.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_decode_0(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
@@ -165,7 +165,7 @@ check.scenario @snapshot_decode_0 {
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
       check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.close actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
     }
   }
   check.return
@@ -191,9 +191,9 @@ kernel.def @init_kernel_decode_1() {
   func.call @init_decode_1(%control) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode_1() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
+command.def public @actual_decode_1() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   kernel.launch @init_kernel_decode_1[](%control) : [](buffer)
-  command.program.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_decode_1(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
@@ -218,7 +218,7 @@ check.scenario @snapshot_decode_1 {
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
       check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.close actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
     }
   }
   check.return
@@ -244,9 +244,9 @@ kernel.def @init_kernel_decode_63() {
   func.call @init_decode_63(%control) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode_63() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
+command.def public @actual_decode_63() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   kernel.launch @init_kernel_decode_63[](%control) : [](buffer)
-  command.program.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_decode_63(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
@@ -271,7 +271,7 @@ check.scenario @snapshot_decode_63 {
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
       check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.close actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
     }
   }
   check.return
@@ -297,9 +297,9 @@ kernel.def @init_kernel_decode_255() {
   func.call @init_decode_255(%control) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode_255() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
+command.def public @actual_decode_255() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   kernel.launch @init_kernel_decode_255[](%control) : [](buffer)
-  command.program.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_decode_255(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
@@ -324,7 +324,7 @@ check.scenario @snapshot_decode_255 {
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
       check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.close actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
     }
   }
   check.return
@@ -350,9 +350,9 @@ kernel.def @init_kernel_decode_256() {
   func.call @init_decode_256(%control) : (buffer) -> ()
   kernel.return
 }
-command.program.def public @actual_decode_256() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
+command.def public @actual_decode_256() launch(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
   kernel.launch @init_kernel_decode_256[](%control) : [](buffer)
-  command.program.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @head.rows.decode[](%input, %gamma, %control, %raw, %history, %progress, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 func.def @reference_decode_256(%input: buffer, %gamma: buffer, %control: buffer, %raw: buffer, %history: buffer, %progress: buffer, %output: buffer) {
@@ -377,7 +377,7 @@ check.scenario @snapshot_decode_256 {
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<1xi32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<129xi32>
       check.expect.bitwise actual(%progress) expected(%progress) : tensor<8xi32>
-      check.expect.close actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
     }
   }
   check.return

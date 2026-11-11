@@ -547,8 +547,8 @@ check.case public @qwen38_gdn_conv_prepare_decode_known_case {
   %expected_qkv = check.generate.fill value(-0.0077514660854831182) : tensor<[%shape_gdn_qkv_size]xf32>
   %expected_inverse_norm = check.generate.fill value(11.402790991223119) : tensor<[%shape_gdn_qk_norm_elements]xf32>
   kernel.launch @qwen38_gdn_conv_prepare_decode(%l2_epsilon, %qkv_input, %conv_weight, %conv_history, %qkv_silu, %qk_inverse_norm) : (f32, tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_conv_elements]xf32>, tensor<[%shape_gdn_history_elements]xf32>, tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>)
-  check.expect.close actual(%qkv_silu) expected(%expected_qkv) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_qkv_size]xf32>
-  check.expect.close actual(%qk_inverse_norm) expected(%expected_inverse_norm) atol(0.00001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_qk_norm_elements]xf32>
+  check.expect.approximate actual(%qkv_silu) expected(%expected_qkv) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qkv_size]xf32>
+  check.expect.approximate actual(%qk_inverse_norm) expected(%expected_inverse_norm) atol(0.00001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>
   check.return
 }
 
@@ -621,8 +621,8 @@ check.case public @qwen38_gdn_recurrent_decode_x4_differential_case {
   %actual_output = check.generate.fill value(0.0) : tensor<[%shape_gdn_width]xf32>
   kernel.launch @qwen38_gdn_recurrent_decode(%qkv_silu, %qk_inverse_norm, %alpha, %beta, %ssm_a, %dt_bias, %expected_state, %expected_output) : (tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_width]xf32>)
   kernel.launch @qwen38_gdn_recurrent_decode_x4(%qkv_silu, %qk_inverse_norm, %alpha, %beta, %ssm_a, %dt_bias, %actual_state, %actual_output) : (tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_width]xf32>)
-  check.expect.close actual(%actual_state) expected(%expected_state) atol(0.00001) rtol(0.00001) nan(same) : tensor<[%shape_gdn_state_elements]xf32>
-  check.expect.close actual(%actual_output) expected(%expected_output) atol(0.00001) rtol(0.00001) nan(same) : tensor<[%shape_gdn_width]xf32>
+  check.expect.approximate actual(%actual_state) expected(%expected_state) atol(0.00001) rtol(0.00001) nan(same) : tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_state_elements]xf32>
+  check.expect.approximate actual(%actual_output) expected(%expected_output) atol(0.00001) rtol(0.00001) nan(same) : tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>
   check.return
 }
 
@@ -648,7 +648,7 @@ check.case public @qwen38_gdn_norm_gate_decode_known_case {
   %output = check.generate.fill value(0.0) : tensor<[%shape_gdn_width]xf32>
   %expected = check.generate.fill value(0.14053962802530667) : tensor<[%shape_gdn_width]xf32>
   kernel.launch @qwen38_gdn_norm_gate_decode(%rms_epsilon, %raw_output, %norm_weight, %z, %output) : (f32, tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_head_size]xf32>, tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>)
-  check.expect.close actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_width]xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>
   check.return
 }
 

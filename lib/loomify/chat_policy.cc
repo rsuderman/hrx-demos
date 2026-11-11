@@ -14,8 +14,8 @@ bool Fail(std::string* error, const std::string& message) {
   return false;
 }
 const std::vector<const char*> kRoots = {
-  "step", "epoch", "encode_epoch", "publish_epoch", "encode_state", "render_tool",
-  "prepare_input", "output_next", "complete_text", "model_name", "chat_image_limits",
+  "step", "epoch", "encode_epoch", "publish_epoch", "encode_state", "resize_state", "render_tool",
+  "prepare_input", "output_next", "complete_text", "model_name", "chat_reasoning", "chat_image_limits",
   "chat_begin", "chat_message", "chat_end", "parse_tools", "request_defaults",
   "request_options", "bind_request"};
 struct Revision {
@@ -35,6 +35,9 @@ const Revision kRevisions[] = {
   {"c3cf9e34.jinja", ChatRevision::ChatmlExplicitReasoning,
    "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
    {"gpt2", "qwen35", false, "", "<|im_end|>"}, resources::kChatmlExplicitReasoning},
+  {"5da44855.jinja", ChatRevision::ChatmlHermes,
+   "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4",
+   {"gpt2", "qwen2", false, "", "<|im_end|>"}, resources::kChatmlHermes},
   {"7de1c58e.jinja", ChatRevision::GemmaTurns,
    "7de1c58e208eda46e9c7f86397df37ec49883aeece39fb961e0a6b24088dd3c4",
    {"llama", "default", true, "", "<end_of_turn>", false}, resources::kGemmaTurns},
@@ -121,7 +124,7 @@ bool Capture(const Revision& revision, std::string_view expected,
     if (!AddSlot(expected, "date", anchor, anchor.size(), &slots)) return false;
   } else {
     if (!AddSlot(expected, "tools_prefix", "{{- \"# Tools", 4, &slots) ||
-        !AddSlot(expected, "tools_instruction", "{{- '\\n\\nIf you choose", 4, &slots)) return false;
+        !AddSlot(expected, "tools_instruction", revision.revision == ChatRevision::ChatmlHermes ? "{{- \"\\n</tools>" : "{{- '\\n\\nIf you choose", 4, &slots)) return false;
     if (revision.revision == ChatRevision::ChatmlExplicitReasoning) {
       const std::string effort = "reasoning_effort|default(";
       const std::string assignment = "{%- set reasoning_instructions = ";
@@ -141,6 +144,11 @@ bool Capture(const Revision& revision, std::string_view expected,
     if (!Quoted(actual, cursor, &value, &end)) return false;
     std::vector<std::string> original_tags, actual_tags;
     if (!Tags(slot.original, &original_tags) || !Tags(value, &actual_tags) || original_tags != actual_tags) return false;
+    if (revision.revision == ChatRevision::ChatmlHermes && slot.name == "tools_instruction") {
+      constexpr std::string_view end = "<|im_end|>\n";
+      if (value.size() < end.size() || value.substr(value.size() - end.size()) != end)
+        return false;
+    }
     if (slot.name == "default_effort" && value != "low" && value != "medium" && value != "xhigh") return false;
     if (!values->emplace(slot.name, std::move(value)).second) return false;
     cursor = end; prior = slot.end;
@@ -165,7 +173,15 @@ void EmitData(const std::map<std::string, std::string>& slots, ChatPolicySelecti
     return;
   }
   Datum(policy, "loomify.text.tools_prefix", slots.at("tools_prefix"));
-  Datum(policy, "loomify.text.tools_suffix", "\n</tools>" + slots.at("tools_instruction"));
+  std::string suffix = slots.at("tools_instruction");
+  if (policy->revision == ChatRevision::ChatmlHermes) {
+    // Shared ChatML framing adds the terminal exactly once.
+    constexpr std::string_view end = "<|im_end|>\n";
+    suffix.resize(suffix.size() - end.size());
+  } else {
+    suffix = "\n</tools>" + suffix;
+  }
+  Datum(policy, "loomify.text.tools_suffix", suffix);
   const auto effort = slots.find("default_effort");
   const std::string default_effort = effort == slots.end() ? "" : effort->second;
   const auto high = slots.find("effort_xhigh"), low = slots.find("effort_low");
@@ -233,8 +249,10 @@ bool SelectChatPolicy(const model::TextMetadata& metadata,
     } else {
       result.markers = {{"<|im_start|>",true}, {"<|im_end|>",true},
         {"<think>"}, {"</think>"}, {"<tool_call>"}, {"</tool_call>"},
-        {"<function="}, {"</function>"}, {"<parameter="}, {"</parameter>"},
         {"<tool_response>"}, {"</tool_response>"}};
+      if (result.revision != ChatRevision::ChatmlHermes)
+        result.markers.insert(result.markers.end(), {{"<function="}, {"</function>"},
+            {"<parameter="}, {"</parameter>"}});
 
     }
     EmitData(slots, &result);

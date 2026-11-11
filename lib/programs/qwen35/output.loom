@@ -22,7 +22,7 @@ kernel.decl @qwen38_output_normalize_spans(%output_capacity: index) launch(%epoc
 kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 // Four private projection rows preserve the existing ordinary canonical Q6 route.
 // Selected capacity remains1; the epoch owns all public output publication.
-command.program.def @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
+command.def @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
   %four = index.constant 4 : index
   %hidden = config.get @qwen.model.hidden_size : index
   %vocab = config.get @qwen.model.vocabulary_size : index

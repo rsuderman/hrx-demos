@@ -19,7 +19,7 @@ kernel.def @consumer.llama_norm(%rows0: index) {
   template.apply<@llm.rmsnorm.row>(%width, %divisor, %rows, %row, %origin, %half, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
   kernel.return
 }
-command.program.def public @consumer.model_norm(%rows: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
+command.def public @consumer.model_norm(%rows: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @consumer.llama_norm[%rows](%rows, %input, %weight, %output) : [index](index, buffer, buffer, buffer)
   command.return
 }

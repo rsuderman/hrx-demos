@@ -35,7 +35,7 @@ kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control
 
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
-command.program.def public retain @attention.output.q4.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @attention.output.q4.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 12 : offset
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
@@ -65,7 +65,7 @@ command.program.def public retain @attention.output.q4.prefill() launch(%v0: buf
   command.return
 }
 
-command.program.def public retain @attention.output.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @attention.output.q4.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 12 : offset
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
@@ -95,7 +95,7 @@ command.program.def public retain @attention.output.q4.decode() launch(%v0: buff
   command.return
 }
 
-command.program.def public retain @attention.output.q6.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @attention.output.q6.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 12 : offset
     %v5 = buffer.alloca<global> align(4) %v4 : buffer
@@ -125,7 +125,7 @@ command.program.def public retain @attention.output.q6.prefill() launch(%v0: buf
   command.return
 }
 
-command.program.def public retain @attention.output.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
+command.def public retain @attention.output.q6.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer) {
   command.serial {
     %v4 = index.constant 12 : offset
     %v5 = buffer.alloca<global> align(4) %v4 : buffer

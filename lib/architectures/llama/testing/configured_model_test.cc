@@ -56,7 +56,7 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   options.structure_size = sizeof(options);
   options.root_symbols = &root;
   options.root_symbol_count = 1;
-  options.kernel_target_profile = profile;
+  options.target_profile = profile;
   options.request_sink.publish = [](void *user, loomc_request_t *request) {
     static_cast<std::vector<loomc_request_t *> *>(user)->push_back(request);
     return loomc_ok_status();
@@ -166,24 +166,24 @@ protected:
         << Diagnostics(result);
     loomc_result_release(result);
     const auto *epoch = Definition(view.module, "generated.llama_epoch");
-    ASSERT_TRUE(epoch && loom_command_program_def_isa(epoch));
+    ASSERT_TRUE(epoch && loom_command_def_isa(epoch));
     const auto *epoch_body = loom_region_const_entry_block(
-        loom_command_program_def_body(epoch));
+        loom_command_def_body(epoch));
     ASSERT_EQ(epoch_body->arg_count, 7u);
     std::vector<const loom_op_t *> boundary;
     for (const auto *op = epoch_body->first_op; op; op = op->next_op)
-      if (loom_buffer_alloca_isa(op) || loom_command_program_launch_isa(op) ||
+      if (loom_buffer_alloca_isa(op) || loom_command_launch_isa(op) ||
           loom_kernel_launch_isa(op))
         boundary.push_back(op);
     ASSERT_EQ(boundary.size(), 3u);
     ASSERT_TRUE(loom_buffer_alloca_isa(boundary[0]));
     EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 16);
     const auto selected_ids = loom_op_const_results(boundary[0])[0];
-    ASSERT_TRUE(loom_command_program_launch_isa(boundary[1]));
+    ASSERT_TRUE(loom_command_launch_isa(boundary[1]));
     EXPECT_EQ(Text(view.module, view.module->symbols.entries[
-        loom_command_program_launch_callee(boundary[1]).symbol_id].name_id),
+        loom_command_launch_callee(boundary[1]).symbol_id].name_id),
         "loomify.llama.model");
-    const auto model_args = loom_command_program_launch_bindings(boundary[1]);
+    const auto model_args = loom_command_launch_bindings(boundary[1]);
     ASSERT_EQ(model_args.count, 7u);
     for (size_t j = 0; j < 6; ++j)
       EXPECT_EQ(model_args.values[j], epoch_body->arg_ids[j]);
@@ -198,21 +198,21 @@ protected:
     EXPECT_EQ(publication_args.values[1], selected_ids);
     EXPECT_EQ(publication_args.values[2], epoch_body->arg_ids[6]);
     const auto *model = Definition(view.module, "loomify.llama.model");
-    ASSERT_TRUE(model && loom_command_program_def_isa(model));
+    ASSERT_TRUE(model && loom_command_def_isa(model));
     const auto *body =
-        loom_region_const_entry_block(loom_command_program_def_body(model));
+        loom_region_const_entry_block(loom_command_def_body(model));
     ASSERT_EQ(body->arg_count, 7u);
     loom_value_id_t count_value = 0;
     size_t layer = 0;
     for (const auto *op = body->first_op; op; op = op->next_op) {
-      if (!loom_command_program_launch_isa(op))
+      if (!loom_command_launch_isa(op))
         continue;
-      auto callee = loom_command_program_launch_callee(op);
+      auto callee = loom_command_launch_callee(op);
       ASSERT_LT(callee.symbol_id, view.module->symbols.count);
       EXPECT_EQ(Text(view.module,
                      view.module->symbols.entries[callee.symbol_id].name_id),
                 "loomify.llama.layer");
-      auto specializations = loom_command_program_launch_specializations(op);
+      auto specializations = loom_command_launch_specializations(op);
       ASSERT_EQ(specializations.count, 4u);
       EXPECT_EQ(Constant(view.module, specializations.values[0]),
                 int64_t(layer));
@@ -220,7 +220,7 @@ protected:
       EXPECT_GT(Constant(view.module, specializations.values[2]), 0);
       EXPECT_LE(Constant(view.module, specializations.values[2]), 512);
       EXPECT_EQ(Constant(view.module, specializations.values[3]), 12);
-      auto bindings = loom_command_program_launch_bindings(op);
+      auto bindings = loom_command_launch_bindings(op);
       ASSERT_EQ(bindings.count, 6u);
       for (size_t j = 0; j < 5; ++j)
         EXPECT_EQ(bindings.values[j], body->arg_ids[j]);
@@ -264,7 +264,7 @@ protected:
         << Diagnostics(result);
     loomc_result_release(result);
     const auto *root = Definition(view.module, "generated.llama_epoch");
-    ASSERT_TRUE(root && loom_command_program_def_isa(root));
+    ASSERT_TRUE(root && loom_command_def_isa(root));
     std::vector<std::string> keys;
     std::function<void(const loom_region_t *)> collect =
         [&](const loom_region_t *region) {
@@ -290,7 +290,7 @@ protected:
                 collect(loom_op_regions(op)[i]);
             }
         };
-    collect(loom_command_program_def_body(root));
+    collect(loom_command_def_body(root));
     std::vector<std::string> expected;
     for (size_t i = 0; i < layers; ++i)
       for (const char *suffix :

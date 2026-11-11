@@ -8,6 +8,7 @@
 #include "loomc/target/vm.h"
 #include <cstring>
 #include <memory>
+#include <utility>
 
 namespace hrx::loomify_gguf::testing {
 namespace {
@@ -26,7 +27,9 @@ constexpr Signature kParameter[] = {
     {IREE_VM_SCALAR_TYPE_I32, 0},
     {IREE_VM_SCALAR_TYPE_I32, 0},
     {IREE_VM_SCALAR_TYPE_I32, 0},
-    {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
+    {IREE_VM_SCALAR_TYPE_I32, 0},
+    {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0}};
+constexpr Signature kSourceIn[] = {
     {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
     {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0}};
 constexpr Signature kStageIn[] = {{IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
@@ -49,7 +52,11 @@ const iree_vm_module_callable_type_declaration_t kPrepareTypes[] = {
      IREE_VM_CALLABLE_TYPE_FLAG_NONE,
      0,
      0},
-    {{{kParameter, 6, 3, 3, 0}, {nullptr, 0, 0, 0, 0}},
+    {{{kSourceIn, 2, 0, 2, 0}, {kStageOut, 1, 1, 0, 0}},
+     IREE_VM_CALLABLE_TYPE_FLAG_NONE,
+     0,
+     0},
+    {{{kParameter, 5, 4, 1, 0}, {nullptr, 0, 0, 0, 0}},
      IREE_VM_CALLABLE_TYPE_FLAG_NONE,
      0,
      0}};
@@ -58,7 +65,8 @@ const iree_vm_module_export_declaration_t kInputExports[] = {
 const iree_vm_module_export_declaration_t kJsonExports[] = {
     {IREE_SVL("members"), 0, 0, 0}};
 const iree_vm_module_export_declaration_t kPrepareExports[] = {
-    {IREE_SVL("parameter"), 1, 0, 0}, {IREE_SVL("stage"), 0, 1, 0}};
+    {IREE_SVL("parameter"), 2, 0, 0}, {IREE_SVL("source"), 1, 1, 0},
+    {IREE_SVL("stage"), 0, 2, 0}};
 struct Native {
   iree_vm_module_t module{};
   iree_vm_module_descriptor_t descriptor{};
@@ -66,6 +74,7 @@ struct Native {
   const iree_vm_module_export_declaration_t *exports = nullptr;
   const PreparationRequest *request = nullptr;
   PreparationObservation *observations = nullptr;
+  std::vector<std::pair<std::string, std::string>> sources;
   int kind = 0;
 };
 std::string StringArg(const iree_vm_call_packet_t &call, unsigned ordinal) {
@@ -100,10 +109,19 @@ iree_status_t Start(iree_vm_module_t *module,
     iree_vm_call_value_result_store(&call, 0, self.request->options_type);
     iree_vm_call_value_result_store(&call, 1, self.request->options_fields);
   } else if (params->function_ordinal == 0) {
+    const auto source = static_cast<uint32_t>(value(3));
+    if (source >= self.sources.size())
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "parameter source is not registered");
+    const auto &path = self.sources[source];
     self.observations->parameters.push_back(
         {static_cast<int32_t>(value(0)), static_cast<int32_t>(value(1)),
-         static_cast<int32_t>(value(2)), StringArg(call, 0), StringArg(call, 1),
-         StringArg(call, 2)});
+         static_cast<int32_t>(value(2)), path.first, path.second,
+         StringArg(call, 0)});
+  } else if (params->function_ordinal == 1) {
+    const auto id = static_cast<uint32_t>(self.sources.size());
+    self.sources.emplace_back(StringArg(call, 0), StringArg(call, 1));
+    iree_vm_call_value_result_store(&call, 0, id);
   } else {
     const int32_t id = 101 + self.observations->stages.size();
     self.observations->stages.push_back(
@@ -306,8 +324,8 @@ bool RunPreparation(loomc_target_environment_t *environment,
       kInputTypes, kJsonTypes, kPrepareTypes};
   const iree_vm_module_export_declaration_t *exports[] = {
       kInputExports, kJsonExports, kPrepareExports};
-  const unsigned counts[] = {1, 1, 2};
-  const unsigned values[] = {1, 2, 5}, refs[] = {1, 2, 4};
+  const unsigned counts[] = {1, 1, 3};
+  const unsigned values[] = {1, 2, 7}, refs[] = {1, 2, 4};
   for (int i = 0; i < 3; ++i) {
     auto &p = runtime.providers[i];
     p.kind = i;

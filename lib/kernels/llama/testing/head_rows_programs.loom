@@ -43,7 +43,7 @@ kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0: index) launch
 
 template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
 
-command.program.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 12 : offset
     %v8 = buffer.alloca<global> align(4) %v7 : buffer
@@ -58,7 +58,7 @@ command.program.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: 
   command.return
 }
 
-command.program.def public retain @head.rows.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @head.rows.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 12 : offset
     %v8 = buffer.alloca<global> align(4) %v7 : buffer
@@ -73,7 +73,7 @@ command.program.def public retain @head.rows.decode() launch(%v0: buffer, %v1: b
   command.return
 }
 
-command.program.def public retain @head.full.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @head.full.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 12 : offset
     %v8 = buffer.alloca<global> align(4) %v7 : buffer
@@ -106,7 +106,7 @@ command.program.def public retain @head.full.prefill() launch(%v0: buffer, %v1: 
   command.return
 }
 
-command.program.def public retain @head.full.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
+command.def public retain @head.full.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
     %v7 = index.constant 12 : offset
     %v8 = buffer.alloca<global> align(4) %v7 : buffer

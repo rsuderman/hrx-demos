@@ -512,4 +512,50 @@ TEST(ModelDescriptor, F32PayloadRangesAgreeWithNativeNamedIndex) {
     EXPECT_EQ(payload[2 * width + width - 1], 210 + width - 1);
   }
 }
+TEST(ModelDescriptorQwen3, OrdinaryLayerHasIndependentQueryWidthAndHeadNorms) {
+  auto c = Model(false, true);
+  c.architecture = "qwen3";
+  for (auto &metadata : c.metadata)
+    if (metadata.key.rfind("llama.", 0) == 0)
+      metadata.key.replace(0, 6, "qwen3.");
+  Field(c, "attention.head_count").scalar = uint64_t{4};
+  Field(c, "attention.head_count_kv").scalar = uint64_t{2};
+  for (auto &tensor : c.tensors) {
+    if (tensor.name.find("attn_q.weight") != std::string::npos)
+      tensor.normalized_extents = {8, 16, 1, 1};
+    if (tensor.name.find("attn_k.weight") != std::string::npos ||
+        tensor.name.find("attn_v.weight") != std::string::npos)
+      tensor.normalized_extents = {8, 8, 1, 1};
+    if (tensor.name.find("attn_output.weight") != std::string::npos)
+      tensor.normalized_extents = {16, 8, 1, 1};
+  }
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto p = "blk." + std::to_string(layer) + ".";
+    Tensor(c, p + "attn_q_norm.weight", {4});
+    Tensor(c, p + "attn_k_norm.weight", {4});
+  }
+  ModelDescriptor m;
+  std::string error;
+  ASSERT_TRUE(LoadModelDescriptor(c, &m, &error)) << error;
+  EXPECT_EQ(m.family, "qwen3");
+  EXPECT_EQ(m.embedding_width, 8u);
+  EXPECT_EQ(m.layers[0].query_heads * m.key_head_width, 16u);
+  EXPECT_EQ(m.layers[0].kv_heads * m.value_head_width, 8u);
+  EXPECT_TRUE(m.output_tied_to_embedding);
+  EXPECT_FALSE(m.ssm);
+  EXPECT_EQ(m.layers[0].tensors.size(), 11u);
+  const auto norm = std::find_if(m.layers[0].tensors.begin(), m.layers[0].tensors.end(),
+      [](const auto &binding) { return binding.role == "post_norm"; });
+  ASSERT_NE(norm, m.layers[0].tensors.end());
+  EXPECT_EQ(norm->tensor.name, "blk.0.ffn_norm.weight");
+  auto missing = c;
+  missing.tensors.erase(std::remove_if(missing.tensors.begin(), missing.tensors.end(),
+      [](const auto &t) { return t.name == "blk.1.attn_k_norm.weight"; }), missing.tensors.end());
+  EXPECT_FALSE(LoadModelDescriptor(missing, &m, &error));
+  EXPECT_NE(error.find("attn_k_norm.weight"), std::string::npos);
+  EXPECT_EQ(m.layers.size(), 2u);
+  Scalar(c, "qwen3.rope.dimension_count", uint64_t{2});
+  EXPECT_FALSE(LoadModelDescriptor(c, &m, &error));
+  EXPECT_NE(error.find("RoPE width"), std::string::npos);
+}
 } // namespace hrx::model

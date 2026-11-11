@@ -32,7 +32,7 @@ BAZELISK_INSTRUCTIONS = """Install the pinned workspace-local Bazelisk from the 
   echo '5a408715e932c0250d28bd84555f12edbf70117de42f9181691c736eacc4a992  programs/bazel/bin/bazel' \\
     | sha256sum --check
   chmod +x programs/bazel/bin/bazel
-  USE_BAZEL_VERSION=9.2.0 BAZELISK_HOME="$PWD/programs/bazel/cache" \\
+  USE_BAZEL_VERSION=9.3.2 BAZELISK_HOME="$PWD/programs/bazel/cache" \\
     programs/bazel/bin/bazel --version
 
 Then add that bin directory to PATH or pass --bazel explicitly.

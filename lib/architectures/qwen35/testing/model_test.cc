@@ -176,12 +176,12 @@ class QwenModelTest : public ::testing::Test {
     ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
     loomc_result_release(result);
     const auto *epoch = Definition(view.module, "generated.qwen_epoch");
-    ASSERT_TRUE(epoch && loom_command_program_def_isa(epoch));
-    const auto *epoch_body = loom_region_const_entry_block(loom_command_program_def_body(epoch));
+    ASSERT_TRUE(epoch && loom_command_def_isa(epoch));
+    const auto *epoch_body = loom_region_const_entry_block(loom_command_def_body(epoch));
     ASSERT_EQ(epoch_body->arg_count, 7u);
     std::vector<const loom_op_t *> boundary;
-    Walk(loom_command_program_def_body(epoch), [&](const loom_op_t *op) {
-      if (loom_buffer_alloca_isa(op) || loom_command_program_launch_isa(op) ||
+    Walk(loom_command_def_body(epoch), [&](const loom_op_t *op) {
+      if (loom_buffer_alloca_isa(op) || loom_command_launch_isa(op) ||
           loom_kernel_launch_isa(op) || loom_scf_for_isa(op)) boundary.push_back(op);
     });
     ASSERT_EQ(boundary.size(), 3u);
@@ -190,10 +190,10 @@ class QwenModelTest : public ::testing::Test {
     EXPECT_EQ(loom_buffer_alloca_base_alignment(boundary[0]), 256);
     ASSERT_EQ(boundary[0]->result_count, 1u);
     const auto selected_ids = loom_op_const_results(boundary[0])[0];
-    ASSERT_TRUE(loom_command_program_launch_isa(boundary[1]));
+    ASSERT_TRUE(loom_command_launch_isa(boundary[1]));
     EXPECT_EQ(Text(view.module, view.module->symbols.entries[
-        loom_command_program_launch_callee(boundary[1]).symbol_id].name_id), "loomify.qwen.model");
-    const auto model_args = loom_command_program_launch_bindings(boundary[1]);
+        loom_command_launch_callee(boundary[1]).symbol_id].name_id), "loomify.qwen.model");
+    const auto model_args = loom_command_launch_bindings(boundary[1]);
     ASSERT_EQ(model_args.count, 7u);
     for (size_t i = 0; i < 6; ++i) EXPECT_EQ(model_args.values[i], epoch_body->arg_ids[i]);
     EXPECT_EQ(model_args.values[6], selected_ids);
@@ -206,12 +206,12 @@ class QwenModelTest : public ::testing::Test {
     EXPECT_EQ(publication_args.values[1], selected_ids);
     EXPECT_EQ(publication_args.values[2], epoch_body->arg_ids[6]);
     const auto *head_def = Definition(view.module, "loomify.qwen.head");
-    ASSERT_TRUE(head_def && loom_command_program_def_isa(head_def));
-    const auto *head_body = loom_region_const_entry_block(loom_command_program_def_body(head_def));
+    ASSERT_TRUE(head_def && loom_command_def_isa(head_def));
+    const auto *head_body = loom_region_const_entry_block(loom_command_def_body(head_def));
     // Native program bodies include two specialization arguments before buffers.
     ASSERT_EQ(head_body->arg_count, 6u);
     size_t reduce_calls = 0;
-    Walk(loom_command_program_def_body(head_def), [&](const loom_op_t *op) {
+    Walk(loom_command_def_body(head_def), [&](const loom_op_t *op) {
       if (!loom_kernel_launch_isa(op)) return;
       const auto name = Text(view.module, view.module->symbols.entries[
           loom_kernel_launch_callee(op).symbol_id].name_id);
@@ -224,12 +224,12 @@ class QwenModelTest : public ::testing::Test {
     });
     EXPECT_EQ(reduce_calls, 1u);
     const auto *def = Definition(view.module, "loomify.qwen.model");
-    ASSERT_TRUE(def && loom_command_program_def_isa(def));
-    const auto *body = loom_region_const_entry_block(loom_command_program_def_body(def));
+    ASSERT_TRUE(def && loom_command_def_isa(def));
+    const auto *body = loom_region_const_entry_block(loom_command_def_body(def));
     ASSERT_EQ(body->arg_count, 7u);
     std::vector<const loom_op_t *> calls, kernels;
-    Walk(loom_command_program_def_body(def), [&](const loom_op_t *op) {
-      if (loom_command_program_launch_isa(op)) calls.push_back(op);
+    Walk(loom_command_def_body(def), [&](const loom_op_t *op) {
+      if (loom_command_launch_isa(op)) calls.push_back(op);
       if (loom_kernel_launch_isa(op)) kernels.push_back(op);
     });
     ASSERT_EQ(kernels.size(), 1u);
@@ -250,7 +250,7 @@ class QwenModelTest : public ::testing::Test {
     // Native unrolling preserves both conditional IR branches until callable
     // inlining. These are 24 routing sites, not 48 executed layers.
     std::vector<const loom_op_t *> routes, branches;
-    Walk(loom_command_program_def_body(def), [&](const loom_op_t *op) {
+    Walk(loom_command_def_body(def), [&](const loom_op_t *op) {
       const auto name = loom_op_vtable_name(loom_op_vtable(view.module, op));
       if (std::string(name.data, name.size) == "func.call") routes.push_back(op);
       if (loom_scf_if_isa(op)) branches.push_back(op);
@@ -283,15 +283,15 @@ class QwenModelTest : public ::testing::Test {
         ASSERT_NE(region, nullptr);
         std::vector<const loom_op_t *> arm_calls;
         Walk(region, [&](const loom_op_t *op) {
-          if (loom_command_program_launch_isa(op)) arm_calls.push_back(op);
+          if (loom_command_launch_isa(op)) arm_calls.push_back(op);
         });
         ASSERT_EQ(arm_calls.size(), 1u); // No appended FFN or hidden model call.
         const auto *op = arm_calls.front();
         EXPECT_EQ(calls[2 * i + arm], op);
-        const auto callee = loom_command_program_launch_callee(op);
+        const auto callee = loom_command_launch_callee(op);
         EXPECT_EQ(Text(view.module, view.module->symbols.entries[callee.symbol_id].name_id),
                   is_gdn ? "qwen38_gdn_layer_prefill" : "qwen38_attention_layer_prefill");
-        const auto specs = loom_command_program_launch_specializations(op);
+        const auto specs = loom_command_launch_specializations(op);
         ASSERT_EQ(specs.count, 6u);
         EXPECT_EQ(Constant(view.module, specs.values[0]), tokens);
         EXPECT_EQ(Constant(view.module, specs.values[1]), tokens);
@@ -299,7 +299,7 @@ class QwenModelTest : public ::testing::Test {
         EXPECT_EQ(specs.values[3], tuple[2]);
         EXPECT_EQ(Constant(view.module, specs.values[4]), 0);
         EXPECT_EQ(Constant(view.module, specs.values[5]), 1);
-        const auto bindings = loom_command_program_launch_bindings(op);
+        const auto bindings = loom_command_launch_bindings(op);
         ASSERT_EQ(bindings.count, 6u);
         for (auto pair : {std::pair<size_t, size_t>{0, 0}, {1, 1}, {2, 4}, {3, 2}, {5, 3}})
           EXPECT_EQ(bindings.values[pair.first], body->arg_ids[pair.second]);
@@ -326,12 +326,12 @@ class QwenModelTest : public ::testing::Test {
     EXPECT_NE(gdn_scratch, attention_scratch);
     std::printf("Prepared Qwen hierarchy: %zu route sites; selection %zu attention/%zu GDN\n", facts.layers.size(), selected_attention, selected_gdn);
     const auto *head = calls.back();
-    EXPECT_EQ(Text(view.module, view.module->symbols.entries[loom_command_program_launch_callee(head).symbol_id].name_id), "loomify.qwen.head");
-    const auto specs = loom_command_program_launch_specializations(head);
+    EXPECT_EQ(Text(view.module, view.module->symbols.entries[loom_command_launch_callee(head).symbol_id].name_id), "loomify.qwen.head");
+    const auto specs = loom_command_launch_specializations(head);
     ASSERT_EQ(specs.count, 2u);
     EXPECT_EQ(Constant(view.module, specs.values[0]), tokens);
     EXPECT_EQ(Constant(view.module, specs.values[1]), 1);
-    const auto bindings = loom_command_program_launch_bindings(head);
+    const auto bindings = loom_command_launch_bindings(head);
     ASSERT_EQ(bindings.count, 4u);
     const size_t expected[] = {0, 1, 2, 6};
     for (size_t j = 0; j < 4; ++j) EXPECT_EQ(bindings.values[j], body->arg_ids[expected[j]]);
@@ -348,9 +348,9 @@ class QwenModelTest : public ::testing::Test {
     ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
     loomc_result_release(result);
     const auto *def = Definition(view.module, "generated.qwen_epoch");
-    ASSERT_TRUE(def && loom_command_program_def_isa(def));
+    ASSERT_TRUE(def && loom_command_def_isa(def));
     std::set<std::string> observed, expected;
-    Walk(loom_command_program_def_body(def), [&](const loom_op_t *op) {
+    Walk(loom_command_def_body(def), [&](const loom_op_t *op) {
       if (!loom_command_parameter_isa(op)) return;
       auto key = Text(view.module, loom_command_parameter_pattern(op));
       const auto substitutions = loom_command_parameter_substitutions(op);
@@ -369,7 +369,7 @@ class QwenModelTest : public ::testing::Test {
     // One metadata value reaches all four GDN normalization consumers. Inspect
     // actual linked operands, not source spelling or a second preset table.
     size_t rms_calls = 0, l2_calls = 0, gated_calls = 0;
-    Walk(loom_command_program_def_body(def), [&](const loom_op_t *op) {
+    Walk(loom_command_def_body(def), [&](const loom_op_t *op) {
       if (!loom_kernel_launch_isa(op)) return;
       const auto name = Text(view.module, view.module->symbols.entries[loom_kernel_launch_callee(op).symbol_id].name_id);
       size_t epsilon_arg;
@@ -393,7 +393,7 @@ class QwenModelTest : public ::testing::Test {
     // After the native inliner folds route facts, one stateful marker remains
     // for each selected complete layer. Check order AND actual state ordinals.
     std::vector<const loom_op_t *> selected;
-    Walk(loom_command_program_def_body(def), [&](const loom_op_t *op) {
+    Walk(loom_command_def_body(def), [&](const loom_op_t *op) {
       if (!loom_kernel_launch_isa(op)) return;
       const auto name = Text(view.module, view.module->symbols.entries[loom_kernel_launch_callee(op).symbol_id].name_id);
       if (name == "qwen38_gdn_conv_spans" || name == "qwen38_attention_kv_prepare_spans")
@@ -425,7 +425,7 @@ class QwenModelTest : public ::testing::Test {
     loomc_cmd_program_module_options_t options{};
     options.root_symbols = &symbol;
     options.root_symbol_count = 1;
-    options.kernel_target_profile = profile;
+    options.target_profile = profile;
     options.request_sink.publish = [](void *user, loomc_request_t *request) {
       static_cast<std::vector<loomc_request_t *> *>(user)->push_back(request);
       return loomc_ok_status();

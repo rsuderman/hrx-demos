@@ -154,6 +154,7 @@ def _arguments(parser, resource, command):
         'name': ('Required name for a new saved server; use positional SERVER for a saved start.' if resource == 'server' else
                  'Instance name; defaults to the local model ID.'),
         'device': 'Explicit native device specification for a new server; requires compatible installed runtime/hardware.',
+        'pool_backing': 'Native single-device pool backing: fixed or elastic; omitted uses the native default. Retained for saved-server restarts.',
         'listen': 'Required numeric loopback host and port for a new server, e.g. 127.0.0.1:8080; port 1..65535.',
         'server': ('Saved server name; start reuses saved settings.' if resource == 'server' else
                    'Configured server name; mutually exclusive with --url. Omission selects only when exactly one server is configured.'),

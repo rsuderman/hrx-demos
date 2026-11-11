@@ -7,6 +7,9 @@
 #include "lib/loomify/linking.h"
 #include "lib/loomify/token_policy.h"
 #include "gtest/gtest.h"
+#include "loomc/compile.h"
+#include "loomc/target/vm.h"
+#include <memory>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -126,12 +129,83 @@ protected:
   std::vector<const char*> roots_; std::string numerical_,marker_,identity_,gemma_source_;
   fs::path root_,scratch_; loomc_context_t* context_=nullptr; loomc_workspace_t* workspace_=nullptr;
 };
-TEST_F(AssemblyContract, ActualProvidersResolveAllEighteenHooksForFourPolicies) {
+TEST_F(AssemblyContract, ShippedQwenFullGenerationRootsCompileForVm) {
+  // Keep the actual Serve root cohort: isolated renderer/helper compilation
+  // does not prove that the maintained shared call boundaries converge.
+  const std::vector<const char*> roots = {
+      "step", "epoch", "encode_epoch", "publish_epoch", "encode_state",
+      "resize_state", "render_tool", "prepare_input", "output_next",
+      "complete_text", "model_name", "chat_reasoning", "chat_image_limits",
+      "chat_begin", "chat_message", "chat_end", "parse_tools",
+      "request_defaults", "request_options", "bind_request"};
+  std::vector<std::string> inputs;
+  for (const char* path : {"llm/qwen/qwen_08b/control.loom",
+       "llm/qwen/qwen_08b/config.loom", "llm/common/generation_control.loom",
+       "llm/common/fixed_epoch_abi.loom"})
+    inputs.push_back((root_ / "loom-pipeline" / path).string());
+  loomc_target_environment_t* raw_environment = nullptr;
+  ASSERT_TRUE(Ok(loomc_target_environment_create_vm(loomc_allocator_system(), &raw_environment)));
+  std::unique_ptr<loomc_target_environment_t, decltype(&loomc_target_environment_release)> environment(
+      raw_environment, loomc_target_environment_release);
+  loomc_context_target_options_t target_options{};
+  target_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
+  target_options.structure_size = sizeof(target_options);
+  target_options.target_environment = environment.get();
+  loomc_context_options_t context_options{};
+  context_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_OPTIONS;
+  context_options.structure_size = sizeof(context_options);
+  context_options.next = &target_options;
+  loomc_context_t* raw_context = nullptr;
+  ASSERT_TRUE(Ok(loomc_context_create(&context_options, loomc_allocator_system(), &raw_context)));
+  std::unique_ptr<loomc_context_t, decltype(&loomc_context_release)> vm_context(
+      raw_context, loomc_context_release);
+  loomc_module_t* raw_module = nullptr;
+  std::string error;
+  ASSERT_TRUE(LinkConfiguredProducts(vm_context.get(), workspace_, "", inputs, roots,
+      false, &raw_module, &error)) << error;
+  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> module(
+      raw_module, loomc_module_release);
+  loomc_target_profile_t* raw_profile = nullptr;
+  ASSERT_TRUE(Ok(loomc_target_profile_select(environment.get(),
+      loomc_make_cstring_view("vm:core"), loomc_allocator_system(), &raw_profile)));
+  std::unique_ptr<loomc_target_profile_t, decltype(&loomc_target_profile_release)> profile(
+      raw_profile, loomc_target_profile_release);
+  loomc_compiler_t* raw_compiler = nullptr;
+  ASSERT_TRUE(Ok(loomc_compiler_create(vm_context.get(), nullptr,
+      loomc_allocator_system(), &raw_compiler)));
+  std::unique_ptr<loomc_compiler_t, decltype(&loomc_compiler_release)> compiler(
+      raw_compiler, loomc_compiler_release);
+  std::vector<loomc_string_view_t> root_views;
+  for (const char* root : roots) root_views.push_back(loomc_make_cstring_view(root));
+  loomc_emit_options_t emit{};
+  emit.type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS;
+  emit.structure_size = sizeof(emit);
+  emit.artifact_format = loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_VM);
+  loomc_compile_artifact_options_t options{};
+  options.type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS;
+  options.structure_size = sizeof(options);
+  options.roots = root_views.data(); options.root_count = root_views.size();
+  options.target_profile = profile.get(); options.emit_options = &emit;
+  loomc_result_t* raw_result = nullptr;
+  const auto status = loomc_compile_artifact(compiler.get(), workspace_, nullptr,
+      module.get(), &options, loomc_allocator_system(), &raw_result);
+  std::unique_ptr<loomc_result_t, decltype(&loomc_result_release)> result(
+      raw_result, loomc_result_release);
+  std::string diagnostics;
+  if (result) for (size_t i = 0; i < loomc_result_diagnostic_count(result.get()); ++i) {
+    const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
+    diagnostics.append(diagnostic->message.data, diagnostic->message.size).append("\n");
+  }
+  ASSERT_TRUE(Ok(status)) << diagnostics;
+  ASSERT_TRUE(result && loomc_result_succeeded(result.get())) << diagnostics;
+  EXPECT_GT(loomc_result_artifact_count(result.get()), 0u);
+}
+TEST_F(AssemblyContract, ActualProvidersResolveAllTwentyHooksForFourPolicies) {
   std::string qwen_execution;
   for (int revision=0;revision<4;++revision) {
     SCOPED_TRACE(revision); Select(revision); ASSERT_FALSE(HasFatalFailure());
-    ASSERT_EQ(policy_.roots.size(),18u);
-    ASSERT_EQ(std::set<std::string>(policy_.roots.begin(),policy_.roots.end()).size(),18u);
+    ASSERT_EQ(policy_.roots.size(),20u);
+    ASSERT_EQ(std::set<std::string>(policy_.roots.begin(),policy_.roots.end()).size(),20u);
     if (revision==1) qwen_execution=products_[0];
     if (revision==2) EXPECT_EQ(products_[0],qwen_execution);
     loomc_module_t* module=nullptr; std::string error;
@@ -232,7 +306,7 @@ TEST_F(AssemblyContract, DuplicateActualHookProviderIsRejected) {
 TEST_F(AssemblyContract, WrongHookAbiIsRejectedAgainstActualTypedContract) {
   for (int revision:{1,3}) {
     SCOPED_TRACE(revision); Select(revision); ASSERT_FALSE(HasFatalFailure());
-    // Mutate only the actual identity provider, leaving the maintained 18-hook
+    // Mutate only the actual identity provider, leaving the maintained 20-hook
     // declaration product and every other real implementation unchanged.
     auto wrong=Read("lib/text/common/identity.loom");
     const auto start=wrong.find("func.def public @model_name()");

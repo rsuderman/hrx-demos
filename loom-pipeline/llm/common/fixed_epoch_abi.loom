@@ -1,0 +1,37 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Fixed resident profiles retain their prepared storage for their lifetime.
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.def public @resize_state(%state: buffer, %rows: i64) -> (buffer, buffer, buffer, buffer, buffer, buffer) {
+  %unsupported = scalar.constant 0 : i32
+  %diagnostic = buffer.constant utf8("fixed resident profile does not support state growth") : buffer
+  func.call @require(%unsupported, %diagnostic) : (i32, buffer)
+  // Native require fails the invocation; these typed returns are unreachable.
+  func.return %state, %state, %state, %state, %state, %state : buffer, buffer, buffer, buffer, buffer, buffer
+}
+
+// Preserve the previous native full-packet uploads. Records are five LEu64:
+// {source binding, source offset, target binding, target offset, byte length}.
+func.def @generation.full_packet_transfers(%metadata: buffer, %tokens: buffer) -> (buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 80 : offset
+  %plan = buffer.alloca<private> align(8) %bytes : buffer
+  %records = buffer.view %plan[%origin] : buffer -> view<2x5xi64>
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %metadata_extent = buffer.length %metadata
+  %token_extent = buffer.length %tokens
+  %metadata_bytes = index.cast %metadata_extent : offset to i64
+  %token_bytes = index.cast %token_extent : offset to i64
+  view.store %zero, %records[0, 0] : i64, view<2x5xi64>
+  view.store %zero, %records[0, 1] : i64, view<2x5xi64>
+  view.store %zero, %records[0, 2] : i64, view<2x5xi64>
+  view.store %zero, %records[0, 3] : i64, view<2x5xi64>
+  view.store %metadata_bytes, %records[0, 4] : i64, view<2x5xi64>
+  view.store %one, %records[1, 0] : i64, view<2x5xi64>
+  view.store %zero, %records[1, 1] : i64, view<2x5xi64>
+  view.store %one, %records[1, 2] : i64, view<2x5xi64>
+  view.store %zero, %records[1, 3] : i64, view<2x5xi64>
+  view.store %token_bytes, %records[1, 4] : i64, view<2x5xi64>
+  func.return %plan : buffer
+}

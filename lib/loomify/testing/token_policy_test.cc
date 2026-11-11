@@ -19,20 +19,21 @@ TextTokenRequirements ChatmlTokens() { return {"gpt2","qwen35",false,"","<|im_en
 class TokenPolicyTest : public ::testing::Test {
 protected:
   void Open(bool missing_stop = false, bool bad_template = true,
-            bool chatml = false, std::string terminal = {}, bool gemma = false) {
+            bool chatml = false, std::string terminal = {}, bool gemma = false, bool qwen3 = false) {
     pieces = {"a", "<|begin_of_text|>", "<|end_of_text|>",
               missing_stop ? "other" : "<|eom_id|>",
               terminal.empty() ? (chatml ? "<|im_end|>" : "<|eot_id|>") : terminal,
               "<|header|>"};
     if (gemma) pieces={"a","<pad>","<eos>","<bos>","<unk>","<start_of_turn>",missing_stop ? "other" : "<end_of_turn>"};
+    if (qwen3) pieces={"a","<|im_start|>",missing_stop ? "other" : "<|endoftext|>","<think>","<|im_end|>","</think>"};
     std::string bytes = "GGUF";
     Number(bytes, 3, 4); Number(bytes, 0, 8); Number(bytes, 7, 8);
     auto field = [&](std::string_view k, std::string_view v) {
       String(bytes, k); Number(bytes, 8, 4); String(bytes, v);
     };
-    field("general.architecture", gemma ? "gemma3" : "llama");
+    field("general.architecture", qwen3 ? "qwen3" : gemma ? "gemma3" : "llama");
     field("tokenizer.ggml.model", gemma ? "llama" : "gpt2");
-    field("tokenizer.ggml.pre", gemma ? "default" : chatml ? "qwen35" : "llama-bpe");
+    field("tokenizer.ggml.pre", qwen3 ? "qwen2" : gemma ? "default" : chatml ? "qwen35" : "llama-bpe");
     String(bytes, "tokenizer.ggml.tokens"); Number(bytes, 9, 4);
     Number(bytes, 8, 4); Number(bytes, pieces.size(), 8);
     for (const auto& p : pieces) String(bytes, p);
@@ -221,6 +222,33 @@ TEST_F(TokenPolicyTest, GemmaMissingTurnStopRejectsWithoutReplacingFacts) {
   ASSERT_TRUE(facts); EXPECT_EQ(facts->raw_stops[0].id,77);
   EXPECT_NE(error.find("<end_of_turn>"),std::string::npos);
 }
+TEST_F(TokenPolicyTest, Qwen3SourcePolicyDerivesBothEogIdsWithoutChat) {
+  Open(false, true, false, {}, false, true);
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "qwen3", text, &facts, &error)) << error;
+  ASSERT_TRUE(facts);
+  ASSERT_EQ(facts->raw_stops.size(), 2u);
+  EXPECT_EQ(facts->raw_stops[0].id, 2);
+  EXPECT_EQ(facts->raw_stops[0].piece, "<|endoftext|>");
+  EXPECT_EQ(facts->raw_stops[1].id, 4);
+  EXPECT_EQ(facts->terminal_index, 1u);
+  EXPECT_NE(facts->configuration_source.find("@qwen3.publication.end_text_id = 2"), std::string::npos);
+  EXPECT_NE(facts->configuration_source.find("@qwen3.publication.end_turn_id = 4"), std::string::npos);
+  BoundTokenPolicy bound;
+  ASSERT_TRUE(BindTokenPolicy(file.get(), {"gpt2","qwen2",false,"","<|im_end|>"},
+      text, facts, {"<|im_start|>","<|im_end|>"}, Json(), &bound, &error)) << error;
+  EXPECT_EQ(bound.terminal.id, 4);
+  EXPECT_EQ(bound.encode_flags, 0u);
+}
+TEST_F(TokenPolicyTest, Qwen3MissingAdditionalStopDoesNotReplaceFacts) {
+  Open(true, true, false, {}, false, true);
+  std::optional<PublicationTokenFacts> facts = PublicationTokenFacts{};
+  facts->configuration_source = "unchanged";
+  EXPECT_FALSE(DerivePublicationTokenFacts(file.get(), "qwen3", text, &facts, &error));
+  EXPECT_NE(error.find("<|endoftext|>"), std::string::npos);
+  EXPECT_EQ(facts->configuration_source, "unchanged");
+}
+
 TEST_F(TokenPolicyTest, MissingMarkerAndMalformedJsonAreDiagnosed) {
   Open(); std::optional<PublicationTokenFacts> facts;
   ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));

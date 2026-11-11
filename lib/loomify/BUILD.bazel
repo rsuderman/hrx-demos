@@ -19,12 +19,13 @@ iree_cc_library(
     visibility = [
         "//lib/loomify/testing:__pkg__",
         "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/qwen3:__pkg__",
         "//lib/architectures/qwen35:__pkg__",
         "//lib/architectures/qwen35/testing:__pkg__",
         "//lib/serving/testing:__pkg__",
         "//lib/programs/ffn/testing:__pkg__",
     ],
-    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc", "architectures/gemma3.cc"],
+    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc", "architectures/gemma3.cc", "architectures/qwen3.cc"],
     hdrs = ["configuration.h"],
     cxxopts = _CXXOPTS,
     deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
@@ -41,7 +42,7 @@ iree_cc_library(
         "//lib/programs/ffn/testing:__pkg__",
     ],
     testonly = True,
-    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h"],
+    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h", "//lib/loomify/testing:qwen3_fixture.h"],
     cxxopts = _CXXOPTS,
     deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
 )
@@ -67,7 +68,7 @@ cc_test(
 iree_cc_library(
     name = "gguf_model_builder",
     visibility = ["//visibility:public"],
-    srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "architectures.h", "platforms.cc", "platforms.h"],
+    srcs = ["package.cc", "gguf_model_builder.cc", "gguf_model_builder_internal.h", "architectures.cc", "platforms.cc"],
     hdrs = ["gguf_model_builder.h"],
     cxxopts = _CXXOPTS,
     deps = ["//lib/serving:library_resources", ":configuration", ":native_linking", ":token_policy", ":chat_policy", "//tools/model:model_descriptor", "//tools/model:text_metadata", "@hrx_system//loom/binding/c:loomc"],
@@ -77,7 +78,7 @@ iree_cc_library(
 # native numerical fixtures. gguf_model_builder.h remains the supported API.
 iree_cc_library(
     name = "native_linking",
-    srcs = ["linking.cc"], hdrs = ["linking.h"],
+    srcs = ["linking.cc"], hdrs = ["linking.h", "architectures.h", "platforms.h"],
     cxxopts = _CXXOPTS,
     visibility = [
         "//lib/loomify:__pkg__",
@@ -128,7 +129,7 @@ iree_c_embed_data(
     name = "chat_templates",
     srcs = ["//lib/text/llama:templates/5816fce1.jinja",
             "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
-            "//lib/text/gemma:templates/7de1c58e.jinja"],
+            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja"],
     c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
     identifier = "chat_templates", flatten = True,
 )
@@ -144,7 +145,7 @@ cc_test(
     srcs = ["//lib/loomify/testing:chat_policy_test.cc"], copts = _CXXOPTS,
     data = ["//lib/text/llama:templates/5816fce1.jinja",
             "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
-            "//lib/text/gemma:templates/7de1c58e.jinja"],
+            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja"],
     deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
@@ -163,4 +164,18 @@ cc_test(
     copts = _CXXOPTS,
     deps = [":configuration", "//tools/model:gguf_catalog", "//tools/model:model_descriptor",
             "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "qwen3_configuration_test", size = "small",
+    srcs = ["//lib/loomify/testing:qwen3_configuration_test.cc"],
+    copts = _CXXOPTS,
+    deps = [":configuration", ":configuration_fixture", "//tools/model:gguf_catalog", "//tools/model:model_descriptor", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "qwen3_configuration_real_assets_test", size = "small", tags = ["manual"],
+    srcs = ["//lib/loomify/testing:qwen3_configuration_test.cc"],
+    defines = ["LOOMIFY_QWEN3_REAL_ASSETS=1"], copts = _CXXOPTS,
+    deps = [":configuration", ":configuration_fixture", "//tools/model:gguf_catalog", "//tools/model:model_descriptor", "@googletest//:gtest", "@googletest//:gtest_main"],
 )

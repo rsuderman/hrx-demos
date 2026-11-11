@@ -122,7 +122,7 @@ def load_builds(path):
                 raise ValueError('Notices cannot ship model or executable payloads')
         helper = build['helper']
         if helper is not None:
-            if type(helper) is not dict or set(helper) != {'contract', 'upstream', 'destination'}:
+            if type(helper) is not dict or set(helper) != {'contract', 'source', 'upstream', 'destination'}:
                 raise ValueError('Invalid trusted payload build input')
             for name in helper.values(): relative(name)
             if not helper['destination'].startswith('_native/'):
@@ -207,7 +207,7 @@ def program_roots(text: str) -> dict:
     """Compiler observations, independent of model names or runtime modality."""
     patterns = {
         "functions": r"^func\.def public @([^\s(]+)",
-        "commands": r"^command\.program\.def public @([^\s(]+)",
+        "commands": r"^command\.def public @([^\s(]+)",
         "configs": r"^config\.(?:def|decl) @([^\s=:(]+)",
     }
     return {kind: sorted(set(re.findall(pattern, text, re.MULTILINE)))
@@ -331,8 +331,8 @@ def normalize_catalog(package_root, repository, reference, build, source, source
     return compiled
 
 
-def stage_trusted_payload(package_root, repository, hrx_source, helper, operation_id, outputs):
-    """Copy a selected trusted tool contract; never execute data-selected commands."""
+def stage_trusted_payload(package_root, repository, helper, operation_id, outputs):
+    """Stage owned, hash-pinned tools; upstream fields describe their origin only."""
     contract_path = source_path(repository, helper['contract'])
     operation, operation_bytes = document(contract_path)
     if (type(operation) is not dict or set(operation) != {'format', 'id', 'tool_revision', 'tool_files', 'inputs', 'outputs'}
@@ -346,14 +346,15 @@ def stage_trusted_payload(package_root, repository, hrx_source, helper, operatio
         relative(name)
         if type(checksum) is not str or not re.fullmatch('[0-9a-f]{64}', checksum):
             raise ValueError('Invalid trusted tool identity')
-        content = source_path(hrx_source, helper['upstream'] + '/' + name).read_bytes()
+        content = source_path(repository, helper['source'] + '/' + name).read_bytes()
         if digest(content) != checksum:
             raise ValueError('Trusted tool differs from selected operation: ' + name)
         write_once(package_root, destination + '/' + name, content, outputs)
     if contract_path.read_bytes() != operation_bytes:
         raise ValueError('Trusted operation changed during staging')
     write_once(package_root, destination + '/operation.json', operation_bytes, outputs)
-    write_once(package_root, destination + '/LICENSE', source_path(hrx_source, 'LICENSE').read_bytes(), outputs)
+    write_once(package_root, destination + '/LICENSE',
+               source_path(repository, helper['source'] + '/LICENSE').read_bytes(), outputs)
     provenance = dict(format=1, repository='https://github.com/ROCm/hrx-system',
                       revision=operation['tool_revision'], upstream_directory=helper['upstream'], files=operation['tool_files'])
     write_once(package_root, destination + '/provenance.json',

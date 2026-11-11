@@ -52,10 +52,10 @@ func.def inline @qwen38_q6k_codes_f32_vector4(%weight: buffer, %row_byte_base: o
   %c16 = index.constant 16 : index
   %block_bytes = index.constant 210 : offset
   %qh_byte_add = index.constant 128 : offset
-  %c4_i32v = vector.constant 4 : vector<1xi32>
-  %nibble_mask = vector.constant 252645135 : vector<1xi32>
-  %high_mask = vector.constant 50529027 : vector<1xi32>
-  %c32_f32v = vector.constant 32.0 : vector<4xf32>
+  %c4_i32v = vector.splati 4 : vector<1xi32>
+  %nibble_mask = vector.splati 252645135 : vector<1xi32>
+  %high_mask = vector.splati 50529027 : vector<1xi32>
+  %c32_f32v = vector.splatf 32.0 : vector<4xf32>
   %bounded_group = index.assume %q6_group [range(%q6_group, 0, 7)] : index
   %bounded_packet = index.assume %packet [range(%packet, 0, 7)] : index
   %block_byte_add = index.scale %q6_block, %block_bytes : index, offset -> offset
@@ -141,9 +141,9 @@ template.def<@qwen38.dense_q6k_f16_wmma.metadata.body> device @qwen38_dense_q6k_
     scf.yield %subgroup_count : index
   }
   %result_stage_bytes = index.scale %result_slot_count, %wave_result_stage_bytes : index, offset -> offset
-  %c0_f16x4 = vector.constant 0.0 : vector<4xf16>
-  %c0_f32x4 = vector.constant 0.0 : vector<4xf32>
-  %zero_accumulator = vector.constant 0.0 : vector<4xf32>
+  %c0_f16x4 = vector.splatf 0.0 : vector<4xf16>
+  %c0_f32x4 = vector.splatf 0.0 : vector<4xf32>
+  %zero_accumulator = vector.splatf 0.0 : vector<4xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
@@ -217,7 +217,7 @@ template.def<@qwen38.dense_q6k_f16_wmma.metadata.body> device @qwen38_dense_q6k_
         %decoded_pair = func.call @qwen38_q6k_scale_pair(%weight_noalias, %metadata_row_byte_base, %quant_block, %metadata_group) : (buffer, offset, index, index) -> (vector<2xf32>)
         scf.yield %decoded_pair : vector<2xf32>
       } else {
-        %zero_pair = vector.constant 0.0 : vector<2xf32>
+        %zero_pair = vector.splatf 0.0 : vector<2xf32>
         scf.yield %zero_pair : vector<2xf32>
       }
       vector.store %metadata_pair, %metadata_stage_view[%metadata_row, %metadata_group, %c0] : vector<2xf32>, view<[%channel_tile_width]x8x2xf32>
@@ -351,7 +351,7 @@ template.def<@qwen38.dense_q6k_f16_wmma.metadata.body> device @qwen38_dense_q6k_
           %rhs7_value = vector.fragment.load<rhs> %activation_fragment_view[%k_half, %rhs_token7] shape [%k, %n] : view<32x[%token_tile_width]xf16, %activation_fragment_layout> -> vector<16xf16>
           scf.yield %rhs4_value, %rhs5_value, %rhs6_value, %rhs7_value : vector<16xf16>, vector<16xf16>, vector<16xf16>, vector<16xf16>
         } else {
-          %zero_operand = vector.constant 0.0 : vector<16xf16>
+          %zero_operand = vector.splatf 0.0 : vector<16xf16>
           scf.yield %zero_operand, %zero_operand, %zero_operand, %zero_operand : vector<16xf16>, vector<16xf16>, vector<16xf16>, vector<16xf16>
         }
         %half_next00 = vector.mma %lhs0, %rhs0, %half_acc00 : vector<16xf16>, vector<16xf16>, vector<4xf32>
@@ -909,7 +909,7 @@ template.def<@ggml.q6k.f16_wmma.metadata.direct_c64t128_o5120.body> device @ggml
   %weight_stage_bytes = index.constant 5120 : offset
   %activation_stage_bytes = index.constant 10240 : offset
   %metadata_stage_bytes = index.constant 4096 : offset
-  %zero_accumulator = vector.constant 0.0 : vector<4xf32>
+  %zero_accumulator = vector.splatf 0.0 : vector<4xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
@@ -1074,8 +1074,8 @@ check.case public @qwen38_linear_q6k_f16_wmma_metadata_differential_case {
   kernel.launch @qwen38_linear_q6k_f16_wmma_x128[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %expected) : [index, index, index](tensor<1xi32>, index, index, tensor<129x256xf32>, tensor<129x210xi8>, tensor<129x129xf32>)
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_x128[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %actual_x128) : [index, index, index](tensor<1xi32>, index, index, tensor<129x256xf32>, tensor<129x210xi8>, tensor<129x129xf32>)
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_c128_t128[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %actual_c128) : [index, index, index](tensor<1xi32>, index, index, tensor<129x256xf32>, tensor<129x210xi8>, tensor<129x129xf32>)
-  check.expect.close actual(%actual_x128) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<129x129xf32>
-  check.expect.close actual(%actual_c128) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<129x129xf32>
+  check.expect.approximate actual(%actual_x128) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<129x129xf32>, tensor<129x129xf32>
+  check.expect.approximate actual(%actual_c128) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<129x129xf32>, tensor<129x129xf32>
   check.return
 }
 
@@ -1102,10 +1102,10 @@ check.case public @qwen38_linear_q6k_f16_wmma_metadata_residual_differential_cas
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_residual_c128_t128[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %actual_residual_c128) : [index, index, index](tensor<1xi32>, index, index, tensor<129x[%shape_ffn_size]xf32>, tensor<[%shape_hidden_size]x[%shape_ffn_qk_blocks]x210xi8>, tensor<129x[%shape_hidden_size]xf32>)
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_residual_x128_input_f16[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input_f16, %weight, %actual_residual_x128_f16) : [index, index, index](tensor<1xi32>, index, index, tensor<129x[%shape_ffn_size]xf16>, tensor<[%shape_hidden_size]x[%shape_ffn_qk_blocks]x210xi8>, tensor<129x[%shape_hidden_size]xf32>)
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_residual_c128_t128_input_f16[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input_f16, %weight, %actual_residual_c128_f16) : [index, index, index](tensor<1xi32>, index, index, tensor<129x[%shape_ffn_size]xf16>, tensor<[%shape_hidden_size]x[%shape_ffn_qk_blocks]x210xi8>, tensor<129x[%shape_hidden_size]xf32>)
-  check.expect.close actual(%actual_residual_x128) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>
-  check.expect.close actual(%actual_residual_c128) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>
-  check.expect.close actual(%actual_residual_x128_f16) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>
-  check.expect.close actual(%actual_residual_c128_f16) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%actual_residual_x128) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>, tensor<129x[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%actual_residual_c128) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>, tensor<129x[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%actual_residual_x128_f16) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>, tensor<129x[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%actual_residual_c128_f16) expected(%expected_residual) atol(0.0) rtol(0.0) nan(same) : tensor<129x[%shape_hidden_size]xf32>, tensor<129x[%shape_hidden_size]xf32>
   check.return
 }
 
@@ -1279,7 +1279,7 @@ check.case public @qwen38_linear_q6k_f16_wmma_metadata_direct_differential_case 
   %actual = check.generate.fill value(1.0) : tensor<128x[%shape_hidden_size]xf32>
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_x128[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %expected) : [index, index, index](tensor<1xi32>, index, index, tensor<128x256xf32>, tensor<[%shape_hidden_size]x210xi8>, tensor<128x[%shape_hidden_size]xf32>)
   kernel.launch @qwen38_linear_q6k_f16_wmma_metadata_direct_c64_t128_o5120[%token_count, %input_size, %output_size](%token_count_data, %input_size, %output_size, %input, %weight, %actual) : [index, index, index](tensor<1xi32>, index, index, tensor<128x256xf32>, tensor<[%shape_hidden_size]x210xi8>, tensor<128x[%shape_hidden_size]xf32>)
-  check.expect.close actual(%actual) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<128x[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(0.0) rtol(0.0) nan(same) : tensor<128x[%shape_hidden_size]xf32>, tensor<128x[%shape_hidden_size]xf32>
   check.return
 }
 

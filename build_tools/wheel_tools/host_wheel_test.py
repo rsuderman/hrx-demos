@@ -249,13 +249,13 @@ class HostWheelTest(unittest.TestCase):
                               'if "--version" in args: raise SystemExit(2)\n'
                               'assert args[-2:] == ["version", "--gnu_format"], args\n'
                               'assert any(a.startswith("--output_base=") for a in args), args\n'
-                              'print("bazel 9.2.0")\n')
+                              'print("bazel 9.3.2")\n')
         executable.chmod(0o700)
         launcher = self.root / 'bazel'
         host.write_launcher(launcher, executable, self.root, self.root / 'source')
         result = subprocess.run([launcher, '--version'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), 'bazel 9.2.0')
+        self.assertEqual(result.stdout.strip(), 'bazel 9.3.2')
         # Additional arguments must not be silently normalized or dropped.
         malformed = subprocess.run([launcher, '--version', 'extra'], capture_output=True, text=True)
         self.assertEqual(malformed.returncode, 2)
@@ -308,7 +308,7 @@ class HostWheelTest(unittest.TestCase):
     def test_selected_cache_identity_is_bounded_and_python_payload_is_not_a_key(self):
         source = self.root / 'source'
         source.mkdir()
-        (source / '.bazelversion').write_text('9.2.0\n')
+        (source / '.bazelversion').write_text('9.3.2\n')
         sdk = self.root / 'sdk'
         sdk.mkdir()
         receipt = sdk / '.hrx-rocm-artifacts.json'
@@ -318,7 +318,7 @@ class HostWheelTest(unittest.TestCase):
         first = host.cache_identity(evidence, source)
         (source / 'packaged.py').write_text('changed packaged marker\n')
         self.assertEqual(host.cache_identity(evidence, source), first)
-        evidence['bazel']['version'] = 'bazel 9.2.0'
+        evidence['bazel']['version'] = 'bazel 9.3.2'
         self.assertNotIn('version', first['bazel'])  # Retained identity is not mutated by later per-run evidence.
         receipt.write_text('{"artifact_identity":"changed"}\n')
         self.assertNotEqual(host.cache_identity(evidence, source), first)
@@ -417,7 +417,7 @@ class HostWheelTest(unittest.TestCase):
 
     def test_runner_build_archive_failures_preserve_exit_and_always_shutdown(self):
         source = self.git_source()
-        (source / '.bazelversion').write_text('9.2.0\n')
+        (source / '.bazelversion').write_text('9.3.2\n')
         subprocess.run(['git', '-C', source, 'add', '.'], check=True)
         subprocess.run(['git', '-C', source, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
                         'commit', '-qm', 'pin fixture'], check=True)
@@ -445,7 +445,7 @@ class HostWheelTest(unittest.TestCase):
                     if phase == failed_phase:
                         raise subprocess.CalledProcessError(23, arguments)
                     if phase == 'bazel-version':
-                        return 'bazel 9.2.0\n'
+                        return 'bazel 9.3.2\n'
                     if phase == 'bazel-root':
                         return str(run / 'bazel-output')
                     if phase == 'bazel-pid':

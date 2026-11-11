@@ -2,3 +2,5 @@ include .bazelrc .bazelversion BUILD.bazel MODULE.bazel MODULE.bazel.lock versio
 recursive-include build_tools *.py *.sh *.bazel *.json
 recursive-include loom-pipeline *.loom *.json *.txt *.bzl *.bazel LICENSE*
 recursive-include binding/python/models *.json
+include loom-pipeline/recognition/moonshine/preparer/prepare_assets.py
+include loom-pipeline/speech/pocket_tts/preparer/prepare_assets.py

@@ -38,9 +38,9 @@ class PlainConfigurationTest(unittest.TestCase):
         self.evidence = self.stats(self.dependencies)
         self.reference = 'examples/chat/executable.json'
         self.serving = {'bounds':{'rows':[1,16], 'context_capacity':[1,262144],
-                                  'pool_capacity':[1,4194304], 'prefill_capacity':[1,262144]},
+                                  'prefill_capacity':[1,262144]},
                         'mtp_depth_max':3, 'defaults':dict(rows=2,context_capacity=8192,
-                            pool_capacity=32768,prefill_capacity=128,mtp=True,mtp_depth=3)}
+                            prefill_capacity=128,mtp=True,mtp_depth=3)}
         self.executable = dict(id='example-chat', modality='chat', native_contract='text-v1',
                                serving=self.serving, assets={}, preparation=None)
         self.document = dict(format=3, id='fixture', executable=self.reference, name='Fixture',

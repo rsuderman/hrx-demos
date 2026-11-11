@@ -1,7 +1,7 @@
 module(
     name = "hrx_solutions",
     version = "0.0.0",
-    bazel_compatibility = [">=9.2.0"],
+    bazel_compatibility = [">=9.3.2"],
 )
 
 # HRX source pin. For local development, pass
@@ -10,9 +10,9 @@ bazel_dep(name = "hrx", version = "0.0.0", repo_name = "hrx_system")
 git_override(
     module_name = "hrx",
     remote = "https://github.com/ROCm/hrx-system.git",
-    commit = "61417137f334cfa828b38d6e9b0f2d7190503f16",
+    commit = "a4013927033e13f4046b2ec8d1c4162c7c8628b1",
 )
 
 # HRX's test dependencies are not inherited by downstream modules. Keep this
 # development-only dependency aligned with the pinned HRX GoogleTest version.
-bazel_dep(name = "googletest", version = "1.17.0.bcr.2", dev_dependency = True)
+bazel_dep(name = "googletest", version = "1.18.0.bcr.1", dev_dependency = True)

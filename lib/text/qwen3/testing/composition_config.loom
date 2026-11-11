@@ -1,0 +1,10 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Empty prose isolates compiler composition; no GGUF or tokenizer is needed.
+global.rodata.def public @loomify.text.tools_prefix = bytes("")
+global.rodata.def public @loomify.text.tools_suffix = bytes("")
+global.rodata.def public @loomify.text.effort_xhigh = bytes("")
+global.rodata.def public @loomify.text.effort_low = bytes("")
+global.rodata.def public @loomify.text.default_effort = bytes("")
+global.rodata.def public @loomify.text.default_effort_instruction = bytes("")
+global.rodata.def public @loomify.text.model_name = bytes("")

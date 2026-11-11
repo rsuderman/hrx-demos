@@ -1,7 +1,7 @@
 {
   "format": 3,
   "id": "qwen35-08b-q5-k-xl",
-  "name": "Qwen3.5 0.8B · Q5_K_XL",
+  "name": "Qwen3.5 0.8B \u00b7 Q5_K_XL",
   "files": {
     "weights": {
       "path": "model.gguf",
@@ -25,7 +25,6 @@
   "configuration": {
     "rows": 4,
     "context_capacity": 8192,
-    "pool_capacity": 32768,
     "prefill_capacity": 128,
     "mtp": false
   },

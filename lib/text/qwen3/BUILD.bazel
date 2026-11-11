@@ -1,0 +1,16 @@
+load("//build_tools:loom_merge.bzl", "loom_merge")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+package(default_visibility = ["//visibility:public"])
+exports_files(["templates/5da44855.jinja", "testing/render_cases.json"])
+[loom_merge(
+    name = "composition_" + format,
+    srcs = ["testing/composition_config.loom", "//lib/text/protocols/chatml_thinking:hermes", "//lib/text/common:implementation"],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+cc_test(
+    name = "composition_test", size = "small", srcs = ["testing/composition_test.cc"],
+    copts = ["-std=c++17"], linkstatic = True,
+    data = [":composition_text", ":composition_bc"],
+    deps = ["@hrx_system//loom/binding/c:loomc", "@hrx_system//loom/binding/c/target/vm", "@googletest//:gtest", "@googletest//:gtest_main"],
+)

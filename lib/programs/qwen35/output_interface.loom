@@ -1,3 +1,3 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-command.program.decl @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)]
+command.decl @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)]

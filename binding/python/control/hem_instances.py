@@ -36,7 +36,7 @@ class InstanceManager:
             self.registry.deadline = prior
 
     def start(self, server, model_id, deadline, *, name=None, overrides=None,
-              config_path=None, executable=None, modality=None, device=0):
+              config_path=None, executable=None, modality=None, device=None):
         with self._budget(deadline):
             return self._start(server, model_id, deadline, name=name, overrides=overrides,
                                config_path=config_path, executable=executable, modality=modality, device=device)
@@ -98,7 +98,7 @@ class InstanceManager:
         return retained
 
     def _start(self, server, model_id, deadline, *, name=None, overrides=None,
-              config_path=None, executable=None, modality=None, device=0):
+              config_path=None, executable=None, modality=None, device=None):
         """Return only after ready+active+idle and acknowledged open admission.
 
         A failed/uncertain start is never replayed. Inspect the pending current

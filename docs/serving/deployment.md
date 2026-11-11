@@ -19,7 +19,6 @@ keep JSON escaping valid for quotes or backslashes in paths.
 | `weights`, `tokenizer` | Absolute server-local paths to the exact checkpoint and matching tokenizer. |
 | `rows` | Concurrent execution rows; example 1, native range 1–16. |
 | `context_capacity` | Per-row logical token-position limit, example 8192. Input plus requested completion must fit. |
-| `pool_capacity` | Shared retained-state token-position capacity, example 8192. Requests and retained state compete for the pool. |
 | `prefill_capacity` | Largest automatically specialized packed token shape, example 128; not a prompt-length limit. Must not exceed context capacity. |
 | `max_tokens` | Default request output limit, example 512. Clients can supply their request's bounded output limit. |
 | `draft_depth` | Zero disables MTP; required for 0.8B. The packaged 27B pipeline supports depths 1–3. |

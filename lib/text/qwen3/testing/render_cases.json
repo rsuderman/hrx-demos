@@ -1,0 +1,1124 @@
+[
+  {
+    "id": "qwen3-one-user",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-thinking-on",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": true
+    }
+  },
+  {
+    "id": "qwen3-thinking-off",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": false
+    }
+  },
+  {
+    "id": "qwen3-no-generation",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "qwen3-whitespace",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "  \tHello\r\n café 中 🦙\n\t "
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-nfc",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "café"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-system",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "  system\t\n"
+        },
+        {
+          "role": "user",
+          "content": "query"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-empty-system",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "query"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-later-system",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "system",
+          "content": " later system "
+        },
+        {
+          "role": "user",
+          "content": "second"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-history-old",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>old</think>body"
+        },
+        {
+          "role": "user",
+          "content": "second"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-history-final-empty",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "body"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-history-intermediate-empty",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "a1"
+        },
+        {
+          "role": "assistant",
+          "content": "a2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-history-intermediate-space",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "a1",
+          "reasoning_content": " \t\n "
+        },
+        {
+          "role": "assistant",
+          "content": "a2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-history-intermediate-reason",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "a1",
+          "reasoning_content": " \tthought\n "
+        },
+        {
+          "role": "assistant",
+          "content": "a2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-inline-space",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>\n thought \t\n</think>\n body \t"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-explicit-reason",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "\n body \t",
+          "reasoning_content": "\n thought \t\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-explicit-overrides",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>literal</think>body",
+          "reasoning_content": "explicit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-null-reason-fallback",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>inline</think>body",
+          "reasoning_content": null
+        }
+      ]
+    },
+    "native_admission_error": "duplicate or wrongly typed chat field 'reasoning_content'",
+    "native_counterpart": "qwen3-null-reason-fallback-native"
+  },
+  {
+    "id": "qwen3-multiple-close",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>first</think>discard</think>\nbody"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-wrapped-user",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "a1",
+          "reasoning_content": "r1"
+        },
+        {
+          "role": "user",
+          "content": "<tool_response>\nresult\n</tool_response>"
+        },
+        {
+          "role": "assistant",
+          "content": "a2",
+          "reasoning_content": "r2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-near-wrapped-user",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "a1",
+          "reasoning_content": "r1"
+        },
+        {
+          "role": "user",
+          "content": " <tool_response>result</tool_response> "
+        },
+        {
+          "role": "assistant",
+          "content": "a2",
+          "reasoning_content": "r2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-tool-schema",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "query"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-system-tools",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "  SYSTEM  "
+        },
+        {
+          "role": "user",
+          "content": "query"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-empty-system-tools",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "query"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-tool-history",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "content": "body",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1,
+                  "s": "é\n</tool_call>",
+                  "nested": {
+                    "b": true,
+                    "n": null
+                  },
+                  "arr": [
+                    1,
+                    "x",
+                    false
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": " r1 "
+        },
+        {
+          "role": "tool",
+          "content": " r2 "
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "duplicate or wrongly typed chat field 'arguments'",
+    "native_counterpart": "qwen3-tool-history-native"
+  },
+  {
+    "id": "qwen3-multiple-calls",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1,
+                  "s": "é\n</tool_call>",
+                  "nested": {
+                    "b": true,
+                    "n": null
+                  },
+                  "arr": [
+                    1,
+                    "x",
+                    false
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1,
+                  "s": "é\n</tool_call>",
+                  "nested": {
+                    "b": true,
+                    "n": null
+                  },
+                  "arr": [
+                    1,
+                    "x",
+                    false
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": " r "
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "duplicate or wrongly typed chat field 'arguments'",
+    "native_counterpart": "qwen3-multiple-calls-native"
+  },
+  {
+    "id": "qwen3-string-arguments",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1, \"s\": \"str\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "r"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "assistant tool_calls must be functions",
+    "native_counterpart": "qwen3-string-arguments-native"
+  },
+  {
+    "id": "qwen3-system-only",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "  sys  "
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-assistant-only",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "<think>old</think> body "
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-tool-only",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "tool",
+          "content": " result "
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-system-assistant",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "s"
+        },
+        {
+          "role": "assistant",
+          "content": "a"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-wrapped-only",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "<tool_response>result</tool_response>"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-tool-first-later-user",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "tool",
+          "content": " first "
+        },
+        {
+          "role": "user",
+          "content": "later"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen3-empty-messages",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": []
+    },
+    "error": true
+  },
+  {
+    "id": "qwen3-verbatim-string-arguments",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "f",
+                "arguments": "{ \"x\" : 1, \"s\":\"café\\n\" }"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "r"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "assistant tool_calls must be functions",
+    "native_counterpart": "qwen3-verbatim-string-arguments-native"
+  },
+  {
+    "id": "qwen3-null-reason-fallback-native",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "first"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>inline</think>body"
+        }
+      ]
+    },
+    "template_case": "qwen3-null-reason-fallback"
+  },
+  {
+    "id": "qwen3-tool-history-native",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "content": "body",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1, \"s\": \"é\\n</tool_call>\", \"nested\": {\"b\": true, \"n\": null}, \"arr\": [1, \"x\", false]}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": " r1 "
+        },
+        {
+          "role": "tool",
+          "content": " r2 "
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen3-tool-history"
+  },
+  {
+    "id": "qwen3-multiple-calls-native",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1, \"s\": \"é\\n</tool_call>\", \"nested\": {\"b\": true, \"n\": null}, \"arr\": [1, \"x\", false]}"
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1, \"s\": \"é\\n</tool_call>\", \"nested\": {\"b\": true, \"n\": null}, \"arr\": [1, \"x\", false]}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": " r "
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen3-multiple-calls"
+  },
+  {
+    "id": "qwen3-string-arguments-native",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1, \"s\": \"str\"}"
+              },
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "r"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "test café",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "s": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen3-string-arguments"
+  },
+  {
+    "id": "qwen3-verbatim-string-arguments-native",
+    "revisions": [
+      "5da44855"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "q"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "f",
+                "arguments": "{ \"x\" : 1, \"s\":\"café\\n\" }"
+              },
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "r"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen3-verbatim-string-arguments"
+  }
+]

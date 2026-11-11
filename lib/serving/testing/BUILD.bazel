@@ -5,6 +5,7 @@ cc_test(
     srcs = ["assembly_contract_test.cc"],
     copts = ["-std=c++17"],
     data = [
+        "//loom-pipeline:qwen_control_contract_inputs",
         "//lib/architectures/gemma3:execution",
         "//lib/architectures/gemma3:prepare_library",
         "//lib/text/protocols/gemma_turns:implementation",
@@ -33,6 +34,7 @@ cc_test(
         "//lib/loomify:token_policy",
         "//lib/loomify:native_linking",
         "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
     ],

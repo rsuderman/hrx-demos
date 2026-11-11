@@ -2,7 +2,7 @@ load("//build_tools:loom_merge.bzl", "loom_merge")
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 loom_test(
     name = "q4k_rows_test",
     srcs = ["q4k_checks.loom", "//lib/kernels/embedding:q4k_rows.loom",
@@ -10,14 +10,14 @@ loom_test(
             "//lib/kernels/projection:q4k.loom", "//lib/kernels/projection:qk_common.loom",
             "//lib/kernels/quantization:q8_1_x4.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 
 loom_test(
     name = "f32_execution_test",
     srcs = ["f32_programs.loom", "f32_checks.loom", "//lib/kernels/embedding:f32.loom"],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
 
 
@@ -31,5 +31,5 @@ loom_test(
     name = "q8_0_rows_" + format + "_test",
     srcs = ["q8_0_checks.loom", ":q8_0_provider_" + format],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]

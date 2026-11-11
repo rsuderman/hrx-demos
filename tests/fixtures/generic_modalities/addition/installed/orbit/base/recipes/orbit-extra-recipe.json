@@ -25,7 +25,6 @@
   "configuration": {
     "rows": 2,
     "context_capacity": 8192,
-    "pool_capacity": 32768,
     "prefill_capacity": 128,
     "mtp": false
   },

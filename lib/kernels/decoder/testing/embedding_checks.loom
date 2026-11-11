@@ -1,0 +1,41 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+func.decl @decoder.fixture.embedding_inputs(%epoch: buffer, %tokens: buffer, %weight: buffer)
+command.decl @decoder.actual.embedding() launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
+func.def @decoder.expected.embedding(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer) {
+  func.call @decoder.fixture.embedding_inputs(%epoch, %tokens, %weight) : (buffer, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %size = index.constant 3072 : index
+  %width = index.constant 1024 : index
+  %minus_one = scalar.constant -1.0 : f32
+  %zero32 = scalar.constant 0.0 : f32
+  %view = buffer.view %output[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %size step %one] {
+    %active = index.cmp ult, %i, %width : index
+    // Q6 integer code0 -> -32; signed scale1; block scale1/32 -> -1.
+    %v = scf.select %active, %minus_one, %zero32 : f32
+    view.store %v, %view[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+check.scenario @decoder.embedding.nonzero_input_begin {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(99) : tensor<12xi32>
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %tokens = check.generate.fill value(0) : tensor<3xi32>
+    %weight_storage = check.generate.fill value(9) : tensor<3392xi8>
+    %weight = check.tensor.view %weight_storage offset(16) : tensor<3392xi8> -> tensor<3360xi8>
+    %storage = check.generate.fill value(123.5) : tensor<3080xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<3080xf32> -> tensor<3x1024xf32>
+    check.compare<@decoder.actual.embedding, @decoder.expected.embedding>(%epoch, %count, %tokens, %weight, %out) : (tensor<12xi32>, tensor<3xi32>, tensor<3xi32>, tensor<3360xi8>, tensor<3x1024xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<3080xf32>
+      check.expect.bitwise actual(%weight_storage) expected(%weight_storage) : tensor<3392xi8>
+      check.expect.bitwise actual(%tokens) expected(%tokens) : tensor<3xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<12xi32>
+    }
+  }
+  check.return
+}

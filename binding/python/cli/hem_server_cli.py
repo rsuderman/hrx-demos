@@ -27,6 +27,7 @@ def configure(parser):
             child.add_argument("--name", type=arguments.name)
             child.add_argument("--device", default=None)
             child.add_argument("--listen", default=None)
+            child.add_argument("--pool-backing", choices=("fixed", "elastic"), default=None)
         if command in ("start", "shutdown"):
             arguments.lifecycle(child)
         if command == "shutdown":
@@ -39,7 +40,7 @@ def validate(args):
     if args.command == "start":
         if bool(args.server) == bool(args.name):
             raise InvalidInput("use server start NAME or server start --name NAME")
-        if args.server and (args.device is not None or args.listen is not None):
+        if args.server and (args.device is not None or args.listen is not None or args.pool_backing is not None):
             raise InvalidInput("saved server start reuses settings; use --name to create another definition")
 
 
@@ -60,6 +61,8 @@ def _settings(args):
     if not args.device or not args.device.strip() or not args.listen:
         raise InvalidInput("new server requires --device DEVICE and --listen LOOPBACK_HOST:PORT")
     settings = dict(device=args.device, listen=args.listen)
+    if args.pool_backing is not None:
+        settings["pool_backing"] = args.pool_backing
     validate_launch_settings(settings)
     return settings
 

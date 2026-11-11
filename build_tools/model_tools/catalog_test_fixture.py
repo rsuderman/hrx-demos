@@ -41,10 +41,11 @@ class CatalogFixture:
         self.decoder.touch()
         for build in self.builds.values():
             if build['helper']:
-                directory = self.hrx / build['helper']['upstream']
+                directory = self.repository / build['helper']['source']
                 directory.mkdir(parents=True, exist_ok=True)
                 for name, content in self.tools.items():
                     (directory / name).write_bytes(content)
+                (directory / 'LICENSE').write_bytes(b'license')
             for output, group in build['groups'].items():
                 name = build['root'] + '/' + output
                 path = root / 'bazel-bin/loom-pipeline/bytecode' / name
@@ -70,7 +71,7 @@ class CatalogFixture:
         with patch.object(loom_catalog.subprocess, 'run', side_effect=self.decode):
             prepared = package_families.prepare(self.query, self.repository, selected=selected)
             outputs = package_families.stage(package, prepared, self.repository)
-        outputs += package_families.stage_helpers(package / '_native', prepared, self.hrx, repository=self.repository)
+        outputs += package_families.stage_helpers(package / '_native', prepared, repository=self.repository)
         return outputs
 
     def release(self, reviewed):

@@ -55,10 +55,10 @@ kernel.decl @qwen38_attention_decode_split_reduce() launch(%token_count: index, 
 // Advances one full-attention layer. The parameter root is immutable and
 // fixed during command-buffer materialization. The residual, control, and
 // cache roots are rebound for each sequence at issue time.
-command.program.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
-command.program.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
+command.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
+command.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
 
-command.program.def public @qwen38_attention_layer_decode(%layer: index, %attention_ordinal: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer, %attention_output: buffer) where [range(%layer, 0, 64), range(%attention_ordinal, 0, 15)] {
+command.def public @qwen38_attention_layer_decode(%layer: index, %attention_ordinal: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer, %attention_output: buffer) where [range(%layer, 0, 64), range(%attention_ordinal, 0, 15)] {
   %projection_implementation = config.get @qwen.model.projection_implementation : index
   %recipe_zero = index.constant 0 : index
   %use_generic_quantized_projections = index.cmp ne, %projection_implementation, %recipe_zero : index
@@ -206,29 +206,29 @@ command.program.def public @qwen38_attention_layer_decode(%layer: index, %attent
   kernel.launch @ggml_quantize_q8_1_x4_f32[%token_count, %hidden_size](%token_count, %hidden_size, %post_normalized, %post_normalized_q8) : [index, index](index, index, buffer, buffer)
 
   %swiglu = buffer.alloca<global> align(256) %ffn_bytes : buffer
-  command.program.launch @qwen38_ffn_gate_up_decode[%layer](%parameters, %post_normalized_q8, %swiglu) : [index](buffer, buffer, buffer)
-  command.program.launch @qwen38_ffn_down_decode[%layer](%parameters, %swiglu, %residual) : [index](buffer, buffer, buffer)
+  command.launch @qwen38_ffn_gate_up_decode[%layer](%parameters, %post_normalized_q8, %swiglu) : [index](buffer, buffer, buffer)
+  command.launch @qwen38_ffn_down_decode[%layer](%parameters, %swiglu, %residual) : [index](buffer, buffer, buffer)
   command.return
 }
 
 // Block 3 is the first full-attention layer and therefore occupies cache slot
 // zero in the model-wide full-attention cache root.
-command.program.def public @qwen38_attention_layer3_decode() launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer) {
+command.def public @qwen38_attention_layer3_decode() launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer) {
   %shape_projection_row_bytes = config.get @qwen.model.projection_row_bytes : index
   %layer = index.constant 3 : index
   %attention_ordinal = index.constant 0 : index
   %attention_bytes = index.cast %shape_projection_row_bytes : index to offset
   %attention_output = buffer.alloca<global> align(256) %attention_bytes : buffer
-  command.program.launch @qwen38_attention_layer_decode[%layer, %attention_ordinal](%parameters, %residual, %control, %attention_cache, %attention_output) : [index, index](buffer, buffer, buffer, buffer, buffer)
+  command.launch @qwen38_attention_layer_decode[%layer, %attention_ordinal](%parameters, %residual, %control, %attention_cache, %attention_output) : [index, index](buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 // Publishes the gated attention row as an additional issue-time binding. This
 // root has the same computation as the production root and exists to bisect
 // the full layer boundary without changing kernel scheduling or adding a copy.
-command.program.def public @qwen38_attention_layer3_decode_witness() launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer, %attention_output: buffer) {
+command.def public @qwen38_attention_layer3_decode_witness() launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer, %attention_output: buffer) {
   %layer = index.constant 3 : index
   %attention_ordinal = index.constant 0 : index
-  command.program.launch @qwen38_attention_layer_decode[%layer, %attention_ordinal](%parameters, %residual, %control, %attention_cache, %attention_output) : [index, index](buffer, buffer, buffer, buffer, buffer)
+  command.launch @qwen38_attention_layer_decode[%layer, %attention_ordinal](%parameters, %residual, %control, %attention_cache, %attention_output) : [index, index](buffer, buffer, buffer, buffer, buffer)
   command.return
 }

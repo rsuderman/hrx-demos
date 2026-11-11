@@ -6,6 +6,15 @@
 #include <string>
 #include <vector>
 namespace hrx::loomify_gguf {
+struct ArchitectureFiles;
+struct PlatformFiles;
+// The common numerical composition path. Platform operation products are
+// required BUILD-owned inputs, selected before native materialization.
+bool LinkNumericalProducts(loomc_context_t *, loomc_workspace_t *,
+                           const std::string &library_root,
+                           const std::string &configuration,
+                           const ArchitectureFiles &, const PlatformFiles &,
+                           loomc_module_t **out, std::string *error);
 // Private native operation; only the selected products are read. Returns one
 // owning strict LINK result. On failure leaves *out unchanged.
 bool LinkConfiguredProducts(loomc_context_t *, loomc_workspace_t *,

@@ -9,7 +9,9 @@ func.def public inline @qwen38_kv_position(%logical_capacity: index, %map: buffe
     %padded_capacity = index.add %logical_capacity, %sixty_three : index
     %map_count = index.div %padded_capacity, %sixty_four : index
     %block_count = index.div %pool_capacity, %sixty_four : index
-    %logical_block = index.div %position, %sixty_four : index
+    %logical_block0 = index.div %position, %sixty_four : index
+    // Callers establish position<logical_capacity before page-map access.
+    %logical_block = index.assume %logical_block0 [lt(%logical_block0, %map_count)] : index
     %within_block = index.rem %position, %sixty_four : index
     %metadata = buffer.assume.memory_space<constant> %map : buffer
     %entries = buffer.view %metadata[%map_origin] : buffer -> view<[%map_count]xi32>

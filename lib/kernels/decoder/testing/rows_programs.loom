@@ -1,0 +1,47 @@
+kernel.def @decoder.fixture.poison() {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%input: buffer) {
+  %origin = index.constant 8192 : offset
+  %lane = kernel.workitem.id<x> : index
+  %width = index.constant 1024 : index
+  %step = index.constant 256 : index
+  %bits = scalar.constant 2143289344 : i32
+  %nan = scalar.bitcast %bits : i32 to f32
+  %view = buffer.view %input[%origin] : buffer -> view<1024xf32>
+  scf.for %i = [%lane to %width step %step] {
+    view.store %nan, %view[%i] : f32, view<1024xf32>
+  }
+  kernel.return
+}
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
+kernel.decl @llm.decoder.output_norm_last(%capacity: index, %width: index) launch(%capacity: index, %width: index, %begin: index, %origin: offset, %epsilon: f32, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+command.def @decoder.actual.rms() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %width = index.constant 1024 : index
+  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  kernel.launch @decoder.fixture.poison[](%input) : [](buffer)
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %width](%rows, %width, %epsilon, %count, %input, %gamma, %output) : [index, index](index, index, f32, buffer, buffer, buffer, buffer)
+  command.return
+}
+command.def @decoder.actual.residual() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %width = index.constant 1024 : index
+  kernel.launch @decoder.fixture.poison[](%input) : [](buffer)
+  kernel.launch @llm.decoder.residual[%rows, %width](%width, %count, %input, %output) : [index, index](index, buffer, buffer, buffer)
+  command.return
+}
+command.def @decoder.actual.last() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %width = index.constant 1024 : index
+  %begin = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  kernel.launch @decoder.fixture.poison[](%input) : [](buffer)
+  kernel.launch @llm.decoder.output_norm_last[%rows, %width](%rows, %width, %begin, %origin, %epsilon, %count, %input, %gamma, %output) : [index, index](index, index, index, offset, f32, buffer, buffer, buffer, buffer)
+  command.return
+}

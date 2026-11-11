@@ -121,8 +121,10 @@ def bootstrap(root, server_id, token, lock_fd, deadline):
         os.close(write_fd)
     _checkpoint('before_exec')
     deadline.remaining()
-    os.execve(str(executable), [str(executable), f"--device={settings['device']}",
-                              f"--listen={settings['listen']}"], dict(os.environ))
+    argv = [str(executable), f"--device={settings['device']}", f"--listen={settings['listen']}"]
+    if "pool_backing" in settings:
+        argv.append(f"--pool_backing={settings['pool_backing']}")
+    os.execve(str(executable), argv, dict(os.environ))
 
 
 def main():

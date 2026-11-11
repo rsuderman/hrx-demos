@@ -70,7 +70,7 @@ kernel.def @gemma.test.geglu(%width: index, %rows: index, %active: index) {
   kernel.return
 }
 
-command.program.def public @actual.rms_1152_1_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.rms_1152_1_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 1 : index
   %active = index.constant 1 : index
@@ -78,7 +78,7 @@ command.program.def public @actual.rms_1152_1_1_low() launch(%lhs: buffer, %rhs:
   command.return
 }
 
-command.program.def public @actual.rms_1152_3_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.rms_1152_3_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 1 : index
@@ -86,7 +86,7 @@ command.program.def public @actual.rms_1152_3_1_low() launch(%lhs: buffer, %rhs:
   command.return
 }
 
-command.program.def public @actual.rms_1152_3_3_zero() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.rms_1152_3_3_zero() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
@@ -94,7 +94,7 @@ command.program.def public @actual.rms_1152_3_3_zero() launch(%lhs: buffer, %rhs
   command.return
 }
 
-command.program.def public @actual.rms_256_3_3_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.rms_256_3_3_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 256 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
@@ -102,7 +102,7 @@ command.program.def public @actual.rms_256_3_3_low() launch(%lhs: buffer, %rhs: 
   command.return
 }
 
-command.program.def public @actual.geglu_6912_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.geglu_6912_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 1 : index
   %active = index.constant 1 : index
@@ -110,7 +110,7 @@ command.program.def public @actual.geglu_6912_1_1_distinct() launch(%lhs: buffer
   command.return
 }
 
-command.program.def public @actual.geglu_6912_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.geglu_6912_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 3 : index
   %active = index.constant 1 : index
@@ -118,7 +118,7 @@ command.program.def public @actual.geglu_6912_3_1_distinct() launch(%lhs: buffer
   command.return
 }
 
-command.program.def public @actual.geglu_6912_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.geglu_6912_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
@@ -126,7 +126,7 @@ command.program.def public @actual.geglu_6912_3_3_distinct() launch(%lhs: buffer
   command.return
 }
 
-command.program.def public @actual.residual_1152_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.residual_1152_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 1 : index
   %active = index.constant 1 : index
@@ -134,7 +134,7 @@ command.program.def public @actual.residual_1152_1_1_distinct() launch(%lhs: buf
   command.return
 }
 
-command.program.def public @actual.residual_1152_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.residual_1152_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 1 : index
@@ -142,7 +142,7 @@ command.program.def public @actual.residual_1152_3_1_distinct() launch(%lhs: buf
   command.return
 }
 
-command.program.def public @actual.residual_1152_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.residual_1152_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
@@ -150,7 +150,7 @@ command.program.def public @actual.residual_1152_3_3_distinct() launch(%lhs: buf
   command.return
 }
 
-command.program.def public @actual.residual_1152_3_3_lhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.residual_1152_3_3_lhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
@@ -158,7 +158,7 @@ command.program.def public @actual.residual_1152_3_3_lhs() launch(%lhs: buffer, 
   command.return
 }
 
-command.program.def public @actual.residual_1152_3_3_rhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
+command.def public @actual.residual_1152_3_3_rhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
@@ -203,7 +203,7 @@ kernel.def @gemma.test.rotary() {
   kernel.return
 }
 
-command.program.def public @actual.head_local() launch(%input: buffer, %gamma: buffer, %out: buffer) {
+command.def public @actual.head_local() launch(%input: buffer, %gamma: buffer, %out: buffer) {
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<global> align(256) %bytes : buffer
   kernel.launch @gemma.test.head_norm[](%input, %gamma, %normalized) : [](buffer, buffer, buffer)
@@ -215,7 +215,7 @@ command.program.def public @actual.head_local() launch(%input: buffer, %gamma: b
   command.return
 }
 
-command.program.def public @actual.head_global() launch(%input: buffer, %gamma: buffer, %out: buffer) {
+command.def public @actual.head_global() launch(%input: buffer, %gamma: buffer, %out: buffer) {
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<global> align(256) %bytes : buffer
   kernel.launch @gemma.test.head_norm[](%input, %gamma, %normalized) : [](buffer, buffer, buffer)
@@ -227,7 +227,7 @@ command.program.def public @actual.head_global() launch(%input: buffer, %gamma: 
   command.return
 }
 
-command.program.def public @actual.head_partial_qwen() launch(%input: buffer, %gamma: buffer, %out: buffer) {
+command.def public @actual.head_partial_qwen() launch(%input: buffer, %gamma: buffer, %out: buffer) {
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<global> align(256) %bytes : buffer
   kernel.launch @gemma.test.head_norm[](%input, %gamma, %normalized) : [](buffer, buffer, buffer)
@@ -239,7 +239,7 @@ command.program.def public @actual.head_partial_qwen() launch(%input: buffer, %g
   command.return
 }
 
-command.program.def public @actual.post_residual_next() launch(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer) {
+command.def public @actual.post_residual_next() launch(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer) {
   %width = index.constant 1152 : index
   %one = index.constant 1 : index
   %bytes = index.constant 4608 : offset

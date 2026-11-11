@@ -267,7 +267,7 @@ kernel.def @projection_test.equal_bytes() {
 }
 kernel.decl @ggml_quantize_q8_1_x4_f32(%rows:index,%width:index) launch(%capacity:index,%width:index,%input:buffer,%packed:buffer)
 kernel.decl @ggml_linear_q4k_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.program.def @actual.p1_q12_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q12_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 12 : index
   %rows = index.constant 3 : index
@@ -345,7 +345,7 @@ check.scenario @p1_q12_k768_r3_n3 {
   check.return
 }
 kernel.decl @ggml_linear_q5k_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.program.def @actual.p1_q13_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q13_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 13 : index
   %rows = index.constant 3 : index
@@ -423,7 +423,7 @@ check.scenario @p1_q13_k768_r3_n3 {
   check.return
 }
 kernel.decl @ggml_linear_q6k_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.program.def @actual.p1_q14_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q14_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %rows = index.constant 3 : index
@@ -501,7 +501,7 @@ check.scenario @p1_q14_k768_r3_n3 {
   check.return
 }
 kernel.decl @ggml_linear_q8_0_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.program.def @actual.p1_q8_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q8_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 3 : index
@@ -580,7 +580,7 @@ check.scenario @p1_q8_k768_r3_n3 {
 }
 kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows:index,%width:index) launch(%capacity:index,%width:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%input:buffer,%packed:buffer)
 kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%weight:buffer,%output:buffer)
-command.program.def @actual.p0_q12_k768_r4_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p0_q12_k768_r4_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 4 : index
@@ -657,7 +657,7 @@ check.scenario @p0_q12_k768_r4_n1 {
   }
   check.return
 }
-command.program.def @actual.p0_q12_k768_r4_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p0_q12_k768_r4_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 4 : index
@@ -735,7 +735,7 @@ check.scenario @p0_q12_k768_r4_n3 {
   check.return
 }
 kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%weight:buffer,%output:buffer)
-command.program.def @actual.p0_q14_k768_r4_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p0_q14_k768_r4_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 4 : index
@@ -812,7 +812,7 @@ check.scenario @p0_q14_k768_r4_n1 {
   }
   check.return
 }
-command.program.def @actual.p0_q14_k768_r4_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p0_q14_k768_r4_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 4 : index
@@ -889,7 +889,7 @@ check.scenario @p0_q14_k768_r4_n3 {
   }
   check.return
 }
-command.program.def @actual.p0_q12_k768_r12_n9() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p0_q12_k768_r12_n9() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 12 : index
@@ -976,7 +976,7 @@ check.scenario @p0_q12_k768_r12_n9 {
   }
   check.return
 }
-command.program.def @actual.p0_q14_k768_r12_n9() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p0_q14_k768_r12_n9() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 12 : index
@@ -1063,7 +1063,7 @@ check.scenario @p0_q14_k768_r12_n9 {
   }
   check.return
 }
-command.program.def @actual.p1_q8_k128_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q8_k128_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 1 : index
@@ -1140,7 +1140,7 @@ check.scenario @p1_q8_k128_r1_n1 {
   }
   check.return
 }
-command.program.def @actual.p1_q14_k17408_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q14_k17408_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %rows = index.constant 1 : index
@@ -1217,7 +1217,7 @@ check.scenario @p1_q14_k17408_r1_n1 {
   }
   check.return
 }
-command.program.def @actual.p1_q8_k1024_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+command.def @actual.p1_q8_k1024_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 1 : index

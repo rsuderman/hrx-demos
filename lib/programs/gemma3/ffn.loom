@@ -7,7 +7,7 @@ kernel.decl @gemma3_residual(%rows: index) launch(%count: buffer, %source: buffe
 config.decl @gemma3.model.hidden_size : index
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
 kernel.decl @gemma3_geglu(%rows: index, %width: index) launch(%width: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
-command.program.def @loomify.gemma3.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+command.def @loomify.gemma3.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @gemma3.model.hidden_size : index
   %zero = index.constant 0 : index
   %policy = index.constant 1 : index

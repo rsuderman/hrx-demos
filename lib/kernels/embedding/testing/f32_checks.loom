@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Same known mathematical table/oracle and exterior guards as the former
 // converter fixture; actual work is the retained F32 kernel.
-command.program.decl @embedding.f32(%token: index) launch(%parameters: buffer, %output: buffer)
+command.decl @embedding.f32(%token: index) launch(%parameters: buffer, %output: buffer)
 func.def @initialize_embedding_parameters(%case: index, %parameters: buffer) {
   %negative = index.constant -1 : index
   %four = index.constant 4 : index

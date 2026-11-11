@@ -449,7 +449,7 @@ template.def<@pocket.decode.step> @pocket_decode_step(%phase: buffer, %backbone:
   template.return
 }
 
-command.program.def public @decode() launch(%phase: buffer, %backbone: buffer, %rotary: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
+command.def public @decode() launch(%phase: buffer, %backbone: buffer, %rotary: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
   template.apply<@pocket.decode.step>(%phase, %backbone, %rotary, %request, %conditioning, %state, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

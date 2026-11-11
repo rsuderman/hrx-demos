@@ -197,17 +197,17 @@ TEST_F(LoomifyConsumerTest, NativeLinkRejectsMismatchedImportedKernelAbi) {
   // checks its declared ABI against the actual imported numerical provider.
   for (const char *wrapper : {
       R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill() launch(%input: buffer, %weight: buffer, %output: buffer)
-command.program.def public @consumer.first() launch(%input: buffer, %weight: buffer, %output: buffer) {
+command.def public @consumer.first() launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[](%input, %weight, %output) : [](buffer, buffer, buffer)
   command.return
 })loom",
       R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%n: f32) launch(%rows: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
-command.program.def public @consumer.first(%rows: index, %n: f32, %epsilon: f32) launch(%input: buffer, %weight: buffer, %output: buffer) {
+command.def public @consumer.first(%rows: index, %n: f32, %epsilon: f32) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[%n](%rows, %epsilon, %input, %weight, %output) : [f32](index, f32, buffer, buffer, buffer)
   command.return
 })loom",
       R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%rows: index) launch(%rows: index, %epsilon: index, %input: buffer, %weight: buffer, %output: buffer)
-command.program.def public @consumer.first(%rows: index, %epsilon: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
+command.def public @consumer.first(%rows: index, %epsilon: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, index, buffer, buffer, buffer)
   command.return
 })loom"}) {

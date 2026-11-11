@@ -1,10 +1,12 @@
 # Build inputs and physical outputs; serving facts live only in executable.json.
+# Helper source is owned here; upstream records its historical origin.
 CATALOG_BUILDS = {'llm/qwen/qwen_08b/executable.json': {'root': 'llm/qwen/qwen_08b',
                                        'groups': {'pipeline.loombc': {'sources': ['llm/qwen/qwen_08b/config.loom',
                                                                                   'llm/qwen/qwen_08b/control.loom',
                                                                                   'llm/qwen/qwen_08b/prepare.loom',
                                                                                   'llm/qwen/qwen_08b/weights.loom',
                                                                                   'llm/common/generation_control.loom',
+                                                                                  'llm/common/fixed_epoch_abi.loom',
                                                                                   'llm/common/ffn.loom',
                                                                                   'llm/common/output_head.loom',
                                                                                   'llm/qwen/prefill.loom',
@@ -81,6 +83,7 @@ CATALOG_BUILDS = {'llm/qwen/qwen_08b/executable.json': {'root': 'llm/qwen/qwen_0
                                                                                   'llm/qwen/qwen_27b/prepare.loom',
                                                                                   'llm/qwen/qwen_27b/weights.loom',
                                                                                   'llm/common/generation_control.loom',
+                                                                                  'llm/common/fixed_epoch_abi.loom',
                                                                                   'llm/common/ffn.loom',
                                                                                   'llm/common/output_head.loom',
                                                                                   'llm/qwen/prefill.loom',
@@ -186,6 +189,7 @@ CATALOG_BUILDS = {'llm/qwen/qwen_08b/executable.json': {'root': 'llm/qwen/qwen_0
                                                                       'recognition/moonshine/streaming_tiny/LICENSE.moonshine',
                                                                       'recognition/moonshine/streaming_tiny/LICENSE-APACHE-2.0'],
                                                           'helper': {'contract': 'binding/python/models/preparation/moonshine-operation.json',
+                                                                     'source': 'loom-pipeline/recognition/moonshine/preparer',
                                                                      'upstream': 'experimental/loom_serve/models/moonshine',
                                                                      'destination': '_native/share/loom-serve/preparers/moonshine'}},
  'llm/llama/llama_3b/executable.json': {'root': 'llm/llama/llama_3b',
@@ -194,6 +198,7 @@ CATALOG_BUILDS = {'llm/qwen/qwen_08b/executable.json': {'root': 'llm/qwen/qwen_0
                                                                                    'llm/llama/llama_3b/prepare.loom',
                                                                                    'llm/llama/llama_3b/weights.loom',
                                                                                    'llm/common/generation_control.loom',
+                                                                                   'llm/common/fixed_epoch_abi.loom',
                                                                                    'llm/common/ffn.loom',
                                                                                    'llm/common/output_head.loom',
                                                                                    'llm/common/rotary_cache.loom',
@@ -423,5 +428,6 @@ CATALOG_BUILDS = {'llm/qwen/qwen_08b/executable.json': {'root': 'llm/qwen/qwen_0
              'speech/pocket_tts/LICENSE.unicode',
              'speech/pocket_tts/sources.json'],
  'helper': {'contract': 'binding/python/models/preparation/pocket-operation.json',
+            'source': 'loom-pipeline/speech/pocket_tts/preparer',
             'upstream': 'experimental/loom_serve/models/pocket_tts',
             'destination': '_native/share/loom-serve/preparers/pocket_tts'}}}

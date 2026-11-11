@@ -12,7 +12,7 @@ kernel.def @initialize_n1_p0() {
   func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer) -> ()
   kernel.return
 }
-command.program.def public @query_actual_n1_p0() launch(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+command.def public @query_actual_n1_p0() launch(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
   %capacity = index.constant 4 : index
   %epsilon = scalar.constant 0.000001 : f32
   kernel.launch @initialize_n1_p0[](%control, %projection, %weight) : [](buffer, buffer, buffer)
@@ -38,8 +38,8 @@ check.scenario @query_n1_p0 {
       check.expect.bitwise actual(%control) expected(%control) : tensor<2xi32>
       check.expect.bitwise actual(%projection) expected(%projection) : tensor<4x4096xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
-      check.expect.close actual(%query) expected(%query) atol(0.00002) rtol(0.00002) nan(same) : tensor<4x2048xf32>
-      check.expect.close actual(%gate) expected(%gate) atol(0.000002) rtol(0.000002) nan(same) : tensor<4x2048xf32>
+      check.expect.approximate actual(%query) expected(%query) atol(0.00002) rtol(0.00002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
+      check.expect.approximate actual(%gate) expected(%gate) atol(0.000002) rtol(0.000002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
       check.expect.bitwise actual(%inactive_query) expected(%inactive_query) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_gate) expected(%inactive_gate) : tensor<6144xf32>
     }
@@ -56,7 +56,7 @@ kernel.def @initialize_n2_p63() {
   func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer) -> ()
   kernel.return
 }
-command.program.def public @query_actual_n2_p63() launch(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
+command.def public @query_actual_n2_p63() launch(%control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
   %capacity = index.constant 4 : index
   %epsilon = scalar.constant 0.000001 : f32
   kernel.launch @initialize_n2_p63[](%control, %projection, %weight) : [](buffer, buffer, buffer)
@@ -82,8 +82,8 @@ check.scenario @query_n2_p63 {
       check.expect.bitwise actual(%control) expected(%control) : tensor<2xi32>
       check.expect.bitwise actual(%projection) expected(%projection) : tensor<4x4096xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
-      check.expect.close actual(%query) expected(%query) atol(0.00002) rtol(0.00002) nan(same) : tensor<4x2048xf32>
-      check.expect.close actual(%gate) expected(%gate) atol(0.000002) rtol(0.000002) nan(same) : tensor<4x2048xf32>
+      check.expect.approximate actual(%query) expected(%query) atol(0.00002) rtol(0.00002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
+      check.expect.approximate actual(%gate) expected(%gate) atol(0.000002) rtol(0.000002) nan(same) : tensor<4x2048xf32>, tensor<4x2048xf32>
       check.expect.bitwise actual(%inactive_query) expected(%inactive_query) : tensor<4096xf32>
       check.expect.bitwise actual(%inactive_gate) expected(%inactive_gate) : tensor<4096xf32>
     }

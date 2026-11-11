@@ -5,11 +5,11 @@
 // Built in the SDK's existing allowed external test package; the repository
 // exports this source without depending on private SDK BUILD targets.
 #include "gtest/gtest.h"
-#include "iree/module/hal/types.h"
+#include "iree/hal/vm/types.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
-#include "loom/serve/runtime/program/input.h"
-#include "loom/serve/runtime/program/program.h"
+#include "loom/runtime/program/input.h"
+#include "loom/runtime/program/program.h"
 #include "loomc/target/vm.h"
 #include <algorithm>
 #include <array>
@@ -149,21 +149,21 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
     ASSERT_TRUE(Ok(iree_vm_ref_types_resolve(
         iree_vm_environment_lookup_ref_type_table(environment_, IREE_SV("vm")), &types_)));
     const iree_vm_ref_type_table_t* hal = nullptr;
-    ASSERT_TRUE(Ok(iree_hal_module_register_types(environment_, &hal)));
-    ASSERT_TRUE(Ok(iree_hal_module_types_resolve(hal, &hal_)));
+    ASSERT_TRUE(Ok(iree_hal_vm_register_types(environment_, &hal)));
+    ASSERT_TRUE(Ok(iree_hal_vm_types_resolve(hal, &hal_)));
     // Real SDK require: false is INVALID_ARGUMENT, never an observing success stub.
-    ASSERT_TRUE(Ok(loom_serve_input_module_create(environment_, nullptr,
+    ASSERT_TRUE(Ok(loom_runtime_input_module_create(environment_, nullptr,
         iree_allocator_system(), &input_)));
     runner_.descriptor = {IREE_SVL("runner"), IREE_VM_MODULE_FLAG_LINKABLE,
         {&hal_.buffer, 1}, {2, 2, 0, 0, 2, 0, {6, 7, 0}}, 0};
     ASSERT_TRUE(Ok(iree_vm_module_initialize(&kRunnerVtable, &runner_.descriptor, &runner_.module)));
     runner_.initialized = true;
     const iree_string_view_t roots[] = {IREE_SV("encode_state"), IREE_SV("encode_epoch"),
-        IREE_SV("publish_epoch"), IREE_SV("epoch"), IREE_SV("step")};
+        IREE_SV("publish_epoch"), IREE_SV("epoch"), IREE_SV("step"), IREE_SV("resize_state")};
     iree_vm_module_t* libraries[] = {input_, &runner_.module};
-    loom_serve_sources_t sources{};
-    loom_serve_compilation_report_t report{};
-    auto compiled = loom_serve_program_allocate(target_, environment_, &sources,
+    loom_runtime_sources_t sources{};
+    loom_runtime_compilation_report_t report{};
+    auto compiled = loom_runtime_program_allocate(target_, environment_, &sources,
         iree_make_cstring_view(path), IREE_ARRAYSIZE(roots), roots,
         iree_vm_module_span_from_array(libraries), &report, iree_allocator_system(), &program_);
     if (!iree_status_is_ok(compiled)) {
@@ -175,7 +175,7 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
     ASSERT_TRUE(Ok(compiled));
   }
   void TearDown() override {
-    loom_serve_program_free(program_);
+    loom_runtime_program_free(program_);
     if (runner_.initialized) iree_vm_module_release(&runner_.module);
     iree_vm_module_release(input_);
     iree_vm_environment_free(environment_);
@@ -183,11 +183,11 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
   }
   iree_status_t Call(const char* name, Arguments& arguments, size_t result_count) {
     iree_vm_function_t function = iree_vm_function_null();
-    auto found = iree_vm_process_lookup_function(loom_serve_program_process(program_),
+    auto found = iree_vm_process_lookup_function(loom_runtime_program_process(program_),
         IREE_SV("model"), iree_make_cstring_view(name), &function);
     if (!iree_status_is_ok(found)) return found;
     arguments.results.resize(result_count);
-    return iree_vm_invoke(loom_serve_program_invocation(program_), function,
+    return iree_vm_invoke(loom_runtime_program_invocation(program_), function,
         {arguments.values.data(), arguments.values.size()},
         {arguments.results.data(), arguments.results.size()});
   }
@@ -224,9 +224,33 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
     for (auto value : controls) args.I32(value);
     if (!args.Buffer(types_, metadata, true) || !args.Buffer(types_, tokens, true))
       return iree_make_status(IREE_STATUS_INTERNAL);
-    auto status = Call("encode_epoch", args, 1);
+    auto status = Call("encode_epoch", args, 4);
     EXPECT_EQ(plan, original_plan); EXPECT_EQ(inputs, original_inputs);
     if (iree_status_is_ok(status)) {
+      int32_t output_count = -1;
+      int64_t offset = -1, length = -1;
+      EXPECT_TRUE(Ok(iree_vm_i32_from_variant(args.results[0], &output_count)));
+      EXPECT_EQ(output_count, flags & 1);
+      EXPECT_TRUE(Ok(iree_vm_i64_from_variant(args.results[2], &offset)));
+      EXPECT_TRUE(Ok(iree_vm_i64_from_variant(args.results[3], &length)));
+      EXPECT_EQ(offset, 0); EXPECT_EQ(length, 80);
+      void* raw_plan = nullptr;
+      EXPECT_TRUE(Ok(iree_vm_ptr_from_variant_borrowed(args.results[1], types_.buffer, &raw_plan)));
+      if (!raw_plan) return iree_make_status(IREE_STATUS_INVALID_ARGUMENT);
+      const auto* transfer_plan = static_cast<iree_vm_buffer_t*>(raw_plan);
+      EXPECT_EQ(iree_vm_buffer_length(transfer_plan), 80u);
+      if (iree_vm_buffer_length(transfer_plan) != 80)
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT);
+      const auto* bytes = static_cast<const uint8_t*>(iree_vm_buffer_const_data(transfer_plan));
+      const std::array<uint64_t, 10> expected_transfers = {
+          0,0,0,0,metadata.size()*sizeof(int32_t),
+          1,0,1,0,tokens.size()*sizeof(int32_t)};
+      for (size_t i = 0; i < expected_transfers.size(); ++i) {
+        uint64_t actual = 0;
+        for (unsigned byte = 0; byte < 8; ++byte)
+          actual |= uint64_t(bytes[i*8+byte]) << (8*byte);
+        EXPECT_EQ(actual, expected_transfers[i]);
+      }
       EXPECT_EQ(metadata[0], 3); EXPECT_EQ(metadata[1], 1); EXPECT_EQ(metadata[2], flags & 1);
       EXPECT_EQ(metadata[3], 3); EXPECT_EQ(metadata[4], 11); EXPECT_EQ(metadata[5], 0);
       EXPECT_EQ(metadata[6], 0); EXPECT_EQ(metadata[7], flags & 1 ? 0 : -1);
@@ -245,8 +269,10 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
     const auto original_plan = plan, original_ids = ids;
     Arguments args;
     if (!args.Buffer(types_, plan) || !args.Buffer(types_, empty)) return iree_make_status(IREE_STATUS_INTERNAL);
-    for (auto value : controls) args.I32(value);
-    if (!args.Buffer(types_, ids) || !args.Buffer(types_, empty) ||
+    for (size_t i = 0; i < 5; ++i) args.I32(controls[i]);
+    std::vector<int32_t> continuations(16, 0);
+    continuations[0] = controls[5];
+    if (!args.Buffer(types_, continuations) || !args.Buffer(types_, ids) || !args.Buffer(types_, empty) ||
         !args.Buffer(types_, empty) || !args.Buffer(types_, progress, true))
       return iree_make_status(IREE_STATUS_INTERNAL);
     auto status = Call("publish_epoch", args, 0);
@@ -289,11 +315,25 @@ class EpochControlTest : public ::testing::TestWithParam<Product> {
   loomc_target_environment_t* target_ = nullptr;
   iree_vm_environment_t* environment_ = nullptr;
   iree_vm_ref_types_t types_{};
-  iree_hal_module_types_t hal_{};
+  iree_hal_vm_types_t hal_{};
   iree_vm_module_t* input_ = nullptr;
-  loom_serve_program_t* program_ = nullptr;
+  loom_runtime_program_t* program_ = nullptr;
   Runner runner_{};
 };
+TEST_P(EpochControlTest, FixedResidentGrowthFailsBeforeExecution) {
+  runner_.Reset();
+  std::vector<int32_t> state{5,7};
+  const auto original = state;
+  Arguments args;
+  ASSERT_TRUE(args.Buffer(types_, state));
+  args.values.push_back(iree_vm_variant_from_i64(2));
+  auto status = Call("resize_state", args, 6);
+  EXPECT_EQ(iree_status_code(status), IREE_STATUS_INVALID_ARGUMENT);
+  EXPECT_NE(Consume(status).find("fixed resident profile does not support state growth"),
+            std::string::npos);
+  EXPECT_EQ(state, original);
+  EXPECT_EQ(runner_.executes, 0); EXPECT_EQ(runner_.feedbacks, 0);
+}
 TEST_P(EpochControlTest, ActualRequireEnforcesOrdinaryHostContract) {
   runner_.Reset();
   std::vector<int64_t> rows;

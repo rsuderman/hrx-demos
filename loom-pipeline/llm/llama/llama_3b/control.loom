@@ -3,6 +3,7 @@
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+func.decl @generation.full_packet_transfers(%metadata: buffer, %tokens: buffer) -> (buffer)
 
 // Llama 3.2 3B text policy. Native carries source-private chat state and the
 // two cold stage IDs; all physical buffers arrive through the unchanged ABI.
@@ -472,7 +473,7 @@ func.def public @chat_image_limits() -> (i64, i64, i64, i64, i64) {
   func.return %zero, %zero, %zero, %zero, %zero : i64, i64, i64, i64, i64
 }
 
-func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer) {
+func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %frames: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer, i64) {
   %zero64 = scalar.constant 0 : i64
   %one64 = scalar.constant 1 : i64
   %two64 = scalar.constant 2 : i64
@@ -514,7 +515,8 @@ func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %pa
   %role_bit = scf.select %user, %one64, %role_bit0 : i64
   %closed_user = scalar.ori %four64, %user_seen : i64
   %next = scalar.ori %closed_user, %role_bit : i64
-  func.return %rendered, %next, %empty : buffer, i64, buffer
+  %projection_count = scalar.constant 0 : i64
+  func.return %rendered, %next, %empty, %projection_count : buffer, i64, buffer, i64
 }
 
 func.def public @chat_end(%state: i64) -> (buffer, i64) {
@@ -532,7 +534,8 @@ func.def public @chat_end(%state: i64) -> (buffer, i64) {
   func.return %header, %zero : buffer, i64
 }
 
-func.def public @parse_tools(%schemas: buffer, %response: buffer) -> (buffer) {
+// Retain strict complete-call parsing while accepting the current host ABI.
+func.def public @parse_tools(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer) {
   func.call @empty_tools(%schemas) : (buffer) -> ()
   %empty = global.load @empty_array : buffer
   func.return %empty : buffer
@@ -676,7 +679,7 @@ func.def @encode_plan(%plan: buffer, %inputs: buffer, %count: index, %first: ind
   func.return %output_count : i32
 }
 
-func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
+func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32, buffer, i64, i64) {
   %zero32 = scalar.constant 0 : i32
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
@@ -694,10 +697,13 @@ func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: bu
   %eos_origin = index.constant 2060 : offset
   %terminal = buffer.view %metadata[%eos_origin] : buffer -> view<1xi32>
   view.store %eos, %terminal[0] : i32, view<1xi32>
-  func.return %outputs : i32
+  %transfer_plan = func.call @generation.full_packet_transfers(%metadata, %tokens) : (buffer, buffer) -> (buffer)
+  %transfer_offset = scalar.constant 0 : i64
+  %transfer_length = scalar.constant 80 : i64
+  func.return %outputs, %transfer_plan, %transfer_offset, %transfer_length : i32, buffer, i64, i64
 }
 
-func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative_mask: i32, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
+func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative: buffer, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
   %zero32 = scalar.constant 0 : i32
   %one32 = scalar.constant 1 : i32
   %eot32 = scalar.constant 128009 : i32
@@ -813,4 +819,10 @@ func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64,
   %error = global.load @capacity_error : buffer
   func.call @require(%fits32, %error) : (i32, buffer) -> ()
   func.return %tokens, %count, %empty : buffer, i64, buffer
+}
+
+// This maintained policy does not admit reasoning controls.
+func.def public @chat_reasoning() -> (i32, i32, i32) {
+  %zero = scalar.constant 0 : i32
+  func.return %zero, %zero, %zero : i32, i32, i32
 }

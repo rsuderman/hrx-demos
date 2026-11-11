@@ -76,11 +76,20 @@ class PipelineCatalogTest(ConfigurationFixture, unittest.TestCase):
         selected = retained / checked.catalog_relative_path
         with patch.object(hem_config.pipelines, 'load', side_effect=AssertionError('reselection')), \
              patch.object(self.modality, 'finalize', side_effect=AssertionError('revalidation')):
-            emitted = hem_config.deployment_document(checked, 'other', catalog=selected, device=2)
+            emitted = hem_config.deployment_document(checked, 'other', catalog=selected, device="gpu-worker")
         self.assertEqual(emitted['definition'], checked.definition_document())
         self.assertEqual(emitted['name'], 'other')
         self.assertEqual(emitted['base_directory'], str(selected))
-        self.assertEqual(emitted['device'], 2)
+        self.assertEqual(emitted['device'], 'gpu-worker')
+
+    def test_default_device_is_native_selected_and_invalid_names_are_rejected(self):
+        checked = self.resolved()
+        document = hem_config.deployment_document(checked, 'default', catalog=self.catalog)
+        self.assertEqual(set(document), {'name', 'admission', 'base_directory', 'definition'})
+        self.assertEqual(document['admission'], 'drained')
+        for device in (0, 2, -1, True, '', 'two words', '\x00', 'gpu\n', 'β'):
+            with self.subTest(device=device), self.assertRaises(InvalidInput):
+                hem_config.deployment_document(checked, 'invalid', catalog=self.catalog, device=device)
 
     def test_retained_complete_root_drift_and_different_program_form_are_refused(self):
         checked = self.resolved()

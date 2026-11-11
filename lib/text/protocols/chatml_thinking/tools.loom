@@ -22,13 +22,8 @@ func.decl @text.equal(%a: buffer,%b: buffer) -> (i1)
 func.decl @text.decode(%json: buffer,%begin: i64,%length: i64) -> (buffer)
 func.decl @text.range(%text: buffer,%begin: i64,%length: i64) -> (buffer)
 func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
-global.rodata.def @chatml.mapping_error = bytes("746f6f6c206d617070696e6773207265717569726520737472696374204a534f4e207769746820756e69717565206f626a656374206b657973")
-func.def @chatml.mapping_check(%condition: i1) {
-  %diagnostic = global.load @chatml.mapping_error : buffer
-  %flag = scalar.extui %condition : i1 to i32
-  func.call @require(%flag,%diagnostic) : (i32,buffer) -> ()
-  func.return
-}
+func.decl @chatml.mapping_check(%condition: i1)
+func.decl @chatml.admit_mapping(%json: buffer)
 func.decl @chatml.inline_reasoning() -> (i1)
 func.decl @text.json_dump(%json: buffer) -> (buffer)
 func.def @tool_identifier(%text: buffer, %begin: i64, %length: i64) {
@@ -79,64 +74,6 @@ func.def @tool_identifier(%text: buffer, %begin: i64, %length: i64) {
   }
   %valid32 = scalar.extui %valid : i1 to i32
   func.call @require(%valid32, %diagnostic) : (i32, buffer) -> ()
-  func.return
-}
-
-// Object/array traversal uses the native parser. This is admission for the
-// mapping domain presented to a template, not a replacement JSON parser.
-func.def @chatml.admit_mapping(%json: buffer) {
-  func.call @chatml.strict_json(%json) : (buffer) -> ()
-  %fields,%kind,%count = func.call @members(%json) : (buffer) -> (buffer,i32,i64)
-  %two = scalar.constant 2 : i32
-  %three = scalar.constant 3 : i32
-  %object = scalar.cmpi eq,%kind,%two : i32
-  %array = scalar.cmpi eq,%kind,%three : i32
-  %container = scalar.ori %object,%array : i1
-  scf.if %container {
-    %origin = index.constant 0 : offset
-    %zero = index.constant 0 : index
-    %one = index.constant 1 : index
-    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
-    %extent = index.cast %bounded : i64 to index
-    %records = buffer.view %fields[%origin] : buffer -> view<[%extent]x5xi64>
-    scf.for %i = [%zero to %extent step %one] {
-      scf.if %object {
-        %kb = view.load %records[%i,0] : view<[%extent]x5xi64> -> i64
-        %kl = view.load %records[%i,1] : view<[%extent]x5xi64> -> i64
-        %key = func.call @text.decode(%json,%kb,%kl) : (buffer,i64,i64) -> (buffer)
-        scf.for %j = [%zero to %extent step %one] {
-          %earlier = index.cmp ult,%j,%i : index
-          scf.if %earlier {
-            %pb = view.load %records[%j,0] : view<[%extent]x5xi64> -> i64
-            %pl = view.load %records[%j,1] : view<[%extent]x5xi64> -> i64
-            %prior = func.call @text.decode(%json,%pb,%pl) : (buffer,i64,i64) -> (buffer)
-            %same = func.call @text.equal(%key,%prior) : (buffer,buffer) -> (i1)
-            %false = scalar.constant false : i1
-            %unique = scalar.cmpi eq,%same,%false : i1
-            func.call @chatml.mapping_check(%unique) : (i1) -> ()
-            scf.yield
-          }
-          scf.yield
-        }
-        scf.yield
-      }
-      %vb = view.load %records[%i,2] : view<[%extent]x5xi64> -> i64
-      %vl = view.load %records[%i,3] : view<[%extent]x5xi64> -> i64
-      %vk = view.load %records[%i,4] : view<[%extent]x5xi64> -> i64
-      %two64 = scalar.constant 2 : i64
-      %three64 = scalar.constant 3 : i64
-      %is_object = scalar.cmpi eq,%vk,%two64 : i64
-      %is_array = scalar.cmpi eq,%vk,%three64 : i64
-      %nested = scalar.ori %is_object,%is_array : i1
-      scf.if %nested {
-        %value = func.call @text.range(%json,%vb,%vl) : (buffer,i64,i64) -> (buffer)
-        func.call @chatml.admit_mapping(%value) : (buffer) -> ()
-        scf.yield
-      }
-      scf.yield
-    }
-    scf.yield
-  }
   func.return
 }
 
@@ -214,70 +151,16 @@ func.def public @render_tool(%name: buffer,%arguments: buffer,%ordinal: i64) -> 
   func.return %result,%length : buffer,i64
 }
 
-func.decl import("tools") @parse_xml(%schemas: buffer,%response: buffer) -> (buffer)
+func.decl import("tools") @parse_xml(%schemas: buffer,%response: buffer, %native_truncated: i64) -> (buffer)
 func.decl @chatml.normalize_tool_output(%schemas: buffer,%response: buffer) -> (buffer)
-func.def public @parse_tools(%schemas: buffer,%response: buffer) -> (buffer) {
+// Retain strict complete-call parsing while accepting the current host ABI.
+func.def public @parse_tools(%schemas: buffer,%response: buffer, %truncated: i64) -> (buffer) {
   %legacy = func.call @chatml.inline_reasoning() : () -> (i1)
   %normalized = scf.if %legacy -> (buffer) {
     %text = func.call @chatml.normalize_tool_output(%schemas,%response) : (buffer,buffer) -> (buffer)
     scf.yield %text : buffer
   } else { scf.yield %response : buffer }
-  %calls = func.call @parse_xml(%schemas,%normalized) : (buffer,buffer) -> (buffer)
+  %strict_complete = scalar.constant 0 : i64
+  %calls = func.call @parse_xml(%schemas,%normalized, %strict_complete) : (buffer,buffer, i64) -> (buffer)
   func.return %calls : buffer
-}
-
-// Native members accepts JSONC. The supported template mapping domain is
-// strict JSON: reject comment delimiters and trailing commas outside strings.
-// Structural validity and escape validity remain the native parser's job.
-func.def @chatml.strict_json(%json: buffer) {
-  %zero = index.constant 0 : offset
-  %one = index.constant 1 : offset
-  %size = buffer.length %json
-  %false = scalar.constant false : i1
-  %zero32 = scalar.constant 0 : i32
-  %quote = scalar.constant 34 : i32
-  %slash = scalar.constant 47 : i32
-  %backslash = scalar.constant 92 : i32
-  %comma = scalar.constant 44 : i32
-  %brace = scalar.constant 125 : i32
-  %bracket = scalar.constant 93 : i32
-  %space = scalar.constant 32 : i32
-  %tab = scalar.constant 9 : i32
-  %lf = scalar.constant 10 : i32
-  %cr = scalar.constant 13 : i32
-  %in_string,%escaped,%previous = scf.for %i = [%zero to %size step %one](%quoted = %false : i1,%escape = %false : i1,%prior = %zero32 : i32) -> (i1,i1,i32) {
-    %byte = buffer.load.i8.u %json[%i]
-    %is_quote = scalar.cmpi eq,%byte,%quote : i32
-    %is_escape = scalar.cmpi eq,%byte,%backslash : i32
-    %not_escaped = scalar.cmpi eq,%escape,%false : i1
-    %closing_quote = scalar.andi %is_quote,%not_escaped : i1
-    %next_quoted,%next_escape,%next_prior = scf.if %quoted -> (i1,i1,i32) {
-      %still_quoted = scalar.cmpi eq,%closing_quote,%false : i1
-      %escaped_next = scalar.andi %is_escape,%not_escaped : i1
-      %prior_byte = scf.select %closing_quote,%quote,%prior : i32
-      scf.yield %still_quoted,%escaped_next,%prior_byte : i1,i1,i32
-    } else {
-      %is_slash = scalar.cmpi eq,%byte,%slash : i32
-      %allowed = scalar.cmpi eq,%is_slash,%false : i1
-      func.call @chatml.mapping_check(%allowed) : (i1) -> ()
-      %is_brace = scalar.cmpi eq,%byte,%brace : i32
-      %is_bracket = scalar.cmpi eq,%byte,%bracket : i32
-      %closing = scalar.ori %is_brace,%is_bracket : i1
-      %prior_comma = scalar.cmpi eq,%prior,%comma : i32
-      %trailing = scalar.andi %closing,%prior_comma : i1
-      %valid_comma = scalar.cmpi eq,%trailing,%false : i1
-      func.call @chatml.mapping_check(%valid_comma) : (i1) -> ()
-      %s = scalar.cmpi eq,%byte,%space : i32
-      %t = scalar.cmpi eq,%byte,%tab : i32
-      %l = scalar.cmpi eq,%byte,%lf : i32
-      %r = scalar.cmpi eq,%byte,%cr : i32
-      %a = scalar.ori %s,%t : i1
-      %b = scalar.ori %l,%r : i1
-      %whitespace = scalar.ori %a,%b : i1
-      %prior_byte = scf.select %whitespace,%prior,%byte : i32
-      scf.yield %is_quote,%false,%prior_byte : i1,i1,i32
-    }
-    scf.yield %next_quoted,%next_escape,%next_prior : i1,i1,i32
-  }
-  func.return
 }

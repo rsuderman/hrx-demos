@@ -16,7 +16,7 @@ func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, 
 kernel.decl @gemma3_prepare_qk(%rows: index, %heads: index) launch(%layer: index, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer)
 kernel.decl @gemma3_publish_kv(%rows: index) launch(%layer: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
 kernel.decl @gemma3_attention_rows(%rows: index) launch(%layer: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
-command.program.def @loomify.gemma3.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+command.def @loomify.gemma3.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @gemma3.model.hidden_size : index
   %zero = index.constant 0 : index
   %policy = index.constant 1 : index

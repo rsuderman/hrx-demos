@@ -14,3 +14,4 @@ amdgpu.target<gfx11-generic> @llm.platform.projection.q5k.wave32 {subgroup_size 
 amdgpu.target<gfx11-generic> @llm.platform.projection.q6k.compatible.wave32 {subgroup_size = 32}
 amdgpu.target<gfx11-generic> @llm.platform.projection.q8_0.wave32 {subgroup_size = 32}
 amdgpu.target<gfx11-generic> @llm.platform.selection.greedy.wave64 {subgroup_size = 64}
+amdgpu.target<gfx11-generic> @llm.platform.projection.scaled_f16.wave32 {subgroup_size = 32}

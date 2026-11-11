@@ -76,7 +76,7 @@ func.def @oracle.geglu(%width: index, %rows: index, %active: index, %gate: buffe
   func.return
 }
 
-command.program.decl @actual.rms_1152_1_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.rms_1152_1_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.rms_1152_1_1_low(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 1 : index
@@ -98,7 +98,7 @@ check.scenario @rms_1152_1_1_low_arithmetic_and_guards {
     check.compare<@actual.rms_1152_1_1_low, @expected.rms_1152_1_1_low>(%lhs, %rhs, %out) : (tensor<1x1152xf32>, tensor<1152xf32>, tensor<1x1152xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<1160xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<1160xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<1160xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<1160xf32>, tensor<1160xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -106,7 +106,7 @@ check.scenario @rms_1152_1_1_low_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.rms_1152_3_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.rms_1152_3_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.rms_1152_3_1_low(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
@@ -128,7 +128,7 @@ check.scenario @rms_1152_3_1_low_arithmetic_and_guards {
     check.compare<@actual.rms_1152_3_1_low, @expected.rms_1152_3_1_low>(%lhs, %rhs, %out) : (tensor<3x1152xf32>, tensor<1152xf32>, tensor<3x1152xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<3464xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<1160xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<3464xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<3464xf32>, tensor<3464xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -136,7 +136,7 @@ check.scenario @rms_1152_3_1_low_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.rms_1152_3_3_zero() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.rms_1152_3_3_zero() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.rms_1152_3_3_zero(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
@@ -158,7 +158,7 @@ check.scenario @rms_1152_3_3_zero_arithmetic_and_guards {
     check.compare<@actual.rms_1152_3_3_zero, @expected.rms_1152_3_3_zero>(%lhs, %rhs, %out) : (tensor<3x1152xf32>, tensor<1152xf32>, tensor<3x1152xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<3464xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<1160xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<3464xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<3464xf32>, tensor<3464xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -166,7 +166,7 @@ check.scenario @rms_1152_3_3_zero_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.rms_256_3_3_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.rms_256_3_3_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.rms_256_3_3_low(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 256 : index
   %rows = index.constant 3 : index
@@ -188,7 +188,7 @@ check.scenario @rms_256_3_3_low_arithmetic_and_guards {
     check.compare<@actual.rms_256_3_3_low, @expected.rms_256_3_3_low>(%lhs, %rhs, %out) : (tensor<3x256xf32>, tensor<256xf32>, tensor<3x256xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<776xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<264xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<776xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<776xf32>, tensor<776xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -196,7 +196,7 @@ check.scenario @rms_256_3_3_low_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.geglu_6912_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.geglu_6912_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.geglu_6912_1_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 1 : index
@@ -217,7 +217,7 @@ check.scenario @geglu_6912_1_1_distinct_arithmetic_and_guards {
     check.compare<@actual.geglu_6912_1_1_distinct, @expected.geglu_6912_1_1_distinct>(%lhs, %rhs, %out) : (tensor<1x6912xf32>, tensor<6912xf32>, tensor<1x6912xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<6920xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<6920xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<6920xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<6920xf32>, tensor<6920xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -225,7 +225,7 @@ check.scenario @geglu_6912_1_1_distinct_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.geglu_6912_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.geglu_6912_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.geglu_6912_3_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 3 : index
@@ -246,7 +246,7 @@ check.scenario @geglu_6912_3_1_distinct_arithmetic_and_guards {
     check.compare<@actual.geglu_6912_3_1_distinct, @expected.geglu_6912_3_1_distinct>(%lhs, %rhs, %out) : (tensor<3x6912xf32>, tensor<20736xf32>, tensor<3x6912xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<20744xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<20744xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<20744xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<20744xf32>, tensor<20744xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -254,7 +254,7 @@ check.scenario @geglu_6912_3_1_distinct_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.geglu_6912_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.geglu_6912_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.geglu_6912_3_3_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 3 : index
@@ -275,7 +275,7 @@ check.scenario @geglu_6912_3_3_distinct_arithmetic_and_guards {
     check.compare<@actual.geglu_6912_3_3_distinct, @expected.geglu_6912_3_3_distinct>(%lhs, %rhs, %out) : (tensor<3x6912xf32>, tensor<20736xf32>, tensor<3x6912xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<20744xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<20744xf32>
-      check.expect.close actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<20744xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<20744xf32>, tensor<20744xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -283,7 +283,7 @@ check.scenario @geglu_6912_3_3_distinct_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.residual_1152_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.residual_1152_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.residual_1152_1_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 1 : index
@@ -312,7 +312,7 @@ check.scenario @residual_1152_1_1_distinct_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.residual_1152_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.residual_1152_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.residual_1152_3_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
@@ -341,7 +341,7 @@ check.scenario @residual_1152_3_1_distinct_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.residual_1152_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.residual_1152_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.residual_1152_3_3_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
@@ -370,7 +370,7 @@ check.scenario @residual_1152_3_3_distinct_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.residual_1152_3_3_lhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.residual_1152_3_3_lhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.residual_1152_3_3_lhs(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
@@ -399,7 +399,7 @@ check.scenario @residual_1152_3_3_lhs_arithmetic_and_guards {
   check.return
 }
 
-command.program.decl @actual.residual_1152_3_3_rhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+command.decl @actual.residual_1152_3_3_rhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
 func.def @expected.residual_1152_3_3_rhs(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
@@ -473,7 +473,7 @@ func.def @oracle.rotary(%case: index, %size: index, %half: index, %input: buffer
   func.return
 }
 
-command.program.decl @actual.head_local() launch(%input: buffer, %gamma: buffer, %out: buffer)
+command.decl @actual.head_local() launch(%input: buffer, %gamma: buffer, %out: buffer)
 func.def @expected.head_local(%input: buffer, %gamma: buffer, %out: buffer) {
   %width = index.constant 256 : index
   %one = index.constant 1 : index
@@ -496,7 +496,7 @@ check.scenario @head_local_norm_rotary_nonzero_position {
     %prefix = check.tensor.view %storage offset(0) : tensor<264xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(1040) : tensor<264xf32> -> tensor<4xf32>
     check.compare<@actual.head_local, @expected.head_local>(%input, %gamma, %out) : (tensor<256xf32>, tensor<256xf32>, tensor<256xf32>) -> () {
-      check.expect.close actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
@@ -506,7 +506,7 @@ check.scenario @head_local_norm_rotary_nonzero_position {
   check.return
 }
 
-command.program.decl @actual.head_global() launch(%input: buffer, %gamma: buffer, %out: buffer)
+command.decl @actual.head_global() launch(%input: buffer, %gamma: buffer, %out: buffer)
 func.def @expected.head_global(%input: buffer, %gamma: buffer, %out: buffer) {
   %width = index.constant 256 : index
   %one = index.constant 1 : index
@@ -529,7 +529,7 @@ check.scenario @head_global_norm_rotary_nonzero_position {
     %prefix = check.tensor.view %storage offset(0) : tensor<264xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(1040) : tensor<264xf32> -> tensor<4xf32>
     check.compare<@actual.head_global, @expected.head_global>(%input, %gamma, %out) : (tensor<256xf32>, tensor<256xf32>, tensor<256xf32>) -> () {
-      check.expect.close actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
@@ -539,7 +539,7 @@ check.scenario @head_global_norm_rotary_nonzero_position {
   check.return
 }
 
-command.program.decl @actual.head_partial_qwen() launch(%input: buffer, %gamma: buffer, %out: buffer)
+command.decl @actual.head_partial_qwen() launch(%input: buffer, %gamma: buffer, %out: buffer)
 func.def @expected.head_partial_qwen(%input: buffer, %gamma: buffer, %out: buffer) {
   %width = index.constant 256 : index
   %one = index.constant 1 : index
@@ -562,7 +562,7 @@ check.scenario @head_partial_qwen_norm_rotary_nonzero_position {
     %prefix = check.tensor.view %storage offset(0) : tensor<264xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(1040) : tensor<264xf32> -> tensor<4xf32>
     check.compare<@actual.head_partial_qwen, @expected.head_partial_qwen>(%input, %gamma, %out) : (tensor<256xf32>, tensor<256xf32>, tensor<256xf32>) -> () {
-      check.expect.close actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
@@ -572,7 +572,7 @@ check.scenario @head_partial_qwen_norm_rotary_nonzero_position {
   check.return
 }
 
-command.program.decl @actual.post_residual_next() launch(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer)
+command.decl @actual.post_residual_next() launch(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer)
 func.def @expected.post_residual_next(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer) {
   %width = index.constant 1152 : index
   %one = index.constant 1 : index
@@ -597,7 +597,7 @@ check.scenario @post_norm_residual_next_norm_order_and_epsilon {
     %prefix = check.tensor.view %storage offset(0) : tensor<1160xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(4624) : tensor<1160xf32> -> tensor<4xf32>
     check.compare<@actual.post_residual_next, @expected.post_residual_next>(%update, %residual, %post_gamma, %next_gamma, %out) : (tensor<1152xf32>, tensor<1152xf32>, tensor<1152xf32>, tensor<1152xf32>, tensor<1152xf32>) -> () {
-      check.expect.close actual(%storage) expected(%storage) atol(0.00001) rtol(0.00005) nan(same) : tensor<1160xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00005) nan(same) : tensor<1160xf32>, tensor<1160xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%update) expected(%update) : tensor<1152xf32>

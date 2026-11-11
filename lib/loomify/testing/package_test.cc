@@ -160,7 +160,7 @@ class GgufPackageTest : public ::testing::Test {
   GgufBuildOptions BuildOptions() {
     GgufBuildOptions result;
     result.library_root = root_.string();
-    result.context_capacity = 513; // exercise final config-linked unaligned capacity
+    result.context_capacity = 576; // Serve fixed backing requires page-aligned context
     return result;
   }
   bool Publish(const GgufModelBuilder& builder, const GgufBuildOptions& build,
@@ -311,6 +311,74 @@ TEST_F(GgufPackageTest, NumericalCliExportsBothFormatsUsingInspectedSource) {
     Reload(output);
   }
 }
+TEST_F(GgufPackageTest, UnalignedContextKeepsNumericalModuleButCannotPublishServePackage) {
+  ASSERT_NE(Asset(false), nullptr);
+  ASSERT_NE(Tokenizer(false), nullptr);
+  std::unique_ptr<GgufModelBuilder> builder;
+  std::string error;
+  ASSERT_TRUE(GgufModelBuilder::Open(Asset(false), &builder, &error)) << error;
+  auto build = BuildOptions();
+  build.context_capacity = 513;
+  std::unique_ptr<BuiltGgufModule> numerical;
+  ASSERT_TRUE(Build(*builder, build, &numerical, &error)) << error;
+  ASSERT_NE(numerical->module(), nullptr);
+  for (const auto format : {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
+    GgufPackageOptions package{
+        (scratch_ / ("unaligned-" + std::to_string(format))).string(), Tokenizer(false), format};
+    EXPECT_FALSE(Publish(*builder, build, package, &error));
+    EXPECT_EQ(error, "Serve package context_capacity must be a multiple of 64");
+    EXPECT_FALSE(fs::exists(package.output_directory));
+  }
+}
+TEST_F(GgufPackageTest, GgufAliasPreservesFormatSuffixAndRejectsRebinding) {
+  ASSERT_NE(Asset(false), nullptr);
+  ASSERT_NE(Tokenizer(false), nullptr);
+  // Header-only GGUF variants already underpin package admission fixtures.
+  // Retain that exact descriptor/template under an extensionless target.
+  std::unique_ptr<GgufModelBuilder> original;
+  std::string error;
+  ASSERT_TRUE(GgufModelBuilder::Open(Asset(false), &original, &error)) << error;
+  const auto &text = original->text_metadata().templates.front().text;
+  const auto target = scratch_ / "checkpoint-blob";
+  ASSERT_TRUE(HeaderVariant(Asset(false), text, text, target, &error)) << error;
+  const auto alias = scratch_ / "checkpoint.gguf";
+  fs::create_symlink(target, alias);
+  std::unique_ptr<GgufModelBuilder> builder;
+  ASSERT_TRUE(GgufModelBuilder::Open(alias.string(), &builder, &error)) << error;
+  EXPECT_EQ(builder->descriptor().family, original->descriptor().family);
+  std::unique_ptr<GgufConfiguration> configured;
+  GgufPackageOptions package{(scratch_ / "aliased-package").string(), Tokenizer(false)};
+  ASSERT_TRUE(builder->Configure(BuildOptions(), &package, &configured, &error)) << error;
+  // Opening the canonical target produces the same numerical configuration.
+  std::unique_ptr<GgufModelBuilder> direct;
+  ASSERT_TRUE(GgufModelBuilder::Open(target.string(), &direct, &error)) << error;
+  std::unique_ptr<GgufConfiguration> direct_configuration;
+  ASSERT_TRUE(direct->Configure(BuildOptions(), nullptr, &direct_configuration, &error)) << error;
+  EXPECT_EQ(configured->configuration_source(), direct_configuration->configuration_source());
+  ASSERT_TRUE(configured->WritePackage(context_, workspace_, &error)) << error;
+  const auto document = Read(fs::path(package.output_directory) / "model.json");
+  EXPECT_NE(document.find(alias.string()), std::string::npos);
+  EXPECT_EQ(document.find(target.string()), std::string::npos);
+  // A directory symlink followed by '..' must retain filesystem semantics.
+  const auto parent = scratch_ / "real-parent";
+  fs::create_directories(parent / "child");
+  fs::create_symlink(target, parent / "parent-checkpoint.gguf");
+  fs::create_directory_symlink(parent / "child", scratch_ / "parent-link");
+  const auto parent_alias = scratch_ / "parent-link/../parent-checkpoint.gguf";
+  std::unique_ptr<GgufModelBuilder> parent_builder;
+  ASSERT_TRUE(GgufModelBuilder::Open(parent_alias.string(), &parent_builder, &error)) << error;
+  package.output_directory = (scratch_ / "parent-alias-package").string();
+  ASSERT_TRUE(Publish(*parent_builder, BuildOptions(), package, &error)) << error;
+  EXPECT_NE(Read(fs::path(package.output_directory) / "model.json").find(parent_alias.string()),
+            std::string::npos);
+  package.output_directory = (scratch_ / "rebound-package").string();
+  ASSERT_TRUE(builder->Configure(BuildOptions(), &package, &configured, &error)) << error;
+  fs::remove(alias);
+  fs::create_symlink(fs::canonical(Tokenizer(false)), alias);
+  EXPECT_FALSE(configured->WritePackage(context_, workspace_, &error));
+  EXPECT_EQ(error, "GGUF input alias no longer resolves to the opened source");
+  EXPECT_FALSE(fs::exists(package.output_directory));
+}
 TEST_F(GgufPackageTest, RealProfilesPublishRelocatableSourceAndBytecode) {
   for (bool qwen : {false,true}) {
     ASSERT_NE(Asset(qwen), nullptr) << "immutable real-model fixture required";
@@ -329,10 +397,11 @@ TEST_F(GgufPackageTest, RealProfilesPublishRelocatableSourceAndBytecode) {
       EXPECT_FALSE(fs::exists(directory / "model.json.tmp"));
       const auto document = Read(directory / "model.json");
       EXPECT_NE(document.find(qwen ? "loomify-qwen35" : "loomify-llama"), std::string::npos);
-      EXPECT_NE(document.find("\"context_capacity\": 513"), std::string::npos);
-      EXPECT_NE(document.find("\"pool_capacity\": 576"), std::string::npos);
+      EXPECT_NE(document.find("\"context_capacity\": 576"), std::string::npos);
+      EXPECT_EQ(document.find("\"pool_capacity\""), std::string::npos);
       EXPECT_NE(document.find("\"prefill_capacity\": 128"), std::string::npos);
       EXPECT_NE(document.find("\"rows\": 1"), std::string::npos);
+      EXPECT_NE(document.find("\"max_sessions\": 1"), std::string::npos);
       const auto control = Read(directory / "control.loom");
       EXPECT_NE(control.find(qwen ? "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67" : "5816fce10444e03c2e9ee1ef8a4a1ea61ae7e69e438613f3b17b69d0426223a4"), std::string::npos);
       CheckPackageData(directory, qwen ? "loomify-qwen35" : "loomify-llama",
@@ -554,7 +623,7 @@ TEST_F(GgufPackageTest, Qualified27ProfilePublishesSourceAndBytecode) {
     const auto document = Read(directory / "model.json");
     EXPECT_NE(document.find("loomify-qwen35"), std::string::npos);
     EXPECT_EQ(document.find("loomify-qwen-08b"), std::string::npos);
-    EXPECT_NE(document.find(fs::canonical(gguf).string()), std::string::npos);
+    EXPECT_NE(document.find(fs::absolute(gguf).string()), std::string::npos);
     EXPECT_NE(document.find(fs::canonical(tokenizer).string()), std::string::npos);
     const auto control = Read(directory / "control.loom");
     EXPECT_NE(control.find("c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"), std::string::npos);
@@ -584,7 +653,7 @@ TEST_F(GgufPackageTest, GemmaProfilePublishesRelocatableSourceAndBytecode) {
     EXPECT_FALSE(fs::exists(directory / "model.json.tmp"));
     const auto document = Read(directory / "model.json");
     EXPECT_NE(document.find("loomify-gemma3"), std::string::npos);
-    EXPECT_NE(document.find(fs::canonical(gguf).string()), std::string::npos);
+    EXPECT_NE(document.find(fs::absolute(gguf).string()), std::string::npos);
     EXPECT_NE(document.find(fs::canonical(tokenizer).string()), std::string::npos);
     EXPECT_NE(document.find("\"context_capacity\": 1024"), std::string::npos);
     const auto relocated = scratch_ / ("relocated-" + std::to_string(format));

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 
 # Only owned production sources provide the actual projection and pack accessor.
 loom_library(
@@ -11,5 +11,5 @@ loom_library(
 )
 loom_test(
     name = "q8_0_execution_test", srcs = ["q8_0_checks.loom"], deps = [":provider"],
-    benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )

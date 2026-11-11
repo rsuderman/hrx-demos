@@ -6,6 +6,7 @@
 // JSONC comments/trailing commas and ambiguous duplicate keys are outside this
 // helper contract, even though native compact accepts those extensions. Floating-point
 // lexemes deliberately retain their spelling; no runtime dtoa is introduced.
+func.decl @text.range(%text: buffer,%begin: i64,%length: i64) -> (buffer)
 func.decl import("json") @compact(%text: buffer) -> (buffer)
 func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
 
@@ -129,7 +130,9 @@ func.def @text_json.quote(%decoded: buffer, %size: offset, %output: buffer, %sta
   func.return %next : offset
 }
 
-func.def public @text.json_dump(%document: buffer) -> (buffer) {
+// Preserve caller-local buffer bounds when multiple public rendering roots
+// share this formatter during VM compilation.
+func.def public inline @text.json_dump(%document: buffer) -> (buffer) {
   %text = func.call @compact(%document) : (buffer) -> (buffer)
   %zero = index.constant 0 : offset
   %one = index.constant 1 : offset
@@ -235,5 +238,22 @@ func.def public @text.json_dump(%document: buffer) -> (buffer) {
   }
   %result = buffer.alloca<private> align(1) %last : buffer
   buffer.copy %output[%zero], %result[%zero], %last
+  func.return %result : buffer
+}
+
+// Quote an already decoded UTF8 string using the same escaping as json_dump.
+func.def public @text.json_quote(%text: buffer) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %two = index.constant 2 : offset
+  %size = buffer.length %text
+  %twice = index.add %size, %size : offset
+  %four_times = index.add %twice, %twice : offset
+  %expanded = index.add %four_times, %twice : offset
+  %capacity = index.add %expanded, %two : offset
+  %output = buffer.alloca<private> align(1) %capacity : buffer
+  %end = func.call @text_json.quote(%text, %size, %output, %zero) : (buffer, offset, buffer, offset) -> (offset)
+  %zero64 = scalar.constant 0 : i64
+  %length64 = index.cast %end : offset to i64
+  %result = func.call @text.range(%output, %zero64, %length64) : (buffer, i64, i64) -> (buffer)
   func.return %result : buffer
 }

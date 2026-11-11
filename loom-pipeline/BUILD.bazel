@@ -12,3 +12,22 @@ exports_files(
 )
 
 bytecode_catalogs(name = "bytecode_catalogs", catalogs = CATALOG_BUILDS)
+
+exports_files(["llm/common/fixed_epoch_abi.loom"], visibility = ["//visibility:public"])
+
+filegroup(
+    name = "qwen_control_contract_inputs",
+    srcs = [
+        "llm/qwen/qwen_08b/control.loom",
+        "llm/qwen/qwen_08b/config.loom",
+        "llm/common/generation_control.loom",
+        "llm/common/fixed_epoch_abi.loom",
+    ],
+    visibility = ["//lib/serving/testing:__pkg__"],
+)
+
+filegroup(
+    name = "qwen_projection_contract_inputs",
+    srcs = CATALOG_BUILDS["llm/qwen/qwen_08b/executable.json"]["groups"]["pipeline.loombc"]["sources"],
+    visibility = ["//lib/loomify/testing/platform:__pkg__"],
+)

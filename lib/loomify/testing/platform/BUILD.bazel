@@ -4,12 +4,40 @@ load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 package(default_visibility = ["//visibility:private"])
 [loom_merge(name = member + "_" + format, srcs = [member + ".loom"], output_format = format, testonly = True) for member in ["root", "targets"] for format in ["text", "bc"]]
+[loom_merge(name = "count_command_" + format, srcs = ["count_command.loom", "//lib/kernels/epoch:count.loom"], output_format = format, testonly = True) for format in ["text", "bc"]]
 cc_test(
     name = "provider_test",
     size = "small",
     srcs = ["provider_test.cc"],
     copts = ["-std=c++17"],
     linkstatic = True,
-    data = [":root_text", ":root_bc", ":targets_text", ":targets_bc"],
+    data = [":root_text", ":root_bc", ":targets_text", ":targets_bc", ":count_command_text", ":count_command_bc"],
     deps = ["//lib/loomify:native_linking", "@hrx_system//loom/binding/c:loomc", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+[loom_merge(name = member + "_" + format, srcs = [member + ".loom"], output_format = format, testonly = True) for member in ["operation_root", "operation_a", "operation_b", "operation_empty", "operation_wrong_abi"] for format in ["text", "bc"]]
+cc_test(
+    name = "operation_provider_test", size = "small",
+    srcs = ["operation_provider_test.cc"], copts = ["-std=c++17"], linkstatic = True,
+    data = [":" + member + "_" + format for member in ["operation_root", "operation_a", "operation_b", "operation_empty", "operation_wrong_abi", "operation_conflicting_root", "targets"] for format in ["text", "bc"]],
+    deps = ["//lib/loomify:native_linking", "@hrx_system//loom/binding/c:loomc", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+[loom_merge(name = "operation_conflicting_root_" + format, srcs = ["operation_root.loom", "operation_a.loom"], output_format = format, testonly = True) for format in ["text", "bc"]]
+
+[loom_merge(name = "qwen_projection_" + format, srcs = ["//loom-pipeline:qwen_projection_contract_inputs"], output_format = format, testonly = True) for format in ["text", "bc"]]
+cc_test(
+    name = "shipped_topology_test",
+    size = "small",
+    srcs = ["shipped_topology_test.cc"],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    data = [":qwen_projection_text", ":qwen_projection_bc"],
+    deps = [
+        "//lib/loomify:native_linking",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/configured",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@googletest//:gtest", "@googletest//:gtest_main",
+    ],
 )

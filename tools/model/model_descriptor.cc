@@ -170,7 +170,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     ModelDescriptor m;
     m.family = catalog.architecture;
     m.name = catalog.name;
-    if (m.family != "llama" && m.family != "qwen35" && m.family != "gemma3")
+    if (m.family != "llama" && m.family != "qwen35" && m.family != "gemma3" &&
+        m.family != "qwen3")
       l.Fail("unsupported architecture: " + m.family);
     for (const char *key :
          {"expert_count", "expert_used_count", "nextn_predict_layers"})
@@ -216,7 +217,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     m.rms_epsilon = l.Real("attention.layer_norm_rms_epsilon");
     m.rope.width = l.Int("rope.dimension_count", m.key_head_width);
     if (m.rope.width > m.key_head_width || m.rope.width % 2 ||
-        (m.family == "llama" && m.rope.width != m.key_head_width))
+        ((m.family == "llama" || m.family == "qwen3") &&
+         m.rope.width != m.key_head_width))
       l.Fail("invalid RoPE width");
     m.rope.base = m.family == "gemma3" ? l.Real("rope.freq_base")
                                        : l.Real("rope.freq_base", 10000);
@@ -315,8 +317,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
         bind("ffn_post_norm", "post_ffw_norm.weight", {e});
       } else {
         bind("post_norm",
-             m.family == "llama" ? "ffn_norm.weight"
-                                 : "post_attention_norm.weight",
+             m.family == "qwen35" ? "post_attention_norm.weight"
+                                  : "ffn_norm.weight",
              {e});
       }
       bind("ffn_gate", "ffn_gate.weight", {e, f});
@@ -350,7 +352,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
         bind("key", "attn_k.weight", {e, k});
         bind("value", "attn_v.weight", {e, v});
         bind("attention_output", "attn_output.weight", {q, e});
-        if (m.family == "qwen35" || m.family == "gemma3") {
+        if (m.family == "qwen35" || m.family == "gemma3" ||
+            m.family == "qwen3") {
           bind("query_norm", "attn_q_norm.weight", {m.key_head_width});
           bind("key_norm", "attn_k_norm.weight", {m.key_head_width});
         }

@@ -36,7 +36,7 @@ h.emit(f'''func.def public pure inline @loomify.config.layer_ffn(%layer:index) -
 }}
 ''')
 # Public numerical ABI declarations stay identical to the existing tests.
-h.emit(base[base.index('command.program.decl @qwen38_ffn_down_decode'):base.index('command.program.def public retain')])
+h.emit(base[base.index('command.decl @qwen38_ffn_down_decode'):base.index('command.def public retain')])
 h.emit('kernel.decl @ggml_quantize_q8_1_x4_f32(%rows:index,%width:index) launch(%rows:index,%width:index,%input:buffer,%output:buffer)\n')
 checks=[header]
 for rows in (1,3):
@@ -50,7 +50,7 @@ for rows in (1,3):
     h.kernel('test.expected.'+name,F,'%input: buffer, %activation: buffer, %residual: buffer',h.prefix()+h.input_body(rows,E,True)+'\n'+h.store_pattern(rows,F,'activation',activation,'act')+h.store_pattern(rows,E,'residual',result,'final'))
     h.reference(name,F,'%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer',f'    func.call @test.expected.{name}.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer) -> ()')
     # Existing decode quantizer + maintained gate/up and down programs.
-    h.emit(f'''command.program.def public retain @actual.{name}() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {{
+    h.emit(f'''command.def public retain @actual.{name}() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {{
   command.serial {{
     %layer = index.constant 0 : index
     %rows = index.constant {rows} : index
@@ -67,16 +67,16 @@ for rows in (1,3):
         h.emit(f'''    %packed_bytes = index.constant {E//128*144} : offset
     %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
     kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%hidden](%rows,%hidden,%input,%packed) : [index,index](index,index,buffer,buffer)
-    command.program.launch @qwen38_ffn_gate_up_decode[%layer](%root,%packed,%activation) : [index](buffer,buffer,buffer)
-    command.program.launch @qwen38_ffn_down_decode[%layer](%root,%activation,%residual) : [index](buffer,buffer,buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%layer](%root,%packed,%activation) : [index](buffer,buffer,buffer)
+    command.launch @qwen38_ffn_down_decode[%layer](%root,%activation,%residual) : [index](buffer,buffer,buffer)
 ''')
     else:
-        h.emit('''    command.program.launch @qwen38_ffn_gate_up_prefill[%rows,%rows,%layer,%zero,%one](%root,%input,%control,%activation) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
-    command.program.launch @qwen38_ffn_down_prefill[%rows,%rows,%layer,%zero,%one](%root,%control,%activation,%residual) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
+        h.emit('''    command.launch @qwen38_ffn_gate_up_prefill[%rows,%rows,%layer,%zero,%one](%root,%input,%control,%activation) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
+    command.launch @qwen38_ffn_down_prefill[%rows,%rows,%layer,%zero,%one](%root,%control,%activation,%residual) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
 ''')
     h.emit('  }\n  command.return\n}\n')
     R,A=rows*E,rows*F
-    checks.append(f'''command.program.decl @actual.{name}() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer)
+    checks.append(f'''command.decl @actual.{name}() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer)
 func.decl @reference.{name}(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer)
 check.scenario @{name} {{
   check.trial[1](%trial:index,%entropy:check.entropy) {{
@@ -95,8 +95,8 @@ check.scenario @{name} {{
     %activation_after = check.tensor.view %activation_storage offset({(A+2)*4}) : tensor<{A+4}xf32> -> tensor<2xf32>
     %control = check.generate.fill value(0) : tensor<1048xi32>
     check.compare<@actual.{name},@reference.{name}>(%root,%input,%residual,%activation,%control) : (tensor<{BANK}xi8>,tensor<{R}xf32>,tensor<{R}xf32>,tensor<{A}xf32>,tensor<1048xi32>) -> () {{
-      check.expect.close actual(%residual_storage) expected(%residual_storage) atol(0.0001) rtol(0.0001) nan(same) : tensor<{R+4}xf32>
-      check.expect.close actual(%activation_storage) expected(%activation_storage) atol(0.000001) rtol(0.00001) nan(same) : tensor<{A+4}xf32>
+      check.expect.approximate actual(%residual_storage) expected(%residual_storage) atol(0.0001) rtol(0.0001) nan(same) : tensor<{R+4}xf32>, tensor<{R+4}xf32>
+      check.expect.approximate actual(%activation_storage) expected(%activation_storage) atol(0.000001) rtol(0.00001) nan(same) : tensor<{A+4}xf32>, tensor<{A+4}xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<{R}xf32>
       check.expect.bitwise actual(%control) expected(%control) : tensor<1048xi32>
 ''')
@@ -176,7 +176,7 @@ func.def @reference.{name}(%input:buffer,%packed:buffer) {{
   }}
   func.return
 }}
-command.program.def public retain @actual.{name}() launch(%input:buffer,%packed:buffer) {{
+command.def public retain @actual.{name}() launch(%input:buffer,%packed:buffer) {{
   command.serial {{
     kernel.launch @test.init.{name}(%input) : (buffer)
     %rows = index.constant {rows} : index
@@ -186,7 +186,7 @@ command.program.def public retain @actual.{name}() launch(%input:buffer,%packed:
   command.return
 }}
 ''')
-    checks.append(f'''command.program.decl @actual.{name}() launch(%input:buffer,%packed:buffer)
+    checks.append(f'''command.decl @actual.{name}() launch(%input:buffer,%packed:buffer)
 func.decl @reference.{name}(%input:buffer,%packed:buffer)
 check.scenario @{name} {{
   check.trial[1](%trial:index,%entropy:check.entropy) {{

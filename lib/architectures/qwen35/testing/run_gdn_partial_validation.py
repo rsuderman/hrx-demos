@@ -178,7 +178,7 @@ def main(block='gdn0'):
                     save(case/f'arg{i}.npy', data)
                 declarations = ','.join(f'%a{i}:buffer' for i in range(6))
                 tensor_types = ','.join([f'tensor<{length}xi8>']+[f'tensor<{len(x)}xi8>' for x in buffers])
-                fixture = f'command.program.decl @{root}() launch({declarations})\nfunc.def @noop({declarations}) {{ func.return }}\ncheck.scenario @partial_gdn {{\n check.trial[1](%trial:index,%entropy:check.entropy) {{\n'
+                fixture = f'command.decl @{root}() launch({declarations})\nfunc.def @noop({declarations}) {{ func.return }}\ncheck.scenario @partial_gdn {{\n check.trial[1](%trial:index,%entropy:check.entropy) {{\n'
                 fixture += f'  %a0 = check.file.read.npy path("/proc/self/fd/{fd}") : tensor<{length}xi8>\n'
                 for i, data in enumerate(buffers, 1):
                     fixture += f'  %a{i} = check.file.read.npy path("{case/f"arg{i}.npy"}") : tensor<{len(data)}xi8>\n'

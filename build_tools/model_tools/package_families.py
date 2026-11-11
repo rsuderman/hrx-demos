@@ -57,12 +57,12 @@ def stage(package_root, prepared, repository):
     return list(outputs.values())
 
 
-def stage_helpers(native_root, prepared, hrx_source, *, repository):
+def stage_helpers(native_root, prepared, *, repository):
     _, builds, catalogs, _ = prepared
     outputs = {}
     for reference, build in builds.items():
         if build['helper'] is not None:
             source, _, _ = catalogs[reference]
-            compiler.stage_trusted_payload(native_root.parent, repository, hrx_source,
+            compiler.stage_trusted_payload(native_root.parent, repository,
                 build['helper'], source['preparation']['operation'], outputs)
     return list(outputs.values())

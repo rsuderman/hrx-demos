@@ -430,6 +430,9 @@ class ProcessTests(unittest.TestCase):
         for device in ('', False, 0, None):
             with self.subTest(device=device), self.assertRaises(InvalidInput):
                 self.manager.start('one', dict(self.settings(), device=device), Deadline.after(1))
+        for backing in ('', None, 0, True, 'other'):
+            with self.subTest(backing=backing), self.assertRaises(InvalidInput):
+                hem_process.validate_launch_settings(dict(self.settings(), pool_backing=backing))
         ipv6 = {'device': 'opaque', 'listen': '[::1]:00080'}
         self.assertEqual(hem_process.validate_launch_settings(ipv6), 'http://[::1]:80')
         self.assertEqual(ipv6, {'device': 'opaque', 'listen': '[::1]:00080'})

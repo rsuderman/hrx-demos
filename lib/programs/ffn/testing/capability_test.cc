@@ -149,7 +149,7 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
          << "config.def @" << family << ".model.rms_epsilon = 0.000001 : f32\n";
   if (!compatible_provider)
     source << "config.def @qwen.model.hidden_divisor = " << v.hidden << ".0 : f32\n";
-  source << "command.program.def public @capability.root() launch(%residual: buffer, %count: buffer, %gamma_bytes: buffer, %gate_bytes: buffer, %up_bytes: buffer, %down_bytes: buffer) {\n";
+  source << "command.def public @capability.root() launch(%residual: buffer, %count: buffer, %gamma_bytes: buffer, %gate_bytes: buffer, %up_bytes: buffer, %down_bytes: buffer) {\n";
   const int gate_bytes = v.bad_gate_bytes ? 1 : Bytes(v.gate_tag, v.hidden, v.ffn);
   const int down_bytes = v.bad_down_bytes ? 1 : Bytes(v.down_tag, v.ffn, v.hidden);
   for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{

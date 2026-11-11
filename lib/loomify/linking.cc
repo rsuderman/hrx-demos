@@ -1,6 +1,10 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/linking.h"
+#include "lib/loomify/architectures.h"
+#include "lib/loomify/platforms.h"
+#include <algorithm>
+#include <filesystem>
 #include "lib/loomify/materialize_source.h"
 #include "loomc/link.h"
 #include "loomc/link_index.h"
@@ -60,6 +64,48 @@ bool RequireRootDefinitions(loomc_context_t *context, const loomc_module_t *modu
   return true;
 }
 } // namespace
+bool LinkNumericalProducts(loomc_context_t *context, loomc_workspace_t *workspace,
+                           const std::string &library_root,
+                           const std::string &configuration,
+                           const ArchitectureFiles &architecture,
+                           const PlatformFiles &platform, loomc_module_t **out,
+                           std::string *error) {
+  const auto fail = [&](const char *reason) {
+    if (error) *error = std::string("numerical composition for ") +
+        architecture.family + " on " + platform.selector + ": " + reason;
+    return false;
+  };
+  if (library_root.empty() || !architecture.implementation || !platform.targets)
+    return fail("missing numerical product or library root");
+  std::vector<std::string> paths;
+  const auto append = [&](const char *product) {
+    const auto path = (std::filesystem::path(library_root) / product).string();
+    if (std::find(paths.begin(), paths.end(), path) == paths.end())
+      paths.push_back(path);
+  };
+  append(architecture.implementation);
+  append(platform.targets);
+  std::vector<RequiredOperation> visited;
+  for (const auto required : architecture.required_operations) {
+    if (std::find(visited.begin(), visited.end(), required) != visited.end())
+      return fail("duplicate required operation");
+    visited.push_back(required);
+    const char *product = nullptr;
+    for (const auto &implementation : platform.implementations) {
+      if (implementation.operation != required) continue;
+      if (product) return fail("duplicate platform operation implementation");
+      if (!implementation.product || !*implementation.product)
+        return fail("empty platform operation product");
+      product = implementation.product;
+    }
+    if (!product) return fail("missing platform operation implementation");
+    append(product);
+  }
+  // Native LINK owns actual symbols/types/predicates. Selection metadata is not
+  // a verifier for arbitrary provider IR; loading every selected input is required.
+  return LinkConfiguredProducts(context, workspace, configuration, paths,
+                                architecture.roots, true, out, error);
+}
 bool LinkConfiguredProducts(loomc_context_t *context, loomc_workspace_t *workspace,
                            const std::string &configuration,
                            const std::vector<std::string> &product_paths,

@@ -90,9 +90,9 @@ template.def<@ggml.q5k.chunk> device @ggml_q5k_chunk(%weight: buffer, %row_byte_
   %block_bytes = index.constant 176 : offset
   %high_byte_add = index.constant 16 : offset
   %code_byte_add = index.constant 48 : offset
-  %one_byte_mask = vector.constant 16843009 : vector<4xi32>
-  %nibble_mask = vector.constant 252645135 : vector<4xi32>
-  %c4_i32v = vector.constant 4 : vector<4xi32>
+  %one_byte_mask = vector.splati 16843009 : vector<4xi32>
+  %nibble_mask = vector.splati 252645135 : vector<4xi32>
+  %c4_i32v = vector.splati 4 : vector<4xi32>
   %bounded_group = index.assume %q5_group [range(%q5_group, 0, 7)] : index
   %bounded_half = index.assume %q5_half [range(%q5_half, 0, 1)] : index
   %block_byte_add = index.scale %q5_block, %block_bytes : index, offset -> offset
@@ -686,7 +686,7 @@ check.case public @ggml_linear_q5k_q8_1_x4_differential_case {
   kernel.launch @ggml_quantize_q8_1_x4_f32[%token_count, %input_size](%token_count, %input_size, %input, %q8_input) : [index, index](index, index, tensor<256xf32>, tensor<288xi8>)
   kernel.launch @ggml_q5k_f32_reference[%input_size](%input_size, %input, %weight, %expected) : [index](index, tensor<256xf32>, tensor<65x176xi8>, tensor<65xf32>)
   kernel.launch @ggml_linear_q5k_q8_1_x4[%token_count, %input_size, %output_size](%token_count, %input_size, %output_size, %q8_input, %weight, %actual) : [index, index, index](index, index, index, tensor<288xi8>, tensor<65x176xi8>, tensor<65xf32>)
-  check.expect.close actual(%actual) expected(%expected) atol(0.5) rtol(0.01) nan(same) : tensor<65xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(0.5) rtol(0.01) nan(same) : tensor<65xf32>, tensor<65xf32>
   check.return
 }
 

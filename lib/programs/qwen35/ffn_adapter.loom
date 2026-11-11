@@ -12,7 +12,7 @@ config.decl @loomify.ffn.profile : index
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
 template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
 
-command.program.def public @loomify.qwen.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%layer, 0, 64), range(%phase, 0, 1), range(%rows, 1, 512)] {
+command.def public @loomify.qwen.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%layer, 0, 64), range(%phase, 0, 1), range(%rows, 1, 512)] {
   %hidden = config.get @qwen.model.hidden_size : index
   %epsilon = config.get @qwen.model.rms_epsilon : f32
   %profile = config.get @loomify.ffn.profile : index

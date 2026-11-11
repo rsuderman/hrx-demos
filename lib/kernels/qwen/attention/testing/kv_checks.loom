@@ -179,7 +179,7 @@ kernel.def @kv_initialize_n1_p0() {
   kernel.return
 }
 
-command.program.def public @kv_actual_n1_p0() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+command.def public @kv_actual_n1_p0() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
@@ -216,7 +216,7 @@ check.scenario @kv_n1_p0 {
       check.expect.bitwise actual(%key) expected(%key) : tensor<4x512xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<4x512xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
-      check.expect.close actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>
+      check.expect.approximate actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>, tensor<262208xf16>
       check.expect.bitwise actual(%value_plane) expected(%value_plane) : tensor<65536xf16>
       check.expect.bitwise actual(%guard0) expected(%guard0) : tensor<131104xf16>
       check.expect.bitwise actual(%guard1) expected(%guard1) : tensor<32xf16>
@@ -237,7 +237,7 @@ kernel.def @kv_initialize_n3_p63() {
   kernel.return
 }
 
-command.program.def public @kv_actual_n3_p63() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+command.def public @kv_actual_n3_p63() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
@@ -273,7 +273,7 @@ check.scenario @kv_n3_p63 {
       check.expect.bitwise actual(%key) expected(%key) : tensor<4x512xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<4x512xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
-      check.expect.close actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>
+      check.expect.approximate actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>, tensor<262208xf16>
       check.expect.bitwise actual(%value_plane) expected(%value_plane) : tensor<65536xf16>
       check.expect.bitwise actual(%guard0) expected(%guard0) : tensor<131104xf16>
       check.expect.bitwise actual(%guard1) expected(%guard1) : tensor<32xf16>
@@ -303,7 +303,7 @@ kernel.def @kv_advance_n2_p63_continue() {
   kernel.return
 }
 
-command.program.def public @kv_actual_n2_p63_continue() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
+command.def public @kv_actual_n2_p63_continue() launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
@@ -345,7 +345,7 @@ check.scenario @kv_n2_p63_continue {
       check.expect.bitwise actual(%key) expected(%key) : tensor<4x512xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<4x512xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256xf32>
-      check.expect.close actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>
+      check.expect.approximate actual(%arena) expected(%arena) atol(0.002) rtol(0.002) nan(same) : tensor<262208xf16>, tensor<262208xf16>
       check.expect.bitwise actual(%value_plane) expected(%value_plane) : tensor<65536xf16>
       check.expect.bitwise actual(%guard0) expected(%guard0) : tensor<131104xf16>
       check.expect.bitwise actual(%guard1) expected(%guard1) : tensor<32xf16>

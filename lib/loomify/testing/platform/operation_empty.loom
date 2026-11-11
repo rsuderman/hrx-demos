@@ -1,0 +1,4 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Deliberately relocatable provider with no implementation body.
+kernel.decl @selected_operation() launch(%output: buffer)

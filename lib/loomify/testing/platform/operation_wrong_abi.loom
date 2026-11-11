@@ -1,0 +1,14 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+target.decl @platform_test_wave32
+kernel.def target(@platform_test_wave32) @selected_operation(%variant: index) {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%output: buffer) {
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %value = scalar.constant 17 : i32
+  %view = buffer.view %output[%origin] : buffer -> view<1xi32>
+  view.store %value, %view[%zero] : i32, view<1xi32>
+  kernel.return
+}

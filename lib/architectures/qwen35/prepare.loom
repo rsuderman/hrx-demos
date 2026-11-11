@@ -18,7 +18,8 @@ config.decl @runner.qwen38.prefill_token_count : index
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
 func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
-func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %source: i32, %directory: buffer, %path: buffer, %policy: buffer)
+func.decl import("prepare") @source(%directory: buffer, %path: buffer) -> (i32)
+func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %input: i32, %source: i32, %policy: buffer)
 global.rodata.def @epoch_root = bytes("67656e6572617465642e7177656e5f65706f6368")
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
 global.rodata.def @empty = bytes("")
@@ -29,7 +30,8 @@ func.def @declare_stage(%root: buffer, %tag: i64, %weights: buffer) -> (i32) {
   %zero = scalar.constant 0 : i32
   %empty = global.load @empty : buffer
   %policy = global.load @policy : buffer
-  func.call @parameter(%entry, %zero, %zero, %empty, %weights, %policy) : (i32, i32, i32, buffer, buffer, buffer) -> ()
+  %registered_source_1 = func.call @source(%empty, %weights) : (buffer, buffer) -> (i32)
+  func.call @parameter(%entry, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer) -> ()
   func.return %entry : i32
 }
 func.def @allocation(%records: buffer, %slot: index, %bytes: i64, %clear: i64) {
@@ -260,9 +262,13 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
     %spans = view.load %view[%i, 1] : view<[%count]x2xi64> -> i64
     %positive_tokens = scalar.cmpi uge, %tokens, %one64 : i64
     %fit_tokens = scalar.cmpi ule, %tokens, %capacity : i64
-    %one_span = scalar.cmpi eq, %spans, %one64 : i64
+    // Default native shape capacities include unreachable multi-span siblings;
+    // packing the admitted one row selects the same-token span-1 sibling.
+    %positive_spans = scalar.cmpi uge, %spans, %one64 : i64
+    %fit_spans = scalar.cmpi ule, %spans, %tokens : i64
+    %span_range = scalar.andi %positive_spans, %fit_spans : i1
     %token_range = scalar.andi %positive_tokens, %fit_tokens : i1
-    %shape_ok = scalar.andi %token_range, %one_span : i1
+    %shape_ok = scalar.andi %token_range, %span_range : i1
     %shape32 = scalar.extui %shape_ok : i1 to i32
     func.call @require(%shape32, %diagnostic) : (i32, buffer) -> ()
     %target = func.call @declare_stage(%epoch_root, %tokens, %weights) : (buffer, i64, buffer) -> (i32)

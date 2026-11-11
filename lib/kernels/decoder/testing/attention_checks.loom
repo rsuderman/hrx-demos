@@ -1,0 +1,252 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// F64 anchors are independent; shared functions below initialize test inputs only.
+func.decl @decoder.fixture.descriptor_values(%base: index, %epoch: buffer, %map: buffer)
+func.decl @decoder.fixture.history_element(%head: index, %physical: index, %lane: index, %cache: buffer)
+global.rodata.decl @decoder.attention.oracle.k.expected.63
+global.rodata.decl @decoder.attention.oracle.attention.expected
+func.def @decoder.expected.poison_attention(%width: index, %input: buffer) {
+  %word = index.constant 4 : offset
+  %two = index.constant 2 : index
+  %row_bytes = index.scale %width, %word : index, offset -> offset
+  %origin = index.scale %two, %row_bytes : index, offset -> offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %bits = scalar.constant 2143289344 : i32
+  %nan = scalar.bitcast %bits : i32 to f32
+  %view = buffer.view %input[%origin] : buffer -> view<[%width]xf32>
+  scf.for %i = [%zero to %width step %one] {
+    view.store %nan, %view[%i] : f32, view<[%width]xf32>
+  }
+  func.return
+}
+global.rodata.decl @decoder.attention.oracle.q.expected.0
+command.decl @decoder.actual.qk0() launch(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+func.def @decoder.expected.qk0(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %width = index.constant 2048 : index
+  %base = index.constant 0 : index
+  func.call @decoder.expected.poison_attention(%width, %input) : (index, buffer) -> ()
+  func.call @decoder.fixture.descriptor_values(%base, %epoch, %map) : (index, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %size = index.constant 6144 : index
+  %bank = global.load @decoder.attention.oracle.q.expected.0 : buffer
+  %values = buffer.view %bank[%origin] : buffer -> view<6144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<6144xf32>
+  scf.for %i = [%zero to %size step %one] {
+    %v = view.load %values[%i] : view<6144xf32> -> f32
+    view.store %v, %out[%i] : f32, view<6144xf32>
+  }
+  func.return
+}
+check.scenario @decoder.qk.position0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(99) : tensor<12xi32>
+    %map = check.generate.fill value(99) : tensor<6xi32>
+    %input = check.generate.iota offset(-0.5) step(0.000244140625) : tensor<3x2048xf32>
+    %gamma = check.generate.iota offset(0.875) step(0.001953125) : tensor<128xf32>
+    %storage = check.generate.fill value(123.5) : tensor<6152xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<6152xf32> -> tensor<3x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<6152xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(24592) : tensor<6152xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %out offset(16384) : tensor<3x2048xf32> -> tensor<2048xf32>
+    check.compare<@decoder.actual.qk0, @decoder.expected.qk0>(%epoch, %map, %input, %gamma, %out) : (tensor<12xi32>, tensor<6xi32>, tensor<3x2048xf32>, tensor<128xf32>, tensor<3x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<6152xf32>, tensor<6152xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<12xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<6xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x2048xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<128xf32>
+    }
+  }
+  check.return
+}
+global.rodata.decl @decoder.attention.oracle.q.expected.63
+command.decl @decoder.actual.qk63() launch(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+func.def @decoder.expected.qk63(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %width = index.constant 2048 : index
+  %base = index.constant 63 : index
+  func.call @decoder.expected.poison_attention(%width, %input) : (index, buffer) -> ()
+  func.call @decoder.fixture.descriptor_values(%base, %epoch, %map) : (index, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %size = index.constant 6144 : index
+  %bank = global.load @decoder.attention.oracle.q.expected.63 : buffer
+  %values = buffer.view %bank[%origin] : buffer -> view<6144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<6144xf32>
+  scf.for %i = [%zero to %size step %one] {
+    %v = view.load %values[%i] : view<6144xf32> -> f32
+    view.store %v, %out[%i] : f32, view<6144xf32>
+  }
+  func.return
+}
+check.scenario @decoder.qk.position63 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(99) : tensor<12xi32>
+    %map = check.generate.fill value(99) : tensor<6xi32>
+    %input = check.generate.iota offset(-0.5) step(0.000244140625) : tensor<3x2048xf32>
+    %gamma = check.generate.iota offset(0.875) step(0.001953125) : tensor<128xf32>
+    %storage = check.generate.fill value(123.5) : tensor<6152xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<6152xf32> -> tensor<3x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<6152xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(24592) : tensor<6152xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %out offset(16384) : tensor<3x2048xf32> -> tensor<2048xf32>
+    check.compare<@decoder.actual.qk63, @decoder.expected.qk63>(%epoch, %map, %input, %gamma, %out) : (tensor<12xi32>, tensor<6xi32>, tensor<3x2048xf32>, tensor<128xf32>, tensor<3x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<6152xf32>, tensor<6152xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<12xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<6xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x2048xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<128xf32>
+    }
+  }
+  check.return
+}
+global.rodata.decl @decoder.attention.oracle.q.expected.1023
+command.decl @decoder.actual.qk1023() launch(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+func.def @decoder.expected.qk1023(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %width = index.constant 2048 : index
+  %base = index.constant 1023 : index
+  func.call @decoder.expected.poison_attention(%width, %input) : (index, buffer) -> ()
+  func.call @decoder.fixture.descriptor_values(%base, %epoch, %map) : (index, buffer, buffer) -> ()
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %size = index.constant 6144 : index
+  %bank = global.load @decoder.attention.oracle.q.expected.1023 : buffer
+  %values = buffer.view %bank[%origin] : buffer -> view<6144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<6144xf32>
+  scf.for %i = [%zero to %size step %one] {
+    %v = view.load %values[%i] : view<6144xf32> -> f32
+    view.store %v, %out[%i] : f32, view<6144xf32>
+  }
+  func.return
+}
+check.scenario @decoder.qk.position1023 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(99) : tensor<12xi32>
+    %map = check.generate.fill value(99) : tensor<6xi32>
+    %input = check.generate.iota offset(-0.5) step(0.000244140625) : tensor<3x2048xf32>
+    %gamma = check.generate.iota offset(0.875) step(0.001953125) : tensor<128xf32>
+    %storage = check.generate.fill value(123.5) : tensor<6152xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<6152xf32> -> tensor<3x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<6152xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(24592) : tensor<6152xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %out offset(16384) : tensor<3x2048xf32> -> tensor<2048xf32>
+    check.compare<@decoder.actual.qk1023, @decoder.expected.qk1023>(%epoch, %map, %input, %gamma, %out) : (tensor<12xi32>, tensor<6xi32>, tensor<3x2048xf32>, tensor<128xf32>, tensor<3x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<6152xf32>, tensor<6152xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<12xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<6xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x2048xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<128xf32>
+    }
+  }
+  check.return
+}
+command.decl @decoder.actual.attention() launch(%epoch: buffer, %map: buffer, %query: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer, %output: buffer)
+func.def @decoder.expected.attention(%epoch: buffer, %map: buffer, %query: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer, %output: buffer) {
+  %qw = index.constant 2048 : index
+  %kw = index.constant 1024 : index
+  %base = index.constant 63 : index
+  func.call @decoder.expected.poison_attention(%qw, %query) : (index, buffer) -> ()
+  func.call @decoder.expected.poison_attention(%kw, %key) : (index, buffer) -> ()
+  func.call @decoder.expected.poison_attention(%kw, %value) : (index, buffer) -> ()
+  func.call @decoder.fixture.descriptor_values(%base, %epoch, %map) : (index, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %heads = index.constant 8 : index
+  %h = index.constant 128 : index
+  %pool = index.constant 128 : index
+  scf.for %physical = [%zero to %pool step %one] {
+    scf.for %head = [%zero to %heads step %one] {
+      scf.for %lane = [%zero to %h step %one] {
+        func.call @decoder.fixture.history_element(%head, %physical, %lane, %cache) : (index, index, index, buffer) -> ()
+      }
+    }
+  }
+  %origin = index.constant 0 : offset
+  %key_origin = index.constant 524304 : offset
+  %value_origin = index.constant 786448 : offset
+  %last = index.constant 127 : index
+  %bank = global.load @decoder.attention.oracle.k.expected.63 : buffer
+  %keys = buffer.view %bank[%origin] : buffer -> view<3x1024xf32>
+  %values = buffer.view %value[%origin] : buffer -> view<3x1024xf32>
+  %key_cache = buffer.view %cache[%key_origin] : buffer -> view<128x1024xf16>
+  %value_cache = buffer.view %cache[%value_origin] : buffer -> view<128x1024xf16>
+  // The selected page permutation maps logical63->physical127 and64->0.
+  scf.for %row = [%zero to %two step %one] {
+    %first = index.cmp eq, %row, %zero : index
+    %physical = scf.select %first, %last, %zero : index
+    scf.for %column = [%zero to %kw step %one] {
+      %k = view.load %keys[%row, %column] : view<3x1024xf32> -> f32
+      %v = view.load %values[%row, %column] : view<3x1024xf32> -> f32
+      %k16 = scalar.fptrunc %k : f32 to f16
+      %v16 = scalar.fptrunc %v : f32 to f16
+      view.store %k16, %key_cache[%physical, %column] : f16, view<128x1024xf16>
+      view.store %v16, %value_cache[%physical, %column] : f16, view<128x1024xf16>
+    }
+  }
+  %size = index.constant 6144 : index
+  %answers = global.load @decoder.attention.oracle.attention.expected : buffer
+  %expected = buffer.view %answers[%origin] : buffer -> view<6144xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<6144xf32>
+  scf.for %i = [%zero to %size step %one] {
+    %v = view.load %expected[%i] : view<6144xf32> -> f32
+    view.store %v, %out[%i] : f32, view<6144xf32>
+  }
+  func.return
+}
+check.scenario @decoder.attention.paged_crossing63_64 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(99) : tensor<12xi32>
+    %map = check.generate.fill value(99) : tensor<6xi32>
+    %query = check.generate.iota offset(-0.5) step(0.000244140625) : tensor<3x2048xf32>
+    %key = check.generate.iota offset(-0.5) step(0.00048828125) : tensor<3x1024xf32>
+    %value = check.generate.iota offset(-0.25) step(0.000244140625) : tensor<3x1024xf32>
+    %gamma = check.generate.iota offset(0.875) step(0.001953125) : tensor<128xf32>
+    %storage = check.generate.fill value(123.5) : tensor<6152xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<6152xf32> -> tensor<3x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<6152xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(24592) : tensor<6152xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %out offset(16384) : tensor<3x2048xf32> -> tensor<2048xf32>
+    %active_out = check.tensor.view %out offset(0) : tensor<3x2048xf32> -> tensor<2x2048xf32>
+    %cache = check.generate.fill value(-9.0) : tensor<524304xf16>
+    %cache_prefix = check.tensor.view %cache offset(0) : tensor<524304xf16> -> tensor<8xf16>
+    %cache_suffix = check.tensor.view %cache offset(1048592) : tensor<524304xf16> -> tensor<8xf16>
+    %layer0 = check.tensor.view %cache offset(16) : tensor<524304xf16> -> tensor<262144xf16>
+    %keys_untouched = check.tensor.view %cache offset(526352) : tensor<524304xf16> -> tensor<126x1024xf16>
+    %values_untouched = check.tensor.view %cache offset(788496) : tensor<524304xf16> -> tensor<126x1024xf16>
+    check.compare<@decoder.actual.attention, @decoder.expected.attention>(%epoch, %map, %query, %key, %value, %gamma, %cache, %out) : (tensor<12xi32>, tensor<6xi32>, tensor<3x2048xf32>, tensor<3x1024xf32>, tensor<3x1024xf32>, tensor<128xf32>, tensor<524304xf16>, tensor<3x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.002) rtol(0.002) nan(same) : tensor<6152xf32>, tensor<6152xf32>
+      // Independent oracle asserts RMS(expected)>=.005. This stronger
+      // absolute bound implies relativeL2<=.002 over the4096active outputs.
+      check.expect.approximate actual(%active_out) expected(%active_out) atol(0.00001) rtol(0.0) nan(same) : tensor<2x2048xf32>, tensor<2x2048xf32>
+      check.expect.approximate actual(%cache) expected(%cache) atol(0.00001) rtol(0.0001) nan(same) : tensor<524304xf16>, tensor<524304xf16>
+      check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<8xf16>
+      check.expect.bitwise actual(%cache_suffix) expected(%cache_suffix) : tensor<8xf16>
+      check.expect.bitwise actual(%layer0) expected(%layer0) : tensor<262144xf16>
+      check.expect.bitwise actual(%keys_untouched) expected(%keys_untouched) : tensor<126x1024xf16>
+      check.expect.bitwise actual(%values_untouched) expected(%values_untouched) : tensor<126x1024xf16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2048xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<12xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<6xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<3x2048xf32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<3x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<3x1024xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<128xf32>
+    }
+  }
+  check.return
+}

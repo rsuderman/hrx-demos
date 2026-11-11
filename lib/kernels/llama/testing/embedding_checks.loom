@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 kernel.decl @llama32_token_embedding_q6k_f32(%count: index) launch(%count: index, %ids: buffer, %weight: buffer, %output: buffer)
-command.program.def @embedding.call() launch(%ids: buffer, %weight: buffer, %output: buffer) {
+command.def @embedding.call() launch(%ids: buffer, %weight: buffer, %output: buffer) {
   %count = index.constant 3 : index
   kernel.launch @llama32_token_embedding_q6k_f32[%count](%count, %ids, %weight, %output) : [index](index, buffer, buffer, buffer)
   command.return
@@ -161,7 +161,7 @@ kernel.def @embedding.init_epoch_kernel() {
   func.call @embedding.init_epoch(%epoch,%ids) : (buffer,buffer) -> ()
   kernel.return
 }
-command.program.def @embedding.epoch_call() launch(%epoch:buffer,%ids:buffer,%weight:buffer,%output:buffer) {
+command.def @embedding.epoch_call() launch(%epoch:buffer,%ids:buffer,%weight:buffer,%output:buffer) {
   kernel.launch @embedding.init_epoch_kernel[](%epoch,%ids) : [](buffer,buffer)
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer

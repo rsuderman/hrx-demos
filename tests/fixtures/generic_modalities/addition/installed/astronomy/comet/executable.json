@@ -13,10 +13,6 @@
         1,
         262144
       ],
-      "pool_capacity": [
-        1,
-        4194304
-      ],
       "prefill_capacity": [
         1,
         262144
@@ -26,7 +22,6 @@
     "defaults": {
       "rows": 4,
       "context_capacity": 8192,
-      "pool_capacity": 32768,
       "prefill_capacity": 128,
       "mtp": false
     }

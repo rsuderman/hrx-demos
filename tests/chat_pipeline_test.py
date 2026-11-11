@@ -36,8 +36,7 @@ class ChatFunctionsTest(unittest.TestCase):
             programs=pipelines.programs(executable,catalog,Deadline.after())
             document=chat.definition(settings,paths,Path('/local'),programs)
             self.assertEqual(document,{'kind':'text',**programs,'weights':'/hf/custom.gguf',
-                'tokenizer':'/hf/custom.json','rows':4,'context_capacity':8192,'pool_capacity':32768,
-                'prefill_capacity':128,'draft_depth':depth,'options':{}})
+                'tokenizer':'/hf/custom.json','rows':4,'max_sessions':4,'context_capacity':8192,'prefill_capacity':128,'draft_depth':depth,'options':{}})
             for invalid in ({'tokenizer':paths['tokenizer']},{**paths,'weights':Path('relative.gguf')}):
                 with self.assertRaises(InvalidInput):chat.definition(settings,invalid,Path('/local'),programs)
 

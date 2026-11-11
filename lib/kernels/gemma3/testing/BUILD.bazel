@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 package(default_visibility = ["//visibility:public"])
 [loom_merge(
     name = "padding_provider_" + format,
@@ -13,16 +13,16 @@ package(default_visibility = ["//visibility:public"])
     name = "padding_" + format + "_test",
     srcs = ["padding_checks.loom", ":padding_provider_" + format],
     benchmark_smoke = False,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]
 
 [loom_merge(
     name = "publication_provider_" + format,
-    srcs = ["publication_programs.loom", "//lib/kernels/gemma3:publication.loom"],
+    srcs = ["publication_programs.loom", "//lib/kernels/gemma3:publication.loom", "//lib/kernels/publication:two_stops.loom"],
     output_format = format, testonly = True,
 ) for format in ["text", "bc"]]
 [loom_test(
     name = "publication_" + format + "_test",
     srcs = ["publication_checks.loom", ":publication_provider_" + format],
-    benchmark_smoke = False, execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]

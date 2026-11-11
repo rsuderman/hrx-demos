@@ -71,7 +71,7 @@ template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %us
 
 template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
-command.program.def public retain @joined.1.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.1.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -211,7 +211,7 @@ command.program.def public retain @joined.1.prefill.active() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @joined.1.prefill.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.1.prefill.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -351,7 +351,7 @@ command.program.def public retain @joined.1.prefill.compact() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @joined.1.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.1.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 8 : index
     %v25 = index.constant 3 : index
@@ -368,20 +368,20 @@ command.program.def public retain @joined.1.prefill() launch(%v0: buffer, %v1: b
     %v36 = index.constant 0 : index
     kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     %v37 = index.constant 1 : index
     kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @joined.1.decode.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.1.decode.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -517,7 +517,7 @@ command.program.def public retain @joined.1.decode.active() launch(%v0: buffer, 
   command.return
 }
 
-command.program.def public retain @joined.1.decode.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.1.decode.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -653,7 +653,7 @@ command.program.def public retain @joined.1.decode.compact() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @joined.1.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.1.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 1 : index
     %v25 = index.constant 1 : index
@@ -670,20 +670,20 @@ command.program.def public retain @joined.1.decode() launch(%v0: buffer, %v1: bu
     %v36 = index.constant 0 : index
     kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     %v37 = index.constant 1 : index
     kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.1.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.1.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @joined.2.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.2.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -952,7 +952,7 @@ command.program.def public retain @joined.2.prefill.active() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @joined.2.prefill.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.2.prefill.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -1221,7 +1221,7 @@ command.program.def public retain @joined.2.prefill.compact() launch(%v0: buffer
   command.return
 }
 
-command.program.def public retain @joined.2.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.2.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 8 : index
     %v25 = index.constant 3 : index
@@ -1238,20 +1238,20 @@ command.program.def public retain @joined.2.prefill() launch(%v0: buffer, %v1: b
     %v36 = index.constant 0 : index
     kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     %v37 = index.constant 1 : index
     kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.prefill.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.prefill.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return
 }
 
-command.program.def public retain @joined.2.decode.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.2.decode.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -1512,7 +1512,7 @@ command.program.def public retain @joined.2.decode.active() launch(%v0: buffer, 
   command.return
 }
 
-command.program.def public retain @joined.2.decode.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.2.decode.compact() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 12 : offset
     %v25 = buffer.alloca<global> align(4) %v24 : buffer
@@ -1773,7 +1773,7 @@ command.program.def public retain @joined.2.decode.compact() launch(%v0: buffer,
   command.return
 }
 
-command.program.def public retain @joined.2.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
+command.def public retain @joined.2.decode() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
     %v24 = index.constant 1 : index
     %v25 = index.constant 1 : index
@@ -1790,14 +1790,14 @@ command.program.def public retain @joined.2.decode() launch(%v0: buffer, %v1: bu
     %v36 = index.constant 0 : index
     kernel.launch @test.join_packet(%v27, %v36, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v36, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     %v37 = index.constant 1 : index
     kernel.launch @test.join_packet(%v27, %v37, %v20) : (index, index, buffer)
     kernel.launch @test.join_seed[%v24, %v25](%v24, %v25, %v26, %v19, %v32, %v33, %v22, %v35, %v34) : [index, index](index, index, index, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-    command.program.launch @joined.2.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.decode.active(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+    command.launch @joined.2.decode.compact(%v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %v18, %v33, %v20, %v21, %v34, %v23) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
     kernel.launch @test.join_compare[%v24, %v25](%v24, %v25, %v26, %v27, %v28, %v37, %v20, %v19, %v32, %v33, %v22, %v35, %v34, %v23) : [index, index](index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   }
   command.return

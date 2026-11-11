@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 kernel.decl @qwen38_attention_clear_attended(%token_capacity: index) launch(%token_capacity: index, %output: buffer)
-command.program.def public @clear_actual() launch(%output: buffer) {
+command.def public @clear_actual() launch(%output: buffer) {
   %four = index.constant 4 : index
   kernel.launch @qwen38_attention_clear_attended[%four](%four, %output) : [index](index, buffer)
   command.return

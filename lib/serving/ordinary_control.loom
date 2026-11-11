@@ -3,6 +3,7 @@
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+func.decl @generation.full_packet_transfers(%metadata: buffer, %tokens: buffer) -> (buffer)
 func.decl import("runner") @execute_6(%stage: i32, %b0: hal.buffer, %b1: hal.buffer, %b2: hal.buffer, %b3: hal.buffer, %b4: hal.buffer, %b5: hal.buffer) -> (i64)
 func.decl import("runner") @feedback(%slot: i32, %source: hal.buffer, %offset: i64, %length: i64) -> (i64)
 func.decl @loomify.request.check(%condition: i1)
@@ -129,7 +130,7 @@ func.def @loomify.ordinary.encode_plan(%plan: buffer, %inputs: buffer, %count: i
   func.return %output_count : i32
 }
 
-func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
+func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32, buffer, i64, i64) {
   %zero32 = scalar.constant 0 : i32
   %one32 = scalar.constant 1 : i32
   %zero = index.constant 0 : index
@@ -150,10 +151,13 @@ func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: bu
   %eos_origin = index.constant 2060 : offset
   %terminal = buffer.view %metadata[%eos_origin] : buffer -> view<1xi32>
   view.store %eos, %terminal[0] : i32, view<1xi32>
-  func.return %outputs : i32
+  %transfer_plan = func.call @generation.full_packet_transfers(%metadata, %tokens) : (buffer, buffer) -> (buffer)
+  %transfer_offset = scalar.constant 0 : i64
+  %transfer_length = scalar.constant 80 : i64
+  func.return %outputs, %transfer_plan, %transfer_offset, %transfer_length : i32, buffer, i64, i64
 }
 
-func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative_mask: i32, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
+func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative: buffer, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
   %zero32 = scalar.constant 0 : i32
   %one32 = scalar.constant 1 : i32
   %eot32 = func.call @loomify.serving.terminal_id() : () -> (i32)
@@ -168,7 +172,9 @@ func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, 
   %no_first_media = scalar.cmpi eq, %first_media_count, %zero32 : i32
   %no_next_media = scalar.cmpi eq, %next_media_count, %zero32 : i32
   %no_media = scalar.andi %no_first_media, %no_next_media : i1
-  %no_speculation = scalar.cmpi eq, %next_speculative_mask, %zero32 : i32
+  %continuations = buffer.view %next_speculative[%origin] : buffer -> view<1xi32>
+  %continuation_flag = view.load %continuations[0] : view<1xi32> -> i32
+  %no_speculation = scalar.cmpi eq, %continuation_flag, %zero32 : i32
   %text_ordinary = scalar.andi %ordinary_single, %no_media : i1
   %valid = scalar.andi %text_ordinary, %no_speculation : i1
   func.call @loomify.request.check(%valid) : (i1)
