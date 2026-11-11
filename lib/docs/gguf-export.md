@@ -40,6 +40,24 @@ the fixed one-resident-request ceiling; resident growth is unsupported.
 Numerical-only module generation and
 configuration inspection continue to support arbitrary admitted context sizes.
 
+For a local export/Serve smoke check with already-built tools:
+
+```sh
+python3 build_tools/loomify-smoke.py \
+  --converter bazel-bin/tools/loomify-gguf/loomify-gguf \
+  --serve /path/to/venv/bin/loom-serve \
+  --gguf /path/to/model.gguf --tokenizer /path/to/tokenizer.json
+```
+
+Alternatively, replace the two asset arguments with `--recipe path/to/recipe.json`
+to use its pinned files from the configured Hugging Face cache. Missing files
+fail without downloading; explicit asset arguments override recipe lookup.
+The script checks both formats, valid generation/accounting, matching greedy
+responses and shutdown, without a fixed expected answer or token count. It reports
+whether dependent decode was exercised. `--prompt`, `--max-tokens` and `--timeout`
+are configurable. Temporary packages/state are deleted; use `--report result.json`
+to keep the JSON summary. It uses the caller's existing runtime/library setup.
+
 The bounded Llama serving profile is ordinary greedy text with one active request,
 no draft/checkpoint/session/prefix cache, maximum prefill chunk T in1..512 and
 context C between T and131072. It uses Serve's existing packed-epoch path with
