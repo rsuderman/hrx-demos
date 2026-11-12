@@ -394,13 +394,14 @@ TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
     uint64_t limit;
     std::vector<RequiredOperation> required_operations;
     const char *implementation, *preparation, *execution;
+    PublicationLayout publication_layout;
   };
   for (const auto &expected : std::vector<Expected>{
-           {"llama", "generated.llama_epoch", 131072, {}, resources::kLlamaImplementation, resources::kLlamaPreparation, resources::kLlamaExecution},
-           {"gemma3", "generated.gemma3_epoch", 262144, {}, resources::kGemmaImplementation, resources::kGemmaPreparation, resources::kGemmaExecution},
-           {"qwen2", "generated.qwen2_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen2Implementation, resources::kQwen2Preparation, resources::kQwen2Execution},
-           {"qwen3", "generated.qwen3_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen3Implementation, resources::kQwen3Preparation, resources::kQwen3Execution},
-           {"qwen35", "generated.qwen_epoch", 262144, {RequiredOperation::kAttentionPrefillH256V1}, resources::kQwenImplementation, resources::kQwenPreparation, resources::kQwenExecution}}) {
+           {"llama", "generated.llama_epoch", 131072, {}, resources::kLlamaImplementation, resources::kLlamaPreparation, resources::kLlamaExecution, PublicationLayout::kThreeStops},
+           {"gemma3", "generated.gemma3_epoch", 262144, {}, resources::kGemmaImplementation, resources::kGemmaPreparation, resources::kGemmaExecution, PublicationLayout::kEosAndTurn},
+           {"qwen2", "generated.qwen2_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen2Implementation, resources::kQwen2Preparation, resources::kQwen2Execution, PublicationLayout::kTextAndTurn},
+           {"qwen3", "generated.qwen3_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen3Implementation, resources::kQwen3Preparation, resources::kQwen3Execution, PublicationLayout::kTextAndTurn},
+           {"qwen35", "generated.qwen_epoch", 262144, {RequiredOperation::kAttentionPrefillH256V1}, resources::kQwenImplementation, resources::kQwenPreparation, resources::kQwenExecution, PublicationLayout::kHostManaged}}) {
     const auto *selected = SelectArchitecture(expected.family);
     ASSERT_NE(selected, nullptr);
     EXPECT_EQ(selected, SelectArchitecture(expected.family));
@@ -409,7 +410,7 @@ TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
     EXPECT_EQ(selected->required_operations, expected.required_operations);
     EXPECT_EQ(selected->context_capacity_limit, expected.limit);
     EXPECT_NE(selected->emit_configuration, nullptr);
-    EXPECT_NE(selected->derive_publication, nullptr);
+    EXPECT_EQ(selected->publication_layout, expected.publication_layout);
     EXPECT_STREQ(selected->implementation, expected.implementation);
     EXPECT_STREQ(selected->preparation, expected.preparation);
     EXPECT_STREQ(selected->execution, expected.execution);
@@ -417,6 +418,7 @@ TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
     EXPECT_EQ(selected->package_name, std::string("loomify-") + expected.family);
   }
   EXPECT_EQ(SelectArchitecture("unimplemented"), nullptr);
+  EXPECT_EQ(ArchitectureFiles{}.publication_layout, PublicationLayout::kUnspecified);
 }
 TEST(ConfigurationFactsTest, EverySelectedFamilyKeepsContextAdmissionAndRollback) {
   for (const auto &model : {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(),

@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/token_policy.h"
+#include "lib/loomify/publication_internal.h"
 #include "tools/model/text_metadata.h"
 #include "gtest/gtest.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
@@ -19,7 +20,7 @@ TextTokenRequirements ChatmlTokens() { return {"gpt2","qwen35",false,"","<|im_en
 class TokenPolicyTest : public ::testing::Test {
 protected:
   void Open(bool missing_stop = false, bool bad_template = true,
-            bool chatml = false, std::string terminal = {}, bool gemma = false, bool qwen3 = false, bool qwen2 = false, bool plain = false) {
+            bool chatml = false, std::string terminal = {}, bool gemma = false, bool qwen3 = false, bool qwen2 = false, bool plain = false, bool duplicate_stop = false) {
     pieces = {"a", "<|begin_of_text|>", "<|end_of_text|>",
               missing_stop ? "other" : "<|eom_id|>",
               terminal.empty() ? (chatml ? "<|im_end|>" : "<|eot_id|>") : terminal,
@@ -29,6 +30,7 @@ protected:
     if (plain) pieces={"a", "<|im_start|>", "<|endoftext|>",
                       missing_stop ? "other" : "<|im_end|>",
                       "<|endofturn|>", "<|other|>"};
+    if (duplicate_stop) pieces.push_back(pieces[2]);
     std::string bytes = "GGUF";
     Number(bytes, 3, 4); Number(bytes, 0, 8); Number(bytes, 7, 8);
     auto field = [&](std::string_view k, std::string_view v) {
@@ -81,6 +83,57 @@ TEST_F(TokenPolicyTest, PublicationUsesSourceIdsDespiteMalformedTemplate) {
   ASSERT_TRUE(facts);
   EXPECT_EQ(facts->raw_stops[0].id, 2); EXPECT_EQ(facts->raw_stops[1].id, 3); EXPECT_EQ(facts->raw_stops[2].id, 4);
   EXPECT_NE(facts->configuration_source.find("end_message_id = 3 : i32"), std::string::npos);
+  EXPECT_EQ(facts->terminal_index, 2u);
+  EXPECT_EQ(facts->configuration_source,
+      "config.def @llama.publication.end_text_id = 2 : i32\n"
+      "config.def @llama.publication.end_message_id = 3 : i32\n"
+      "config.def @llama.publication.end_turn_id = 4 : i32\n");
+}
+TEST_F(TokenPolicyTest, UnspecifiedAndInvalidLayoutsNeverUseHostManagedFallback) {
+  for (const auto layout : {PublicationLayout::kUnspecified,
+                            static_cast<PublicationLayout>(99)}) {
+    std::optional<PublicationTokenFacts> facts =
+        PublicationTokenFacts{{{77, "prior"}}, 0, "prior"};
+    EXPECT_FALSE(internal::DeriveSourcePublication(
+        nullptr, layout, "unused", {}, &facts, &error));
+    ASSERT_TRUE(facts);
+    EXPECT_EQ(facts->raw_stops[0].id, 77);
+    EXPECT_EQ(facts->configuration_source, "prior");
+    EXPECT_NE(error.find("publication layout"), std::string::npos);
+  }
+}
+TEST_F(TokenPolicyTest, SourceProfileUsesSlotLayoutRatherThanFamilyName) {
+  Open();
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(internal::DeriveSourcePublication(file.get(),
+      PublicationLayout::kThreeStops, "relocated", text, &facts, &error)) << error;
+  ASSERT_TRUE(facts);
+  EXPECT_EQ(facts->configuration_source,
+      "config.def @relocated.publication.end_text_id = 2 : i32\n"
+      "config.def @relocated.publication.end_message_id = 3 : i32\n"
+      "config.def @relocated.publication.end_turn_id = 4 : i32\n");
+  EXPECT_EQ(facts->terminal_index, 2u);
+  facts->configuration_source = "prior";
+  EXPECT_FALSE(internal::DeriveSourcePublication(file.get(),
+      PublicationLayout::kTextAndTurn, "relocated", text, &facts, &error));
+  EXPECT_EQ(facts->configuration_source, "prior");
+}
+TEST_F(TokenPolicyTest, UnknownEosAndDuplicateSourcePiecePreservePriorFacts) {
+  Open(false, true, false, "<|unknown_stop|>");
+  std::optional<PublicationTokenFacts> facts =
+      PublicationTokenFacts{{{77, "prior"}}, 0, "prior"};
+  EXPECT_FALSE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_EQ(facts->configuration_source, "prior");
+  Open(false, true, false, {}, false, false, false, false, true);
+  EXPECT_FALSE(DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  ASSERT_TRUE(facts);
+  EXPECT_EQ(facts->raw_stops[0].id, 77);
+  EXPECT_EQ(facts->configuration_source, "prior");
+  EXPECT_NE(error.find("invalid publication piece <|end_of_text|>"), std::string::npos);
+}
+TEST_F(TokenPolicyTest, PublicationRequiresOutputEvenForHostManagedLayout) {
+  EXPECT_FALSE(DerivePublicationTokenFacts(nullptr, "qwen35", {}, nullptr, &error));
+  EXPECT_NE(error.find("output is required"), std::string::npos);
 }
 TEST_F(TokenPolicyTest, PlainChatmlLlamaSeparatesDeclaredEosAndPublishedTerminal) {
   Open(false, true, false, {}, false, false, false, true);
@@ -309,6 +362,22 @@ TEST_F(TokenPolicyTest, GemmaMissingTurnStopRejectsWithoutReplacingFacts) {
   EXPECT_FALSE(DerivePublicationTokenFacts(file.get(),"gemma3",text,&facts,&error));
   ASSERT_TRUE(facts); EXPECT_EQ(facts->raw_stops[0].id,77);
   EXPECT_NE(error.find("<end_of_turn>"),std::string::npos);
+}
+TEST_F(TokenPolicyTest, RoleBoundEosCanShareTheTurnSlotWithoutDeduplication) {
+  Open(false, true, false, {}, true);
+  for (auto &role : text.tokens)
+    if (role.source_key == "tokenizer.ggml.eos_token_id") role.id = 6;
+  text.token_pieces[6] = "<end_of_turn>";
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "gemma3", text, &facts, &error)) << error;
+  ASSERT_TRUE(facts);
+  ASSERT_EQ(facts->raw_stops.size(), 2u);
+  EXPECT_EQ(facts->raw_stops[0].id, 6);
+  EXPECT_EQ(facts->raw_stops[1].id, 6);
+  EXPECT_EQ(facts->terminal_index, 1u);
+  EXPECT_EQ(facts->configuration_source,
+      "config.def @gemma3.publication.eos_id = 6 : i32\n"
+      "config.def @gemma3.publication.end_turn_id = 6 : i32\n");
 }
 TEST_F(TokenPolicyTest, Qwen3SourcePolicyDerivesBothEogIdsWithoutChat) {
   Open(false, true, false, {}, false, true);

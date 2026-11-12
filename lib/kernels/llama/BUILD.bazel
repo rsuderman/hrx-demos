@@ -110,8 +110,7 @@ _CONFIGURED_PROVIDER_SOURCES = [
     "attention/attention_materialized.loom",
     "embedding/embedding.loom",
     "embedding/q4k_epoch.loom",
-    "//lib/kernels/embedding:q4k_rows.loom",
-    "//lib/kernels/embedding:q6k_rows.loom",
+    "//lib/kernels/embedding:epoch_f32_sources",
 ]
 
 filegroup(name = "configured_provider_sources", srcs = _CONFIGURED_PROVIDER_SOURCES)

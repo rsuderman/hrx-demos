@@ -8,6 +8,7 @@
 config.def @llama.model.hidden_size = 2048 : index
 config.def @llama.model.vocabulary_size = 3 : index
 kernel.decl @llama32_token_embedding_epoch_q4k_f32(%tokens: index) launch(%epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
 func.def @plainq4.d(%row: index, %block: index) -> (f32) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -138,6 +139,20 @@ command.def public @plainq4.actual() launch(%weights: buffer, %ids: buffer, %epo
   kernel.launch @llama32_token_embedding_epoch_q4k_f32[%tokens](%epoch, %count, %ids, %w, %out) : [index](buffer, buffer, buffer, view<3456xi8>, view<16384xf32>)
   command.return
 }
+command.def public @plainq4.generic_actual() launch(%weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
+  kernel.launch @plainq4.init[](%weights, %ids, %epoch) : [](buffer, buffer, buffer)
+  %tokens = index.constant 8 : index
+  %weight_begin = index.constant 256 : offset
+  %output_begin = index.constant 128 : offset
+  %hidden = index.constant 2048 : index
+  %vocab = index.constant 3 : index
+  %weight_bytes = index.constant 3456 : index
+  %tag = index.constant 12 : index
+  %w = buffer.view %weights[%weight_begin] : buffer -> view<[%weight_bytes]xi8>
+  %out = buffer.view %output[%output_begin] : buffer -> view<[%tokens]x[%hidden]xf32>
+  template.apply<@llm.embedding.epoch_f32>(%tokens, %hidden, %vocab, %tag, %weight_bytes, %epoch, %count, %ids, %w, %out) : (index, index, index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%tokens]x[%hidden]xf32>)
+  command.return
+}
 func.def @plainq4.expected(%weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
   func.call @plainq4.setup(%weights, %ids, %epoch) : (buffer, buffer, buffer) -> ()
   %zero = index.constant 0 : index
@@ -220,6 +235,23 @@ check.scenario @q4_embedding_epoch_2048_n3_b2 {
   }
   check.return
 }
+check.scenario @q4_embedding_epoch_2048_n3_b2_generic {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weights = check.generate.fill value(-23) : tensor<3968xi8>
+    %ids = check.generate.fill value(-1) : tensor<8xi32>
+    %epoch = check.generate.fill value(-123) : tensor<8xi32>
+    %count = check.generate.fill value(3) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<16448xf32>
+    check.compare<@plainq4.generic_actual, @plainq4.expected>(%weights, %ids, %epoch, %count, %output) : (tensor<3968xi8>, tensor<8xi32>, tensor<8xi32>, tensor<3xi32>, tensor<16448xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16448xf32>
+      check.expect.bitwise actual(%weights) expected(%weights) : tensor<3968xi8>
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<8xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
 check.scenario @q4_embedding_epoch_2048_n1_b2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -237,6 +269,23 @@ check.scenario @q4_embedding_epoch_2048_n1_b2 {
   }
   check.return
 }
+check.scenario @q4_embedding_epoch_2048_n1_b2_generic {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weights = check.generate.fill value(-23) : tensor<3968xi8>
+    %ids = check.generate.fill value(-1) : tensor<8xi32>
+    %epoch = check.generate.fill value(-123) : tensor<8xi32>
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<16448xf32>
+    check.compare<@plainq4.generic_actual, @plainq4.expected>(%weights, %ids, %epoch, %count, %output) : (tensor<3968xi8>, tensor<8xi32>, tensor<8xi32>, tensor<3xi32>, tensor<16448xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16448xf32>
+      check.expect.bitwise actual(%weights) expected(%weights) : tensor<3968xi8>
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<8xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
 check.scenario @q4_embedding_epoch_2048_n0_b2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -245,6 +294,23 @@ check.scenario @q4_embedding_epoch_2048_n0_b2 {
     %count = check.generate.fill value(0) : tensor<3xi32>
     %output = check.generate.fill value(-99.0) : tensor<16448xf32>
     check.compare<@plainq4.actual, @plainq4.expected>(%weights, %ids, %epoch, %count, %output) : (tensor<3968xi8>, tensor<8xi32>, tensor<8xi32>, tensor<3xi32>, tensor<16448xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16448xf32>
+      check.expect.bitwise actual(%weights) expected(%weights) : tensor<3968xi8>
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<8xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+check.scenario @q4_embedding_epoch_2048_n0_b2_generic {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weights = check.generate.fill value(-23) : tensor<3968xi8>
+    %ids = check.generate.fill value(-1) : tensor<8xi32>
+    %epoch = check.generate.fill value(-123) : tensor<8xi32>
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %output = check.generate.fill value(-99.0) : tensor<16448xf32>
+    check.compare<@plainq4.generic_actual, @plainq4.expected>(%weights, %ids, %epoch, %count, %output) : (tensor<3968xi8>, tensor<8xi32>, tensor<8xi32>, tensor<3xi32>, tensor<16448xf32>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<16448xf32>
       check.expect.bitwise actual(%weights) expected(%weights) : tensor<3968xi8>
       check.expect.bitwise actual(%ids) expected(%ids) : tensor<8xi32>

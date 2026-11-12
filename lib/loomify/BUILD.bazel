@@ -38,6 +38,7 @@ iree_cc_library(
     ],
     cxxopts = _CXXOPTS,
     hdrs = ["publication_internal.h"],
+    visibility = ["//lib/loomify/testing:__pkg__"],
     deps = [":architecture_types", "//tools/model:model_descriptor",
             "//tools/model:text_metadata", "//lib/serving:library_resources"],
 )
@@ -155,12 +156,20 @@ iree_cc_library(
     ],
 )
 
+# Embedded templates and exact-template test runfiles share the same inputs.
+_CHAT_TEMPLATE_FILES = [
+    "//lib/text/llama:templates/5816fce1.jinja",
+    "//lib/text/qwen35:templates/7f0e5290.jinja",
+    "//lib/text/qwen35:templates/c3cf9e34.jinja",
+    "//lib/text/gemma:templates/7de1c58e.jinja",
+    "//lib/text/qwen3:templates/5da44855.jinja",
+    "//lib/text/qwen25:templates/cd8e9439.jinja",
+    "//lib/text/plain_chatml:templates/58c1a1f0.jinja",
+]
+
 iree_c_embed_data(
     name = "chat_templates",
-    srcs = ["//lib/text/llama:templates/5816fce1.jinja",
-            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
-            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja",
-            "//lib/text/qwen25:templates/cd8e9439.jinja", "//lib/text/plain_chatml:templates/58c1a1f0.jinja"],
+    srcs = _CHAT_TEMPLATE_FILES,
     c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
     identifier = "chat_templates", flatten = True,
 )
@@ -176,10 +185,7 @@ iree_cc_library(
 cc_test(
     name = "chat_policy_test", size = "small", linkstatic = True,
     srcs = ["//lib/loomify/testing:chat_policy_test.cc"], copts = _CXXOPTS,
-    data = ["//lib/text/llama:templates/5816fce1.jinja",
-            "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
-            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja",
-            "//lib/text/qwen25:templates/cd8e9439.jinja", "//lib/text/plain_chatml:templates/58c1a1f0.jinja"],
+    data = _CHAT_TEMPLATE_FILES,
     deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 

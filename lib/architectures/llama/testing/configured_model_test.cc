@@ -45,7 +45,7 @@ std::string Diagnostics(loomc_result_t *result) {
 }
 void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
              loomc_target_environment_t *environment, loomc_module_t *module,
-             const char *name) {
+             const char *name, bool expect_success = true) {
   std::vector<loomc_request_t *> requests;
   loomc_target_profile_t *profile = nullptr;
   ASSERT_TRUE(Ok(loomc_target_profile_select(
@@ -65,10 +65,23 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   options.request_sink.user_data = &requests;
   loomc_product_t *product = nullptr;
   loomc_result_t *result = nullptr;
-  ASSERT_TRUE(Ok(loomc_cmd_program_product_build_module(
+  const auto build_status = loomc_cmd_program_product_build_module(
       workspace, module, &options, loomc_allocator_system(), &product,
-      &result)));
-  EXPECT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+      &result);
+  const bool built = loomc_status_is_ok(build_status) && result &&
+                     loomc_result_succeeded(result) && product;
+  loomc_status_free(build_status);
+  if (!built) {
+    EXPECT_FALSE(expect_success) << Diagnostics(result);
+    if (!expect_success)
+      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"), std::string::npos)
+          << Diagnostics(result);
+    if (result) loomc_result_release(result);
+    if (product) loomc_product_release(product);
+    for (auto *request : requests) loomc_request_release(request);
+    loomc_target_profile_release(profile);
+    return;
+  }
   if (result)
     loomc_result_release(result);
   if (product)
@@ -77,6 +90,7 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   loomc_compiler_t *compiler = nullptr;
   ASSERT_TRUE(Ok(loomc_compiler_create(context, nullptr,
                                        loomc_allocator_system(), &compiler)));
+  bool rejected = false;
   for (auto *request : requests) {
     loomc_module_t *leaf = nullptr;
     result = nullptr;
@@ -91,11 +105,19 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
     compile.type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS;
     compile.structure_size = sizeof(compile);
     compile.target_profile = profile;
-    EXPECT_TRUE(
-        Ok(loomc_compile_artifact(compiler, workspace, nullptr, leaf, &compile,
-                                  loomc_allocator_system(), &result)));
-    EXPECT_TRUE(result && loomc_result_succeeded(result))
-        << Diagnostics(result);
+    const auto compile_status = loomc_compile_artifact(
+        compiler, workspace, nullptr, leaf, &compile,
+        loomc_allocator_system(), &result);
+    const bool accepted = loomc_status_is_ok(compile_status) && result &&
+                          loomc_result_succeeded(result);
+    loomc_status_free(compile_status);
+    if (expect_success) {
+      EXPECT_TRUE(accepted) << Diagnostics(result);
+    } else if (!accepted) {
+      rejected = true;
+      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"), std::string::npos)
+          << Diagnostics(result);
+    }
     if (result && loomc_result_succeeded(result)) {
       EXPECT_GT(loomc_result_artifact_count(result), 0u);
     }
@@ -104,6 +126,7 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
     loomc_module_release(leaf);
     loomc_request_release(request);
   }
+  if (!expect_success) EXPECT_TRUE(rejected);
   loomc_compiler_release(compiler);
   loomc_target_profile_release(profile);
 }
@@ -160,6 +183,8 @@ protected:
   }
   void InspectPrepared(loomc_module_t *module, const model::ModelDescriptor &descriptor) {
     const size_t layers = descriptor.layers.size();
+    const uint64_t hidden = descriptor.embedding_width;
+    const uint64_t vocabulary = descriptor.vocabulary_size;
     loomc_module_interop_view_t view{};
     loomc_result_t *result = nullptr;
     ASSERT_TRUE(Ok(loomc_module_get_interop_view(
@@ -206,6 +231,7 @@ protected:
     ASSERT_EQ(body->arg_count, 7u);
     loom_value_id_t count_value = 0;
     size_t layer = 0;
+    int64_t rows = 0;
     for (const auto *op = body->first_op; op; op = op->next_op) {
       if (!loom_command_launch_isa(op))
         continue;
@@ -221,6 +247,10 @@ protected:
       EXPECT_EQ(Constant(view.module, specializations.values[1]), 0);
       EXPECT_GT(Constant(view.module, specializations.values[2]), 0);
       EXPECT_LE(Constant(view.module, specializations.values[2]), 512);
+      if (layer == 0)
+        rows = Constant(view.module, specializations.values[2]);
+      else
+        EXPECT_EQ(Constant(view.module, specializations.values[2]), rows);
       EXPECT_EQ(Constant(view.module, specializations.values[3]), 12);
       auto bindings = loom_command_launch_bindings(op);
       ASSERT_EQ(bindings.count, 6u);
@@ -245,7 +275,8 @@ protected:
     loomc_pass_program_t *passes = nullptr;
     result = nullptr;
     ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(
-        context, loomc_make_cstring_view("inline-callables,canonicalize"),
+        context, loomc_make_cstring_view(
+            "inline-callables,canonicalize,select-templates{rewrite=inline},canonicalize"),
         nullptr, loomc_allocator_system(), &passes, &result)));
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
@@ -270,6 +301,11 @@ protected:
     std::vector<std::string> keys;
     std::set<std::string> global_keys;
     std::set<std::string> embedding_kernels;
+    size_t embedding_count = 0;
+    uint32_t embedding_tag = 0;
+    for (const auto &binding : descriptor.globals)
+      if (binding.role == "token_embedding")
+        embedding_tag = binding.tensor.storage_type;
     std::function<void(const loom_region_t *)> collect =
         [&](const loom_region_t *region) {
           for (size_t b = 0; b < region->block_count; ++b)
@@ -296,8 +332,18 @@ protected:
                 const auto callee = loom_kernel_launch_callee(op);
                 const auto name = Text(view.module,
                     view.module->symbols.entries[callee.symbol_id].name_id);
-                if (name.rfind("llama32_token_embedding_epoch_", 0) == 0)
+                if (name == "llm.token_embedding_epoch_f32") {
+                  ++embedding_count;
                   embedding_kernels.insert(name);
+                  const auto workloads = loom_kernel_launch_workloads(op);
+                  ASSERT_EQ(workloads.count, 1u);
+                  EXPECT_EQ(Constant(view.module, workloads.values[0]), rows);
+                  const auto args = loom_kernel_launch_arguments(op);
+                  ASSERT_EQ(args.count, 8u);
+                  EXPECT_EQ(Constant(view.module, args.values[0]), hidden);
+                  EXPECT_EQ(Constant(view.module, args.values[1]), vocabulary);
+                  EXPECT_EQ(Constant(view.module, args.values[2]), embedding_tag);
+                }
               }
               for (size_t i = 0; i < op->region_count; ++i)
                 collect(loom_op_regions(op)[i]);
@@ -313,20 +359,19 @@ protected:
                            ".weight");
     EXPECT_EQ(keys, expected);
     std::set<std::string> expected_globals;
-    uint32_t embedding_tag = 0;
     for (const auto &binding : descriptor.globals) {
       expected_globals.insert(binding.tensor.name);
-      if (binding.role == "token_embedding") embedding_tag = binding.tensor.storage_type;
     }
     EXPECT_EQ(global_keys, expected_globals);
-    EXPECT_EQ(embedding_kernels, std::set<std::string>{
-        embedding_tag == 12 ? "llama32_token_embedding_epoch_q4k_f32"
-                            : "llama32_token_embedding_epoch_q6k_f32"});
+    EXPECT_EQ(embedding_count, 1u);
+    EXPECT_EQ(embedding_kernels,
+              std::set<std::string>{"llm.token_embedding_epoch_f32"});
   }
   using Module =
       std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)>;
   void Link(const ConfigurationFacts &facts, const char *product, Module *out,
-            bool success = true) {
+            bool success = true, const std::string &extra_source = {},
+            const char *entry_symbol = "generated.llama_epoch") {
     loomc_source_options_t source_options{};
     source_options.format = LOOMC_SOURCE_FORMAT_TEXT;
     source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
@@ -334,7 +379,7 @@ protected:
         loomc_make_cstring_view("llama-model-test-config");
     // Plain descriptor fixture: explicit publication identities are test data,
     // while the public builder derives these from its real GGUF vocabulary.
-    const std::string source_text = facts.source +
+    const std::string source_text = facts.source + extra_source +
         "config.def @llama.publication.end_text_id = 128001 : i32\n"
         "config.def @llama.publication.end_message_id = 128008 : i32\n"
         "config.def @llama.publication.end_turn_id = 128009 : i32\n";
@@ -383,7 +428,7 @@ protected:
          LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {targets.get(), loomc_make_cstring_view("platform"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
     const loomc_string_view_t roots[] = {
-        loomc_make_cstring_view("generated.llama_epoch")};
+        loomc_make_cstring_view(entry_symbol)};
     loomc_link_options_t options{};
     options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
     options.structure_size = sizeof(options);
@@ -591,6 +636,39 @@ TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProvi
       };
       inspect(loom_kernel_def_body(kernel));
       EXPECT_GT(uses, 0u) << entry.first;
+    }
+  }
+}
+TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
+  ConfigurationFacts facts;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::LlamaPlainModelFacts(), "asset", {},
+                                  &facts, &error)) << error;
+  // Root the real production operation directly. A full-model root would let
+  // unrelated unresolved FFN/projection templates mask the intended failure.
+  struct Case { int hidden; int vocabulary; int tag; bool accepted; };
+  for (const auto *product : {"implementation_text.loom", "implementation.loombc"}) {
+    for (const auto c : {Case{512, 3, 12, true}, Case{512, 3, 14, true},
+                         Case{512, 3, 13, false}, Case{513, 3, 12, false},
+                         Case{512, 0, 12, false}}) {
+      const std::string entry =
+          "template.decl @llm.embedding.epoch_f32(%r:index,%h:index,%v:index,%t:index,%b:index,%e:buffer,%c:buffer,%i:buffer,%w:view<[%b]xi8>,%o:view<[%r]x[%h]xf32>)\n"
+          "command.def @embedding.contract() launch(%e:buffer,%c:buffer,%i:buffer,%w:buffer,%o:buffer) {\n"
+          " %r = index.constant 8 : index\n"
+          " %h = index.constant " + std::to_string(c.hidden) + " : index\n"
+          " %v = index.constant " + std::to_string(c.vocabulary) + " : index\n"
+          " %t = index.constant " + std::to_string(c.tag) + " : index\n"
+          " %b = index.constant " + std::to_string(c.tag == 14 ? 1260 : 864) + " : index\n"
+          " %z = index.constant 0 : offset\n"
+          " %table = buffer.view %w[%z] : buffer -> view<[%b]xi8>\n"
+          " %out = buffer.view %o[%z] : buffer -> view<[%r]x[%h]xf32>\n"
+          " template.apply<@llm.embedding.epoch_f32>(%r,%h,%v,%t,%b,%e,%c,%i,%table,%out) : (index,index,index,index,index,buffer,buffer,buffer,view<[%b]xi8>,view<[%r]x[%h]xf32>)\n"
+          " command.return\n}\n";
+      Module module(nullptr, loomc_module_release);
+      Link(facts, product, &module, true, entry, "embedding.contract");
+      ASSERT_TRUE(module);
+      Compile(context, workspace, environment, module.get(),
+              "embedding.contract", c.accepted);
     }
   }
 }

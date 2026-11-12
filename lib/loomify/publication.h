@@ -7,6 +7,14 @@
 #include <string>
 #include <vector>
 namespace hrx::loomify_gguf {
+// Fixed numerical publication slots, independent of source marker spelling.
+enum class PublicationLayout {
+  kUnspecified = 0,
+  kThreeStops,
+  kTextAndTurn,
+  kEosAndTurn,
+  kHostManaged,
+};
 struct TokenIdentity {
   int32_t id = 0;
   std::string piece;

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/architectures/ordinary_decoder.h"
 #include "lib/loomify/architectures/qwen3.h"
-#include "lib/loomify/publication_internal.h"
 
 namespace hrx::loomify_gguf::internal {
 bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
@@ -54,10 +53,5 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
   if (error)
     error->clear();
   return true;
-}
-bool DeriveQwen3Publication(FILE *file, std::string_view family,
-    const model::TextMetadata &text, std::optional<PublicationTokenFacts> *out,
-    std::string *error) {
-  return DeriveChatmlPublication(file, family, text, out, error);
 }
 } // namespace hrx::loomify_gguf::internal

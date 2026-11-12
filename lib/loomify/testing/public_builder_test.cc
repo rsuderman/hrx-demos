@@ -11,6 +11,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <vector>
 #include <csignal>
 #include <sys/resource.h>
 namespace hrx::loomify_gguf {
@@ -94,13 +95,17 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
   const auto *llama = std::getenv("LOOMIFY_TEST_GGUF");
   const auto *qwen = std::getenv("LOOMIFY_TEST_QWEN_GGUF");
   const auto *gemma = std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
+  const auto *plain = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");
   if (!llama || !qwen || !gemma) GTEST_SKIP() << "explicit immutable three-family gate";
   const auto *runfiles = std::getenv("TEST_SRCDIR");
   const auto *workspace_name = std::getenv("TEST_WORKSPACE");
   const auto *temporary = std::getenv("TEST_TMPDIR");
   ASSERT_TRUE(runfiles && workspace_name && temporary);
   const auto root = std::filesystem::path(runfiles) / workspace_name;
-  for (const char *asset : {llama, qwen, gemma}) {
+  std::vector<const char *> assets{llama, qwen, gemma};
+  if (plain) assets.push_back(plain);
+  size_t profile = 0;
+  for (const char *asset : assets) {
     std::unique_ptr<GgufModelBuilder> builder;
     std::string error = "stale";
     ASSERT_TRUE(GgufModelBuilder::Open(asset, &builder, &error)) << error;
@@ -113,7 +118,8 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     EXPECT_FALSE(GgufModelBuilder::Open("/nonexistent-loomify-test.gguf", &builder, &error));
     EXPECT_EQ(builder.get(), previous);
     const std::string architecture = builder->descriptor().family;
-    auto directory = std::filesystem::path(temporary) / architecture;
+    auto directory = std::filesystem::path(temporary) /
+        (architecture + "-" + std::to_string(profile++));
     std::filesystem::create_directories(directory / "lib/architectures" / architecture);
     // Deliberately copy only the actual numerical product, with all Serve-only
     // preparation/control/weight-policy companions absent.

@@ -82,6 +82,7 @@ cc_test(
     copts = _CXXOPTS,
     linkstatic = True,
     deps = [
+        "//lib/loomify:architecture_selection",
         "//lib/loomify:token_policy",
         "//tools/model:text_metadata",
         "@hrx_system//runtime/src/iree/base",

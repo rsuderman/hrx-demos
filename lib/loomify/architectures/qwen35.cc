@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/configuration_internal.h"
 #include "lib/loomify/architectures/qwen35.h"
-#include "lib/loomify/publication_internal.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
               const ConfigurationSettings &o, ConfigurationFacts *out,
@@ -269,14 +268,6 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
   *out = std::move(p.facts);
   if (error)
     error->clear();
-  return true;
-}
-bool DeriveQwenPublication(FILE *, std::string_view,
-    const model::TextMetadata &, std::optional<PublicationTokenFacts> *out,
-    std::string *error) {
-  if (!out) return Fail(error, "publication token output is required");
-  *out = std::nullopt;
-  if (error) error->clear();
   return true;
 }
 } // namespace hrx::loomify_gguf::internal

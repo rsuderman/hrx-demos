@@ -51,7 +51,8 @@ bool DerivePublicationTokenFacts(FILE* file, std::string_view family,
   if (!out) return Fail(error, "publication token output is required");
   const auto *architecture = SelectArchitecture(family);
   if (!architecture) return Fail(error, "unsupported publication token provider");
-  return architecture->derive_publication(file, architecture->family, text, out, error);
+  return internal::DeriveSourcePublication(file, architecture->publication_layout,
+      architecture->family, text, out, error);
 }
 bool BindTokenPolicy(FILE* gguf, const TextTokenRequirements& requirements, const model::TextMetadata& text,
     const std::optional<PublicationTokenFacts>& publication,

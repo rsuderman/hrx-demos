@@ -1,0 +1,70 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Common F32 epoch gather. Geometry and encoding are operation facts; the
+// model supplies them without owning format-specific launch branches.
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+template.decl @llm.token_embedding_q4k_f32.row(%hidden: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+template.decl @llm.token_embedding_q6k_f32.row(%hidden: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+template.decl @llm.embedding.epoch_f32_row(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+template.def<@llm.embedding.epoch_f32_row> device @llm_embedding_epoch_f32_row(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer) {
+  %row_value = kernel.workgroup.id<x> : index
+  %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %rows)] : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %active = func.call @llm.active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    %q4_tag = index.constant 12 : index
+    %q4 = index.cmp eq, %tag, %q4_tag : index
+    %q4_bytes = index.constant 144 : index
+    %q6_bytes = index.constant 210 : index
+    %block_bytes = scf.select %q4, %q4_bytes, %q6_bytes : index
+    %block_values = index.constant 256 : index
+    %blocks = index.div %hidden, %block_values : index
+    %weight_row_bytes = index.mul %blocks, %block_bytes : index
+    %word = index.constant 4 : offset
+    %output_row_bytes = index.scale %hidden, %word : index, offset -> offset
+    %output_origin = index.scale %row, %output_row_bytes : index, offset -> offset
+    %tokens = buffer.view %ids[%origin] : buffer -> view<[%rows]xi32>
+    %descriptor_origin = index.constant 12 : offset
+    %descriptor = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+    %begin_word = view.load %descriptor[2] : view<5xi32> -> i32
+    %begin = index.cast %begin_word : i32 to index
+    %input_value = index.add %begin, %row : index
+    %input = index.assume %input_value [range(%input_value, 0, 511), lt(%input_value, %rows)] : index
+    %id_word = view.load %tokens[%input] : view<[%rows]xi32> -> i32
+    %id_value = index.cast %id_word : i32 to index
+    %id = index.assume %id_value [range(%id_value, 0, 128255), lt(%id_value, %vocabulary)] : index
+    %bounded_id = index.cast %id : index to i32
+    scf.if %q4 {
+      template.apply<@llm.token_embedding_q4k_f32.row>(%hidden, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+    } else {
+      template.apply<@llm.token_embedding_q6k_f32.row>(%hidden, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+    }
+  }
+  template.return
+}
+kernel.def @llm.token_embedding_epoch_f32(%rows: index) {
+  %bounded_rows = index.assume %rows [range(%rows, 1, 2048)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%bounded_rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer) {
+  %rows_value = kernel.workgroup.count<x> : index
+  %rows = index.assume %rows_value [range(%rows_value, 1, 2048)] : index
+  template.apply<@llm.embedding.epoch_f32_row>(%rows, %hidden, %vocabulary, %tag, %epoch, %count, %ids, %weight, %output) : (index, index, index, index, buffer, buffer, buffer, buffer, buffer)
+  kernel.return
+}
+
+// Admission belongs to command composition, where geometry/encoding facts are
+// known. Device launch arguments may remain symbolic in a full module export.
+// The implementation kernel is private to this operation and fixed-tag adapters.
+template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+template.def<@llm.embedding.epoch_f32> @llm_embedding_epoch_f32_q4k(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>) where [range(%rows, 1, 2048), ge(%hidden, 256), multiple_of(%hidden, 256), ge(%vocabulary, 1), eq(%tag, 12)] {
+  kernel.launch @llm.token_embedding_epoch_f32[%rows](%hidden, %vocabulary, %tag, %epoch, %count, %ids, %weight, %output) : [index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%rows]x[%hidden]xf32>)
+  template.return
+}
+template.def<@llm.embedding.epoch_f32> @llm_embedding_epoch_f32_q6k(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>) where [range(%rows, 1, 2048), ge(%hidden, 256), multiple_of(%hidden, 256), ge(%vocabulary, 1), eq(%tag, 14)] {
+  kernel.launch @llm.token_embedding_epoch_f32[%rows](%hidden, %vocabulary, %tag, %epoch, %count, %ids, %weight, %output) : [index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%rows]x[%hidden]xf32>)
+  template.return
+}

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/configuration_internal.h"
 #include "lib/loomify/architectures/gemma3.h"
-#include "lib/loomify/publication_internal.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
                const ConfigurationSettings &s, ConfigurationFacts *out,
@@ -128,16 +127,5 @@ bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
   if (error)
     error->clear();
   return true;
-}
-bool DeriveGemmaPublication(FILE *file, std::string_view family,
-    const model::TextMetadata &text, std::optional<PublicationTokenFacts> *out,
-    std::string *error) {
-  if (!file || !text.vocabulary) return Fail(error, "publication requires GGUF vocabulary");
-  const auto *eos = DeclaredRole(text, "tokenizer.ggml.eos_token_id");
-  TokenIdentity declared;
-  if (!eos || !ReadTokenIdentity(text, *eos, &declared, error))
-    return Fail(error, "Gemma publication requires declared EOS identity");
-  return DeriveNamedPublication(file, family, text,
-      {declared.piece, "<end_of_turn>"}, {"eos_id", "end_turn_id"}, 1, 0, out, error);
 }
 } // namespace hrx::loomify_gguf::internal

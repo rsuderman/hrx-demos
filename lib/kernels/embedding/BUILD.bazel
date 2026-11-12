@@ -2,4 +2,14 @@
 # SPDX-License-Identifier: MIT
 package(default_visibility = ["//visibility:public"])
 exports_files(glob(["*.loom"]))
-filegroup(name = "all_sources", srcs = glob(["*.loom"]))
+# Preserve the legacy row-codec closure; epoch composition has its own helpers.
+filegroup(name = "all_sources", srcs = glob(["*.loom"], exclude = ["epoch_f32.loom"]))
+filegroup(
+    name = "epoch_f32_sources",
+    srcs = [
+        "epoch_f32.loom", "q4k_rows.loom", "q6k_rows.loom",
+        "//lib/kernels/epoch:active_rows.loom",
+        "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:qk_common.loom",
+    ],
+)
