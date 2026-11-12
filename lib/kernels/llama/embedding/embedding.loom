@@ -34,7 +34,7 @@ kernel.def export("llama32_token_embedding_q6k_f32") @llama32_token_embedding_q6
 }
 
 
-func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 
 kernel.def @llama32_token_embedding_active_q6k_f32(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
@@ -52,7 +52,7 @@ kernel.def @llama32_token_embedding_active_q6k_f32(%token_count0: index) {
   %row_value = kernel.workgroup.id<x> : index
   %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %token_count)] : index
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @llama_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %origin = index.constant 0 : offset
     %word_bytes = index.constant 4 : offset
@@ -88,7 +88,7 @@ kernel.def @llama32_token_embedding_epoch_q6k_f32(%token_count0: index) {
   %begin = index.constant 0 : index
   %count_origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @llama_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %origin = index.constant 0 : offset
     %word_bytes = index.constant 4 : offset

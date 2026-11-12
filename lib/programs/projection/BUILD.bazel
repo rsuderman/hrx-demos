@@ -23,7 +23,7 @@ filegroup(
         "//lib/kernels/quantization:q8_1_x4.loom",
         "//lib/kernels/quantization:q8_1_x4_canonical.loom",
         "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom",
-        "//lib/kernels/llama:active_rows.loom",
+        "//lib/kernels/epoch:active_rows.loom",
     ],
 )
 loom_merge(name = "implementation", srcs = [":implementation_sources"])

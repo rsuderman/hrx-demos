@@ -2,6 +2,20 @@
 // SPDX-License-Identifier: MIT
 // Shared operation composition. The selected platform owns matrix schedules.
 // Output allocation is T rows for T<=16, otherwise ceil(T/64)*64 rows.
+// Allocation extent for the maintained short-row/scaled-F16 projection routes.
+// This is operation policy; architecture callers supply only their capacity.
+func.def public pure inline @llm.projection.matrix_output_rows(%capacity: index) -> (index) where [range(%capacity, 1, 512)] {
+  %cutoff = index.constant 16 : index
+  %bias = index.constant 63 : index
+  %tile = index.constant 64 : index
+  %small = index.cmp ule, %capacity, %cutoff : index
+  %rounded = index.add %capacity, %bias : index
+  %tiles = index.div %rounded, %tile : index
+  %padded = index.mul %tiles, %tile : index
+  %rows = scf.select %small, %capacity, %padded : index
+  func.return %rows : index
+}
+
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 kernel.decl @llm.projection.prepare_scaled_f16(%capacity: index, %padded_capacity: index, %input_width: index) launch(%capacity: index, %padded_capacity: index, %input_width: index, %count_origin: offset, %count: buffer, %input: buffer, %scales: buffer, %output: buffer)
@@ -59,11 +73,7 @@ template.def<@llm.projection.matrix> @llm_projection_matrix(%capacity: index, %i
     template.apply<@llm.projection.pack_input>(%one, %capacity, %capacity, %input_width, %zero, %dynamic, %origin, %count, %defined_input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
     template.apply<@llm.projection.project_packed>(%one, %tag, %capacity, %capacity, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   } else {
-    %sixty_three = index.constant 63 : index
-    %sixty_four = index.constant 64 : index
-    %rounded = index.add %capacity, %sixty_three : index
-    %tiles = index.div %rounded, %sixty_four : index
-    %padded = index.mul %tiles, %sixty_four : index
+    %padded = func.call pure @llm.projection.matrix_output_rows(%capacity) : (index) -> (index)
     %two = index.constant 2 : offset
     %eight = index.constant 8 : offset
     %elements = index.mul %padded, %input_width : index
@@ -127,11 +137,7 @@ template.def<@llm.projection.gated_matrix> @llm_projection_gated_matrix(%capacit
     kernel.launch @llm.projection.active_swiglu[%capacity, %output_width](%capacity, %output_width, %count, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, buffer)
   } else {
     %origin = index.constant 0 : offset
-    %sixty_three = index.constant 63 : index
-    %sixty_four = index.constant 64 : index
-    %rounded = index.add %capacity, %sixty_three : index
-    %tiles = index.div %rounded, %sixty_four : index
-    %padded = index.mul %tiles, %sixty_four : index
+    %padded = func.call pure @llm.projection.matrix_output_rows(%capacity) : (index) -> (index)
     %two = index.constant 2 : offset
     %eight = index.constant 8 : offset
     %elements = index.mul %padded, %input_width : index

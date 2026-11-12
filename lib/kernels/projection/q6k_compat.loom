@@ -1,4 +1,4 @@
-func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/motifs/ggml/linear_q6k_q8_1_x4_compat.loom; independently maintained by Loomify.
@@ -148,7 +148,7 @@ kernel.def target(@llm.platform.projection.q6k.compatible.wave32) export("ggml_l
   %channel_tile = kernel.workgroup.id<x> : index
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
-  %active = func.call @llama_active_row(%token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %subgroup = kernel.subgroup.id : index
     %lane = kernel.subgroup.lane.id : index

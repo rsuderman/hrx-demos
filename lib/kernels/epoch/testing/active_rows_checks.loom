@@ -1,0 +1,132 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+
+func.def @init(%count: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %count[%origin] : buffer -> view<4xi32>
+  %three = scalar.constant 3 : i32
+  %negative = scalar.constant -1 : i32
+  %zero = scalar.constant 0 : i32
+  view.store %three, %view[1] : i32, view<4xi32>
+  view.store %negative, %view[2] : i32, view<4xi32>
+  view.store %zero, %view[3] : i32, view<4xi32>
+  func.return
+}
+
+func.def @actual(%count: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<11xi32>
+  %yes = scalar.constant 1 : i32
+  %no = scalar.constant 0 : i32
+  %r0 = index.constant 1 : index
+  %b0 = index.constant 2 : index
+  %f0 = scalar.constant -1 : i32
+  %o0 = index.constant 4 : offset
+  %a0 = func.call @llm.active_row(%r0, %b0, %f0, %o0, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v0 = scf.select %a0, %yes, %no : i32
+  view.store %v0, %view[0] : i32, view<11xi32>
+  %r1 = index.constant 2 : index
+  %b1 = index.constant 2 : index
+  %f1 = scalar.constant -1 : i32
+  %o1 = index.constant 4 : offset
+  %a1 = func.call @llm.active_row(%r1, %b1, %f1, %o1, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v1 = scf.select %a1, %yes, %no : i32
+  view.store %v1, %view[1] : i32, view<11xi32>
+  %r2 = index.constant 4 : index
+  %b2 = index.constant 2 : index
+  %f2 = scalar.constant -1 : i32
+  %o2 = index.constant 4 : offset
+  %a2 = func.call @llm.active_row(%r2, %b2, %f2, %o2, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v2 = scf.select %a2, %yes, %no : i32
+  view.store %v2, %view[2] : i32, view<11xi32>
+  %r3 = index.constant 5 : index
+  %b3 = index.constant 2 : index
+  %f3 = scalar.constant -1 : i32
+  %o3 = index.constant 4 : offset
+  %a3 = func.call @llm.active_row(%r3, %b3, %f3, %o3, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v3 = scf.select %a3, %yes, %no : i32
+  view.store %v3, %view[3] : i32, view<11xi32>
+  %r4 = index.constant 2 : index
+  %b4 = index.constant 2 : index
+  %f4 = scalar.constant 0 : i32
+  %o4 = index.constant 0 : offset
+  %a4 = func.call @llm.active_row(%r4, %b4, %f4, %o4, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v4 = scf.select %a4, %yes, %no : i32
+  view.store %v4, %view[4] : i32, view<11xi32>
+  %r5 = index.constant 2 : index
+  %b5 = index.constant 2 : index
+  %f5 = scalar.constant 2 : i32
+  %o5 = index.constant 0 : offset
+  %a5 = func.call @llm.active_row(%r5, %b5, %f5, %o5, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v5 = scf.select %a5, %yes, %no : i32
+  view.store %v5, %view[5] : i32, view<11xi32>
+  %r6 = index.constant 3 : index
+  %b6 = index.constant 2 : index
+  %f6 = scalar.constant 2 : i32
+  %o6 = index.constant 0 : offset
+  %a6 = func.call @llm.active_row(%r6, %b6, %f6, %o6, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v6 = scf.select %a6, %yes, %no : i32
+  view.store %v6, %view[6] : i32, view<11xi32>
+  %r7 = index.constant 4 : index
+  %b7 = index.constant 2 : index
+  %f7 = scalar.constant 2 : i32
+  %o7 = index.constant 0 : offset
+  %a7 = func.call @llm.active_row(%r7, %b7, %f7, %o7, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v7 = scf.select %a7, %yes, %no : i32
+  view.store %v7, %view[7] : i32, view<11xi32>
+  %r8 = index.constant 0 : index
+  %b8 = index.constant 0 : index
+  %f8 = scalar.constant -1 : i32
+  %o8 = index.constant 8 : offset
+  %a8 = func.call @llm.active_row(%r8, %b8, %f8, %o8, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v8 = scf.select %a8, %yes, %no : i32
+  view.store %v8, %view[8] : i32, view<11xi32>
+  %r9 = index.constant 0 : index
+  %b9 = index.constant 0 : index
+  %f9 = scalar.constant -1 : i32
+  %o9 = index.constant 12 : offset
+  %a9 = func.call @llm.active_row(%r9, %b9, %f9, %o9, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v9 = scf.select %a9, %yes, %no : i32
+  view.store %v9, %view[9] : i32, view<11xi32>
+  %r10 = index.constant 2 : index
+  %b10 = index.constant 2 : index
+  %f10 = scalar.constant -2 : i32
+  %o10 = index.constant 4 : offset
+  %a10 = func.call @llm.active_row(%r10, %b10, %f10, %o10, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %v10 = scf.select %a10, %yes, %no : i32
+  view.store %v10, %view[10] : i32, view<11xi32>
+  func.return
+}
+
+func.def @expected(%count: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<11xi32>
+  %yes = scalar.constant 1 : i32
+  %no = scalar.constant 0 : i32
+  view.store %no, %view[0] : i32, view<11xi32>
+  view.store %yes, %view[1] : i32, view<11xi32>
+  view.store %yes, %view[2] : i32, view<11xi32>
+  view.store %no, %view[3] : i32, view<11xi32>
+  view.store %no, %view[4] : i32, view<11xi32>
+  view.store %yes, %view[5] : i32, view<11xi32>
+  view.store %yes, %view[6] : i32, view<11xi32>
+  view.store %no, %view[7] : i32, view<11xi32>
+  view.store %no, %view[8] : i32, view<11xi32>
+  view.store %no, %view[9] : i32, view<11xi32>
+  view.store %yes, %view[10] : i32, view<11xi32>
+  func.return
+}
+
+check.scenario @activity_boundaries {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(99) : tensor<4xi32>
+    %output = check.generate.fill value(-7) : tensor<11xi32>
+    check.generate<@init>(%count) : (tensor<4xi32>) -> ()
+    check.compare<@actual, @expected>(%count, %output) : (tensor<4xi32>, tensor<11xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<11xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<4xi32>
+    }
+  }
+  check.return
+}

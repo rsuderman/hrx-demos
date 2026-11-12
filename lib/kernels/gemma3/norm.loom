@@ -8,7 +8,7 @@ config.decl @gemma3.model.rms_epsilon : f32
 
 template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 
-func.decl @gemma3_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 
 kernel.def @gemma3_rmsnorm_active_f32(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
@@ -24,7 +24,7 @@ kernel.def @gemma3_rmsnorm_active_f32(%token_count0: index) {
   %row_value = kernel.workgroup.id<y> : index
   %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %token_count)] : index
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @gemma3_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %word_bytes = index.constant 4 : offset
     %row_bytes = index.scale %hidden_size, %word_bytes : index, offset -> offset

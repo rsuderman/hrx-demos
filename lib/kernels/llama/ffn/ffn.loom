@@ -1,4 +1,4 @@
-func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/common/ffn.loom; independently maintained by Loomify.
@@ -32,7 +32,7 @@ kernel.def @llm_ffn_swiglu_f32_prefill_active(%token_count: index, %ffn_size: in
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @llama_active_row(%token, %row_origin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%token, %row_origin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     template.apply<@llm.swiglu_f32.row>(%ffn_size, %bounded_token_count, %token, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
   }
@@ -60,7 +60,7 @@ kernel.def @llm_ffn_residual_add_f32_prefill_active(%token_count: index, %hidden
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @llama_active_row(%token, %row_origin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%token, %row_origin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     template.apply<@llm.residual_add_f32.row>(%hidden_size, %bounded_token_count, %token, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   }

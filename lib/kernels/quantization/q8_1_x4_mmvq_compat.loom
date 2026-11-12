@@ -1,4 +1,4 @@
-func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/motifs/ggml/quantize_q8_1_x4_mmvq_compat.loom; independently maintained by Loomify.
@@ -39,7 +39,7 @@ kernel.def export("ggml_quantize_q8_1_x4_qk_compat_f32") @ggml_quantize_q8_1_x4_
   %group = index.assume %group0 [lt(%group0, %group_capacity)] : index
   %groups_per_row = index.div %bounded_input_size, %elements_per_group : index
   %token = index.div %group, %groups_per_row : index
-  %active = func.call @llama_active_row(%token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %specialized, %one_row, %reverse_minima = func.call @ggml_qk_mmvq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1, i1, i1)
     %publish_output = scalar.constant true : i1

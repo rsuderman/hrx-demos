@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 config.decl @gemma3.model.hidden_size : index
-func.decl @gemma3_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 template.decl @llm.residual_add_f32.row(%hidden: index, %rows: index, %row: index, %lhs: buffer, %rhs: buffer, %out: buffer)
 template.decl @llm.geglu_tanh_f32.row(%width: index, %rows: index, %row: index, %gate: buffer, %up: buffer, %out: buffer)
 
@@ -21,7 +21,7 @@ kernel.def @gemma3_residual(%rows0: index) {
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @gemma3_active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %hidden = config.get @gemma3.model.hidden_size : index
     template.apply<@llm.residual_add_f32.row>(%hidden, %rows, %row, %residual, %source, %residual) : (index, index, index, buffer, buffer, buffer)
@@ -42,7 +42,7 @@ kernel.def @gemma3_geglu(%rows0: index, %width0: index) {
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @gemma3_active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %zero, %dynamic, %origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     template.apply<@llm.geglu_tanh_f32.row>(%width, %rows, %row, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
   } else {

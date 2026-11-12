@@ -4,6 +4,7 @@ load("//build_tools:loom_merge.bzl", "loom_merge")
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 package(default_visibility = ["//visibility:private"])
 genrule(
     name = "fixtures", srcs = [], outs = ["checks.loom"], tools = ["fixtures.py"],
@@ -27,3 +28,21 @@ loom_test(
     name = "preparation_execution_test", srcs = [":preparation_fixtures"], deps = [":preparation_provider"],
     benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 )
+
+# Host execution of the same linked operation-owned allocation policy in both formats.
+[loom_merge(
+    name = "output_rows_provider_" + format,
+    srcs = [
+        "//lib/programs/projection:matrix_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+    ],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+[loom_test(
+    name = "output_rows_" + format + "_test",
+    srcs = ["output_rows_checks.loom", ":output_rows_provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [VM_REFERENCE_PROFILE],
+) for format in ["text", "bc"]]

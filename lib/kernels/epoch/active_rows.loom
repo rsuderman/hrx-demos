@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Existing count ABI only. Row/begin and count are workgroup-uniform and stable
 // during the launch. This predicate never reads token/activation payload.
-func.def public inline @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1) {
+func.def public inline @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1) {
   %zero = index.constant 0 : index
   %zero32 = scalar.constant 0 : i32
   %dynamic = scalar.cmpi slt, %fixed_count, %zero32 : i32
@@ -10,7 +10,9 @@ func.def public inline @llama_active_row(%row: index, %begin: index, %fixed_coun
     %words = buffer.view %count[%origin] : buffer -> view<1xi32>
     %n = view.load %words[%zero] : view<1xi32> -> i32
     scf.yield %n : i32
-  } else { scf.yield %fixed_count : i32 }
+  } else {
+    scf.yield %fixed_count : i32
+  }
   %at_begin = index.cmp uge, %row, %begin : index
   %active = scf.if %at_begin -> (i1) {
     %positive = scalar.cmpi sgt, %n32, %zero32 : i32

@@ -29,7 +29,7 @@ kernel.def export("llama32_rmsnorm_f32") @llama32_rmsnorm_f32(%token_count0: ind
   kernel.return
 }
 
-func.decl @llama_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 
 kernel.def @llama32_rmsnorm_active_f32(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
@@ -45,7 +45,7 @@ kernel.def @llama32_rmsnorm_active_f32(%token_count0: index) {
   %row_value = kernel.workgroup.id<y> : index
   %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %token_count)] : index
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @llama_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %word_bytes = index.constant 4 : offset
     %row_bytes = index.scale %hidden_size, %word_bytes : index, offset -> offset

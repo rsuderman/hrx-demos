@@ -6,7 +6,7 @@ config.decl @gemma3.model.vocabulary_size : index
 config.decl @gemma3.model.embedding_scale : f32
 template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %scale: f32, %weight: buffer, %output: buffer)
 
-func.decl @gemma3_active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 
 // Direct epoch input positions are independent of compact activation rows.
 kernel.def @gemma3_token_embedding_epoch_q8_f32(%token_count0: index) {
@@ -28,7 +28,7 @@ kernel.def @gemma3_token_embedding_epoch_q8_f32(%token_count0: index) {
   %begin = index.constant 0 : index
   %count_origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
-  %active = func.call @gemma3_active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
+  %active = func.call @llm.active_row(%row, %begin, %dynamic, %count_origin, %count) : (index, index, i32, offset, buffer) -> (i1)
   scf.if %active {
     %origin = index.constant 0 : offset
     %word_bytes = index.constant 4 : offset

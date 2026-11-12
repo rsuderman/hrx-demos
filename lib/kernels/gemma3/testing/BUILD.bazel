@@ -6,7 +6,7 @@ load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE
 package(default_visibility = ["//visibility:public"])
 [loom_merge(
     name = "padding_provider_" + format,
-    srcs = ['padding_programs.loom', '//lib/kernels/gemma3:norm.loom', '//lib/kernels/gemma3:elementwise.loom', '//lib/kernels/gemma3:active_rows.loom', '//lib/kernels/normalization:rmsnorm_row.loom', '//lib/kernels/elementwise:residual_row.loom', '//lib/kernels/elementwise:geglu_row.loom'],
+    srcs = ['padding_programs.loom', '//lib/kernels/gemma3:norm.loom', '//lib/kernels/gemma3:elementwise.loom', '//lib/kernels/epoch:active_rows.loom', '//lib/kernels/normalization:rmsnorm_row.loom', '//lib/kernels/elementwise:residual_row.loom', '//lib/kernels/elementwise:geglu_row.loom'],
     output_format = format, testonly = True,
 ) for format in ["text", "bc"]]
 [loom_test(

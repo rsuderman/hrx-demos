@@ -1,5 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
+func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
 config.decl @qwen3.model.hidden_size : index
 config.decl @qwen3.model.query_size : index
 config.decl @qwen3.model.kv_size : index
@@ -37,14 +38,7 @@ command.def @loomify.qwen3.attention(%layer: index, %phase: index, %rows: index,
   %rope_step = config.get @qwen3.model.rope_log_step : f32
   %scale = config.get @qwen3.model.attention_scale : f32
   %word = index.constant 4 : offset
-  %tile = index.constant 64 : index
-  %bias = index.constant 63 : index
-  %cutoff = index.constant 16 : index
-  %small = index.cmp ule, %rows, %cutoff : index
-  %rounded = index.add %rows, %bias : index
-  %tiles = index.div %rounded, %tile : index
-  %padded = index.mul %tiles, %tile : index
-  %physical_rows = scf.select %small, %rows, %padded : index
+  %physical_rows = func.call pure @llm.projection.matrix_output_rows(%rows) : (index) -> (index)
   %qt, %kt, %vt, %ot, %qb, %kb, %vb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index, index, index, index, index)
   %qw = command.parameter %parameters, "blk.{}.attn_q.weight"[%layer] : view<[%qb]xi8>
   %kw = command.parameter %parameters, "blk.{}.attn_k.weight"[%layer] : view<[%kb]xi8>

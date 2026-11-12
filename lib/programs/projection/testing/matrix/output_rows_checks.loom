@@ -1,0 +1,81 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
+
+func.def @actual(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<8xi32>
+  %t0 = index.constant 1 : index
+  %r0 = func.call pure @llm.projection.matrix_output_rows(%t0) : (index) -> (index)
+  %v0 = index.cast %r0 : index to i32
+  view.store %v0, %view[0] : i32, view<8xi32>
+  %t1 = index.constant 16 : index
+  %r1 = func.call pure @llm.projection.matrix_output_rows(%t1) : (index) -> (index)
+  %v1 = index.cast %r1 : index to i32
+  view.store %v1, %view[1] : i32, view<8xi32>
+  %t2 = index.constant 17 : index
+  %r2 = func.call pure @llm.projection.matrix_output_rows(%t2) : (index) -> (index)
+  %v2 = index.cast %r2 : index to i32
+  view.store %v2, %view[2] : i32, view<8xi32>
+  %t3 = index.constant 63 : index
+  %r3 = func.call pure @llm.projection.matrix_output_rows(%t3) : (index) -> (index)
+  %v3 = index.cast %r3 : index to i32
+  view.store %v3, %view[3] : i32, view<8xi32>
+  %t4 = index.constant 64 : index
+  %r4 = func.call pure @llm.projection.matrix_output_rows(%t4) : (index) -> (index)
+  %v4 = index.cast %r4 : index to i32
+  view.store %v4, %view[4] : i32, view<8xi32>
+  %t5 = index.constant 65 : index
+  %r5 = func.call pure @llm.projection.matrix_output_rows(%t5) : (index) -> (index)
+  %v5 = index.cast %r5 : index to i32
+  view.store %v5, %view[5] : i32, view<8xi32>
+  %t6 = index.constant 511 : index
+  %r6 = func.call pure @llm.projection.matrix_output_rows(%t6) : (index) -> (index)
+  %v6 = index.cast %r6 : index to i32
+  view.store %v6, %view[6] : i32, view<8xi32>
+  %t7 = index.constant 512 : index
+  %r7 = func.call pure @llm.projection.matrix_output_rows(%t7) : (index) -> (index)
+  %v7 = index.cast %r7 : index to i32
+  view.store %v7, %view[7] : i32, view<8xi32>
+  func.return
+}
+
+func.def @expected(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<8xi32>
+  %r0 = index.constant 1 : index
+  %v0 = index.cast %r0 : index to i32
+  view.store %v0, %view[0] : i32, view<8xi32>
+  %r1 = index.constant 16 : index
+  %v1 = index.cast %r1 : index to i32
+  view.store %v1, %view[1] : i32, view<8xi32>
+  %r2 = index.constant 64 : index
+  %v2 = index.cast %r2 : index to i32
+  view.store %v2, %view[2] : i32, view<8xi32>
+  %r3 = index.constant 64 : index
+  %v3 = index.cast %r3 : index to i32
+  view.store %v3, %view[3] : i32, view<8xi32>
+  %r4 = index.constant 64 : index
+  %v4 = index.cast %r4 : index to i32
+  view.store %v4, %view[4] : i32, view<8xi32>
+  %r5 = index.constant 128 : index
+  %v5 = index.cast %r5 : index to i32
+  view.store %v5, %view[5] : i32, view<8xi32>
+  %r6 = index.constant 512 : index
+  %v6 = index.cast %r6 : index to i32
+  view.store %v6, %view[6] : i32, view<8xi32>
+  %r7 = index.constant 512 : index
+  %v7 = index.cast %r7 : index to i32
+  view.store %v7, %view[7] : i32, view<8xi32>
+  func.return
+}
+
+check.scenario @matrix_output_rows {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(-7) : tensor<8xi32>
+    check.compare<@actual, @expected>(%output) : (tensor<8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<8xi32>
+    }
+  }
+  check.return
+}
