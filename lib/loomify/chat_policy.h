@@ -9,7 +9,7 @@
 #include <vector>
 namespace hrx::loomify_gguf {
 // Private selection data, never a numerical model or dispatch graph.
-enum class ChatRevision { LlamaHeadersBaseline, ChatmlInlineHistory, ChatmlExplicitReasoning, ChatmlHermes, GemmaTurns };
+enum class ChatRevision { LlamaHeadersBaseline, ChatmlInlineHistory, ChatmlExplicitReasoning, ChatmlHermes, ChatmlHermesNonThinking, GemmaTurns };
 struct ChatMarker {
   std::string text;
   // Framing literals such as XML tags may encode as several ordinary tokens.

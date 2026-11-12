@@ -1,0 +1,20 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+config.decl @qwen2.model.hidden_size : index
+config.decl @qwen2.model.rms_epsilon : f32
+kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+command.decl @loomify.qwen2.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer)
+command.decl @loomify.qwen2.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+command.def @loomify.qwen2.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+  %hidden = config.get @qwen2.model.hidden_size : index
+  %epsilon = config.get @qwen2.model.rms_epsilon : f32
+  %word = index.constant 4 : offset
+  %gamma = command.parameter %parameters, "blk.{}.attn_norm.weight"[%layer] : view<[%hidden]xf32>
+  %normalized_elements = index.mul %rows, %hidden : index
+  %normalized_bytes = index.scale %normalized_elements, %word : index, offset -> offset
+  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %hidden](%rows, %hidden, %epsilon, %count, %residual, %gamma, %normalized) : [index, index](index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  command.launch @loomify.qwen2.attention[%layer, %phase, %rows, %control_origin](%parameters, %normalized, %residual, %count, %epoch, %map, %cache) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @loomify.qwen2.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.return
+}

@@ -8,7 +8,7 @@ func.def pure inline @chatml.keep_reasoning_default() -> (i1) { %v = scalar.cons
 func.def pure inline @chatml.inline_reasoning() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
 func.def pure inline @chatml.emit_empty_system() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
 func.def pure inline @chatml.has_effort() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
-func.def inline @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }
+
 func.def inline @chatml.normalize_reason(%text: buffer) -> (buffer) {
   %yes = scalar.constant true : i1
   %result = func.call @text.trim_lf(%text, %yes, %yes) : (buffer, i1, i1) -> (buffer)
@@ -20,8 +20,8 @@ func.def inline @chatml.retained_body(%text: buffer) -> (buffer) {
   %result = func.call @text.trim_lf(%text, %yes, %no) : (buffer, i1, i1) -> (buffer)
   func.return %result : buffer
 }
-func.def pure inline @chatml.allow_later_system() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
-func.def pure inline @chatml.system_before_tools() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+
+
 func.def pure inline @chatml.model_emits_think_open() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
 global.rodata.def @chatml_hermes_policy.empty = bytes("")
 global.rodata.def @chatml_hermes_policy.empty_think = bytes("3c7468696e6b3e0a0a3c2f7468696e6b3e0a0a")
@@ -64,11 +64,22 @@ func.def inline @chatml.history_thought(%state: i64, %ordinal: i64, %reason: buf
   func.return %retain : i1
 }
 
-global.rodata.def @chatml_hermes_policy.newline = bytes("0a")
-func.def inline @chatml.call_separator() -> (buffer) {
-  %value = global.load @chatml_hermes_policy.newline : buffer
+
+
+
+
+
+func.def pure inline @chatml.supports_thinking() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.raw_string_arguments() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def inline @chatml.default_system() -> (buffer, i1) {
+  %empty = global.load @chatml_hermes_policy.empty : buffer
+  %present = scalar.constant false : i1
+  func.return %empty, %present : buffer, i1
+}
+global.rodata.def @chatml_hermes_policy.system_separator = bytes("0a0a")
+func.def inline @chatml.system_tools_separator(%has_system: i1) -> (buffer) {
+  %empty = global.load @chatml_hermes_policy.empty : buffer
+  %separator = global.load @chatml_hermes_policy.system_separator : buffer
+  %value = scf.select %has_system, %separator, %empty : buffer
   func.return %value : buffer
 }
-
-func.def pure inline @chatml.require_user() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
-func.def pure inline @chatml.first_tool_header() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }

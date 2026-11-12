@@ -1,0 +1,27 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared matrix SwiGLU sequence; callers bind actual GGUF facts and weights.
+func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
+template.decl @llm.projection.matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.gated_matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %gate: view<[%weight_bytes]xi8>, %up: view<[%weight_bytes]xi8>, %output: buffer)
+kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
+kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+template.decl @llm.ffn.matrix_swiglu(%rows: index, %hidden: index, %ffn: index, %epsilon: f32, %gt: index, %dt: index, %gb: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gb]xi8>, %up: view<[%gb]xi8>, %down: view<[%db]xi8>)
+template.def<@llm.ffn.matrix_swiglu> @llm_ffn_matrix_swiglu(%rows: index, %hidden: index, %ffn: index, %epsilon: f32, %gt: index, %dt: index, %gb: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gb]xi8>, %up: view<[%gb]xi8>, %down: view<[%db]xi8>) where [range(%rows, 1, 512)] {
+  %word = index.constant 4 : offset
+  %physical_rows = func.call pure @llm.projection.matrix_output_rows(%rows) : (index) -> (index)
+  %normalized_elements = index.mul %rows, %hidden : index
+  %normalized_bytes = index.scale %normalized_elements, %word : index, offset -> offset
+  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
+  %gated_elements = index.mul %physical_rows, %ffn : index
+  %gated_bytes = index.scale %gated_elements, %word : index, offset -> offset
+  %gated = buffer.alloca<global> align(256) %gated_bytes : buffer
+  %projected_elements = index.mul %physical_rows, %hidden : index
+  %projected_bytes = index.scale %projected_elements, %word : index, offset -> offset
+  %projected = buffer.alloca<global> align(256) %projected_bytes : buffer
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %hidden](%rows, %hidden, %epsilon, %count, %residual, %gamma, %normalized) : [index, index](index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  template.apply<@llm.projection.gated_matrix>(%rows, %hidden, %ffn, %gt, %gb, %count, %normalized, %gate, %up, %gated) : (index, index, index, index, index, buffer, buffer, view<[%gb]xi8>, view<[%gb]xi8>, buffer)
+  template.apply<@llm.projection.matrix>(%rows, %ffn, %hidden, %dt, %db, %count, %gated, %down, %projected) : (index, index, index, index, index, buffer, buffer, view<[%db]xi8>, buffer)
+  kernel.launch @llm.decoder.residual[%rows, %hidden](%hidden, %count, %projected, %residual) : [index, index](index, buffer, buffer, buffer)
+  template.return
+}

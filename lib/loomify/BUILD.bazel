@@ -20,12 +20,13 @@ iree_cc_library(
         "//lib/loomify/testing:__pkg__",
         "//lib/architectures/llama:__pkg__",
         "//lib/architectures/qwen3:__pkg__",
+        "//lib/architectures/qwen2:__pkg__",
         "//lib/architectures/qwen35:__pkg__",
         "//lib/architectures/qwen35/testing:__pkg__",
         "//lib/serving/testing:__pkg__",
         "//lib/programs/ffn/testing:__pkg__",
     ],
-    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc", "architectures/gemma3.cc", "architectures/qwen3.cc"],
+    srcs = ["configuration.cc", "configuration_internal.h", "architectures/llama.cc", "architectures/qwen35.cc", "architectures/gemma3.cc", "architectures/qwen3.cc", "architectures/qwen2.cc"],
     hdrs = ["configuration.h"],
     cxxopts = _CXXOPTS,
     deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
@@ -36,13 +37,14 @@ iree_cc_library(
     visibility = [
         "//lib/loomify/testing:__pkg__",
         "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/qwen2:__pkg__",
         "//lib/architectures/qwen35:__pkg__",
         "//lib/architectures/qwen35/testing:__pkg__",
         "//lib/serving/testing:__pkg__",
         "//lib/programs/ffn/testing:__pkg__",
     ],
     testonly = True,
-    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h", "//lib/loomify/testing:qwen3_fixture.h", "//lib/loomify/testing:gemma3_fixture.h"],
+    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h", "//lib/loomify/testing:qwen3_fixture.h", "//lib/loomify/testing:gemma3_fixture.h", "//lib/loomify/testing:qwen2_fixture.h"],
     cxxopts = _CXXOPTS,
     deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
 )
@@ -129,7 +131,8 @@ iree_c_embed_data(
     name = "chat_templates",
     srcs = ["//lib/text/llama:templates/5816fce1.jinja",
             "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
-            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja"],
+            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja",
+            "//lib/text/qwen25:templates/cd8e9439.jinja"],
     c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
     identifier = "chat_templates", flatten = True,
 )
@@ -147,7 +150,8 @@ cc_test(
     srcs = ["//lib/loomify/testing:chat_policy_test.cc"], copts = _CXXOPTS,
     data = ["//lib/text/llama:templates/5816fce1.jinja",
             "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
-            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja"],
+            "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja",
+            "//lib/text/qwen25:templates/cd8e9439.jinja"],
     deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
@@ -166,6 +170,19 @@ cc_test(
     copts = _CXXOPTS,
     deps = [":configuration", ":configuration_fixture", "//tools/model:gguf_catalog", "//tools/model:model_descriptor",
             "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+
+cc_test(
+    name = "qwen2_configuration_test", size = "small",
+    srcs = ["//lib/loomify/testing:qwen2_configuration_test.cc"],
+    copts = _CXXOPTS,
+    deps = [":configuration", ":configuration_fixture", "//tools/model:model_descriptor", "@googletest//:gtest", "@googletest//:gtest_main"],
+)
+cc_test(
+    name = "qwen2_configuration_real_assets_test", size = "small", tags = ["manual"],
+    srcs = ["//lib/loomify/testing:qwen2_configuration_test.cc"],
+    defines = ["LOOMIFY_QWEN2_REAL_ASSETS=1"], copts = _CXXOPTS,
+    deps = [":configuration", ":configuration_fixture", "//tools/model:model_descriptor", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
 cc_test(

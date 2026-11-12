@@ -68,12 +68,12 @@ bool DerivePublicationTokenFacts(FILE* file, std::string_view family,
     return true;
   }
   const bool gemma = family == "gemma3";
-  const bool qwen3 = family == "qwen3";
-  if (!gemma && !qwen3 && family != "llama") return Fail(error, "unsupported publication token provider");
+  const bool qwen_chatml = family == "qwen2" || family == "qwen3";
+  if (!gemma && !qwen_chatml && family != "llama") return Fail(error, "unsupported publication token provider");
   if (!file || !text.vocabulary) return Fail(error, "publication requires GGUF vocabulary");
   PublicationTokenFacts facts;
   std::vector<std::string> names;
-  if (qwen3) {
+  if (qwen_chatml) {
     names = {"<|endoftext|>", "<|im_end|>"};
     facts.terminal_index = 1;
   } else if (gemma) {
@@ -106,12 +106,12 @@ bool DerivePublicationTokenFacts(FILE* file, std::string_view family,
   const auto eos_index = gemma ? 0 : facts.terminal_index;
   if (!eos || eos->id != static_cast<uint64_t>(facts.raw_stops[eos_index].id))
     return Fail(error, "publication disagrees with declared EOS identity");
-  const std::vector<std::string> keys = qwen3
+  const std::vector<std::string> keys = qwen_chatml
       ? std::vector<std::string>{"end_text_id", "end_turn_id"}
       : gemma
       ? std::vector<std::string>{"eos_id", "end_turn_id"}
       : std::vector<std::string>{"end_text_id", "end_message_id", "end_turn_id"};
-  const std::string prefix = qwen3 ? "qwen3" : gemma ? "gemma3" : "llama";
+  const std::string prefix(family);
   for (size_t i = 0; i < keys.size(); ++i)
     facts.configuration_source += "config.def @" + prefix + ".publication." + keys[i] +
         " = " + std::to_string(facts.raw_stops[i].id) + " : i32\n";

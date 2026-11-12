@@ -61,7 +61,7 @@ public:
     loomc_allocator_free(loomc_allocator_system(),
                          const_cast<uint8_t *>(image.data));
   }
-  bool Init(bool thinking, bool bc, bool model_opens = false) {
+  bool Init(bool thinking, bool bc, bool model_opens = false, bool supports_thinking = true) {
     loomc_target_environment_t *e = nullptr;
     if (!Ok(loomc_target_environment_create_vm(loomc_allocator_system(), &e)))
       return false;
@@ -109,11 +109,14 @@ public:
       EXPECT_NE(at, std::string::npos);
       if (at != std::string::npos) text.replace(at, declaration.size(), definition);
     };
+    replace("func.decl @chatml.supports_thinking() -> (i1)",
+        std::string("func.def @chatml.supports_thinking() -> (i1) { %v = scalar.constant ") +
+        (supports_thinking ? "true" : "false") + " : i1 func.return %v : i1 }");
     replace("func.decl @chatml.model_emits_think_open() -> (i1)",
         std::string("func.def @chatml.model_emits_think_open() -> (i1) { %v = scalar.constant ") +
         (model_opens ? "true" : "false") + " : i1 func.return %v : i1 }");
     replace("func.decl @chatml.normalize_content(%text: buffer) -> (buffer)",
-        model_opens ? "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }" :
+        (!supports_thinking || model_opens) ? "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }" :
         "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { %v = func.call @text.trim(%text) : (buffer) -> (buffer) func.return %v : buffer }");
     replace("func.decl @chatml.normalize_reason(%text: buffer) -> (buffer)",
         model_opens ? "func.def @chatml.normalize_reason(%text: buffer) -> (buffer) { %yes = scalar.constant true : i1 %v = func.call @text.trim_lf(%text,%yes,%yes) : (buffer,i1,i1) -> (buffer) func.return %v : buffer }" :
@@ -443,6 +446,25 @@ TEST(QwenOutput, ModelGeneratedOpeningPreservesCanonicalWhitespace) {
   }
 }
 
+TEST(QwenOutput, NeverThinkingKeepsLiteralMarkersAndNoPrefixCompletionPlain) {
+  for (bool bc : {false, true}) {
+    VM vm;
+    ASSERT_TRUE(vm.Init(false, bc, false, false));
+    const Fixture fixtures[] = {
+        {u8"  café 🦙 <think>literal</think> \n", "", u8"  café 🦙 <think>literal</think> \n", "", 1},
+        {u8"answer 🦙<tool_call>{\"name\":\"f\",\"arguments\":{}}</tool_call>",
+         "", u8"answer 🦙", "<tool_call>{\"name\":\"f\",\"arguments\":{}}</tool_call>", 1},
+    };
+    for (const auto& fixture : fixtures) {
+      for (size_t split = 0; split <= fixture.response.size(); ++split)
+        Check(vm, fixture, split, false);
+      Check(vm, fixture, 0, true);
+    }
+    const auto result = vm.Complete("history", " answer ", "ignored thought", "", 17);
+    EXPECT_EQ(result.first, "history<|im_start|>assistant\n answer <|im_end|>\n");
+    EXPECT_EQ(result.second, 0);
+  }
+}
 TEST(QwenOutput, EverySplitAndBytewiseGrowthFromSourceAndBytecode) {
   for (bool bc : {false, true})
     for (bool thinking : {false, true}) {

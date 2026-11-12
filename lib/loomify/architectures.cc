@@ -5,6 +5,10 @@
 namespace hrx::loomify_gguf {
 const ArchitectureFiles *SelectArchitecture(std::string_view family) {
   static const ArchitectureFiles entries[] = {
+      {"qwen2", resources::kQwen2Implementation,
+       resources::kQwen2Preparation, resources::kQwen2Execution, resources::kWeights,
+       "loomify-qwen2", {"generated.qwen2_epoch"},
+       {RequiredOperation::kScaledF16ProjectionV1}},
       {"qwen3", resources::kQwen3Implementation,
        resources::kQwen3Preparation, resources::kQwen3Execution, resources::kWeights,
        "loomify-qwen3", {"generated.qwen3_epoch"},

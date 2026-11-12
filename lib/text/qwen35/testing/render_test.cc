@@ -200,6 +200,7 @@ public:
     }
     return true;
   }
+  bool SupportsReasoning() const { return policy_.reasoning.support == LOOM_SERVE_REASONING_SUPPORTED; }
   std::string_view name() const { return {policy_.name.data, policy_.name.size}; }
   iree_status_t RequestOptions(const std::string& body) {
     // Invoke the bound policy entry directly. Calling Render would also run
@@ -391,7 +392,7 @@ iree_status_t PrepareMode(const loom_serve_text_chat_t& chat,
 void CheckInputPolicy(ChatVM& vm, std::string_view revision,
                       const std::string& one_user_reference) {
   const bool llama = revision == "5816fce1";
-  const bool preserve = revision == "5da44855";
+  const bool preserve = revision == "5da44855" || revision == "cd8e9439";
   auto fresh_reference = one_user_reference;
   if (preserve) fresh_reference.replace(fresh_reference.find("Hello"), 5, u8" \u2003Hello\u00a0 ");
   const std::string assistant = llama
@@ -726,12 +727,16 @@ TEST_P(RenderTest, ActualTransportMatchesPinnedReference) {
             << " rows=" << count << " exact=" << exact << " negative=" << negative
             << " deferred_float=" << deferred << '\n';
 }
-class Qwen3RenderTest : public ::testing::TestWithParam<bool> {};
+class Qwen3RenderTest : public ::testing::TestWithParam<Revision> {};
 TEST_P(Qwen3RenderTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
-  const bool bc = GetParam();
+  const auto revision = GetParam();
+  const bool bc = revision.bytecode;
+  const bool non_thinking = std::string_view(revision.id) == "cd8e9439";
   ChatVM vm;
-  ASSERT_TRUE(vm.Init(Env(bc ? "LOOMIFY_RENDER_5DA44855_BC" : "LOOMIFY_RENDER_5DA44855_TEXT"),
-      Env("LOOMIFY_RENDER_TOKENIZER_5DA44855"), "loomify-qwen3"));
+  ASSERT_TRUE(vm.Init(Env(std::string("LOOMIFY_RENDER_") + revision.key + (bc ? "_BC" : "_TEXT")),
+      Env(std::string("LOOMIFY_RENDER_TOKENIZER_") + revision.key),
+      non_thinking ? "loomify-qwen2" : "loomify-qwen3"));
+  EXPECT_EQ(vm.SupportsReasoning(), !non_thinking);
   std::string data;
   ASSERT_TRUE(Read(Env("LOOMIFY_RENDER_REFERENCE"), &data));
   std::vector<iree_string_view_t> rows;
@@ -739,9 +744,9 @@ TEST_P(Qwen3RenderTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
   size_t count = 0, negative = 0, admission_negative = 0;
   std::string one_user_reference;
   for (const auto row : rows) {
-    iree_string_view_t revision{}, name{};
-    ASSERT_TRUE(Field(row, "revision", &revision));
-    if (Copy(revision) != "5da44855") continue;
+    iree_string_view_t row_revision{}, name{};
+    ASSERT_TRUE(Field(row, "revision", &row_revision));
+    if (Copy(row_revision) != revision.id) continue;
     ASSERT_TRUE(Field(row, "case", &name));
     SCOPED_TRACE(Copy(name));
     std::cout << "QWEN3_CASE_BEGIN format=" << (bc ? "bc" : "text") << " case=" << Copy(name) << std::endl;
@@ -797,7 +802,7 @@ TEST_P(Qwen3RenderTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
     ASSERT_TRUE(Field(row, "token_ids", &ids));
     std::string expected;
     ASSERT_TRUE(Decode(text, &expected));
-    if (Copy(name) == "qwen3-one-user") one_user_reference = expected;
+    if (Copy(name) == (non_thinking ? "qwen25-one-user" : "qwen3-one-user")) one_user_reference = expected;
     std::vector<int32_t> expected_ids, actual_ids, prepared_ids;
     ASSERT_TRUE(Ok(iree_json_enumerate_array(ids, Token, &expected_ids)));
     ASSERT_TRUE(vm.Encode(actual, &actual_ids));
@@ -811,7 +816,7 @@ TEST_P(Qwen3RenderTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
               << " prepared_tokens_equal=" << (prepared_ids == expected_ids) << std::endl;
   }
   ASSERT_FALSE(one_user_reference.empty());
-  CheckInputPolicy(vm, "5da44855", one_user_reference);
+  CheckInputPolicy(vm, revision.id, one_user_reference);
   const std::string schemas = R"([{"type":"function","function":{"name":"f","parameters":{"type":"object","properties":{}}}}])";
   const std::string call = R"(<tool_call>{"name":"f","arguments":{"text":"é </tool_call>","nested":{"ok":true},"n":1}}</tool_call>)";
   std::string parsed;
@@ -842,12 +847,14 @@ TEST_P(Qwen3RenderTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
     EXPECT_FALSE(accepted) << bad;
     EXPECT_EQ(parsed, "unchanged");
   }
-  EXPECT_EQ(count, 40u);
-  EXPECT_EQ(negative, 1u);
-  EXPECT_EQ(admission_negative, 5u);
+  EXPECT_EQ(count, non_thinking ? 28u : 40u);
+  EXPECT_EQ(negative, non_thinking ? 2u : 1u);
+  EXPECT_EQ(admission_negative, non_thinking ? 4u : 5u);
   std::cout << "QWEN3_GGUF_RENDER_COVERAGE " << (bc ? "bc" : "text") << " oracle_rows_seen=" << count << " expected_template_errors=" << negative << " expected_host_errors=" << admission_negative << " float_parity=deferred" << std::endl;
 }
-INSTANTIATE_TEST_SUITE_P(Qwen3SourceAndBytecode, Qwen3RenderTest, ::testing::Values(false,true));
+INSTANTIATE_TEST_SUITE_P(Qwen3SourceAndBytecode, Qwen3RenderTest, ::testing::Values(
+    Revision{"5da44855", "5DA44855", false}, Revision{"5da44855", "5DA44855", true},
+    Revision{"cd8e9439", "CD8E9439", false}, Revision{"cd8e9439", "CD8E9439", true}));
 
 INSTANTIATE_TEST_SUITE_P(KnownRevisions, RenderTest, ::testing::Values(
     Revision{"7f0e5290", "7F0E5290", false}, Revision{"7f0e5290", "7F0E5290", true},

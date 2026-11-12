@@ -54,3 +54,21 @@ genrule(
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in ["text", "bc"]]
+
+genrule(
+    name = "qkv_bias_fixtures", srcs = ["qkv_bias_fixtures.py"],
+    outs = ["qkv_bias_checks.loom"],
+    cmd = "python3 $(location qkv_bias_fixtures.py) $@",
+)
+[loom_merge(
+    name = "qkv_bias_provider_" + format,
+    srcs = ["//lib/kernels/decoder:implementation_sources"],
+    output_format = format,
+    testonly = True,
+) for format in ["text", "bc"]]
+[loom_test(
+    name = "qkv_bias_" + format + "_test",
+    srcs = [":qkv_bias_fixtures", ":qkv_bias_provider_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in ["text", "bc"]]

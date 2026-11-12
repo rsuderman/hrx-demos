@@ -28,15 +28,27 @@ const Revision kRevisions[] = {
      "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4",
      {"gpt2", "qwen2", false, "", "<|im_end|>"},
      resources::kChatmlHermes},
+    {"cd8e9439.jinja",
+     ChatRevision::ChatmlHermesNonThinking,
+     "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f",
+     {"gpt2", "qwen2", false, "", "<|im_end|>"},
+     resources::kChatmlHermesNonThinking},
 };
+bool IsHermes(ChatRevision revision) {
+  return revision == ChatRevision::ChatmlHermes ||
+         revision == ChatRevision::ChatmlHermesNonThinking;
+}
 bool CaptureRevision(const Revision &revision, std::string_view expected,
                      std::string_view actual, Captures *values) {
   std::vector<Slot> slots;
-  if (!AddSlot(expected, "tools_prefix", "{{- \"# Tools", 4, &slots) ||
+  const bool non_thinking =
+      revision.revision == ChatRevision::ChatmlHermesNonThinking;
+  const char *tools_prefix =
+      non_thinking ? "{{- \"\\n\\n# Tools" : "{{- \"# Tools";
+  if (!AddSlot(expected, "tools_prefix", tools_prefix, 4, &slots) ||
       !AddSlot(expected, "tools_instruction",
-               revision.revision == ChatRevision::ChatmlHermes
-                   ? "{{- \"\\n</tools>"
-                   : "{{- '\\n\\nIf you choose",
+               IsHermes(revision.revision) ? "{{- \"\\n</tools>"
+                                           : "{{- '\\n\\nIf you choose",
                4, &slots))
     return false;
   if (revision.revision == ChatRevision::ChatmlExplicitReasoning) {
@@ -51,13 +63,32 @@ bool CaptureRevision(const Revision &revision, std::string_view expected,
                  assignment.size(), &slots))
       return false;
   }
+  if (non_thinking &&
+      (!AddSlot(expected, "default_tools",
+                "{{- 'You are Qwen, created by Alibaba Cloud.", 4, &slots) ||
+       !AddSlot(
+           expected, "default_frame",
+           "{{- '<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud.",
+           4, &slots)))
+    return false;
   if (!Capture(expected, actual, std::move(slots), values))
     return false;
-  if (revision.revision == ChatRevision::ChatmlHermes) {
+  if (IsHermes(revision.revision)) {
     constexpr std::string_view end = "<|im_end|>\n";
     const auto &value = values->at("tools_instruction");
     if (value.size() < end.size() ||
         value.substr(value.size() - end.size()) != end)
+      return false;
+  }
+  if (non_thinking) {
+    constexpr std::string_view begin = "<|im_start|>system\n";
+    constexpr std::string_view end = "<|im_end|>\n";
+    const auto &frame = values->at("default_frame");
+    if (frame.size() < begin.size() + end.size() ||
+        frame.compare(0, begin.size(), begin) ||
+        frame.compare(frame.size() - end.size(), end.size(), end) ||
+        frame.substr(begin.size(), frame.size() - begin.size() - end.size()) !=
+            values->at("default_tools"))
       return false;
   }
   const auto effort = values->find("default_effort");
@@ -69,7 +100,7 @@ bool CaptureRevision(const Revision &revision, std::string_view expected,
 void EmitData(const Captures &slots, ChatPolicySelection *policy) {
   Datum(policy, "loomify.text.tools_prefix", slots.at("tools_prefix"));
   std::string suffix = slots.at("tools_instruction");
-  if (policy->revision == ChatRevision::ChatmlHermes) {
+  if (IsHermes(policy->revision)) {
     // Shared ChatML framing adds the terminal exactly once.
     constexpr std::string_view end = "<|im_end|>\n";
     suffix.resize(suffix.size() - end.size());
@@ -90,6 +121,8 @@ void EmitData(const Captures &slots, ChatPolicySelection *policy) {
         default_effort == "xhigh" ? high_text
         : default_effort == "low" ? low_text
                                   : "");
+  if (policy->revision == ChatRevision::ChatmlHermesNonThinking)
+    Datum(policy, "loomify.text.default_system", slots.at("default_tools"));
 }
 } // namespace
 Match SelectChatmlThinking(std::string_view actual, ChatPolicySelection *out) {
@@ -109,10 +142,13 @@ Match SelectChatmlThinking(std::string_view actual, ChatPolicySelection *out) {
         {"<|im_start|>", true}, {"<|im_end|>", true}, {"<think>"},
         {"</think>"},           {"<tool_call>"},      {"</tool_call>"},
         {"<tool_response>"},    {"</tool_response>"}};
-    if (revision.revision != ChatRevision::ChatmlHermes)
+    if (!IsHermes(revision.revision))
       result.markers.insert(
           result.markers.end(),
           {{"<function="}, {"</function>"}, {"<parameter="}, {"</parameter>"}});
+    if (revision.revision == ChatRevision::ChatmlHermesNonThinking)
+      result.markers.erase(result.markers.begin() + 2,
+                           result.markers.begin() + 4);
     EmitData(values, &result);
     *out = std::move(result);
     return Match::Matched;

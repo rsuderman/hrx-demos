@@ -209,6 +209,11 @@ TEST(ChatPolicy, EveryKnownProtocolKeepsOrderedDataRootsAndAtomicMarkers) {
        {"<|im_start|>", "<|im_end|>"}},
       {"lib/text/qwen3/templates/5da44855.jinja", chatml_roots,
        {"<|im_start|>", "<|im_end|>"}},
+      {"lib/text/qwen25/templates/cd8e9439.jinja",
+       {"loomify.text.tools_prefix", "loomify.text.tools_suffix",
+        "loomify.text.effort_xhigh", "loomify.text.effort_low",
+        "loomify.text.default_effort", "loomify.text.default_effort_instruction",
+        "loomify.text.default_system"}, {"<|im_start|>", "<|im_end|>"}},
       {"lib/text/gemma/templates/7de1c58e.jinja", {},
        {"<start_of_turn>", "<end_of_turn>"}},
   };
@@ -318,6 +323,45 @@ TEST(ChatPolicy, LlamaPreambleStillRejectsTagsEscapesAndStructuralChanges) {
     EXPECT_EQ(policy.configuration_source, prior);
     EXPECT_EQ(policy.source_text, original);
     EXPECT_FALSE(error.empty());
+  }
+}
+TEST(ChatPolicy, NonThinkingHermesCapturesBothMatchingDefaultBodies) {
+  const auto original = Source("lib/text/qwen25/templates/cd8e9439.jinja");
+  const std::string default_system = "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.";
+  model::TextMetadata metadata;
+  metadata.templates = {Candidate(original)};
+  ChatPolicySelection selected;
+  std::string error;
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &selected, &error)) << error;
+  EXPECT_EQ(selected.revision, ChatRevision::ChatmlHermesNonThinking);
+  EXPECT_EQ(selected.tokens.pre_tokenizer, "qwen2");
+  EXPECT_FALSE(selected.tokens.require_bos);
+  EXPECT_EQ(selected.tokens.terminal_piece, "<|im_end|>");
+  EXPECT_NE(selected.text_product.find("hermes_non_thinking"), std::string::npos);
+  EXPECT_EQ(selected.skeleton_sha256, "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f");
+  for (const auto& marker : selected.markers) {
+    EXPECT_NE(marker.text, "<think>"); EXPECT_NE(marker.text, "<function=");
+  }
+  EXPECT_NE(selected.configuration_source.find(Hex("\n\n# Tools")), std::string::npos);
+  EXPECT_NE(selected.configuration_source.find("@loomify.text.default_system = bytes(\"" + Hex(default_system) + "\")"), std::string::npos);
+  for (const auto& replacement : {std::string(u8"Source-specific café assistant."), std::string{}}) {
+    const auto changed = Replace(Replace(original, default_system, replacement), default_system, replacement);
+    metadata.templates = {Candidate(changed)};
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &selected, &error)) << error;
+    EXPECT_EQ(selected.source_text, changed);
+    EXPECT_NE(selected.configuration_source.find("@loomify.text.default_system = bytes(\"" + Hex(replacement) + "\")"), std::string::npos);
+  }
+  const auto prior = selected.configuration_source;
+  for (const auto& changed : {
+      Replace(original, default_system, "Only one branch differs"),
+      Replace(original, "message.content", "message.content | trim"),
+      Replace(original, "tool_call.arguments | tojson", "tool_call.arguments"),
+      Replace(original, "<|im_start|>system", "<|im_start|>other"),
+      Replace(original, "# Tools", "# Tools>"),
+  }) {
+    metadata.templates = {Candidate(changed)};
+    EXPECT_FALSE(SelectChatPolicy(metadata, {}, &selected, &error));
+    EXPECT_EQ(selected.configuration_source, prior);
   }
 }
 } // namespace

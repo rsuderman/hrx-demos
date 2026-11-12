@@ -5,4 +5,5 @@ filegroup(name = "core_sources", srcs = ["admission.loom", "input.loom", "output
 filegroup(name = "shared_sources", srcs = [":core_sources", "tools.loom", "tool_output.loom", "legacy_policy.loom"])
 loom_merge(name = "inline_history", srcs = [":shared_sources", "inline_history.loom"])
 loom_merge(name = "explicit_reasoning", srcs = [":shared_sources", "explicit_reasoning.loom"])
-loom_merge(name = "hermes", srcs = [":core_sources", "hermes_policy.loom", "hermes_tools.loom"])
+loom_merge(name = "hermes", srcs = [":core_sources", "hermes_common.loom", "hermes_policy.loom", "hermes_tools.loom"])
+loom_merge(name = "hermes_non_thinking", srcs = [":core_sources", "hermes_common.loom", "hermes_non_thinking.loom", "hermes_tools.loom"])

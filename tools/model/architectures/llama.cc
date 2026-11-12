@@ -6,18 +6,7 @@ const char *LlamaTensorSuffix(std::string_view role) {
   return role == "post_norm" ? "ffn_norm.weight" : nullptr;
 }
 void LoadLlama(const Loader &l, ModelDescriptor &m) {
-  for (const auto &tensor : l.catalog.tensors) {
-    const auto &name = tensor.name;
-    if (name.rfind("blk.", 0) != 0)
-      continue;
-    size_t end = 4;
-    while (end < name.size() && name[end] >= '0' && name[end] <= '9')
-      ++end;
-    if (end > 4 && (name.substr(end) == ".attn_q_norm.weight" ||
-                    name.substr(end) == ".attn_k_norm.weight"))
-      l.Fail("unsupported Llama Q/K normalization tensor: " + name);
-  }
-
+  RejectHeadNorms(l, "Llama");
   l.Unsupported("attention.sliding_window");
   ReadDecoderDimensions(l, m);
   if (m.rope.width != m.key_head_width)

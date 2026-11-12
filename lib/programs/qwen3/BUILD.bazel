@@ -5,5 +5,5 @@ _SOURCES = ["attention.loom", "ffn.loom", "layer.loom", "output.loom", "publicat
 exports_files(_SOURCES)
 filegroup(
     name = "implementation_sources",
-    srcs = _SOURCES + ["//lib/programs/output:last_greedy.loom"],
+    srcs = _SOURCES + ["//lib/programs/ffn:matrix_swiglu.loom", "//lib/programs/output:last_greedy.loom"],
 )

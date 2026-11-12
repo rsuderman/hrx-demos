@@ -1,0 +1,91 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Config-free ordinary QKV bias adapters. Q/K use full H128 NeoX rotary
+// without head normalization. Bias is read; projected Q/K inputs are read;
+// rotated outputs are disjoint and written, with inactive rows zeroed.
+func.decl @llm.decoder.position(%row: index, %rows: index, %capacity: index, %origin: offset, %epoch: buffer) -> (i1, index)
+func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
+template.decl @llm.attention.rope_neox_value(%head_size: index, %half: index, %rope_size: index, %log_step: f32, %position: i32, %lane: index, %head: buffer) -> (f32)
+
+kernel.def @llm.decoder.prepare_qk_bias_h128(%rows0: index, %heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 128)] : index
+  %head_size = index.constant 128 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%head_size, %one, %one) : index
+} launch(%logical_capacity: index, %rope_log_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %bias: buffer, %output: buffer) {
+  %head0 = kernel.workgroup.id<x> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %heads = kernel.workgroup.count<x> : index
+  %rows = kernel.workgroup.count<y> : index
+  %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %heads)] : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %h_value = kernel.workgroup.size<x> : index
+  %h = index.assume %h_value [range(%h_value, 32, 256), multiple_of(%h_value, 32)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 255), lt(%lane0, %h)] : index
+  %capacity = index.assume %logical_capacity [range(%logical_capacity, 1, 262144)] : index
+  %valid, %position = func.call @llm.decoder.position(%row, %rows, %capacity, %control_origin, %epoch) : (index, index, index, offset, buffer) -> (i1, index)
+  %origin = index.constant 0 : offset
+  %width = index.mul %heads, %h : index
+  %head_base = index.mul %head, %h : index
+  %element0 = index.add %head_base, %lane : index
+  %element = index.assume %element0 [lt(%element0, %width)] : index
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  scf.if %valid {
+    %input = buffer.view %projection[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %raw = view.load %input[%row, %element] : view<[%rows]x[%width]xf32> -> f32
+    %bias_view = buffer.view %bias[%origin] : buffer -> view<[%width]xf32>
+    %bias_value = view.load %bias_view[%element] : view<[%width]xf32> -> f32
+    %biased = scalar.addf %raw, %bias_value : f32
+    %word = index.constant 4 : offset
+    %scratch_bytes = index.scale %h, %word : index, offset -> offset
+    %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+    %biased_head = buffer.view %scratch[%origin] : buffer -> view<[%h]xf32>
+    view.store %biased, %biased_head[%lane] : f32, view<[%h]xf32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %two = index.constant 2 : index
+    %half = index.div %h, %two : index
+    %position32 = index.cast %position : index to i32
+    %rotated = template.apply<@llm.attention.rope_neox_value>(%h, %half, %h, %rope_log_step, %position32, %lane, %scratch) : (index, index, index, f32, i32, index, buffer) -> (f32)
+    view.store %rotated, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  } else {
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  }
+  kernel.return
+}
+
+
+// Elementwise in-place bias on active rows only; inactive/padded rows and bias
+// remain unchanged. Count uses the same ordinary decoder packet as projection.
+kernel.def @llm.decoder.add_bias_active(%rows0: index, %width0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %threads = index.constant 256 : index
+  %one = index.constant 1 : index
+  %groups = index.div %width, %threads : index
+  kernel.launch.config workgroups(%groups, %rows, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%width0: index, %count: buffer, %bias: buffer, %projection: buffer) {
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %rows = kernel.workgroup.count<y> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+  scf.if %active {
+    %group = kernel.workgroup.id<x> : index
+    %lane = kernel.workitem.id<x> : index
+    %threads = index.constant 256 : index
+    %base = index.mul %group, %threads : index
+    %column0 = index.add %base, %lane : index
+    %column = index.assume %column0 [range(%column0, 0, 32767), lt(%column0, %width)] : index
+    %origin = index.constant 0 : offset
+    %b = buffer.view %bias[%origin] : buffer -> view<[%width]xf32>
+    %p = buffer.view %projection[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %bias_value = view.load %b[%column] : view<[%width]xf32> -> f32
+    %raw = view.load %p[%row, %column] : view<[%rows]x[%width]xf32> -> f32
+    %value = scalar.addf %raw, %bias_value : f32
+    view.store %value, %p[%row, %column] : f32, view<[%rows]x[%width]xf32>
+  }
+  kernel.return
+}

@@ -4,6 +4,7 @@
 #include "lib/loomify/token_policy.h"
 #include "lib/loomify/testing/configuration_fixture.h"
 #include "lib/loomify/testing/qwen3_fixture.h"
+#include "lib/loomify/testing/qwen2_fixture.h"
 #include "lib/loomify/testing/gemma3_fixture.h"
 #include "lib/loomify/testing/prepare_vm.h"
 #include "loomc/link.h"
@@ -101,7 +102,8 @@ class LlamaPreparationTest : public ::testing::Test {
                bool missing_history = false, const std::string &family = "llama") {
     ConfigurationFacts facts;
     std::string error;
-    auto model = family == "qwen3" ? testing::Qwen3ModelFacts()
+    auto model = family == "qwen2" ? testing::qwen2::ModelFacts()
+                 : family == "qwen3" ? testing::Qwen3ModelFacts()
                  : family == "gemma3" ? testing::gemma3::ModelFacts()
                  : testing::LlamaModelFacts();
     EXPECT_TRUE(DeriveConfiguration(model, "fixture.gguf",
@@ -111,7 +113,7 @@ class LlamaPreparationTest : public ::testing::Test {
       EXPECT_NE(begin, std::string::npos);
       if (begin != std::string::npos) facts.source.erase(begin, facts.source.find('\n', begin) - begin + 1);
     }
-    const std::string marker = family == "gemma3" ? "<end_of_turn>" : family == "qwen3" ? "<|im_end|>" : "<|eot_id|>";
+    const std::string marker = family == "gemma3" ? "<end_of_turn>" : (family == "qwen3" || family == "qwen2") ? "<|im_end|>" : "<|eot_id|>";
     auto config = Parse(facts.source + EmitTerminalMarkerSource(marker));
     auto prepare = Load(root_.parent_path() / family / (bytecode ? "prepare_library.loombc" : "prepare.loom"));
     if (!config || !prepare) return {nullptr, loomc_module_release};
@@ -276,7 +278,7 @@ TEST_F(LlamaPreparationTest, NativeSingleRowShapeInventoryPreservesStageOrdinals
   }
 }
 TEST_F(LlamaPreparationTest, SharedPreparationRecordsForGemmaAndQwen3) {
-  for (const std::string family : {"gemma3", "qwen3"})
+  for (const std::string family : {"gemma3", "qwen3", "qwen2"})
     for (const auto &capacity : std::vector<std::array<int64_t, 2>>{
              {1, 63}, {8, 256}, {128, 129}, {129, 129}, {512, 513}})
       for (bool bytecode : {false, true}) {
@@ -296,12 +298,14 @@ TEST_F(LlamaPreparationTest, SharedPreparationRecordsForGemmaAndQwen3) {
         ASSERT_TRUE(testing::RunPreparation(environment_, context_, workspace_, reloaded.get(), request, &observed, &error)) << error;
         if (family == "gemma3")
           CheckRecords(request, observed, 1152, 6, 256, "generated.gemma3_epoch", "<end_of_turn>");
+        else if (family == "qwen2")
+          CheckRecords(request, observed, 1536, 28, 256, "generated.qwen2_epoch", "<|im_end|>");
         else
           CheckRecords(request, observed, 1024, 2, 1024, "generated.qwen3_epoch", "<|im_end|>");
       }
 }
 TEST_F(LlamaPreparationTest, UnsupportedRequestsReachRealRequireImport) {
-  for (const std::string family : {"llama", "gemma3", "qwen3"})
+  for (const std::string family : {"llama", "gemma3", "qwen3", "qwen2"})
   for (int variant = 0; variant < 12; ++variant) {
     SCOPED_TRACE(variant);
     auto linked = Build(128,512,variant % 2 != 0,false,family);
@@ -330,7 +334,7 @@ TEST_F(LlamaPreparationTest, UnsupportedRequestsReachRealRequireImport) {
   }
 }
 TEST_F(LlamaPreparationTest, MissingLiveConfigCannotLink) {
-  for (const std::string family : {"llama", "gemma3", "qwen3"})
+  for (const std::string family : {"llama", "gemma3", "qwen3", "qwen2"})
     for (bool bytecode : {false,true}) EXPECT_FALSE(Build(128,512,bytecode,true,family));
 }
 } // namespace

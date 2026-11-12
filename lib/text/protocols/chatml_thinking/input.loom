@@ -145,6 +145,10 @@ func.def @chatml.boolean(%json: buffer, %key: buffer, %default: i1) -> (i1) {
 
 // Source-private rendering state: low2 previous role, bit4 thinking,
 // bit5 preserve_thinking, bit6 generation prompt; last real user at bit8+.
+func.decl @chatml.supports_thinking() -> (i1)
+func.decl @chatml.default_system() -> (buffer, i1)
+func.decl @chatml.system_tools_separator(%has_system: i1) -> (buffer)
+
 func.def @chatml.options(%request: buffer) -> (i1, i1, i1, buffer) {
   %zero64 = scalar.constant 0 : i64
   %zero = index.constant 0 : index
@@ -155,7 +159,9 @@ func.def @chatml.options(%request: buffer) -> (i1, i1, i1, buffer) {
   %empty = global.load @chatml_input.empty : buffer
   %thinking_key = global.load @chatml.enable_thinking : buffer
   %default_thinking = func.call @chatml.default_thinking() : () -> (i1)
-  %thinking = func.call @chatml.boolean(%request, %thinking_key, %default_thinking) : (buffer,buffer,i1) -> (i1)
+  %requested_thinking = func.call @chatml.boolean(%request, %thinking_key, %default_thinking) : (buffer,buffer,i1) -> (i1)
+  %supports_thinking = func.call @chatml.supports_thinking() : () -> (i1)
+  %thinking = scalar.andi %requested_thinking, %supports_thinking : i1
   %options_key = global.load @chatml.model_options : buffer
   %options, %options_kind, %has_options = func.call @text.lookup(%request, %options_key) : (buffer,buffer) -> (buffer,i64,i1)
   %default_preserve = func.call @chatml.keep_reasoning_default() : () -> (i1)
@@ -307,7 +313,13 @@ func.decl @chatml.admit_mapping(%json: buffer)
 
 func.def public @chat_begin(%request: buffer,%tools: buffer) -> (buffer,i64) {
   %thinking,%preserve,%generation,%instruction = func.call @chatml.options(%request) : (buffer) -> (i1,i1,i1,buffer)
-  %last,%system,%has_system,%message_count = func.call @chatml.scan(%request) : (buffer) -> (i64,buffer,i1,i64)
+  %last,%source_system,%source_has_system,%message_count = func.call @chatml.scan(%request) : (buffer) -> (i64,buffer,i1,i64)
+  %default_system,%has_default = func.call @chatml.default_system() : () -> (buffer,i1)
+  %false = scalar.constant false : i1
+  %missing_system = scalar.cmpi eq,%source_has_system,%false : i1
+  %use_default = scalar.andi %missing_system,%has_default : i1
+  %system = scf.select %use_default,%default_system,%source_system : buffer
+  %has_system = scalar.ori %source_has_system,%use_default : i1
   %empty = global.load @chatml_input.empty : buffer
   %zero = index.constant 0 : offset
   %instruction_size = buffer.length %instruction
@@ -335,7 +347,7 @@ func.def public @chat_begin(%request: buffer,%tools: buffer) -> (buffer,i64) {
     %instruction_separator = scf.select %has_instruction,%separator,%empty : buffer
     %system_first = func.call @chatml.system_before_tools() : () -> (i1)
     %start = scf.if %system_first -> (buffer) {
-      %sep = scf.select %has_system,%separator,%empty : buffer
+      %sep = func.call @chatml.system_tools_separator(%has_system) : (i1) -> (buffer)
       %value = func.call @text.join8(%open,%system,%sep,%tool_prefix,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
       scf.yield %value : buffer
     } else {
@@ -678,7 +690,7 @@ func.def @chatml.user_prefix(%boundary: i32) -> (buffer) {
   %zero_length = index.constant 0 : offset
   %has_instruction = index.cmp ne, %instruction_length, %zero_length : offset
   %insert = scalar.andi %enabled,%has_instruction : i1
-  %prefix = scf.if %insert -> (buffer) {
+  %ordinary_prefix = scf.if %insert -> (buffer) {
     %system = global.load @chatml.system_open : buffer
     %instruction = global.load @loomify.text.default_effort_instruction : buffer
     %end = global.load @chatml.end : buffer
@@ -686,6 +698,15 @@ func.def @chatml.user_prefix(%boundary: i32) -> (buffer) {
     %value = func.call @text.join8(%system,%instruction,%end,%user,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
     scf.yield %value : buffer
   } else { scf.yield %user : buffer }
+  %default_system,%has_default = func.call @chatml.default_system() : () -> (buffer,i1)
+  %insert_default = scalar.andi %fresh,%has_default : i1
+  %prefix = scf.if %insert_default -> (buffer) {
+    %system = global.load @chatml.system_open : buffer
+    %end = global.load @chatml.end : buffer
+    %empty = global.load @chatml_input.empty : buffer
+    %value = func.call @text.join8(%system,%default_system,%end,%user,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    scf.yield %value : buffer
+  } else { scf.yield %ordinary_prefix : buffer }
   func.return %prefix : buffer
 }
 
@@ -707,7 +728,8 @@ func.def public @text.validate_request(%request: buffer) {
 
 // Cold discovery follows this selected text policy, not the thinking default.
 func.def public @chat_reasoning() -> (i32, i32, i32) {
-  %enabled = scalar.constant 1 : i32
+  %supported = func.call @chatml.supports_thinking() : () -> (i1)
+  %enabled = scalar.extui %supported : i1 to i32
   %zero = scalar.constant 0 : i32
   %has_effort = func.call @chatml.has_effort() : () -> (i1)
   %mask, %default = scf.if %has_effort -> (i32, i32) {

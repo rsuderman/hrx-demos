@@ -8,6 +8,20 @@ uint64_t Product(uint64_t a, uint64_t b) {
     throw std::runtime_error("architecture dimension product overflow");
   return a * b;
 }
+void RejectHeadNorms(const Loader &l, std::string_view architecture) {
+  for (const auto &tensor : l.catalog.tensors) {
+    const auto &name = tensor.name;
+    if (name.rfind("blk.", 0) != 0)
+      continue;
+    size_t end = 4;
+    while (end < name.size() && name[end] >= '0' && name[end] <= '9')
+      ++end;
+    if (end > 4 && (name.substr(end) == ".attn_q_norm.weight" ||
+                    name.substr(end) == ".attn_k_norm.weight"))
+      l.Fail("unsupported " + std::string(architecture) + " Q/K normalization tensor: " + name);
+  }
+
+}
 void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m) {
   for (const char *key :
        {"expert_count", "expert_used_count", "nextn_predict_layers"})
@@ -128,7 +142,7 @@ namespace hrx::model {
 bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
                         std::optional<uint32_t> layer, std::string *name) {
   if (!name || (m.family != "llama" && m.family != "qwen3" &&
-                m.family != "gemma3" && m.family != "qwen35"))
+                m.family != "gemma3" && m.family != "qwen35" && m.family != "qwen2"))
     return false;
   const char *suffix = nullptr;
   if (!layer) {
@@ -162,6 +176,8 @@ bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
       suffix = internal::LlamaTensorSuffix(role);
     else if (m.family == "qwen3")
       suffix = internal::Qwen3TensorSuffix(role);
+    else if (m.family == "qwen2")
+      suffix = internal::Qwen2TensorSuffix(role);
     else if (m.family == "gemma3")
       suffix = internal::Gemma3TensorSuffix(role);
     else if (m.family == "qwen35")
@@ -185,6 +201,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
       internal::LoadLlama(l, m);
     else if (m.family == "qwen3")
       internal::LoadQwen3(l, m);
+    else if (m.family == "qwen2")
+      internal::LoadQwen2(l, m);
     else if (m.family == "gemma3")
       internal::LoadGemma3(l, m);
     else if (m.family == "qwen35")
@@ -198,8 +216,18 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
           t.name.find(".input_scale") != std::string::npos)
         l.Fail("unsupported optional scale tensor: " + t.name);
       if (t.name.find(".bias") != std::string::npos &&
-          t.name.find(".ssm_dt.bias") == std::string::npos)
-        l.Fail("unsupported optional bias tensor: " + t.name);
+          t.name.find(".ssm_dt.bias") == std::string::npos) {
+        // Biases are admitted only when the selected architecture explicitly
+        // binds them. Unknown extras must not silently change the model graph.
+        const auto bound = [&](const auto &bindings) {
+          return std::any_of(bindings.begin(), bindings.end(),
+                             [&](const auto &b) { return b.tensor.name == t.name; });
+        };
+        if (!bound(m.globals) &&
+            !std::any_of(m.layers.begin(), m.layers.end(),
+                         [&](const auto &layer) { return bound(layer.tensors); }))
+          l.Fail("unsupported optional bias tensor: " + t.name);
+      }
       if (t.name.find("rope_") != std::string::npos) {
         const auto bound = std::find_if(
             m.globals.begin(), m.globals.end(), [&](const auto &b) {

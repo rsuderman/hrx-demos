@@ -33,7 +33,7 @@ iree_cc_library(
     name = "model_descriptor",
     srcs = ["model_descriptor.cc", "model_descriptor_internal.h",
             "architectures/llama.cc", "architectures/qwen3.cc",
-            "architectures/gemma3.cc", "architectures/qwen35.cc"],
+            "architectures/gemma3.cc", "architectures/qwen35.cc", "architectures/qwen2.cc"],
     hdrs = ["tensor_names.h"],
     cxxopts = _CXXOPTS,
     deps = [":gguf_catalog"],

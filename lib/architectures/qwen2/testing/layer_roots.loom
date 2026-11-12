@@ -1,0 +1,99 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+config.decl @runner.qwen2.prefill_token_count : index
+config.decl @qwen2.model.hidden_size : index
+config.decl @qwen2.model.rms_epsilon : f32
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+command.decl @loomify.qwen2.layer(%layer: index, %phase: index, %rows: index, %origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
+command.decl @loomify.qwen2.attention(%layer: index, %phase: index, %rows: index, %origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer)
+command.decl @loomify.qwen2.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+command.def public @validated.qwen2.layer0() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 0 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  command.launch @loomify.qwen2.layer[%layer, %phase, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+command.def public @validated.qwen2.ffn0() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 0 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  command.launch @loomify.qwen2.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.return
+}
+command.def public @validated.qwen2.attention0() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 0 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %hidden = config.get @qwen2.model.hidden_size : index
+  %epsilon = config.get @qwen2.model.rms_epsilon : f32
+  %gamma = command.parameter %parameters, "blk.0.attn_norm.weight" : view<[%hidden]xf32>
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  %word = index.constant 4 : offset
+  %elements = index.mul %rows, %hidden : index
+  %normalized_bytes = index.scale %elements, %word : index, offset -> offset
+  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %hidden](%rows, %hidden, %epsilon, %count, %residual, %gamma, %normalized) : [index, index](index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  command.launch @loomify.qwen2.attention[%layer, %phase, %rows, %origin](%parameters, %normalized, %residual, %count, %epoch, %map, %cache) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @validated.qwen2.layer1() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 1 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  command.launch @loomify.qwen2.layer[%layer, %phase, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @validated.qwen2.layer2() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 2 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  command.launch @loomify.qwen2.layer[%layer, %phase, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @validated.qwen2.layer4() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 4 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  command.launch @loomify.qwen2.layer[%layer, %phase, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @validated.qwen2.layer5() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
+  %layer = index.constant 5 : index
+  %phase = index.constant 0 : index
+  %rows = config.get @runner.qwen2.prefill_token_count : index
+  %origin = index.constant 12 : offset
+  %bytes = index.constant 12 : offset
+  %count = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  command.launch @loomify.qwen2.layer[%layer, %phase, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}

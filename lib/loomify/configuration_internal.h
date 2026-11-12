@@ -184,6 +184,8 @@ bool EmitLlama(const model::ModelDescriptor &, const std::string &,
 bool EmitGemma(const model::ModelDescriptor &, const std::string &,
                const ConfigurationSettings &, ConfigurationFacts *,
                std::string *);
+bool EmitQwen2(const model::ModelDescriptor&, const std::string&,
+               const ConfigurationSettings&, ConfigurationFacts*, std::string*);
 bool EmitQwen3(const model::ModelDescriptor &, const std::string &,
                const ConfigurationSettings &, ConfigurationFacts *,
                std::string *);

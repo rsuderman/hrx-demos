@@ -18,6 +18,7 @@ import sys
 
 PINNED = {"transformers": "4.57.1", "Jinja2": "3.1.6", "tokenizers": "0.22.2", "MarkupSafe": "3.0.4"}
 REVISIONS = {
+    "cd8e9439": ("qwen25", "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f"),
     "5da44855": ("qwen3", "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4"),
     "7f0e5290": ("qwen35", "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67"),
     "c3cf9e34": ("qwen35", "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"),
@@ -45,6 +46,8 @@ def main():
     cases = json.loads(cases_path.read_text())
     qwen3_cases_path = a.source_root / "lib/text/qwen3/testing/render_cases.json"
     cases += json.loads(qwen3_cases_path.read_text())
+    qwen25_cases_path = a.source_root / "lib/text/qwen25/testing/render_cases.json"
+    cases += json.loads(qwen25_cases_path.read_text())
     rows = []
     tokenizers_by_revision = {}
     tokenizer_identities = {}
@@ -77,7 +80,7 @@ def main():
             for message in request["messages"]:
                 for call in message.get("tool_calls", []):
                     function = call.get("function", call)
-                    if revision != "5da44855" and isinstance(function.get("arguments"), str):
+                    if revision not in ("5da44855", "cd8e9439") and isinstance(function.get("arguments"), str):
                         function["arguments"] = json.loads(function["arguments"])
             kwargs = {"add_generation_prompt": True}
             kwargs.update(request.get("model_options", {}))
@@ -126,6 +129,7 @@ def main():
     manifest = {"versions": versions, "python": sys.version, "interpreter": sys.executable,
                 "helper": str(helper_path), "helper_sha256": hashlib.sha256(helper_path.read_bytes()).hexdigest(),
                 "cases_sha256": hashlib.sha256(cases_path.read_bytes()).hexdigest(),
+                "qwen25_cases_sha256": hashlib.sha256(qwen25_cases_path.read_bytes()).hexdigest(),
                 "qwen3_cases_sha256": hashlib.sha256(qwen3_cases_path.read_bytes()).hexdigest(), "rows": len(rows),
                 "token_vector_rows": sum("token_ids" in row for row in rows),
                 "tokenizers": tokenizer_identities, "templates": template_identities, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

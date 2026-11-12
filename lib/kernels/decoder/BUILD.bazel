@@ -1,11 +1,11 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 package(default_visibility = ["//visibility:public"])
-exports_files(["rows.loom"])
+exports_files(["rows.loom", "qkv_bias.loom"])
 filegroup(
     name = "implementation_sources",
     srcs = [
-        "rows.loom",
+        "rows.loom", "qkv_bias.loom",
         "//lib/kernels/embedding:q6k_rows.loom",
         "//lib/kernels/normalization:rmsnorm_row.loom",
         "//lib/kernels/elementwise:residual_row.loom",

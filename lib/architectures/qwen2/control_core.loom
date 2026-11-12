@@ -1,0 +1,15 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+config.decl @qwen2.publication.end_text_id : i32
+config.decl @qwen2.publication.end_turn_id : i32
+func.decl @llm.publication.map_two_stops(%token: i32, %first_stop: i32, %second_stop: i32, %terminal: i32) -> (i32)
+func.def @loomify.serving.terminal_id() -> (i32) {
+  %terminal = config.get @qwen2.publication.end_turn_id : i32
+  func.return %terminal : i32
+}
+func.def public inline @loomify_serving_native_token(%token: i32, %terminal: i32) -> (i32) {
+  %first = config.get @qwen2.publication.end_text_id : i32
+  %second = config.get @qwen2.publication.end_turn_id : i32
+  %mapped = func.call @llm.publication.map_two_stops(%token, %first, %second, %terminal) : (i32, i32, i32, i32) -> (i32)
+  func.return %mapped : i32
+}

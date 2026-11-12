@@ -17,6 +17,8 @@ bool DeriveConfiguration(const model::ModelDescriptor &m,
     return internal::EmitLlama(m, asset, s, out, error);
   if (m.family == "gemma3")
     return internal::EmitGemma(m, asset, s, out, error);
+  if (m.family == "qwen2")
+    return internal::EmitQwen2(m, asset, s, out, error);
   if (m.family == "qwen3")
     return internal::EmitQwen3(m, asset, s, out, error);
   if (m.family == "qwen35")

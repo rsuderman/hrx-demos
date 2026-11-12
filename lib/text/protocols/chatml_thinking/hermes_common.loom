@@ -1,0 +1,13 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared framing leaves for the two reviewed Hermes chat policies.
+func.def inline @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }
+func.def pure inline @chatml.allow_later_system() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.system_before_tools() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+global.rodata.def @chatml_hermes_policy.newline = bytes("0a")
+func.def inline @chatml.call_separator() -> (buffer) {
+  %value = global.load @chatml_hermes_policy.newline : buffer
+  func.return %value : buffer
+}
+func.def pure inline @chatml.require_user() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.first_tool_header() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }

@@ -26,7 +26,8 @@ cc_test(
     linkstatic = True,
     data = ["prepare.loom", ":prepare_library", "//lib/serving:ordinary_prepare.loom",
             "//lib/architectures/gemma3:prepare.loom", "//lib/architectures/gemma3:prepare_library",
-            "//lib/architectures/qwen3:prepare.loom", "//lib/architectures/qwen3:prepare_library"],
+            "//lib/architectures/qwen3:prepare.loom", "//lib/architectures/qwen3:prepare_library",
+            "//lib/architectures/qwen2:prepare.loom", "//lib/architectures/qwen2:prepare_library"],
     deps = [
         "//lib/loomify:configuration",
         "//lib/loomify:configuration_fixture",

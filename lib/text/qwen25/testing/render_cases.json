@@ -1,0 +1,832 @@
+[
+  {
+    "id": "qwen25-one-user",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-thinking-on",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": true
+    }
+  },
+  {
+    "id": "qwen25-thinking-off",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": false
+    }
+  },
+  {
+    "id": "qwen25-no-generation",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "qwen25-whitespace",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": " \tHello\r\n café 中 🦙\n\t "
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-system",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "  system\t\n"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-empty-system",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-later-system",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "answer"
+        },
+        {
+          "role": "system",
+          "content": "later system"
+        },
+        {
+          "role": "user",
+          "content": "next"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-literal-think",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>literal</think>body"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-reasoning-ignored",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": " body ",
+          "reasoning_content": "ignored thought"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-assistant-only",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "answer"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-tool-first",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "tool",
+          "content": "result"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-tools-default",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-tools-empty-system",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-tools-system",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": " system "
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-history-dict",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "before",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1,
+                  "ok": true
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "wrongly typed chat field 'arguments'",
+    "native_counterpart": "qwen25-history-dict-public"
+  },
+  {
+    "id": "qwen25-history-string",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-history-multiple",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 2
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "wrongly typed chat field 'arguments'",
+    "native_counterpart": "qwen25-history-multiple-public"
+  },
+  {
+    "id": "qwen25-grouped-tools",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "result one"
+        },
+        {
+          "role": "tool",
+          "content": "result two"
+        },
+        {
+          "role": "user",
+          "content": "next"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "wrongly typed chat field 'arguments'",
+    "native_counterpart": "qwen25-grouped-tools-public"
+  },
+  {
+    "id": "qwen25-no-user-tools",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "result"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_admission_error": "wrongly typed chat field 'arguments'",
+    "native_counterpart": "qwen25-no-user-tools-public"
+  },
+  {
+    "id": "qwen25-omitted-generation",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "omit_generation_prompt": true
+  },
+  {
+    "id": "qwen25-decomposed-unicode",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "café"
+        }
+      ]
+    }
+  },
+  {
+    "id": "qwen25-empty-history",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": []
+    },
+    "error": true
+  },
+  {
+    "id": "qwen25-empty-history-tools",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "error": true
+  },
+  {
+    "id": "qwen25-history-dict-public",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "before",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1, \"ok\": true}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen25-history-dict"
+  },
+  {
+    "id": "qwen25-history-multiple-public",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1}"
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 2}"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen25-history-multiple"
+  },
+  {
+    "id": "qwen25-grouped-tools-public",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "result one"
+        },
+        {
+          "role": "tool",
+          "content": "result two"
+        },
+        {
+          "role": "user",
+          "content": "next"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen25-grouped-tools"
+  },
+  {
+    "id": "qwen25-no-user-tools-public",
+    "revisions": [
+      "cd8e9439"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\": 1}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "result"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "A tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "template_case": "qwen25-no-user-tools"
+  }
+]

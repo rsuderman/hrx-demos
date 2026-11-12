@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 // Reusable Hermes JSON tool protocol. Float lexemes retain admitted spelling.
+func.decl @chatml.raw_string_arguments() -> (i1)
 func.decl @chatml.mapping_check(%condition: i1)
 func.decl @chatml.admit_mapping(%json: buffer)
 func.decl @text.json_dump(%json: buffer) -> (buffer)
@@ -91,7 +92,16 @@ func.def @chatml.history_calls(%raw: buffer,%rendered: buffer) -> (buffer) {
       %string = scalar.cmpi eq,%arg_kind,%zero64 : i64
       %argument_text = scf.if %string -> (buffer) {
         %text,%present = func.call @text.string(%source,%arguments_key) : (buffer,buffer) -> (buffer,i1)
-        scf.yield %text : buffer
+        %raw_strings = func.call @chatml.raw_string_arguments() : () -> (i1)
+        %value = scf.if %raw_strings -> (buffer) {
+          scf.yield %text : buffer
+        } else {
+          // Lookup spans omit a string's quotes: serialize its decoded value,
+          // rather than trying to compact that payload as a JSON document.
+          %quoted = func.call @text.json_quote(%text) : (buffer) -> (buffer)
+          scf.yield %quoted : buffer
+        }
+        scf.yield %value : buffer
       } else {
         %json = func.call @text.json_dump(%arguments) : (buffer) -> (buffer)
         scf.yield %json : buffer

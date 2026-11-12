@@ -51,3 +51,18 @@ func.def pure inline @chatml.first_tool_header() -> (i1) { %v = scalar.constant 
 func.def inline @chatml.history_calls(%raw: buffer,%rendered: buffer) -> (buffer) {
   func.return %rendered : buffer
 }
+
+func.def pure inline @chatml.supports_thinking() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+global.rodata.def @chatml_policy.default_empty = bytes("")
+global.rodata.def @chatml_policy.system_separator = bytes("0a0a")
+func.def inline @chatml.default_system() -> (buffer, i1) {
+  %empty = global.load @chatml_policy.default_empty : buffer
+  %present = scalar.constant false : i1
+  func.return %empty, %present : buffer, i1
+}
+func.def inline @chatml.system_tools_separator(%has_system: i1) -> (buffer) {
+  %empty = global.load @chatml_policy.default_empty : buffer
+  %separator = global.load @chatml_policy.system_separator : buffer
+  %value = scf.select %has_system, %separator, %empty : buffer
+  func.return %value : buffer
+}

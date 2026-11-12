@@ -8,6 +8,7 @@
 #include <vector>
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tokenizer/tokenizer.h"
+#include "iree/tokenizer/vocab/vocab.h"
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -80,9 +81,10 @@ TEST(TokenPolicyRealAssets, BindsActualGemmaSourceStopsAndNativeTokenizer) {
   // JSON contains added media ID262144 outside model vocabulary: it is not a
   // consumed ordinary-text marker or raw-stop identity and must not block binding.
 }
-TEST(TokenPolicyRealAssets, BindsActualQwen3SourceStopsWithoutBos) {
-  const char* asset = std::getenv("LOOMIFY_TEST_QWEN3_GGUF");
-  const char* json_path = std::getenv("LOOMIFY_TEST_QWEN3_TOKENIZER");
+TEST(TokenPolicyRealAssets, BindsActualQwenSourceStopsWithoutBosInsertion) {
+  for (bool qwen2 : {false, true}) {
+  const char* asset = std::getenv(qwen2 ? "LOOMIFY_TEST_QWEN2_GGUF" : "LOOMIFY_TEST_QWEN3_GGUF");
+  const char* json_path = std::getenv(qwen2 ? "LOOMIFY_TEST_QWEN2_TOKENIZER" : "LOOMIFY_TEST_QWEN3_TOKENIZER");
   ASSERT_TRUE(asset && json_path) << "explicit immutable Qwen3 GGUF/tokenizer required";
   std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(asset, "rb"), std::fclose);
   ASSERT_TRUE(file); ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
@@ -92,7 +94,7 @@ TEST(TokenPolicyRealAssets, BindsActualQwen3SourceStopsWithoutBos) {
   std::ifstream stream(json_path, std::ios::binary); ASSERT_TRUE(stream);
   std::string json{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
   std::optional<PublicationTokenFacts> publication;
-  ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), "qwen3", text, &publication, &error)) << error;
+  ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), qwen2 ? "qwen2" : "qwen3", text, &publication, &error)) << error;
   ASSERT_TRUE(publication); ASSERT_EQ(publication->raw_stops.size(), 2u);
   EXPECT_EQ(publication->raw_stops[0].id, 151643);
   EXPECT_EQ(publication->raw_stops[1].id, 151645);
@@ -101,11 +103,15 @@ TEST(TokenPolicyRealAssets, BindsActualQwen3SourceStopsWithoutBos) {
   ASSERT_TRUE(BindTokenPolicy(file.get(), {"gpt2","qwen2",false,"","<|im_end|>"},
       text, publication, {"<|im_start|>","<|im_end|>"}, json, &bound, &error)) << error;
   EXPECT_EQ(bound.terminal.id, 151645); EXPECT_EQ(bound.encode_flags, 0u);
-  EXPECT_EQ(bound.roles.count("tokenizer.ggml.bos_token_id"), 0u);
-  EXPECT_EQ(bound.roles.at("tokenizer.ggml.padding_token_id").id, 151654);
+  if (qwen2) EXPECT_EQ(bound.roles.at("tokenizer.ggml.bos_token_id").id, 151643);
+  else EXPECT_EQ(bound.roles.count("tokenizer.ggml.bos_token_id"), 0u);
+  EXPECT_EQ(bound.roles.at("tokenizer.ggml.padding_token_id").id, qwen2 ? 151643 : 151654);
+  EXPECT_EQ(bound.text_source.find("@loomify.tokens.bos_marker"), std::string::npos);
+  }
 }
-TEST(TokenPolicyRealAssets, Qwen3OneShotAndIncrementalDecodeKeepReasoningMarkers) {
-  const char* json_path = std::getenv("LOOMIFY_TEST_QWEN3_TOKENIZER");
+TEST(TokenPolicyRealAssets, QwenOneShotAndIncrementalDecodeKeepActualText) {
+  for (bool qwen2 : {false, true}) {
+  const char* json_path = std::getenv(qwen2 ? "LOOMIFY_TEST_QWEN2_TOKENIZER" : "LOOMIFY_TEST_QWEN3_TOKENIZER");
   ASSERT_TRUE(json_path);
   std::ifstream stream(json_path, std::ios::binary); ASSERT_TRUE(stream);
   std::string json{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
@@ -114,6 +120,14 @@ TEST(TokenPolicyRealAssets, Qwen3OneShotAndIncrementalDecodeKeepReasoningMarkers
       iree_make_string_view(json.data(), json.size()), iree_allocator_system(), &raw);
   ASSERT_TRUE(iree_status_is_ok(status));
   std::unique_ptr<iree_tokenizer_t, decltype(&iree_tokenizer_free)> tokenizer(raw, iree_tokenizer_free);
+  if (qwen2) {
+    const auto* vocab = iree_tokenizer_vocab(tokenizer.get());
+    for (const auto& marker : {"<tool_call>", "</tool_call>"}) {
+      const auto id = iree_tokenizer_vocab_lookup(vocab, iree_make_cstring_view(marker));
+      ASSERT_GE(id, 0);
+      EXPECT_FALSE(iree_tokenizer_vocab_token_attrs(vocab, id) & IREE_TOKENIZER_TOKEN_ATTR_SPECIAL);
+    }
+  }
   const std::string input = u8"<|im_start|><think>\n café 🦙 e\u0301 </think><|im_end|>";
   int32_t ids[128] = {}; iree_host_size_t count = 0;
   status = iree_tokenizer_encode(tokenizer.get(), iree_make_string_view(input.data(), input.size()),
@@ -126,7 +140,9 @@ TEST(TokenPolicyRealAssets, Qwen3OneShotAndIncrementalDecodeKeepReasoningMarkers
     status = iree_tokenizer_decode(tokenizer.get(), iree_tokenizer_make_token_id_list(ids, count), flags,
         iree_make_mutable_string_view(buffer, sizeof(buffer)), iree_allocator_system(), &length);
     ASSERT_TRUE(iree_status_is_ok(status));
-    const std::string expected = skip ? u8"<think>\n café 🦙 é </think>" : u8"<|im_start|><think>\n café 🦙 é </think><|im_end|>";
+    // Both matching artifacts declare NFC normalization before encoding.
+    const std::string expected = skip ? u8"<think>\n café 🦙 é </think>"
+        : u8"<|im_start|><think>\n café 🦙 é </think><|im_end|>";
     EXPECT_EQ(std::string(buffer, length), expected);
     iree_host_size_t state_size = 0;
     status = iree_tokenizer_decode_state_calculate_size(tokenizer.get(), &state_size);
@@ -149,6 +165,75 @@ TEST(TokenPolicyRealAssets, Qwen3OneShotAndIncrementalDecodeKeepReasoningMarkers
     status = iree_tokenizer_decode_state_finalize(state, iree_make_mutable_string_view(buffer, sizeof(buffer)), &length);
     ASSERT_TRUE(iree_status_is_ok(status)); incremental.append(buffer, length);
     EXPECT_EQ(incremental, expected);
+  }
+  }
+}
+TEST(TokenPolicyRealAssets, Qwen2TokenizerTailBoundarySkipsUnmappedModelRows) {
+  const char* json_path = std::getenv("LOOMIFY_TEST_QWEN2_TOKENIZER");
+  ASSERT_TRUE(json_path);
+  std::ifstream stream(json_path, std::ios::binary);
+  ASSERT_TRUE(stream);
+  const std::string json{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+  iree_tokenizer_t* raw = nullptr;
+  auto status = iree_tokenizer_from_huggingface_json(
+      iree_make_string_view(json.data(), json.size()), iree_allocator_system(), &raw);
+  ASSERT_TRUE(iree_status_is_ok(status));
+  std::unique_ptr<iree_tokenizer_t, decltype(&iree_tokenizer_free)> tokenizer(raw, iree_tokenizer_free);
+  const auto* vocab = iree_tokenizer_vocab(tokenizer.get());
+  ASSERT_EQ(iree_tokenizer_vocab_capacity(vocab), 151665u);
+  const auto last_piece = iree_tokenizer_vocab_token_text(vocab, 151664);
+  EXPECT_EQ(std::string(last_piece.data, last_piece.size), "<|file_sep|>");
+  EXPECT_EQ(iree_tokenizer_vocab_token_text(vocab, 151665).size, 0u);
+  EXPECT_EQ(iree_tokenizer_vocab_token_text(vocab, 151935).size, 0u);
+  struct Case {
+    std::vector<int32_t> ids;
+    std::string expected;
+  };
+  // The pinned native decoder intentionally skips out-of-range IDs, rather
+  // than rejecting or inventing text. These padded GGUF output rows exist in
+  // the model's 151936-entry vocabulary but are absent from its matching tokenizer.
+  const Case cases[] = {
+      {{151664}, "<|file_sep|>"}, {{151665}, ""}, {{151935}, ""},
+      {{151664, 151665, 151935, 151664}, "<|file_sep|><|file_sep|>"},
+  };
+  for (bool skip : {false, true}) {
+    const auto flags = skip ? IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS
+                            : IREE_TOKENIZER_DECODE_FLAG_NONE;
+    for (const auto& test : cases) {
+      char buffer[128];
+      iree_host_size_t length = 99;
+      status = iree_tokenizer_decode(tokenizer.get(),
+          iree_tokenizer_make_token_id_list(test.ids.data(), test.ids.size()), flags,
+          iree_make_mutable_string_view(buffer, sizeof(buffer)), iree_allocator_system(), &length);
+      ASSERT_TRUE(iree_status_is_ok(status));
+      EXPECT_EQ(std::string(buffer, length), test.expected);
+      iree_host_size_t state_size = 0;
+      ASSERT_TRUE(iree_status_is_ok(iree_tokenizer_decode_state_calculate_size(tokenizer.get(), &state_size)));
+      std::vector<std::max_align_t> storage((state_size + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+      iree_tokenizer_decode_state_t* state = nullptr;
+      ASSERT_TRUE(iree_status_is_ok(iree_tokenizer_decode_state_initialize(tokenizer.get(), flags,
+          iree_make_byte_span(storage.data(), storage.size() * sizeof(std::max_align_t)), &state)));
+      struct Cleanup {
+        iree_tokenizer_decode_state_t* state;
+        ~Cleanup() { iree_tokenizer_decode_state_deinitialize(state); }
+      } cleanup{state};
+      std::string incremental;
+      for (size_t i = 0; i < test.ids.size();) {
+        iree_host_size_t consumed = 0, written = 0;
+        status = iree_tokenizer_decode_state_feed(state,
+            iree_tokenizer_make_token_id_list(test.ids.data() + i, 1),
+            iree_make_mutable_string_view(buffer, sizeof(buffer)), &consumed, &written);
+        ASSERT_TRUE(iree_status_is_ok(status));
+        ASSERT_GT(consumed + written, 0u);
+        incremental.append(buffer, written);
+        i += consumed;
+      }
+      length = 99;
+      ASSERT_TRUE(iree_status_is_ok(iree_tokenizer_decode_state_finalize(state,
+          iree_make_mutable_string_view(buffer, sizeof(buffer)), &length)));
+      incremental.append(buffer, length);
+      EXPECT_EQ(incremental, test.expected);
+    }
   }
 }
 } // namespace
