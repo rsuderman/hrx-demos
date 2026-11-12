@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <set>
 namespace hrx::loomify_gguf {
 namespace {
 ::testing::AssertionResult Ok(loomc_status_t status) {
@@ -157,7 +158,8 @@ protected:
     EXPECT_EQ(attribute.kind, LOOM_ATTR_I64);
     return attribute.i64;
   }
-  void InspectPrepared(loomc_module_t *module, size_t layers) {
+  void InspectPrepared(loomc_module_t *module, const model::ModelDescriptor &descriptor) {
+    const size_t layers = descriptor.layers.size();
     loomc_module_interop_view_t view{};
     loomc_result_t *result = nullptr;
     ASSERT_TRUE(Ok(loomc_module_get_interop_view(
@@ -266,6 +268,8 @@ protected:
     const auto *root = Definition(view.module, "generated.llama_epoch");
     ASSERT_TRUE(root && loom_command_def_isa(root));
     std::vector<std::string> keys;
+    std::set<std::string> global_keys;
+    std::set<std::string> embedding_kernels;
     std::function<void(const loom_region_t *)> collect =
         [&](const loom_region_t *region) {
           for (size_t b = 0; b < region->block_count; ++b)
@@ -285,6 +289,15 @@ protected:
                 }
                 if (key.rfind("blk.", 0) == 0)
                   keys.push_back(std::move(key));
+                else
+                  global_keys.insert(std::move(key));
+              }
+              if (loom_kernel_launch_isa(op)) {
+                const auto callee = loom_kernel_launch_callee(op);
+                const auto name = Text(view.module,
+                    view.module->symbols.entries[callee.symbol_id].name_id);
+                if (name.rfind("llama32_token_embedding_epoch_", 0) == 0)
+                  embedding_kernels.insert(name);
               }
               for (size_t i = 0; i < op->region_count; ++i)
                 collect(loom_op_regions(op)[i]);
@@ -299,6 +312,16 @@ protected:
         expected.push_back("blk." + std::to_string(i) + "." + suffix +
                            ".weight");
     EXPECT_EQ(keys, expected);
+    std::set<std::string> expected_globals;
+    uint32_t embedding_tag = 0;
+    for (const auto &binding : descriptor.globals) {
+      expected_globals.insert(binding.tensor.name);
+      if (binding.role == "token_embedding") embedding_tag = binding.tensor.storage_type;
+    }
+    EXPECT_EQ(global_keys, expected_globals);
+    EXPECT_EQ(embedding_kernels, std::set<std::string>{
+        embedding_tag == 12 ? "llama32_token_embedding_epoch_q4k_f32"
+                            : "llama32_token_embedding_epoch_q6k_f32"});
   }
   using Module =
       std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)>;
@@ -417,7 +440,7 @@ protected:
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
     loomc_result_release(result);
-    InspectPrepared(built.get(), descriptor.layers.size());
+    InspectPrepared(built.get(), descriptor);
     facts = {}; // linked source owns its configuration independently.
     for (auto format :
          {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
@@ -478,6 +501,29 @@ TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndEpochRoot) {
 TEST_F(ConfiguredLlamaModelTest, FullDescriptorFixtureUsesMaintainedProducts) {
   for (bool text : {false, true})
     Build(testing::LlamaModelFacts(), 128, false, text);
+}
+TEST_F(ConfiguredLlamaModelTest, PlainLlamaUsesOnlyActualBindingsInBothProducts) {
+  for (bool text : {false, true})
+    for (uint64_t rows : {8u, 64u})
+      Build(testing::LlamaPlainModelFacts(), rows, false, text);
+}
+TEST_F(ConfiguredLlamaModelTest, RealHyperclovaxUsesMaintainedArchitectureAndEpochRoot) {
+  const char *path = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");
+  if (!path) GTEST_SKIP() << "requires explicit immutable HyperCLOVAX GGUF gate";
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
+  ASSERT_TRUE(file);
+  ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
+  model::GgufCatalog catalog;
+  model::ModelDescriptor descriptor;
+  std::string error;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error)) << error;
+  ASSERT_EQ(descriptor.family, "llama");
+  ASSERT_EQ(descriptor.layers.size(), 24u);
+  EXPECT_FALSE(descriptor.output_tied_to_embedding);
+  for (bool text : {false, true})
+    for (uint64_t rows : {8u, 64u})
+      Build(descriptor, rows, true, text);
 }
 TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProviders) {
   ConfigurationFacts facts;

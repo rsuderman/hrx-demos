@@ -189,3 +189,18 @@ template.def<@llm.rotary.kv_separate_row128> device @llm_rotary_kv_separate_row1
   view.store %value_f16, %value_cache_view[%physical, %output_index] : f16, view<[%physical_capacity]x[%width]xf16>
   template.return
 }
+// Ordinary RoPE has no checkpoint factor tensor. Its command binding owns
+// this small scratch buffer, initialized before query/KV readers consume it.
+kernel.def @llama32_unit_rope_factors() {
+  %one = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%factors: buffer) {
+  %lane_value = kernel.workitem.id<x> : index
+  %lane = index.assume %lane_value [range(%lane_value, 0, 63)] : index
+  %origin = index.constant 0 : offset
+  %values = buffer.view %factors[%origin] : buffer -> view<64xf32>
+  %one = scalar.constant 1.0 : f32
+  view.store %one, %values[%lane] : f32, view<64xf32>
+  kernel.return
+}

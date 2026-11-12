@@ -17,6 +17,7 @@ cc_test(
         "//lib/text/qwen25:revision_test_sources",
         "//lib/text/llama:revision_test_sources",
         "//lib/text/gemma:revision_test_sources",
+        "//lib/text/plain_chatml:revision_test_sources",
     ],
     copts = ["-std=c++17"],
     linkstatic = True,

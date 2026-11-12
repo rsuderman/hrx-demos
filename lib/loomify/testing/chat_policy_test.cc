@@ -502,5 +502,41 @@ TEST(ChatPolicy,
     EXPECT_FALSE(error.empty());
   }
 }
+TEST(ChatPolicy, PlainChatmlOwnsNoSyntheticProseOrThinkingMarkers) {
+  const auto source = Source("lib/text/plain_chatml/templates/58c1a1f0.jinja");
+  model::TextMetadata metadata;
+  metadata.templates = {Candidate(source)};
+  ChatPolicySelection policy;
+  std::string error = "stale";
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_TRUE(error.empty());
+  EXPECT_EQ(policy.revision, ChatRevision::ChatmlPlain);
+  EXPECT_EQ(policy.skeleton_sha256,
+            "58c1a1f04baa7adaeaba1f90267c3d57d9396f0c1f0129bdde9e76d3c6784af7");
+  EXPECT_EQ(policy.source_text, source);
+  EXPECT_EQ(policy.tokens.tokenizer_model, "gpt2");
+  EXPECT_EQ(policy.tokens.pre_tokenizer, "dbrx");
+  EXPECT_FALSE(policy.tokens.require_bos);
+  EXPECT_FALSE(policy.tokens.terminal_is_eos);
+  EXPECT_EQ(policy.tokens.terminal_piece, "<|im_end|>");
+  EXPECT_NE(policy.text_product.find("chatml_thinking/plain"), std::string::npos);
+  ASSERT_EQ(policy.markers.size(), 2u);
+  EXPECT_EQ(policy.markers[0].text, "<|im_start|>");
+  EXPECT_EQ(policy.markers[1].text, "<|im_end|>");
+  for (const auto &marker : policy.markers) EXPECT_TRUE(marker.require_single_token);
+  EXPECT_EQ(policy.data_roots.size(), 6u);
+  EXPECT_EQ(policy.configuration_source.find("default_system"), std::string::npos);
+  EXPECT_EQ(policy.configuration_source.find("You are"), std::string::npos);
+  const auto previous = policy.configuration_source;
+  for (const auto &changed : {
+           Replace(source, "message['content']", "message['content'] | trim"),
+           Replace(source, "false", "true"),
+           Replace(source, "<|im_end|>", "<|endofturn|>")}) {
+    metadata.templates = {Candidate(changed)};
+    EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+    EXPECT_EQ(policy.source_text, source);
+    EXPECT_EQ(policy.configuration_source, previous);
+  }
+}
 } // namespace
 } // namespace hrx::loomify_gguf

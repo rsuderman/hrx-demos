@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 func.decl @text.trim(%text: buffer) -> (buffer)
+func.def inline @chatml.admit_request(%request: buffer) { func.return }
 
 func.def inline @chatml.normalize_content(%text: buffer) -> (buffer) {
   %result = func.call @text.trim(%text) : (buffer) -> (buffer)

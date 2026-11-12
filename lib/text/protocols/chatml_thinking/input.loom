@@ -149,7 +149,9 @@ func.decl @chatml.supports_thinking() -> (i1)
 func.decl @chatml.default_system() -> (buffer, i1)
 func.decl @chatml.system_tools_separator(%has_system: i1) -> (buffer)
 
+func.decl @chatml.admit_request(%request: buffer)
 func.def @chatml.options(%request: buffer) -> (i1, i1, i1, buffer) {
+  func.call @chatml.admit_request(%request) : (buffer) -> ()
   %zero64 = scalar.constant 0 : i64
   %zero = index.constant 0 : index
   %one = index.constant 1 : index

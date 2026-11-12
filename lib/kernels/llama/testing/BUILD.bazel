@@ -73,3 +73,33 @@ loom_test(
 )
 
 loom_test(name = "scalar_data_execution_test", srcs = ["//lib/platforms/amdgpu/gfx11:targets.loom", "scalar_data_checks.loom", "//lib/kernels/llama:attention/attention_prepare.loom", "//lib/kernels/llama:attention/attention_native.loom", "//lib/kernels/llama:attention/rotary.loom", "//lib/kernels/llama:attention/attention_materialized.loom", "//lib/kernels/attention:core.loom", "//lib/kernels/attention:kv_position.loom", "//lib/kernels/elementwise:residual_row.loom"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+
+# The same isolated adapter proofs execute from maintained SOURCE and BC.
+_PLAIN_PROOFS = {
+    "plain_embedding": [
+        "plain_embedding_checks.loom",
+        "//lib/kernels/llama:embedding/q4k_epoch.loom",
+        "//lib/kernels/embedding:q4k_rows.loom",
+        "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:qk_common.loom",
+        "//lib/kernels/epoch:active_rows.loom",
+    ],
+    "plain_rotary": [
+        "plain_rotary_checks.loom",
+        "//lib/kernels/llama:attention/attention_prepare.loom",
+        "//lib/kernels/llama:attention/rotary.loom",
+        "//lib/kernels/attention:kv_position.loom",
+    ],
+}
+[loom_merge(
+    name = name + "_" + format,
+    srcs = sources + ["//lib/platforms/amdgpu/gfx11:targets.loom"],
+    output_format = format,
+    testonly = True,
+) for name, sources in _PLAIN_PROOFS.items() for format in ["text", "bc"]]
+[loom_test(
+    name = name + "_" + format + "_execution_test",
+    srcs = [":" + name + "_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for name in _PLAIN_PROOFS for format in ["text", "bc"]]

@@ -22,17 +22,22 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
       !Product(QH, H, &Q) || Q != E || !Product(KH, H, &KV) ||
       !PositiveF32(m.rms_epsilon) || !PositiveF32(m.rope.base) || m.rope.base < 1 ||
       m.ssm || m.rope.width != H || m.rope.scaling_factor != 1 ||
-      (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear") ||
-      !m.output_tied_to_embedding)
+      (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear"))
     return Fail(error, "inconsistent Llama geometry or unsupported rotary/output binding");
   Producer p;
   p.model = &m;
   p.asset = asset;
   p.error = error;
   if (!p.Tensor(m.globals, "token_embedding", E, V,
-                {14}) ||
+                {12, 14}) ||
       !p.Tensor(m.globals, "output", E, V, {14}) ||
-      !p.Tensor(m.globals, "output_norm", E, 1, {0}) ||
+      !p.Tensor(m.globals, "output_norm", E, 1, {0}))
+    return false;
+  const auto factors = std::count_if(m.globals.begin(), m.globals.end(),
+      [](const auto &binding) { return binding.role == "rope_frequencies"; });
+  if (factors > 1)
+    return Fail(error, "requires at most one tensor role: rope_frequencies");
+  if (factors &&
       !p.Tensor(m.globals, "rope_frequencies", m.rope.width / 2, 1, {0}))
     return false;
 
@@ -96,6 +101,10 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("llama.model.hidden_size", E);
   p.Index("llama.model.vocabulary_size", m.vocabulary_size);
   p.Index("llama.model.layer_count", m.layers.size());
+  p.Index("llama.model.embedding_storage_type",
+          Role(m.globals, "token_embedding")->storage_type);
+  p.Index("llama.model.tie_word_embeddings", m.output_tied_to_embedding);
+  p.Index("llama.model.has_rope_frequencies", factors != 0);
   p.Index("llama.model.query_heads", QH);
   p.Index("llama.model.kv_heads", KH);
   p.Index("llama.model.head_size", H);
@@ -132,6 +141,13 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
 bool DeriveLlamaPublication(FILE *file, std::string_view family,
     const model::TextMetadata &text, std::optional<PublicationTokenFacts> *out,
     std::string *error) {
+  const auto *eos = DeclaredRole(text, "tokenizer.ggml.eos_token_id");
+  TokenIdentity identity;
+  if (eos && ReadTokenIdentity(text, *eos, &identity, nullptr) &&
+      identity.piece == "<|endofturn|>")
+    return DeriveNamedPublication(file, family, text,
+        {"<|endoftext|>", "<|im_end|>", "<|endofturn|>"},
+        {"end_text_id", "end_message_id", "end_turn_id"}, 1, 2, out, error);
   return DeriveNamedPublication(file, family, text,
       {"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"},
       {"end_text_id", "end_message_id", "end_turn_id"}, 2, 2, out, error);

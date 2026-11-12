@@ -6,18 +6,21 @@
 #include <cstdlib>
 namespace hrx::loomify_gguf::testing {
 // Plain admitted full-profile descriptors. No native/compiler/graph objects.
-inline model::ModelDescriptor LlamaModelFacts() {
+inline model::ModelDescriptor LlamaModelFacts(
+    uint64_t hidden = 3072, uint64_t vocabulary = 128256,
+    uint64_t feed_forward = 8192, size_t layers = 28,
+    uint64_t heads = 24, uint32_t embedding_tag = 14,
+    bool tied = true, bool rope_factors = true) {
   constexpr bool llama = true;
-  constexpr size_t layers = 28;
   model::ModelDescriptor m;
   m.family = llama ? "llama" : "qwen35";
-  m.embedding_width = llama ? 3072 : 1024;
-  m.vocabulary_size = 128256;
+  m.embedding_width = hidden;
+  m.vocabulary_size = vocabulary;
   m.key_head_width = m.value_head_width = 128;
   m.rms_epsilon = llama ? 1e-5 : 1e-6;
   m.rope.width = 128;
   m.rope.base = 500000;
-  m.output_tied_to_embedding = true;
+  m.output_tied_to_embedding = tied;
   uint64_t offset = 4096;
   auto tensor = [&](std::string role, std::string key, uint32_t tag, uint64_t a,
                     uint64_t b = 1) {
@@ -35,20 +38,26 @@ inline model::ModelDescriptor LlamaModelFacts() {
     offset += (t.byte_size + 255) / 256 * 256;
     return model::TensorBinding{role, t};
   };
-  const uint64_t E = m.embedding_width, F = llama ? 8192 : 3584;
+  const uint64_t E = m.embedding_width, F = feed_forward;
   if (llama) {
-    m.globals = {tensor("token_embedding", "token_embd.weight", 14, E, 128256),
-                 tensor("output_norm", "output_norm.weight", 0, E),
-                 tensor("rope_frequencies", "rope_freqs.weight", 0, 64)};
-    auto output = m.globals[0];
-    output.role = "output";
-    m.globals.push_back(output);
+    m.globals = {tensor("token_embedding", "token_embd.weight", embedding_tag,
+                        E, vocabulary),
+                 tensor("output_norm", "output_norm.weight", 0, E)};
+    if (rope_factors)
+      m.globals.push_back(tensor("rope_frequencies", "rope_freqs.weight", 0, 64));
+    if (tied) {
+      auto output = m.globals[0];
+      output.role = "output";
+      m.globals.push_back(output);
+    } else {
+      m.globals.push_back(tensor("output", "output.weight", 14, E, vocabulary));
+    }
   }
   for (size_t i = 0; i < layers; ++i) {
     model::LayerDescriptor l;
     l.index = i;
     l.feed_forward_width = F;
-    l.query_heads = 24;
+    l.query_heads = heads;
     l.kv_heads = 8;
     auto prefix = "blk." + std::to_string(i) + ".";
     const auto gate = llama ? 12u : 12u + uint32_t(i % 3);
@@ -73,6 +82,38 @@ inline model::ModelDescriptor LlamaModelFacts() {
     }
     m.layers.push_back(l);
   }
+  return m;
+}
+inline model::ModelDescriptor LlamaPlainModelFacts() {
+  auto m = LlamaModelFacts(2048, 110592, 7168, 24, 16, 12, false, false);
+  m.rope.base = 1e8;
+  m.training_context = 131072;
+  // Deliberately mixed layer formats; the model must consume every row rather
+  // than infer a uniform route from the first layer or filename.
+  for (auto &l : m.layers) {
+    const auto i = l.index;
+    const bool q6 = i < 3 || i >= 20 || i == 5 || i == 8 || i == 11 ||
+                    i == 14 || i == 17;
+    for (auto &binding : l.tensors) {
+      auto &t = binding.tensor;
+      t.storage_type = binding.role == "input_norm" || binding.role == "post_norm"
+                           ? 0
+                           : (binding.role == "value" || binding.role == "ffn_down") && q6
+                                 ? 14 : 12;
+      if (!model::EncodedTensorByteSize(t.storage_type, t.normalized_extents[0],
+                                      t.normalized_extents[1], &t.byte_size))
+        std::abort();
+    }
+  }
+  uint64_t offset = 4096;
+  auto place = [&](auto &bindings) {
+    for (auto &binding : bindings) {
+      binding.tensor.absolute_offset = offset;
+      offset += (binding.tensor.byte_size + 255) / 256 * 256;
+    }
+  };
+  place(m.globals);
+  for (auto &l : m.layers) place(l.tensors);
   return m;
 }
 inline model::ModelDescriptor QwenModelFacts(bool large = false) {

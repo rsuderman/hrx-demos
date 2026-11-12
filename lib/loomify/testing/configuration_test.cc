@@ -22,6 +22,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <regex>
 #include <sstream>
 namespace hrx::loomify_gguf {
@@ -178,6 +179,57 @@ TEST(ConfigurationFactsTest, LlamaScalarFactsPreserveQualifiedF32Bits) {
   EXPECT_EQ(bits, 1062243009u);
   EXPECT_FLOAT_EQ(std::stof(scalars.at("llama.model.attention_scale").first),
                   0.08838834764831845f);
+}
+TEST(ConfigurationFactsTest, LlamaBindingsSelectFormatsTyingAndOptionalRotaryData) {
+  for (const auto &m : {testing::LlamaModelFacts(), testing::LlamaPlainModelFacts()}) {
+    ConfigurationFacts facts;
+    std::string error;
+    ASSERT_TRUE(DeriveConfiguration(m, "fixture", {8, 256}, &facts, &error)) << error;
+    const auto scalars = Scalars(facts.source);
+    const bool plain = !m.output_tied_to_embedding;
+    EXPECT_EQ(scalars.at("llama.model.embedding_storage_type").first, plain ? "12" : "14");
+    EXPECT_EQ(scalars.at("llama.model.tie_word_embeddings").first, plain ? "0" : "1");
+    EXPECT_EQ(scalars.at("llama.model.has_rope_frequencies").first, plain ? "0" : "1");
+    EXPECT_FLOAT_EQ(std::stof(scalars.at("llama.model.rotary_step").first),
+                    float(std::pow(m.rope.base, -2.0 / 128.0)));
+    size_t factor_count = 0;
+    for (const auto &p : facts.parameters) {
+      if (p.role == "rope_frequencies") ++factor_count;
+      if (p.role == "output") {
+        EXPECT_EQ(p.tensor.name, plain ? "output.weight" : "token_embd.weight");
+        EXPECT_EQ(p.tensor.storage_type, 14u);
+      }
+    }
+    EXPECT_EQ(factor_count, plain ? 0u : 1u);
+    EXPECT_EQ(facts.parameters.size(), plain ? 219u : 256u);
+  }
+}
+TEST(ConfigurationFactsTest, LlamaMalformedOptionalRotaryOrOutputBindingPreservesOutput) {
+  using Mutation = std::function<void(model::ModelDescriptor &)>;
+  const std::vector<Mutation> mutations = {
+      [](auto &m) { m.globals.push_back(m.globals[2]); },
+      [](auto &m) { m.globals[2].tensor.storage_type = 14; },
+      [](auto &m) { m.globals[2].tensor.name = "wrong.factors"; },
+      [](auto &m) { m.globals[2].tensor.normalized_extents[0] = 63; },
+      [](auto &m) { m.globals[2].tensor.byte_size++; },
+      [](auto &m) { m.globals[0].tensor.storage_type = 999; },
+      [](auto &m) { m.output_tied_to_embedding = false; },
+  };
+  for (const auto &change : mutations) {
+    auto m = testing::LlamaModelFacts();
+    change(m);
+    ConfigurationFacts facts;
+    facts.source = "prior";
+    std::string error;
+    EXPECT_FALSE(DeriveConfiguration(m, "fixture", {}, &facts, &error));
+    EXPECT_EQ(facts.source, "prior");
+    EXPECT_FALSE(error.empty());
+  }
+  auto m = testing::LlamaPlainModelFacts();
+  m.output_tied_to_embedding = true;
+  ConfigurationFacts facts;
+  std::string error;
+  EXPECT_FALSE(DeriveConfiguration(m, "fixture", {}, &facts, &error));
 }
 TEST(ConfigurationFactsTest, Qwen27UsesActualFormatsBindingsAnd64LayerLookups) {
   const auto model = testing::QwenModelFacts(true);
@@ -665,6 +717,11 @@ TEST_F(ConfigurationNativeTest, ChangedGgufDimensionsAndFormatsReachSourceAndByt
   for (bool bytecode : {false, true})
     CheckLookupTuples(context, workspace, descriptor, false, bytecode);
 }
+TEST_F(ConfigurationNativeTest, PlainLlamaMixedLayerLookupsRoundTrip) {
+  for (bool bytecode : {false, true})
+    CheckLookupTuples(context, workspace, testing::LlamaPlainModelFacts(), true,
+                      bytecode);
+}
 // Resolve and fold real config consumers through the public native linker. The
 // bitcast keeps exact F32 rounding observable after a source/bytecode roundtrip.
 TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
@@ -765,6 +822,47 @@ TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
   }
 }
 #ifdef LOOMIFY_CONFIGURATION_REAL_ASSETS
+TEST_F(ConfigurationNativeTest, HyperclovaxHeaderPreservesEveryRangeAndMixedTuple) {
+  const char *path = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");
+  ASSERT_NE(path, nullptr);
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
+  ASSERT_TRUE(file);
+  ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
+  model::GgufCatalog catalog;
+  model::ModelDescriptor m;
+  std::string error;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &m, &error)) << error;
+  EXPECT_EQ(m.family, "llama");
+  EXPECT_EQ(m.layers.size(), 24u);
+  EXPECT_EQ(m.embedding_width, 2048u);
+  EXPECT_EQ(m.vocabulary_size, 110592u);
+  EXPECT_FALSE(m.output_tied_to_embedding);
+  ConfigurationFacts facts;
+  ASSERT_TRUE(DeriveConfiguration(m, path, {8, 256}, &facts, &error)) << error;
+  EXPECT_EQ(facts.parameters.size(), 219u);
+  for (const auto &p : facts.parameters) {
+    const auto *source = model::FindTensor(catalog, p.tensor.name);
+    ASSERT_NE(source, nullptr);
+    EXPECT_EQ(p.tensor.absolute_offset, source->absolute_offset);
+    EXPECT_EQ(p.tensor.byte_size, source->byte_size);
+    EXPECT_EQ(p.tensor.storage_type, source->storage_type);
+    EXPECT_EQ(p.tensor.normalized_extents, source->normalized_extents);
+    EXPECT_NE(p.role, "rope_frequencies");
+  }
+  const auto expected = testing::LlamaPlainModelFacts();
+  for (size_t i = 0; i < m.layers.size(); ++i)
+    for (const auto &binding : m.layers[i].tensors) {
+      const auto &tensors = expected.layers[i].tensors;
+      auto found = std::find_if(tensors.begin(), tensors.end(), [&](const auto &b) {
+        return b.role == binding.role;
+      });
+      ASSERT_NE(found, tensors.end());
+      EXPECT_EQ(binding.tensor.storage_type, found->tensor.storage_type) << i << binding.role;
+    }
+  for (bool bytecode : {false, true})
+    CheckLookupTuples(context, workspace, m, true, bytecode);
+}
 TEST_F(ConfigurationNativeTest, RealHeadersPreserveEveryNamedRangeAndTuple) {
   for (bool llama : {true, false}) {
     const char *path =

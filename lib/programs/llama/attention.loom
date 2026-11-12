@@ -8,6 +8,7 @@ config.decl @llama.model.hidden_size : index
 config.decl @llama.model.kv_size : index
 config.decl @llama.attention.cache_base : offset
 config.decl @llama.attention.map_origin : offset
+config.decl @llama.model.has_rope_frequencies : index
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
 
 
@@ -15,6 +16,7 @@ kernel.decl @llama32_rotary_query(%token_capacity0: index) launch(%control_kind:
 kernel.decl @llama32_publish_kv(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
 kernel.decl @llama32_attention_rows(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
 kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
+kernel.decl @llama32_unit_rope_factors() launch(%factors: buffer)
 
 command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @llama.model.hidden_size : index
@@ -26,9 +28,22 @@ command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index,
   %k_weight = command.parameter %parameters, "blk.{}.attn_k.weight"[%layer] : view<[%k_bytes]xi8>
   %v_weight = command.parameter %parameters, "blk.{}.attn_v.weight"[%layer] : view<[%v_bytes]xi8>
   %o_weight = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%o_bytes]xi8>
-  %factors = command.parameter %parameters, "rope_freqs.weight" : view<64xf32>
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
+  %has_factors = config.get @llama.model.has_rope_frequencies : index
+  %from_tensor = index.cmp ne, %has_factors, %zero : index
+  %factors = scf.if %from_tensor -> (view<64xf32>) {
+    %checkpoint = command.parameter %parameters, "rope_freqs.weight" : view<64xf32>
+    scf.yield %checkpoint : view<64xf32>
+  } else {
+    // The portable command schedule owns device scratch; global.load is a
+    // host-VM operation. Initialize the ordinary-RoPE identity in device memory.
+    %factor_bytes = index.constant 256 : offset
+    %unit_buffer = buffer.alloca<global> align(256) %factor_bytes : buffer
+    kernel.launch @llama32_unit_rope_factors[](%unit_buffer) : [](buffer)
+    %units = buffer.view %unit_buffer[%origin] : buffer -> view<64xf32>
+    scf.yield %units : view<64xf32>
+  }
   %dynamic = scalar.constant -1 : i32
   %four = index.constant 4 : offset
   %block = index.constant 128 : index

@@ -160,7 +160,7 @@ iree_c_embed_data(
     srcs = ["//lib/text/llama:templates/5816fce1.jinja",
             "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
             "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja",
-            "//lib/text/qwen25:templates/cd8e9439.jinja"],
+            "//lib/text/qwen25:templates/cd8e9439.jinja", "//lib/text/plain_chatml:templates/58c1a1f0.jinja"],
     c_file_output = "chat_templates.c", h_file_output = "chat_templates.h",
     identifier = "chat_templates", flatten = True,
 )
@@ -179,7 +179,7 @@ cc_test(
     data = ["//lib/text/llama:templates/5816fce1.jinja",
             "//lib/text/qwen35:templates/7f0e5290.jinja", "//lib/text/qwen35:templates/c3cf9e34.jinja",
             "//lib/text/gemma:templates/7de1c58e.jinja", "//lib/text/qwen3:templates/5da44855.jinja",
-            "//lib/text/qwen25:templates/cd8e9439.jinja"],
+            "//lib/text/qwen25:templates/cd8e9439.jinja", "//lib/text/plain_chatml:templates/58c1a1f0.jinja"],
     deps = [":chat_policy", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 

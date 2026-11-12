@@ -10,6 +10,7 @@ filegroup(
 )
 exports_files(glob(["*.loom"]))
 filegroup(name = "core_sources", srcs = ["admission.loom", "input.loom", "output.loom", "mapping.loom"])
+loom_merge(name = "plain", srcs = ["admission.loom", "input.loom", "mapping.loom", "plain_policy.loom", "plain_output.loom"])
 filegroup(name = "shared_sources", srcs = [":core_sources", "tools.loom", "tool_output.loom", "legacy_policy.loom"])
 loom_merge(name = "inline_history", srcs = [":shared_sources", "inline_history.loom"])
 loom_merge(name = "explicit_reasoning", srcs = [":shared_sources", "explicit_reasoning.loom"])

@@ -7,6 +7,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom", "ordinary_control.loom", "ordinary_prepare.loom"])
 loom_merge(name = "greedy", srcs = ["greedy.loom", "request_check.loom"])
 _PRODUCTS = {
+    "//lib/text/protocols/chatml_thinking:plain": "kChatmlPlain",
     "//lib/architectures/qwen2:implementation": "kQwen2Implementation",
     "//lib/architectures/qwen2:prepare_library": "kQwen2Preparation",
     "//lib/architectures/qwen2:execution": "kQwen2Execution",
