@@ -232,6 +232,7 @@ class Runner:
     def preflight(self):
         if platform.system() != 'Linux' or platform.machine() != 'x86_64':
             raise Failure('Local CI requires Linux x86-64')
+        self.command(['bash', self.root / 'build_tools/format.sh', '--check'], cwd=self.root)
         for tool in ('bash', 'git', 'python3', 'docker', 'curl', 'tar', 'timeout', 'realpath', 'sha256sum'):
             if not shutil.which(tool):
                 raise Failure(f'Missing prerequisite: {tool}')

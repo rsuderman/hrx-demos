@@ -1,0 +1,43 @@
+# Copyright 2026 The HRX Authors
+# SPDX-License-Identifier: MIT
+name: Formatting
+
+on:
+  pull_request:
+  push:
+    branches: [main, main-staging, loomify-main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install pinned formatters
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset PYTHONPATH PYTHONHOME
+          export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+          source build_tools/format-tools.env
+          tool_dir="$RUNNER_TEMP/format-tools"
+          python3 -m venv "$tool_dir"
+          "$tool_dir/bin/python" -m pip install "black==$BLACK_VERSION" "clang-format==$CLANG_FORMAT_VERSION"
+          curl --fail --location --silent --show-error \
+            "https://github.com/bazel-contrib/buildtools/releases/download/v$BUILDIFIER_VERSION/buildifier-linux-amd64" \
+            --output "$tool_dir/bin/buildifier"
+          echo "$BUILDIFIER_LINUX_AMD64_SHA256  $tool_dir/bin/buildifier" | sha256sum --check --status
+          chmod +x "$tool_dir/bin/buildifier"
+          echo "$tool_dir/bin" >> "$GITHUB_PATH"
+      - name: Check formatting
+        shell: bash
+        env:
+          PYTHONNOUSERSITE: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: ""
+          PYTHONHOME: ""
+        run: bash build_tools/format.sh --check

@@ -8,6 +8,60 @@ generic Loom runtime tests remain in HRX. Model weights are external inputs.
 The commands below describe the current layout. The cleanup specification is
 [`docs/specs/build-tools-cleanup.md`](../docs/specs/build-tools-cleanup.md).
 
+## Formatting
+
+Before handoff or commit, install the pinned developer tools in a new external
+directory, add their executables to `PATH`, then run:
+
+```bash
+bash build_tools/format.sh --fix
+bash build_tools/format.sh --check
+```
+
+With no option the command checks only. Both modes require the versions in
+`build_tools/format-tools.env`; they never download tools. Formatting is also
+checked by the lightweight GitHub workflow and local CI before source capture.
+The tools are not dependencies of the installed wheel. Setup on Linux x86-64:
+
+```bash
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+source build_tools/format-tools.env
+format_tools="${CODEX_PROJECT_WORKSPACES:-$HOME/codex/project-workspaces}/hrx-solutions/tools/formatting"
+python3 -m venv "$format_tools"
+"$format_tools/bin/python" -m pip install "black==$BLACK_VERSION" "clang-format==$CLANG_FORMAT_VERSION"
+curl --fail --location --silent --show-error \
+  "https://github.com/bazel-contrib/buildtools/releases/download/v$BUILDIFIER_VERSION/buildifier-linux-amd64" \
+  --output "$format_tools/bin/buildifier"
+echo "$BUILDIFIER_LINUX_AMD64_SHA256  $format_tools/bin/buildifier" | sha256sum --check --status
+chmod +x "$format_tools/bin/buildifier"
+export PATH="$format_tools/bin:$PATH"
+```
+
+Python 3.10 or newer runs the tools; Black preserves the project's Python 3.9
+target. Clang-format uses the LLVM-based root configuration with include sorting
+disabled. Buildifier formatting does not enable lint fixes. Its `listsort` and
+`label` rewrites are disabled with separate repeated flags so custom Loom merge
+rules retain source order and literal label spellings. The command formats
+tracked Bazel/Starlark, C/C++ (including `.cxx`), and Python files. It skips
+symlinks, deleted/untracked files, build/vendor trees, and unsupported types such
+as `.loom`, Jinja, JSON, and TypeScript. Tracked candidates resolving outside the
+checkout are rejected before modification.
+
+Two Python preparers are intentionally excluded because their exact bytes are
+trusted by operation descriptors and release catalogs:
+
+- `loom-pipeline/recognition/moonshine/preparer/prepare_assets.py`
+- `loom-pipeline/speech/pocket_tts/preparer/prepare_assets.py`
+
+Keep the initial bulk formatting separate from functional or tooling commits.
+After that formatting commit exists, record its final full hash in
+`.git-blame-ignore-revs` in a following bookkeeping commit. To use the tracked
+list locally, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`, or use
+`git blame --ignore-revs-file .git-blame-ignore-revs PATH`. Clones do not inherit
+the local Git setting. Preserve the formatting commit at integration, or update
+the tracked hash if history changes.
+
 ## Choose a gate
 
 | Need | Command | Coverage and owning implementation |
@@ -41,7 +95,7 @@ can be invoked by absolute path from another directory. Relative wheel, model,
 and output arguments resolve from the caller's directory. Examples here assume
 the repository root. Use external absolute directories for validation state.
 
-- **Local CI:** Linux x86-64; Bash, Git, Python 3 with venv/pip, Docker daemon,
+- **Local CI:** Linux x86-64; the pinned formatting tools above; Bash, Git, Python 3 with venv/pip, Docker daemon,
   curl, tar, timeout, realpath, and sha256sum. Full mode also needs accessible
   `/dev/kfd` and a render node, the supported AMD backend, and model inputs.
   It captures source inputs into a private snapshot and runs checks there.

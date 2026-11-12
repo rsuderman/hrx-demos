@@ -15,6 +15,11 @@ and reviewing the resulting wheel build.
 
 ## Verification
 
+Before handoff or commit, run `bash build_tools/format.sh --fix` and require
+`bash build_tools/format.sh --check` to pass. Setup and supported file types are
+documented in `build_tools/README.md`. Keep bulk formatting in its own commit
+and record that commit in `.git-blame-ignore-revs`.
+
 Before creating a commit on `main` or landing a commit there, run
 `bash build_tools/local-ci.sh` against the final intended source tree and require
 exit 0. Use the default full GPU/Pi run; CPU-only qualifies only when the user

@@ -177,6 +177,15 @@ class RunnerTest(unittest.TestCase):
         self.assertIn('/dev/kfd', runner.summary['failure']['message'])
         self.assertFalse(runner.snapshot.exists())
 
+    def test_format_failure_stops_before_capture_and_docker(self):
+        runner = self.runner()
+        with mock.patch.object(runner, 'command', side_effect=local_ci.Failure('format drift')) as command:
+            self.assertEqual(runner.execute(), 1)
+        command.assert_called_once_with(
+            ['bash', runner.root / 'build_tools/format.sh', '--check'], cwd=runner.root)
+        self.assertEqual(runner.summary['failure']['stage'], 'preflight')
+        self.assertFalse(runner.snapshot.exists())
+
     def test_exact_wheel_and_pi_propagation(self):
         runner = self.runner('--model08', str(self.base / 'model'))
         wheelhouse = runner.snapshot / 'build/wheel/wheelhouse'

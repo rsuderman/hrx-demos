@@ -1,5 +1,6 @@
 """Acceptance must reject broken metadata/requests and omitted CI wiring."""
 import argparse
+import ast
 import json
 from pathlib import Path
 import tempfile
@@ -141,7 +142,8 @@ class DeliveryWiringTest(unittest.TestCase):
         self.assertNotIn('from build_tools.integrations.opencode.opencode_configuration_smoke import qualify', helper)
         shell = (source / 'build_tools/model-smoke.sh').read_text()
         self.assertNotIn("for name in ('pi', 'opencode', 'omp'):", shell)
-        supervisor = (source / 'build_tools/validation/model_smoke.py').read_text()
+        # Test the wiring syntax independently of source quotes and wrapping.
+        supervisor = ast.unparse(ast.parse((source / 'build_tools/validation/model_smoke.py').read_text()))
         self.assertNotIn("for name in ('pi', 'opencode', 'omp'):", supervisor)
         self.assertIn("else ['--profile', 'ci08']", supervisor)
         self.assertIn('*model, *qualification], helper=True)', supervisor)
