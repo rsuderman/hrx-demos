@@ -24,6 +24,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <set>
 #include <string>
@@ -125,15 +127,17 @@ class QwenModelTest : public ::testing::Test {
     loomc_linker_t *linker = nullptr;
     EXPECT_TRUE(Ok(loomc_linker_create(context, nullptr, loomc_allocator_system(), &linker)));
     auto targets = Load(root + "/lib/platforms/amdgpu/gfx11/targets.loombc");
+    auto schedule = Load(root + "/lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc");
     loomc_link_module_provider_t providers[] = {
         {config, loomc_make_cstring_view("configuration"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {implementation, loomc_make_cstring_view("implementation"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
-        {targets.get(), loomc_make_cstring_view("platform"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
+        {targets.get(), loomc_make_cstring_view("platform"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
+        {schedule.get(), loomc_make_cstring_view("attention schedule"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
     const auto symbol = loomc_make_cstring_view("generated.qwen_epoch");
     loomc_link_options_t options{};
     options.mode = LOOMC_LINK_MODE_LINK;
     options.module_providers = providers;
-    options.module_provider_count = 3;
+    options.module_provider_count = 4;
     options.root_symbols = &symbol;
     options.root_symbol_count = 1;
     options.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
@@ -569,7 +573,7 @@ TEST_F(QwenModelTest, ChangedGgufFactsReachTheNormalConstructor) {
       // The product path used by the public builder must actually materialize
       // operation predicates; plain LINK alone is insufficient admission.
       loomc_module_t *raw = nullptr;
-      ASSERT_TRUE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
+      ASSERT_TRUE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc", root + "/lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc"},
           {"generated.qwen_epoch"}, true, &raw, &error)) << error;
       Module constructed(raw, loomc_module_release);
       ASSERT_TRUE(constructed);
@@ -589,7 +593,7 @@ TEST_F(QwenModelTest, UnsupportedQueryEncodingFailsBeforeNumericalPublication) {
                                   &configuration, &error)) << error;
   for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
     loomc_module_t *raw = nullptr;
-    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
+    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc", root + "/lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc"},
         {"generated.qwen_epoch"}, true, &raw, &error));
     EXPECT_EQ(raw, nullptr);
     EXPECT_FALSE(error.empty());
@@ -609,11 +613,71 @@ TEST_F(QwenModelTest, UnsupportedConvolutionKeyHeadCountFailsBeforePublication) 
                                prefix + "8 : index");
   for (const char *name : {"implementation_text.loom", "implementation.loombc"}) {
     loomc_module_t *raw = nullptr;
-    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
+    EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source, {root + "/lib/architectures/qwen35/" + name, root + "/lib/platforms/amdgpu/gfx11/targets.loombc", root + "/lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc"},
         {"generated.qwen_epoch"}, true, &raw, &error));
     EXPECT_EQ(raw, nullptr);
     EXPECT_FALSE(error.empty());
   }
+}
+TEST_F(QwenModelTest, SeparatePlatformScheduleMaterializesAcrossModules) {
+  ConfigurationFacts configuration;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "immutable-gguf", {3, 65}, &configuration, &error)) << error;
+  ASSERT_NE(std::getenv("TEST_TMPDIR"), nullptr);
+  const std::string temporary = std::getenv("TEST_TMPDIR");
+  const auto bytecode = root + "/lib/architectures/qwen35/implementation.loombc";
+  auto implementation = Load(bytecode);
+  const auto source = temporary + "/schedule_free.loom";
+  loomc_module_serialize_options_t serialization{};
+  serialization.format = LOOMC_SOURCE_FORMAT_TEXT;
+  ASSERT_TRUE(Ok(loomc_module_serialize_to_path(implementation.get(), &serialization,
+      loomc_make_cstring_view(source.c_str()), loomc_allocator_system())));
+  for (const auto &input : {source, bytecode}) {
+    loomc_module_t *raw = nullptr;
+    ASSERT_TRUE(LinkConfiguredProducts(context, workspace, configuration.source,
+        {input, root + "/lib/platforms/amdgpu/gfx11/targets.loombc",
+         root + "/lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc"},
+        {"generated.qwen_epoch"}, true, &raw, &error)) << error;
+    Module module(raw, loomc_module_release);
+    for (const auto format : {LOOMC_SOURCE_FORMAT_TEXT, LOOMC_SOURCE_FORMAT_BYTECODE}) {
+      serialization.format = format;
+      const auto path = temporary + (format == LOOMC_SOURCE_FORMAT_TEXT ? "/separate_schedule.loom" : "/separate_schedule.loombc");
+      ASSERT_TRUE(Ok(loomc_module_serialize_to_path(module.get(), &serialization,
+          loomc_make_cstring_view(path.c_str()), loomc_allocator_system())));
+      auto reloaded = Load(path);
+      Compile(reloaded.get());
+    }
+  }
+}
+TEST_F(QwenModelTest, ExcludingPlatformSchedulePredicateFailsMaterialization) {
+  ConfigurationFacts configuration;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "immutable-gguf", {3, 65}, &configuration, &error)) << error;
+  std::ifstream input(root + "/lib/platforms/amdgpu/gfx11/attention_h256_schedule.loom");
+  ASSERT_TRUE(input);
+  std::string schedule((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  const std::string predicate = "where [eq(%c256, 256)]";
+  const auto position = schedule.find(predicate);
+  ASSERT_NE(position, std::string::npos);
+  ASSERT_EQ(schedule.find(predicate, position + predicate.size()), std::string::npos);
+  schedule.replace(position, predicate.size(), "where [eq(%c256, 257)]");
+  ASSERT_NE(std::getenv("TEST_TMPDIR"), nullptr);
+  const auto path = std::string(std::getenv("TEST_TMPDIR")) + "/excluding_schedule.loom";
+  {
+    std::ofstream output(path);
+    ASSERT_TRUE(output);
+    output << schedule;
+    output.close();
+    ASSERT_TRUE(output);
+  }
+  loomc_module_t *raw = nullptr;
+  EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source,
+      {root + "/lib/architectures/qwen35/implementation.loombc",
+       root + "/lib/platforms/amdgpu/gfx11/targets.loombc", path},
+      {"generated.qwen_epoch"}, true, &raw, &error));
+  Module module(raw, loomc_module_release);
+  EXPECT_FALSE(module);
+  EXPECT_NE(error.find("llm.attention.prefill_wmma_h256"), std::string::npos) << error;
 }
 TEST_F(QwenModelTest, MissingPlatformScheduleFailsFinalMaterialization) {
   ConfigurationFacts configuration;
@@ -621,7 +685,7 @@ TEST_F(QwenModelTest, MissingPlatformScheduleFailsFinalMaterialization) {
   ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "immutable-gguf", {}, &configuration, &error)) << error;
   loomc_module_t* raw = nullptr;
   EXPECT_FALSE(LinkConfiguredProducts(context, workspace, configuration.source,
-      {root + "/lib/architectures/qwen35/incomplete_schedule_fixture.loombc",
+      {root + "/lib/architectures/qwen35/implementation.loombc",
        root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
       {"generated.qwen_epoch"}, true, &raw, &error));
   Module module(raw, loomc_module_release);

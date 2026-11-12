@@ -12,7 +12,7 @@ cc_test(
     srcs = ["model_test.cc"],
     copts = ["-std=c++17"],
     linkstatic = True,
-    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/architectures/qwen35:incomplete_schedule_fixture"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation", "//lib/platforms/amdgpu/gfx11:attention_h256_schedule.loom"],
     deps = [
         "//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture",
         "//tools/model:model_descriptor",
@@ -33,7 +33,7 @@ cc_test(
     linkstatic = True,
     defines = ["LOOMIFY_QWEN_REAL_GGUF"],
     tags = ["manual"],
-    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/architectures/qwen35:incomplete_schedule_fixture"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation", "//lib/platforms/amdgpu/gfx11:attention_h256_schedule.loom"],
     deps = [
         "//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture",
         "//tools/model:model_descriptor",
@@ -54,7 +54,7 @@ cc_test(
     linkstatic = True,
     defines = ["LOOMIFY_QWEN_REAL_GGUF", "LOOMIFY_QWEN_LARGE_GGUF"],
     tags = ["manual"],
-    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/architectures/qwen35:incomplete_schedule_fixture"],
+    data = ["//lib/architectures/qwen35:model.loom", "//lib/architectures/qwen35:implementation", "//lib/architectures/qwen35:implementation_text", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation", "//lib/platforms/amdgpu/gfx11:attention_h256_schedule.loom"],
     deps = [
         "//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture",
         "//tools/model:model_descriptor",
@@ -73,7 +73,7 @@ exports_files(["configured_block_roots.loom", "emit_block_validation.cc"])
 
 cc_binary(name = "emit_alternating_config", testonly = True, srcs = ["emit_alternating_config.cc"], copts = ["-std=c++17"], deps = ["//lib/loomify:configuration", "//lib/loomify:native_linking", "//lib/loomify:configuration_fixture", "//tools/model:model_descriptor"])
 genrule(name = "alternating_config", testonly = True, outs = ["alternating_config.loom"], tools = [":emit_alternating_config"], cmd = "$(location :emit_alternating_config) $@")
-loom_merge(name = "alternating_state_text", srcs = ["alternating_state_programs.loom", ":alternating_config", "//lib/architectures/qwen35:implementation"], output_format = "text", testonly = True)
+loom_merge(name = "alternating_state_text", srcs = ["alternating_state_programs.loom", ":alternating_config", "//lib/architectures/qwen35:implementation", "//lib/platforms/amdgpu/gfx11:attention_h256_schedule"], output_format = "text", testonly = True)
 loom_test(name = "alternating_state_text_test", srcs = ["alternating_state_checks.loom", ":alternating_state_text"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
-loom_merge(name = "alternating_state_bc", srcs = ["alternating_state_programs.loom", ":alternating_config", "//lib/architectures/qwen35:implementation"], output_format = "bc", testonly = True)
+loom_merge(name = "alternating_state_bc", srcs = ["alternating_state_programs.loom", ":alternating_config", "//lib/architectures/qwen35:implementation", "//lib/platforms/amdgpu/gfx11:attention_h256_schedule"], output_format = "bc", testonly = True)
 loom_test(name = "alternating_state_bc_test", srcs = ["alternating_state_checks.loom", ":alternating_state_bc"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])

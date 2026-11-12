@@ -64,7 +64,7 @@ exports_files(["layer_fixture.py", "run_layer_fixture.sh"])
 [genrule(
     name = "layer_" + encoding,
     testonly = True,
-    srcs = ["//lib/platforms/amdgpu/gfx11:targets.loom", "//lib/kernels/qwen/testing/common:ffn_facts.loom", "attention_" + encoding + "_programs.loom", "//lib/architectures/qwen35:numerical_sources"],
+    srcs = ["//lib/platforms/amdgpu/gfx11:targets.loom", "//lib/kernels/qwen/testing/common:ffn_facts.loom", "attention_" + encoding + "_programs.loom", "//lib/architectures/qwen35:numerical_sources", "//lib/platforms/amdgpu/gfx11:attention_h256_schedule"],
     outs = ["layer_" + encoding + ".loombc"],
     tools = ["@hrx_system//loom/src/loom/tools/loom-link"],
     cmd = "$(execpath @hrx_system//loom/src/loom/tools/loom-link) $(SRCS) --mode=link --require-resolved-config --root=@attention_layer --to=bc --output=$@",

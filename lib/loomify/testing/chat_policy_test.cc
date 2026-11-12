@@ -41,7 +41,7 @@ TEST(ChatPolicy, ExactThreeIdentitiesAndDefaults) {
     EXPECT_EQ(policy.preserved_baseline,i==0);
     EXPECT_EQ(policy.source_text, metadata.templates.front().text);
     EXPECT_FALSE(policy.configuration_source.empty());
-    EXPECT_EQ(policy.data_roots.size(), i==0 ? 1u : 6u);
+    EXPECT_EQ(policy.data_roots.size(), i==0 ? 2u : 6u);
     ASSERT_EQ(policy.roots.size(),20u);
     std::set<std::string> roots(policy.roots.begin(),policy.roots.end());
     EXPECT_EQ(roots.size(),20u); EXPECT_EQ(roots.count("render_tool"),1u);
@@ -201,7 +201,7 @@ TEST(ChatPolicy, EveryKnownProtocolKeepsOrderedDataRootsAndAtomicMarkers) {
       "loomify.text.default_effort", "loomify.text.default_effort_instruction"};
   const Case cases[] = {
       {"lib/text/llama/templates/5816fce1.jinja",
-       {"loomify.text.fallback_date"},
+       {"loomify.text.fallback_date", "loomify.text.system_preamble"},
        {"<|begin_of_text|>", "<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>"}},
       {"lib/text/qwen35/templates/7f0e5290.jinja", chatml_roots,
        {"<|im_start|>", "<|im_end|>"}},
@@ -249,11 +249,75 @@ TEST(ChatPolicy, QuotedDataKeepsDecodedBytesAndExactSizeBoundary) {
     ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
     EXPECT_EQ(policy.configuration_source,
               "global.rodata.def public @loomify.text.fallback_date = bytes(\"" +
-                  Hex(test.second) + "\")\n");
+                  Hex(test.second) + "\")\n" +
+                  "global.rodata.def public @loomify.text.system_preamble = bytes(\"" +
+                  Hex("Cutting Knowledge Date: December 2023\nToday Date: ") + "\")\n");
     metadata.templates = {Candidate(Replace(original, "26 Jul 2024", std::string(65537, 'x')))};
     const auto prior = policy.configuration_source;
     EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
     EXPECT_EQ(policy.configuration_source, prior);
+  }
+}
+TEST(ChatPolicy, LlamaSystemPreambleComesFromBothSourceLiterals) {
+  const auto original = Source("lib/text/llama/templates/5816fce1.jinja");
+  struct Case {
+    std::string cutoff_source, label_source, preamble;
+  };
+  const Case cases[] = {
+      {R"(Cutting Knowledge Date: December 2023\n)", "Today Date: ",
+       "Cutting Knowledge Date: December 2023\nToday Date: "},
+      {R"(Knowledge snapshot: May 2025\n)", "Today Date: ",
+       "Knowledge snapshot: May 2025\nToday Date: "},
+      {R"(Cutting Knowledge Date: December 2023\n)", u8"Current date café: ",
+       u8"Cutting Knowledge Date: December 2023\nCurrent date café: "},
+      {R"(Knowledge snapshot:\tMay 2025\n)", u8"Current date café: ",
+       u8"Knowledge snapshot:\tMay 2025\nCurrent date café: "},
+      {"", "", ""},
+  };
+  for (const auto& test : cases) {
+    auto source = Replace(original, R"(Cutting Knowledge Date: December 2023\n)",
+                          test.cutoff_source);
+    source = Replace(source, "Today Date: ", test.label_source);
+    source = Replace(source, "26 Jul 2024", "10 Nov 2026");
+    model::TextMetadata metadata;
+    metadata.templates = {Candidate(source)};
+    ChatPolicySelection policy;
+    std::string error;
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+    EXPECT_EQ(policy.source_text, source);
+    EXPECT_EQ(policy.configuration_source,
+              "global.rodata.def public @loomify.text.fallback_date = bytes(\"" +
+                  Hex("10 Nov 2026") + "\")\n" +
+                  "global.rodata.def public @loomify.text.system_preamble = bytes(\"" +
+                  Hex(test.preamble) + "\")\n");
+    EXPECT_EQ(policy.skeleton_sha256,
+              "5816fce10444e03c2e9ee1ef8a4a1ea61ae7e69e438613f3b17b69d0426223a4");
+  }
+}
+TEST(ChatPolicy, LlamaPreambleStillRejectsTagsEscapesAndStructuralChanges) {
+  const auto original = Source("lib/text/llama/templates/5816fce1.jinja");
+  const std::pair<std::string, std::string> changes[] = {
+      {"December 2023", "<|eot_id|>"},
+      {"Today Date: ", "<new_tag>"},
+      {"Today Date: ", R"(bad\u000a)"},
+      {"Today Date: ", std::string(65537, 'x')},
+      {"December 2023", std::string("bad ") + char(0xc0) + char(0xaf)},
+      {R"("Today Date: ")", "'Today Date: '"},
+      {" + date_string + ", " + unsupported_variable + "},
+  };
+  model::TextMetadata metadata;
+  metadata.templates = {Candidate(original)};
+  ChatPolicySelection policy;
+  std::string error;
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  const auto prior = policy.configuration_source;
+  for (const auto& change : changes) {
+    SCOPED_TRACE(change.first);
+    metadata.templates = {Candidate(Replace(original, change.first, change.second))};
+    EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+    EXPECT_EQ(policy.configuration_source, prior);
+    EXPECT_EQ(policy.source_text, original);
+    EXPECT_FALSE(error.empty());
   }
 }
 } // namespace

@@ -23,7 +23,8 @@ const ArchitectureFiles *SelectArchitecture(std::string_view family) {
        resources::kQwenPreparation,
        resources::kQwenExecution,
        resources::kWeights,
-       "loomify-qwen35", {"generated.qwen_epoch"}}};
+       "loomify-qwen35", {"generated.qwen_epoch"},
+       {RequiredOperation::kAttentionPrefillH256V1}}};
   for (const auto &entry : entries)
     if (family == entry.family) return &entry;
   return nullptr;

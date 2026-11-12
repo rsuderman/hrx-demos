@@ -17,7 +17,8 @@ func.decl @loomify.request.check(%condition: i1)
 global.rodata.def @llama_text.empty = bytes("")
 global.rodata.def @llama_text.empty_array = bytes("5b5d")
 global.rodata.def @llama_text.bos = bytes("3c7c626567696e5f6f665f746578747c3e")
-global.rodata.def @llama_text.system_prefix = bytes("3c7c73746172745f6865616465725f69647c3e73797374656d3c7c656e645f6865616465725f69647c3e0a0a43757474696e67204b6e6f776c6564676520446174653a20446563656d62657220323032330a546f64617920446174653a20")
+global.rodata.def @llama_text.system_header = bytes("3c7c73746172745f6865616465725f69647c3e73797374656d3c7c656e645f6865616465725f69647c3e0a0a")
+global.rodata.decl @loomify.text.system_preamble
 global.rodata.decl @loomify.text.fallback_date
 global.rodata.def @llama_text.date_key = bytes("646174655f737472696e67")
 global.rodata.def @llama_text.double_newline = bytes("0a0a")
@@ -121,10 +122,11 @@ func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
   func.call @llama_text.empty_tools(%tools) : (buffer) -> ()
   %date = func.call @llama_text.date_value(%request) : (buffer) -> (buffer)
   %bos = global.load @llama_text.bos : buffer
-  %system = global.load @llama_text.system_prefix : buffer
+  %system = global.load @llama_text.system_header : buffer
+  %preamble = global.load @loomify.text.system_preamble : buffer
   %newline = global.load @llama_text.double_newline : buffer
   %empty = global.load @llama_text.empty : buffer
-  %result = func.call @text.join8(%bos, %system, %date, %newline, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  %result = func.call @text.join8(%bos, %system, %preamble, %date, %newline, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
   // System header remains open until the first custom/default system closes.
   %state = scalar.constant 0 : i64
   func.return %result, %state : buffer, i64
@@ -248,10 +250,11 @@ func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64,
   %rendered = scf.if %user -> (buffer) {
     %prefix = scf.if %fresh -> (buffer) {
       %bos = global.load @llama_text.bos : buffer
-      %system = global.load @llama_text.system_prefix : buffer
+      %system = global.load @llama_text.system_header : buffer
+      %preamble = global.load @loomify.text.system_preamble : buffer
       %date = global.load @loomify.text.fallback_date : buffer
       %newline = global.load @llama_text.double_newline : buffer
-      %prefix = func.call @text.join8(%bos, %system, %date, %newline, %eot, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+      %prefix = func.call @text.join8(%bos, %system, %preamble, %date, %newline, %eot, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
       scf.yield %prefix : buffer
     } else { scf.yield %separator : buffer }
     %content = func.call @text.trim(%text) : (buffer) -> (buffer)

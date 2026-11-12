@@ -21,7 +21,6 @@ _NUMERICAL_SOURCES = [
         "//lib/kernels/attention:normalization.loom",
         "//lib/kernels/qwen/attention:attention_prefill.loom",
         "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
-        "//lib/platforms/amdgpu/gfx11:attention_h256_schedule",
         "//lib/kernels/qwen/attention:attention_spans.loom",
         "//lib/kernels/attention:core.loom",
         "//lib/kernels/qwen:output/interface.loom",
@@ -37,14 +36,6 @@ filegroup(name = "numerical_sources", srcs = _NUMERICAL_SOURCES)
 filegroup(name = "implementation_sources", srcs = ["model.loom", "epoch.loom", ":numerical_sources"])
 loom_merge(name = "implementation", srcs = [":implementation_sources"])
 loom_merge(name = "implementation_text", srcs = [":implementation_sources"], output_format = "text", testonly = True)
-# Deliberately incomplete authoring closure: the pure platform schedule is the
-# only omitted provider. This is a native final-materialization negative.
-loom_merge(
-    name = "incomplete_schedule_fixture", testonly = True,
-    srcs = ["model.loom", "epoch.loom"] + [source for source in _NUMERICAL_SOURCES if source != "//lib/platforms/amdgpu/gfx11:attention_h256_schedule"],
-)
-
-
 loom_merge(name = "prepare_library", srcs = ["prepare.loom"])
 cc_test(
     name = "prepare_test",
@@ -72,7 +63,7 @@ loom_merge(name = "block_fixture", srcs = [":implementation", "//lib/architectur
 cc_binary(
     name = "emit_block_validation", testonly = True,
     srcs = ["//lib/architectures/qwen35/testing:emit_block_validation.cc"], copts = ["-std=c++17"],
-    data = [":block_fixture", "//lib/platforms/amdgpu/gfx11:targets"],
+    data = [":block_fixture", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation"],
     deps = ["//lib/loomify:configuration", "//lib/loomify:native_linking", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c/target/amdgpu"],
 )
 

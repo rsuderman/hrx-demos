@@ -32,7 +32,7 @@ iree_cc_library(
 cc_test(
     name = "public_builder_test", size = "small", srcs = ["public_builder_test.cc"],
     copts = _CXXOPTS, linkstatic = True,
-    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation", "//lib/architectures/gemma3:implementation", "//lib/platforms/amdgpu/gfx11:targets"],
+    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation", "//lib/architectures/gemma3:implementation", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation"],
     deps = ["//lib/loomify:gguf_model_builder", "@googletest//:gtest_main",
             "@hrx_system//loom/binding/c/target/amdgpu"],
 )
@@ -99,6 +99,6 @@ cc_binary(
     testonly = True,
     srcs = ["emit_epoch_validation.cc"],
     copts = _CXXOPTS,
-    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation", "//lib/architectures/gemma3:implementation", "//lib/platforms/amdgpu/gfx11:targets"],
+    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation", "//lib/architectures/gemma3:implementation", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation"],
     deps = ["//lib/loomify:gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu"],
 )

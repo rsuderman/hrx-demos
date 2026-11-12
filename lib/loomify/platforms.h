@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 namespace hrx::loomify_gguf {
-enum class RequiredOperation { kScaledF16ProjectionV1 };
+enum class RequiredOperation { kScaledF16ProjectionV1, kAttentionPrefillH256V1 };
 struct OperationImplementation {
   RequiredOperation operation;
   const char* product;

@@ -147,6 +147,15 @@ TEST(PublicGgufBuilder, RealModulesNeedNoServeCompanionsAndOwnTheirLifetime) {
     const auto target_path = std::filesystem::path("lib/platforms/amdgpu/gfx11/targets.loombc");
     std::filesystem::create_directories((directory / target_path).parent_path());
     std::filesystem::copy_file(root / target_path, directory / target_path);
+    const auto schedule_path = std::filesystem::path("lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc");
+    EXPECT_FALSE(std::filesystem::exists(directory / schedule_path));
+    if (architecture == "qwen35") {
+      std::unique_ptr<BuiltGgufModule> missing_schedule;
+      EXPECT_FALSE(selected->BuildModule(context, workspace, &missing_schedule, &error));
+      EXPECT_FALSE(missing_schedule);
+      EXPECT_NE(error.find(schedule_path.string()), std::string::npos) << error;
+      std::filesystem::copy_file(root / schedule_path, directory / schedule_path);
+    }
     // This sparse root has only this family product and its chosen targets;
     // Llama/Gemma neither load Qwen schedule nor require its resource.
     if (architecture != "qwen35") {

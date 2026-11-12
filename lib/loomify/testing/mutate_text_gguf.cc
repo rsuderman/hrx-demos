@@ -43,6 +43,10 @@ int main(int argc, char** argv) {
     replaced = Replace(&changed, "reasoning_effort|default('xhigh')", "reasoning_effort|default('medium')");
   else if (kind == "llama-date")
     replaced = Replace(&changed, "26 Jul 2024", "10 Nov 2026");
+  else if (kind == "llama-prefix")
+    replaced = Replace(&changed, "Cutting Knowledge Date: December 2023\\n",
+                       "Knowledge snapshot: May 2025\\n") &&
+               Replace(&changed, "Today Date: ", u8"Current date café: ");
   else if (kind == "reject-branch")
     replaced = Replace(&changed, "if tools and tools is iterable", "if tools or tools is iterable");
   else if (kind == "reject-marker")

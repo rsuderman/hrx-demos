@@ -12,6 +12,10 @@ Match SelectLlamaHeaders(std::string_view actual, ChatPolicySelection *out) {
   std::vector<Slot> slots;
   Captures values;
   if (!AddSlot(expected, "date", anchor, anchor.size(), &slots) ||
+      !AddSlot(expected, "knowledge_cutoff",
+               "{{- \"Cutting Knowledge Date: ", 4, &slots) ||
+      !AddSlot(expected, "date_label", "{{- \"Today Date: \" + date_string", 4,
+               &slots) ||
       !Capture(expected, actual, std::move(slots), &values))
     return Match::NoMatch;
   ChatPolicySelection result;
@@ -27,6 +31,8 @@ Match SelectLlamaHeaders(std::string_view actual, ChatPolicySelection *out) {
                     {"<|end_header_id|>", true},
                     {"<|eot_id|>", true}};
   Datum(&result, "loomify.text.fallback_date", values.at("date"));
+  Datum(&result, "loomify.text.system_preamble",
+        values.at("knowledge_cutoff") + values.at("date_label"));
   *out = std::move(result);
   return Match::Matched;
 }
