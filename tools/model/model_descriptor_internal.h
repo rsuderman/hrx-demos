@@ -126,17 +126,7 @@ void BindFeedForward(const Loader &, const ModelDescriptor &,
 void BindAttention(const Loader &, const ModelDescriptor &, LayerDescriptor &,
                    uint64_t query_width);
 void BindHeadNorms(const Loader &, const ModelDescriptor &, LayerDescriptor &);
-void LoadLlama(const Loader &, ModelDescriptor &);
-void LoadQwen3(const Loader &, ModelDescriptor &);
-void LoadQwen2(const Loader &, ModelDescriptor &);
 void RejectHeadNorms(const Loader &, std::string_view architecture);
-void LoadGemma3(const Loader &, ModelDescriptor &);
-void LoadQwen35(const Loader &, ModelDescriptor &);
-const char *LlamaTensorSuffix(std::string_view role);
-const char *Qwen3TensorSuffix(std::string_view role);
-const char *Qwen2TensorSuffix(std::string_view role);
-const char *Gemma3TensorSuffix(std::string_view role);
-const char *Qwen35TensorSuffix(std::string_view role);
 const char *HeadNormTensorSuffix(std::string_view role);
 } // namespace hrx::model::internal
 #endif

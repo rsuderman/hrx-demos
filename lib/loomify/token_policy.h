@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef HRX_SOLUTIONS_LIB_LOOMIFY_TOKEN_POLICY_H_
 #define HRX_SOLUTIONS_LIB_LOOMIFY_TOKEN_POLICY_H_
+#include "lib/loomify/publication.h"
 #include <cstdio>
 #include <cstddef>
 #include <cstdint>
@@ -12,17 +13,6 @@
 #include <vector>
 namespace hrx::model { struct TextMetadata; }
 namespace hrx::loomify_gguf {
-struct TokenIdentity {
-  int32_t id = 0;
-  std::string piece;
-};
-// Source-only raw stop identities consumed by the numerical publication.
-// Qwen35 numerical construction has no tokenizer/EOS prerequisite.
-struct PublicationTokenFacts {
-  std::vector<TokenIdentity> raw_stops;
-  size_t terminal_index = 0;
-  std::string configuration_source;
-};
 // Finite requirements of the selected text protocol, not a numerical family.
 struct TextTokenRequirements {
   std::string tokenizer_model, pre_tokenizer;

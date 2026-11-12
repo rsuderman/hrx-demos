@@ -1,8 +1,13 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor_internal.h"
+#include "tools/model/architectures/llama.h"
 namespace hrx::model::internal {
-const char *LlamaTensorSuffix(std::string_view role) {
+namespace {
+const char *LlamaTensorSuffix(std::string_view role, bool is_layer) {
+  if (!is_layer)
+    return role == "rope_frequencies" ? "rope_freqs.weight" : nullptr;
+
   return role == "post_norm" ? "ffn_norm.weight" : nullptr;
 }
 void LoadLlama(const Loader &l, ModelDescriptor &m) {
@@ -23,4 +28,7 @@ void LoadLlama(const Loader &l, ModelDescriptor &m) {
   l.Bind(m, m.globals, "rope_frequencies", {m.rope.width / 2}, std::nullopt,
          true);
 }
+} // namespace
+const ModelArchitecture kLlamaArchitecture{
+    "llama", LoadLlama, LlamaTensorSuffix};
 } // namespace hrx::model::internal

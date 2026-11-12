@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
 package(default_visibility = ["//visibility:public"])
 exports_files(["model.loom", "epoch.loom", "prepare.loom", "control_core.loom"])
@@ -20,6 +21,21 @@ loom_merge(name = "implementation", srcs = _IMPLEMENTATION_SOURCES)
 loom_merge(name = "implementation_text", srcs = _IMPLEMENTATION_SOURCES,
            output_format = "text", testonly = True)
 loom_merge(name = "prepare_library", srcs = ["prepare.loom", "//lib/serving:ordinary_prepare.loom"])
+
+cc_test(
+    name = "prepare_test",
+    size = "small",
+    srcs = ["testing/prepare_test.cc"],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    data = ["prepare.loom", ":prepare_library", "//lib/serving:ordinary_prepare.loom"],
+    deps = [
+        "//lib/serving/testing:ordinary_prepare_harness",
+        "//lib/loomify/testing:qwen2_fixture",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
 loom_merge(name = "execution", srcs = ["control_core.loom", "//loom-pipeline:llm/common/fixed_epoch_abi.loom", "//lib/serving:ordinary_control.loom", "//lib/kernels/publication:two_stops.loom"])
 
 loom_merge(name = "layer_fixture", srcs = [":implementation", "testing/layer_roots.loom"], testonly = True)

@@ -3,10 +3,18 @@
 #ifndef HRX_SOLUTIONS_LIB_LOOMIFY_ARCHITECTURES_H_
 #define HRX_SOLUTIONS_LIB_LOOMIFY_ARCHITECTURES_H_
 #include "lib/loomify/platforms.h"
+#include "lib/loomify/configuration.h"
+#include "lib/loomify/publication.h"
+#include <cstdio>
 #include <string_view>
 #include <vector>
+namespace hrx::model { struct TextMetadata; }
 namespace hrx::loomify_gguf {
-// Private, finite BUILD-owned product selection. No numerical routing callbacks.
+using ConfigurationEmitter = bool (*)(const model::ModelDescriptor &,
+    const std::string &, const ConfigurationSettings &, ConfigurationFacts *, std::string *);
+using PublicationDeriver = bool (*)(FILE *, std::string_view,
+    const model::TextMetadata &, std::optional<PublicationTokenFacts> *, std::string *);
+// Private, finite BUILD-owned products and data-only architecture policy.
 struct ArchitectureFiles {
   const char *family;
   const char *implementation;
@@ -16,6 +24,9 @@ struct ArchitectureFiles {
   const char *package_name;
   std::vector<const char *> roots;
   std::vector<RequiredOperation> required_operations;
+  ConfigurationEmitter emit_configuration = nullptr;
+  PublicationDeriver derive_publication = nullptr;
+  uint64_t context_capacity_limit = 0;
 };
 const ArchitectureFiles *SelectArchitecture(std::string_view family);
 } // namespace hrx::loomify_gguf

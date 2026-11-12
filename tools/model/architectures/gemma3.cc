@@ -1,8 +1,12 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor_internal.h"
+#include "tools/model/architectures/gemma3.h"
 namespace hrx::model::internal {
-const char *Gemma3TensorSuffix(std::string_view role) {
+namespace {
+const char *Gemma3TensorSuffix(std::string_view role, bool is_layer) {
+  if (!is_layer) return nullptr;
+
   if (role == "attention_post_norm")
     return "post_attention_norm.weight";
   if (role == "ffn_norm")
@@ -34,4 +38,7 @@ void LoadGemma3(const Loader &l, ModelDescriptor &m) {
     BindHeadNorms(l, m, d);
   }
 }
+} // namespace
+const ModelArchitecture kGemma3Architecture{
+    "gemma3", LoadGemma3, Gemma3TensorSuffix};
 } // namespace hrx::model::internal

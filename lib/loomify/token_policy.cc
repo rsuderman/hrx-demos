@@ -1,6 +1,8 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/token_policy.h"
+#include "lib/loomify/architectures.h"
+#include "lib/loomify/publication_internal.h"
 #include "tools/model/text_metadata.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tokenizer/tokenizer.h"
@@ -14,21 +16,6 @@ namespace {
 bool Fail(std::string* error, std::string message) {
   if (error) *error = std::move(message);
   return false;
-}
-const model::DeclaredToken* Role(const model::TextMetadata& text,
-                                 std::string_view key) {
-  for (const auto& token : text.tokens)
-    if (token.source_key == key) return &token;
-  return nullptr;
-}
-bool Identity(const model::TextMetadata& text, const model::DeclaredToken& role,
-              TokenIdentity* out, std::string* error) {
-  auto piece = text.token_pieces.find(role.id);
-  if (role.id > static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) ||
-      piece == text.token_pieces.end() || piece->second.empty())
-    return Fail(error, "invalid token identity for " + role.source_key);
-  *out = {static_cast<int32_t>(role.id), piece->second};
-  return true;
 }
 std::string Hex(std::string_view bytes) {
   const char* digits = "0123456789abcdef";
@@ -62,62 +49,9 @@ bool DerivePublicationTokenFacts(FILE* file, std::string_view family,
     const model::TextMetadata& text, std::optional<PublicationTokenFacts>* out,
     std::string* error) {
   if (!out) return Fail(error, "publication token output is required");
-  if (family == "qwen35") {
-    *out = std::nullopt;
-    if (error) error->clear();
-    return true;
-  }
-  const bool gemma = family == "gemma3";
-  const bool qwen_chatml = family == "qwen2" || family == "qwen3";
-  if (!gemma && !qwen_chatml && family != "llama") return Fail(error, "unsupported publication token provider");
-  if (!file || !text.vocabulary) return Fail(error, "publication requires GGUF vocabulary");
-  PublicationTokenFacts facts;
-  std::vector<std::string> names;
-  if (qwen_chatml) {
-    names = {"<|endoftext|>", "<|im_end|>"};
-    facts.terminal_index = 1;
-  } else if (gemma) {
-    const auto* eos = Role(text, "tokenizer.ggml.eos_token_id");
-    TokenIdentity declared;
-    if (!eos || !Identity(text, *eos, &declared, error))
-      return Fail(error, "Gemma publication requires declared EOS identity");
-    names = {declared.piece, "<end_of_turn>"};
-    facts.terminal_index = 1;
-  } else {
-    names = {"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"};
-    facts.terminal_index = 2;
-  }
-  facts.raw_stops.resize(names.size());
-  std::vector<bool> present(names.size());
-  if (!model::VisitGgufStringArray(file, *text.vocabulary,
-      [&](uint64_t id, std::string_view piece, std::string* issue) {
-        for (size_t i = 0; i < names.size(); ++i) {
-          if (piece != names[i]) continue;
-          if (present[i] || id > static_cast<uint64_t>(std::numeric_limits<int32_t>::max()))
-            return Fail(issue, "invalid publication piece " + names[i]);
-          facts.raw_stops[i] = {static_cast<int32_t>(id), std::string(piece)};
-          present[i] = true;
-        }
-        return true;
-      }, error)) return false;
-  for (size_t i = 0; i < names.size(); ++i)
-    if (!present[i]) return Fail(error, "publication requires " + names[i]);
-  const auto* eos = Role(text, "tokenizer.ggml.eos_token_id");
-  const auto eos_index = gemma ? 0 : facts.terminal_index;
-  if (!eos || eos->id != static_cast<uint64_t>(facts.raw_stops[eos_index].id))
-    return Fail(error, "publication disagrees with declared EOS identity");
-  const std::vector<std::string> keys = qwen_chatml
-      ? std::vector<std::string>{"end_text_id", "end_turn_id"}
-      : gemma
-      ? std::vector<std::string>{"eos_id", "end_turn_id"}
-      : std::vector<std::string>{"end_text_id", "end_message_id", "end_turn_id"};
-  const std::string prefix(family);
-  for (size_t i = 0; i < keys.size(); ++i)
-    facts.configuration_source += "config.def @" + prefix + ".publication." + keys[i] +
-        " = " + std::to_string(facts.raw_stops[i].id) + " : i32\n";
-  *out = std::move(facts);
-  if (error) error->clear();
-  return true;
+  const auto *architecture = SelectArchitecture(family);
+  if (!architecture) return Fail(error, "unsupported publication token provider");
+  return architecture->derive_publication(file, architecture->family, text, out, error);
 }
 bool BindTokenPolicy(FILE* gguf, const TextTokenRequirements& requirements, const model::TextMetadata& text,
     const std::optional<PublicationTokenFacts>& publication,
@@ -153,7 +87,7 @@ bool BindTokenPolicy(FILE* gguf, const TextTokenRequirements& requirements, cons
   BoundTokenPolicy policy;
   for (const auto& role : text.tokens) {
     TokenIdentity identity;
-    if (Identity(text, role, &identity, nullptr))
+    if (internal::ReadTokenIdentity(text, role, &identity, nullptr))
       policy.roles.emplace(role.source_key, std::move(identity));
   }
   for (const auto& key : required_roles) {

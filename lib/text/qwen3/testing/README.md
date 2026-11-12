@@ -2,7 +2,8 @@
 
 `render_cases.json` contains 40 independent-template inputs: the original 35
 cases and five native transport counterparts. The shared
-`../../qwen35/testing/render_reference.py` driver evaluates the actual selected
+`../../testing/render_reference.py` driver, with this suite's explicit
+`reference_adapter.py` and `render_cases.json`, evaluates the actual selected
 GGUF template with pinned HF/Jinja helpers and tokenizer JSON. Expected bytes
 and token vectors are never captured from the Loom implementation.
 
@@ -18,7 +19,8 @@ schema. String argument spacing and Unicode remain significant; the verbatim
 case must not be parsed and reserialized. `template_case` links a counterpart
 to its original template-domain input.
 
-The SDK test in `../../qwen35/testing/render_test.cc` checks all 40 rows in both
+The local SDK suite in `revision_cases.cc` uses the neutral native transport
+harness and checks all 40 rows in both
 SOURCE and bytecode: five exact host-admission rejections, one expected template
 rejection, and 34 exact rendered-byte/raw-token/prepared-token comparisons.
 The newline-token mismatch remains a failing parity assertion. Optional null

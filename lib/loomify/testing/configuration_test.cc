@@ -4,6 +4,9 @@
 #include "loomc/link.h"
 #include "loomc/source.h"
 #include "lib/loomify/configuration.h"
+#include "lib/loomify/architectures.h"
+#include "lib/serving/library_resources.h"
+#include "lib/loomify/testing/qwen2_fixture.h"
 #include "lib/loomify/testing/configuration_fixture.h"
 #include "lib/loomify/testing/gemma3_fixture.h"
 #include "lib/loomify/testing/qwen3_fixture.h"
@@ -331,6 +334,56 @@ TEST(ConfigurationFactsTest, SharedEncodingSizeUsesQ8BlocksAndPreservesFailureOu
     EXPECT_EQ(bytes, 7u);
   }
   EXPECT_FALSE(model::EncodedTensorByteSize(8, UINT64_MAX - 31, UINT64_MAX, &bytes));
+}
+TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
+  struct Expected {
+    const char *family;
+    const char *root;
+    uint64_t limit;
+    std::vector<RequiredOperation> required_operations;
+    const char *implementation, *preparation, *execution;
+  };
+  for (const auto &expected : std::vector<Expected>{
+           {"llama", "generated.llama_epoch", 131072, {}, resources::kLlamaImplementation, resources::kLlamaPreparation, resources::kLlamaExecution},
+           {"gemma3", "generated.gemma3_epoch", 262144, {}, resources::kGemmaImplementation, resources::kGemmaPreparation, resources::kGemmaExecution},
+           {"qwen2", "generated.qwen2_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen2Implementation, resources::kQwen2Preparation, resources::kQwen2Execution},
+           {"qwen3", "generated.qwen3_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen3Implementation, resources::kQwen3Preparation, resources::kQwen3Execution},
+           {"qwen35", "generated.qwen_epoch", 262144, {RequiredOperation::kAttentionPrefillH256V1}, resources::kQwenImplementation, resources::kQwenPreparation, resources::kQwenExecution}}) {
+    const auto *selected = SelectArchitecture(expected.family);
+    ASSERT_NE(selected, nullptr);
+    EXPECT_EQ(selected, SelectArchitecture(expected.family));
+    ASSERT_EQ(selected->roots.size(), 1u);
+    EXPECT_STREQ(selected->roots[0], expected.root);
+    EXPECT_EQ(selected->required_operations, expected.required_operations);
+    EXPECT_EQ(selected->context_capacity_limit, expected.limit);
+    EXPECT_NE(selected->emit_configuration, nullptr);
+    EXPECT_NE(selected->derive_publication, nullptr);
+    EXPECT_STREQ(selected->implementation, expected.implementation);
+    EXPECT_STREQ(selected->preparation, expected.preparation);
+    EXPECT_STREQ(selected->execution, expected.execution);
+    EXPECT_STREQ(selected->weights, resources::kWeights);
+    EXPECT_EQ(selected->package_name, std::string("loomify-") + expected.family);
+  }
+  EXPECT_EQ(SelectArchitecture("unimplemented"), nullptr);
+}
+TEST(ConfigurationFactsTest, EverySelectedFamilyKeepsContextAdmissionAndRollback) {
+  for (const auto &model : {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(),
+                           testing::qwen2::ModelFacts(), testing::Qwen3ModelFacts(),
+                           testing::QwenModelFacts()}) {
+    const uint64_t limit = model.family == "llama" ? 131072 : 262144;
+    ConfigurationFacts facts;
+    std::string error;
+    ASSERT_TRUE(DeriveConfiguration(model, "asset", {128, limit}, &facts, &error))
+        << model.family << ": " << error;
+    const auto source = facts.source;
+    const auto count = facts.parameters.size();
+    for (const auto &settings : std::vector<ConfigurationSettings>{
+             {0, 512}, {513, 1024}, {128, 127}, {128, limit + 1}}) {
+      EXPECT_FALSE(DeriveConfiguration(model, "asset", settings, &facts, &error));
+      EXPECT_EQ(facts.source, source);
+      EXPECT_EQ(facts.parameters.size(), count);
+    }
+  }
 }
 TEST(ConfigurationFactsTest, InvalidCapacitiesPreserveOutput) {
   for (bool llama : {true, false}) {

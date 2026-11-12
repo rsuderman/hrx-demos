@@ -1,5 +1,13 @@
 load("//build_tools:loom_merge.bzl", "loom_merge")
 package(default_visibility = ["//visibility:public"])
+
+# Shared Hermes test properties used directly by Qwen2 and Qwen3 local suites.
+filegroup(
+    name = "hermes_test_sources",
+    testonly = True,
+    srcs = ["testing/hermes_policy.h", "testing/hermes_policy.cc"],
+    visibility = ["//internal_consumer:__pkg__"],
+)
 exports_files(glob(["*.loom"]))
 filegroup(name = "core_sources", srcs = ["admission.loom", "input.loom", "output.loom", "mapping.loom"])
 filegroup(name = "shared_sources", srcs = [":core_sources", "tools.loom", "tool_output.loom", "legacy_policy.loom"])

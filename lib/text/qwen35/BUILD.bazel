@@ -1,6 +1,20 @@
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 package(default_visibility = ["//visibility:public"])
-exports_files(["templates/7f0e5290.jinja", "templates/c3cf9e34.jinja", "testing/json_test.cc", "testing/tool_output_test.cc", "testing/render_test.cc"])
+
+# Selected explicitly by the external SDK consumer; no private SDK deps here.
+filegroup(
+    name = "revision_test_sources",
+    testonly = True,
+    srcs = ["testing/revision_cases.h", "testing/revision_cases.cc"],
+    visibility = ["//internal_consumer:__pkg__"],
+)
+filegroup(
+    name = "reference_inputs",
+    testonly = True,
+    srcs = ["testing/render_cases.json", "testing/inline_history_reference.py", "testing/explicit_reasoning_reference.py"],
+    visibility = ["//visibility:public"],
+)
+exports_files(["templates/7f0e5290.jinja", "templates/c3cf9e34.jinja", "testing/json_test.cc", "testing/tool_output_test.cc"])
 cc_test(
     name = "output_test", size = "small", srcs = ["testing/output_test.cc"],
     copts = ["-std=c++17"], linkstatic = True,

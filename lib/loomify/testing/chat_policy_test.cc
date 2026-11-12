@@ -364,5 +364,143 @@ TEST(ChatPolicy, NonThinkingHermesCapturesBothMatchingDefaultBodies) {
     EXPECT_EQ(selected.configuration_source, prior);
   }
 }
+TEST(ChatPolicy, ChatmlRevisionsKeepExactMarkerOrderAndTokenRequirements) {
+  struct Case {
+    const char *path;
+    const char *pre_tokenizer;
+    std::vector<std::string> markers;
+  };
+  const std::vector<std::string> xml_markers = {
+      "<|im_start|>", "<|im_end|>",   "<think>",         "</think>",
+      "<tool_call>",  "</tool_call>", "<tool_response>", "</tool_response>",
+      "<function=",   "</function>",  "<parameter=",     "</parameter>"};
+  const Case cases[] = {
+      {"lib/text/qwen35/templates/7f0e5290.jinja", "qwen35", xml_markers},
+      {"lib/text/qwen35/templates/c3cf9e34.jinja", "qwen35", xml_markers},
+      {"lib/text/qwen3/templates/5da44855.jinja",
+       "qwen2",
+       {"<|im_start|>", "<|im_end|>", "<think>", "</think>", "<tool_call>",
+        "</tool_call>", "<tool_response>", "</tool_response>"}},
+      {"lib/text/qwen25/templates/cd8e9439.jinja",
+       "qwen2",
+       {"<|im_start|>", "<|im_end|>", "<tool_call>", "</tool_call>",
+        "<tool_response>", "</tool_response>"}},
+  };
+  for (const auto &test : cases) {
+    SCOPED_TRACE(test.path);
+    model::TextMetadata metadata;
+    metadata.templates = {Candidate(Source(test.path))};
+    ChatPolicySelection policy;
+    std::string error;
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+    EXPECT_EQ(policy.tokens.tokenizer_model, "gpt2");
+    EXPECT_EQ(policy.tokens.pre_tokenizer, test.pre_tokenizer);
+    EXPECT_FALSE(policy.tokens.require_bos);
+    EXPECT_TRUE(policy.tokens.bos_piece.empty());
+    EXPECT_EQ(policy.tokens.terminal_piece, "<|im_end|>");
+    EXPECT_TRUE(policy.tokens.terminal_is_eos);
+    ASSERT_EQ(policy.markers.size(), test.markers.size());
+    for (size_t i = 0; i < test.markers.size(); ++i) {
+      EXPECT_EQ(policy.markers[i].text, test.markers[i]);
+      EXPECT_EQ(policy.markers[i].require_single_token, i < 2);
+    }
+  }
+}
+TEST(ChatPolicy, HermesDataStripsOnlyTheFramingTerminalAndKeepsEmptyEffort) {
+  const char *paths[] = {"lib/text/qwen3/templates/5da44855.jinja",
+                         "lib/text/qwen25/templates/cd8e9439.jinja"};
+  const auto datum = [](const std::string &name, const std::string &value) {
+    return "global.rodata.def public @loomify.text." + name + " = bytes(\"" +
+           Hex(value) + "\")\n";
+  };
+  const std::string prefix = "# Tools\n\nYou may call one or more functions to "
+                             "assist with the user query."
+                             "\n\nYou are provided with function signatures "
+                             "within <tools></tools> XML tags:\n<tools>";
+  const std::string suffix =
+      "\n</tools>\n\nFor every invocation, return a json object with function "
+      "name and arguments "
+      "within <tool_call></tool_call> XML tags:\n<tool_call>\n"
+      "{\"name\": <function-name>, \"arguments\": "
+      "<args-json-object>}\n</tool_call>";
+  for (int i = 0; i < 2; ++i) {
+    SCOPED_TRACE(paths[i]);
+    const auto source = Replace(Source(paths[i]), "For each function call",
+                                "For every invocation");
+    model::TextMetadata metadata;
+    metadata.templates = {Candidate(source)};
+    ChatPolicySelection policy;
+    std::string error;
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+    std::string expected =
+        datum("tools_prefix", (i == 0 ? "" : "\n\n") + prefix) +
+        datum("tools_suffix", suffix) + datum("effort_xhigh", "") +
+        datum("effort_low", "") + datum("default_effort", "") +
+        datum("default_effort_instruction", "");
+    if (i == 1)
+      expected +=
+          datum("default_system", "You are Qwen, created by Alibaba Cloud. You "
+                                  "are a helpful assistant.");
+    EXPECT_EQ(policy.configuration_source, expected);
+    for (const auto &terminal :
+         {std::string("<|im_end|>tail\\n"), std::string("<|im_end|>\\n\\n")}) {
+      metadata.templates = {Candidate(Replace(
+          source, "</tool_call><|im_end|>\\n", "</tool_call>" + terminal))};
+      EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+      EXPECT_EQ(policy.configuration_source, expected);
+      EXPECT_EQ(policy.source_text, source);
+      EXPECT_FALSE(error.empty());
+    }
+  }
+}
+TEST(ChatPolicy,
+     ExplicitReasoningSelectsCapturedInstructionForEveryAllowedDefault) {
+  const auto source = Source("lib/text/qwen35/templates/c3cf9e34.jinja");
+  const std::string high =
+      "Reasoning effort is set to xhigh. Please think carefully through the "
+      "task, validate key assumptions, "
+      "consider plausible alternatives, and prioritize correctness, "
+      "consistency, and clarity in the final answer.";
+  const std::string low =
+      "Reasoning effort is set to low. Keep your thinking brief and focused, "
+      "moving directly to the conclusion "
+      "without unnecessary elaboration.";
+  const auto changed = Replace(Replace(source, high, "High café instruction."),
+                               low, "Low instruction.");
+  for (const auto &effort :
+       {std::string("xhigh"), std::string("medium"), std::string("low")}) {
+    SCOPED_TRACE(effort);
+    model::TextMetadata metadata;
+    metadata.templates = {
+        Candidate(Replace(changed, "reasoning_effort|default('xhigh')",
+                          "reasoning_effort|default('" + effort + "')"))};
+    ChatPolicySelection policy;
+    std::string error;
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+    const std::pair<std::string, std::string> data[] = {
+        {"effort_xhigh", "High café instruction."},
+        {"effort_low", "Low instruction."},
+        {"default_effort", effort},
+        {"default_effort_instruction", effort == "xhigh"
+                                           ? "High café instruction."
+                                       : effort == "low" ? "Low instruction."
+                                                         : ""},
+    };
+    for (const auto &field : data)
+      EXPECT_NE(policy.configuration_source.find("@loomify.text." +
+                                                 field.first + " = bytes(\"" +
+                                                 Hex(field.second) + "\")\n"),
+                std::string::npos);
+    const auto prior = policy.configuration_source;
+    const auto prior_source = policy.source_text;
+    metadata.templates = {
+        Candidate(Replace(changed, "reasoning_effort|default('xhigh')",
+                          "reasoning_effort|default('ultra')"))};
+    EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+    EXPECT_EQ(policy.configuration_source, prior);
+    EXPECT_EQ(policy.source_text, prior_source);
+    EXPECT_FALSE(error.empty());
+  }
+}
 } // namespace
 } // namespace hrx::loomify_gguf

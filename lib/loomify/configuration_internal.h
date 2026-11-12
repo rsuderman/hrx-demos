@@ -178,19 +178,5 @@ struct Producer {
     text << " : " << types << "\n}\n";
   }
 };
-bool EmitLlama(const model::ModelDescriptor &, const std::string &,
-               const ConfigurationSettings &, ConfigurationFacts *,
-               std::string *);
-bool EmitGemma(const model::ModelDescriptor &, const std::string &,
-               const ConfigurationSettings &, ConfigurationFacts *,
-               std::string *);
-bool EmitQwen2(const model::ModelDescriptor&, const std::string&,
-               const ConfigurationSettings&, ConfigurationFacts*, std::string*);
-bool EmitQwen3(const model::ModelDescriptor &, const std::string &,
-               const ConfigurationSettings &, ConfigurationFacts *,
-               std::string *);
-bool EmitQwen(const model::ModelDescriptor &, const std::string &,
-              const ConfigurationSettings &, ConfigurationFacts *,
-              std::string *);
 } // namespace hrx::loomify_gguf::internal
 #endif

@@ -20,7 +20,7 @@ cc_test(
     name = "operation_provider_test", size = "small",
     srcs = ["operation_provider_test.cc"], copts = ["-std=c++17"], linkstatic = True,
     data = [":" + member + "_" + format for member in ["operation_root", "operation_a", "operation_b", "operation_empty", "operation_wrong_abi", "operation_conflicting_root", "targets"] for format in ["text", "bc"]],
-    deps = ["//lib/loomify:native_linking", "@hrx_system//loom/binding/c:loomc", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
+    deps = ["//lib/loomify:architecture_types", "//lib/loomify:native_linking", "@hrx_system//loom/binding/c:loomc", "@hrx_system//loom/binding/c/target/amdgpu", "@hrx_system//loom/binding/c/target/cmd", "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 
 [loom_merge(name = "operation_conflicting_root_" + format, srcs = ["operation_root.loom", "operation_a.loom"], output_format = format, testonly = True) for format in ["text", "bc"]]

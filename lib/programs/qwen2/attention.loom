@@ -1,26 +1,31 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
 config.decl @qwen2.model.hidden_size : index
 config.decl @qwen2.model.query_size : index
 config.decl @qwen2.model.kv_size : index
 config.decl @qwen2.model.query_heads : index
 config.decl @qwen2.model.kv_heads : index
 config.decl @qwen2.model.layer_count : index
+config.decl @qwen2.model.rms_epsilon : f32
 config.decl @qwen2.model.rope_log_step : f32
 config.decl @qwen2.model.attention_scale : f32
 config.decl @qwen2.attention.cache_capacity : index
 config.decl @qwen2.attention.pool_capacity : index
 config.decl @qwen2.attention.cache_base : offset
 config.decl @qwen2.attention.map_origin : offset
-template.decl @llm.projection.matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
-template.decl @llm.projection.gated_matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %gate: view<[%weight_bytes]xi8>, %up: view<[%weight_bytes]xi8>, %output: buffer)
-kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
-func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
+template.decl @llm.decoder.matrix_attention(%layer: index, %rows: index, %control_origin: offset, %hidden: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %map_origin: offset, %rope_step: f32, %epsilon: f32, %scale: f32, %parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer)
+template.decl @llm.decoder.prepare_qkv(%layer: index, %rows: index, %control_origin: offset, %capacity: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %rope_step: f32, %epsilon: f32, %parameters: buffer, %q: buffer, %k: buffer, %v: buffer, %query: buffer, %key: buffer, %count: buffer, %epoch: buffer)
 kernel.decl @llm.decoder.prepare_qk_bias_h128(%rows: index, %heads: index) launch(%capacity: index, %rope_log_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %bias: buffer, %output: buffer)
 kernel.decl @llm.decoder.add_bias_active(%rows: index, %width: index) launch(%width: index, %count: buffer, %bias: buffer, %projection: buffer)
-kernel.decl @llm.decoder.publish_kv_h128(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
-kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %heads: index, %key_heads: index) launch(%key_heads: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+template.def<@llm.decoder.prepare_qkv> @qwen2_prepare_qkv(%layer: index, %rows: index, %control_origin: offset, %capacity: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %rope_step: f32, %epsilon: f32, %parameters: buffer, %q: buffer, %k: buffer, %v: buffer, %query: buffer, %key: buffer, %count: buffer, %epoch: buffer) where [range(%rows, 1, 512)] {
+  %qbias = command.parameter %parameters, "blk.{}.attn_q.bias"[%layer] : view<[%qwidth]xf32>
+  %kbias = command.parameter %parameters, "blk.{}.attn_k.bias"[%layer] : view<[%kv]xf32>
+  %vbias = command.parameter %parameters, "blk.{}.attn_v.bias"[%layer] : view<[%kv]xf32>
+  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %qh](%capacity, %rope_step, %control_origin, %epoch, %q, %qbias, %query) : [index, index](index, f32, offset, buffer, buffer, view<[%qwidth]xf32>, buffer)
+  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %kh](%capacity, %rope_step, %control_origin, %epoch, %k, %kbias, %key) : [index, index](index, f32, offset, buffer, buffer, view<[%kv]xf32>, buffer)
+  kernel.launch @llm.decoder.add_bias_active[%rows, %kv](%kv, %count, %vbias, %v) : [index, index](index, buffer, view<[%kv]xf32>, buffer)
+  template.return
+}
 command.def @loomify.qwen2.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @qwen2.model.hidden_size : index
   %qwidth = config.get @qwen2.model.query_size : index
@@ -32,48 +37,9 @@ command.def @loomify.qwen2.attention(%layer: index, %phase: index, %rows: index,
   %pool = config.get @qwen2.attention.pool_capacity : index
   %cache_base = config.get @qwen2.attention.cache_base : offset
   %map_origin = config.get @qwen2.attention.map_origin : offset
+  %epsilon = config.get @qwen2.model.rms_epsilon : f32
   %rope_step = config.get @qwen2.model.rope_log_step : f32
   %scale = config.get @qwen2.model.attention_scale : f32
-  %word = index.constant 4 : offset
-  %physical_rows = func.call pure @llm.projection.matrix_output_rows(%rows) : (index) -> (index)
-  %qt, %kt, %vt, %ot, %qb, %kb, %vb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index, index, index, index, index)
-  %qw = command.parameter %parameters, "blk.{}.attn_q.weight"[%layer] : view<[%qb]xi8>
-  %kw = command.parameter %parameters, "blk.{}.attn_k.weight"[%layer] : view<[%kb]xi8>
-  %vw = command.parameter %parameters, "blk.{}.attn_v.weight"[%layer] : view<[%vb]xi8>
-  %ow = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%ob]xi8>
-  %qbias = command.parameter %parameters, "blk.{}.attn_q.bias"[%layer] : view<[%qwidth]xf32>
-  %kbias = command.parameter %parameters, "blk.{}.attn_k.bias"[%layer] : view<[%kv]xf32>
-  %vbias = command.parameter %parameters, "blk.{}.attn_v.bias"[%layer] : view<[%kv]xf32>
-  %q_elements = index.mul %physical_rows, %qwidth : index
-  %q_bytes = index.scale %q_elements, %word : index, offset -> offset
-  %q = buffer.alloca<global> align(256) %q_bytes : buffer
-  %k_elements = index.mul %physical_rows, %kv : index
-  %k_bytes = index.scale %k_elements, %word : index, offset -> offset
-  %k = buffer.alloca<global> align(256) %k_bytes : buffer
-  %v_elements = index.mul %physical_rows, %kv : index
-  %v_bytes = index.scale %v_elements, %word : index, offset -> offset
-  %v = buffer.alloca<global> align(256) %v_bytes : buffer
-  %projected_elements = index.mul %physical_rows, %hidden : index
-  %projected_bytes = index.scale %projected_elements, %word : index, offset -> offset
-  %projected = buffer.alloca<global> align(256) %projected_bytes : buffer
-  %query_elements = index.mul %rows, %qwidth : index
-  %query_bytes = index.scale %query_elements, %word : index, offset -> offset
-  %query = buffer.alloca<global> align(256) %query_bytes : buffer
-  %key_elements = index.mul %rows, %kv : index
-  %key_bytes = index.scale %key_elements, %word : index, offset -> offset
-  %key = buffer.alloca<global> align(256) %key_bytes : buffer
-  %attended_elements = index.mul %rows, %qwidth : index
-  %attended_bytes = index.scale %attended_elements, %word : index, offset -> offset
-  %attended = buffer.alloca<global> align(256) %attended_bytes : buffer
-  template.apply<@llm.projection.matrix>(%rows, %hidden, %qwidth, %qt, %qb, %count, %normalized, %qw, %q) : (index, index, index, index, index, buffer, buffer, view<[%qb]xi8>, buffer)
-  template.apply<@llm.projection.matrix>(%rows, %hidden, %kv, %kt, %kb, %count, %normalized, %kw, %k) : (index, index, index, index, index, buffer, buffer, view<[%kb]xi8>, buffer)
-  template.apply<@llm.projection.matrix>(%rows, %hidden, %kv, %vt, %vb, %count, %normalized, %vw, %v) : (index, index, index, index, index, buffer, buffer, view<[%vb]xi8>, buffer)
-  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %qh](%capacity, %rope_step, %control_origin, %epoch, %q, %qbias, %query) : [index, index](index, f32, offset, buffer, buffer, view<[%qwidth]xf32>, buffer)
-  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %kh](%capacity, %rope_step, %control_origin, %epoch, %k, %kbias, %key) : [index, index](index, f32, offset, buffer, buffer, view<[%kv]xf32>, buffer)
-  kernel.launch @llm.decoder.add_bias_active[%rows, %kv](%kv, %count, %vbias, %v) : [index, index](index, buffer, view<[%kv]xf32>, buffer)
-  kernel.launch @llm.decoder.publish_kv_h128[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @llm.decoder.attention_rows_h128[%rows, %qh, %kh](%kh, %layer, %layers, %capacity, %pool, %scale, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
-  template.apply<@llm.projection.matrix>(%rows, %qwidth, %hidden, %ot, %ob, %count, %attended, %ow, %projected) : (index, index, index, index, index, buffer, buffer, view<[%ob]xi8>, buffer)
-  kernel.launch @llm.decoder.residual[%rows, %hidden](%hidden, %count, %projected, %residual) : [index, index](index, buffer, buffer, buffer)
+  template.apply<@llm.decoder.matrix_attention>(%layer, %rows, %control_origin, %hidden, %qwidth, %kv, %qh, %kh, %layers, %capacity, %pool, %cache_base, %map_origin, %rope_step, %epsilon, %scale, %parameters, %normalized, %residual, %count, %epoch, %map, %cache) : (index, index, offset, index, index, index, index, index, index, index, index, offset, offset, f32, f32, f32, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

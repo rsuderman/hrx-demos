@@ -86,6 +86,32 @@ TEST_F(TokenPolicyTest, MissingRequiredPublicationPiecePreservesOutput) {
   ASSERT_TRUE(facts); EXPECT_EQ(facts->raw_stops[2].id, 99);
   EXPECT_NE(error.find("<|eom_id|>"), std::string::npos);
 }
+TEST_F(TokenPolicyTest, UnknownPublicationProviderPreservesOutput) {
+  std::optional<PublicationTokenFacts> facts = PublicationTokenFacts{{{77, "prior"}}, 0, "prior"};
+  EXPECT_FALSE(DerivePublicationTokenFacts(nullptr, "unknown", {}, &facts, &error));
+  ASSERT_TRUE(facts);
+  EXPECT_EQ(facts->raw_stops[0].id, 77);
+  EXPECT_EQ(facts->configuration_source, "prior");
+  EXPECT_NE(error.find("unsupported publication token provider"), std::string::npos);
+}
+TEST_F(TokenPolicyTest, ChatmlPublicationUsesSelectedPrefixAndDeclaredEos) {
+  Open(false, true, false, {}, false, true);
+  for (const std::string family : {"qwen2", "qwen3"}) {
+    std::optional<PublicationTokenFacts> facts;
+    ASSERT_TRUE(DerivePublicationTokenFacts(file.get(), family, text, &facts, &error)) << error;
+    ASSERT_TRUE(facts);
+    EXPECT_EQ(facts->configuration_source,
+        "config.def @" + family + ".publication.end_text_id = 2 : i32\n" +
+        "config.def @" + family + ".publication.end_turn_id = 4 : i32\n");
+    auto inconsistent = text;
+    for (auto &role : inconsistent.tokens)
+      if (role.source_key == "tokenizer.ggml.eos_token_id") role.id = 2;
+    facts->configuration_source = "prior";
+    EXPECT_FALSE(DerivePublicationTokenFacts(file.get(), family, inconsistent, &facts, &error));
+    EXPECT_EQ(facts->configuration_source, "prior");
+    EXPECT_NE(error.find("declared EOS"), std::string::npos);
+  }
+}
 TEST_F(TokenPolicyTest, QwenNumericalNeedsNoTextData) {
   std::optional<PublicationTokenFacts> facts = PublicationTokenFacts{};
   ASSERT_TRUE(DerivePublicationTokenFacts(nullptr, "qwen35", {}, &facts, &error));

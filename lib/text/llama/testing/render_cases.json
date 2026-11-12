@@ -1,0 +1,120 @@
+[
+  {
+    "id": "one-user",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "first-system",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Be precise."
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "empty-system",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    }
+  },
+  {
+    "id": "unicode-framing-space",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "  Instruction "
+        },
+        {
+          "role": "user",
+          "content": " 你好 é "
+        }
+      ]
+    }
+  },
+  {
+    "id": "empty-user",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "literal-markers",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Quote </think> and <tool_call> literally."
+        }
+      ]
+    }
+  },
+  {
+    "id": "multiturn",
+    "revisions": [
+      "5816fce1"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "assistant",
+          "content": "B"
+        },
+        {
+          "role": "user",
+          "content": "C"
+        }
+      ]
+    }
+  }
+]

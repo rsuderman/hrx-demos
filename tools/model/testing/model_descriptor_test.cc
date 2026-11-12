@@ -570,7 +570,7 @@ TEST(ModelDescriptorQwen3, OrdinaryLayerHasIndependentQueryWidthAndHeadNorms) {
 
 namespace hrx::model {
 TEST(ModelTensorNames, SharedSpellingFamilyExceptionsAndRoleScope) {
-  for (const std::string family : {"llama", "qwen3", "gemma3", "qwen35"}) {
+  for (const std::string family : {"llama", "qwen2", "qwen3", "gemma3", "qwen35"}) {
     ModelDescriptor m;
     m.family = family;
     std::string name;
@@ -585,7 +585,9 @@ TEST(ModelTensorNames, SharedSpellingFamilyExceptionsAndRoleScope) {
     EXPECT_EQ(name, "token_embd.weight");
     for (const auto &invalid :
          std::vector<std::pair<std::string, std::optional<uint32_t>>>{
-             {"query", std::nullopt}, {"output", 0}, {"unknown", 0}}) {
+             {"query", std::nullopt}, {"output", 0}, {"unknown", 0},
+             {"unknown", std::nullopt}, {"rope_frequencies", 0},
+             {"post_norm", std::nullopt}, {"query_bias", std::nullopt}}) {
       name = "unchanged";
       EXPECT_FALSE(ExpectedTensorName(m, invalid.first, invalid.second, &name));
       EXPECT_EQ(name, "unchanged");
@@ -594,11 +596,14 @@ TEST(ModelTensorNames, SharedSpellingFamilyExceptionsAndRoleScope) {
     if (family != "gemma3")
       EXPECT_EQ(name, family == "qwen35" ? "blk.2.post_attention_norm.weight"
                                          : "blk.2.ffn_norm.weight");
-    EXPECT_EQ(ExpectedTensorName(m, "query_norm", 2, &name), family != "llama");
+    EXPECT_EQ(ExpectedTensorName(m, "query_norm", 2, &name), family != "llama" && family != "qwen2");
     EXPECT_EQ(ExpectedTensorName(m, "convolution", 2, &name),
               family == "qwen35");
     EXPECT_EQ(ExpectedTensorName(m, "rope_frequencies", std::nullopt, &name),
               family == "llama");
+    if (family == "llama") EXPECT_EQ(name, "rope_freqs.weight");
+    EXPECT_EQ(ExpectedTensorName(m, "query_bias", 12, &name), family == "qwen2");
+    if (family == "qwen2") EXPECT_EQ(name, "blk.12.attn_q.bias");
     EXPECT_EQ(ExpectedTensorName(m, "ffn_post_norm", 2, &name),
               family == "gemma3");
   }

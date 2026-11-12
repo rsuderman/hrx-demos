@@ -1,8 +1,12 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor_internal.h"
+#include "tools/model/architectures/qwen3.h"
 namespace hrx::model::internal {
-const char *Qwen3TensorSuffix(std::string_view role) {
+namespace {
+const char *Qwen3TensorSuffix(std::string_view role, bool is_layer) {
+  if (!is_layer) return nullptr;
+
   if (role == "post_norm")
     return "ffn_norm.weight";
   return HeadNormTensorSuffix(role);
@@ -23,4 +27,7 @@ void LoadQwen3(const Loader &l, ModelDescriptor &m) {
     BindHeadNorms(l, m, d);
   }
 }
+} // namespace
+const ModelArchitecture kQwen3Architecture{
+    "qwen3", LoadQwen3, Qwen3TensorSuffix};
 } // namespace hrx::model::internal

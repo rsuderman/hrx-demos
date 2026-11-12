@@ -15,12 +15,48 @@ _CXXOPTS = select({
 exports_files(["gemma3_configuration_test.cc", "configuration_test.cc", "configuration_fixture.h", "alternating_qwen_fixture.h", "qwen3_configuration_test.cc", "qwen3_fixture.h", "gemma3_fixture.h", "qwen2_fixture.h", "qwen2_configuration_test.cc"], visibility = ["//lib/loomify:__pkg__"])
 
 iree_cc_library(
+    name = "configuration_fixture",
+    testonly = True,
+    hdrs = ["configuration_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/llama:__pkg__"],
+    deps = ["//tools/model:model_descriptor"],
+)
+
+iree_cc_library(
+    name = "qwen2_fixture",
+    testonly = True,
+    hdrs = ["qwen2_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/qwen2:__pkg__"],
+    deps = ["//tools/model:model_descriptor"],
+)
+
+iree_cc_library(
+    name = "qwen3_fixture",
+    testonly = True,
+    hdrs = ["qwen3_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/qwen3:__pkg__"],
+    deps = ["//tools/model:model_descriptor"],
+)
+
+iree_cc_library(
+    name = "gemma3_fixture",
+    testonly = True,
+    hdrs = ["gemma3_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/gemma3:__pkg__"],
+    deps = ["//tools/model:model_descriptor"],
+)
+
+iree_cc_library(
     name = "prepare_vm",
     testonly = True,
     srcs = ["prepare_vm.cc"],
     hdrs = ["prepare_vm.h"],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/architectures/llama:__pkg__", "//lib/architectures/qwen35:__pkg__"],
+    visibility = ["//lib/architectures/llama:__pkg__", "//lib/architectures/qwen35:__pkg__", "//lib/serving/testing:__pkg__"],
     deps = [
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/vm",

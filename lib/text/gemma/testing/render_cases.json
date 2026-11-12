@@ -1,0 +1,652 @@
+[
+  {
+    "id": "one-user",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "one-user",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "system-user",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": " sys "
+        },
+        {
+          "role": "user",
+          "content": " user "
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "system-user",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": " sys "
+        },
+        {
+          "role": "user",
+          "content": " user "
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "text-parts",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": " A "
+            },
+            {
+              "type": "text",
+              "text": " B "
+            }
+          ]
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "text-parts",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": " A "
+            },
+            {
+              "type": "text",
+              "text": " B "
+            }
+          ]
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "system-parts",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "text",
+              "text": " first "
+            },
+            {
+              "type": "text",
+              "text": " ignored "
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "U"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "system-parts",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "text",
+              "text": " first "
+            },
+            {
+              "type": "text",
+              "text": " ignored "
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "U"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "multiturn",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "assistant",
+          "content": " B "
+        },
+        {
+          "role": "user",
+          "content": "C"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "multiturn",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "assistant",
+          "content": " B "
+        },
+        {
+          "role": "user",
+          "content": "C"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "unicode",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": " café 🙂 "
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "unicode",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": " café 🙂 "
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "empty-user",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": ""
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "empty-user",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": ""
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "system-only",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "S"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "system-only",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "S"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "assistant-first",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "A"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "assistant-first",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "A"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "two-users",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "user",
+          "content": "B"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "two-users",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "user",
+          "content": "B"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "empty-messages",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "empty-messages",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "empty-system-list",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": []
+        },
+        {
+          "role": "user",
+          "content": "U"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "empty-system-list",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": []
+        },
+        {
+          "role": "user",
+          "content": "U"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    },
+    "error": true
+  },
+  {
+    "id": "empty-user-list",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": []
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "empty-user-list",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": []
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "assistant-last",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "assistant",
+          "content": "B"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "assistant-last",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "A"
+        },
+        {
+          "role": "assistant",
+          "content": "B"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "whitespace",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": " \t\n A  B \n "
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "whitespace",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": " \t\n A  B \n "
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  },
+  {
+    "id": "replay",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "  spaced café 🙂  "
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    }
+  },
+  {
+    "id": "replay",
+    "revisions": [
+      "7de1c58e"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "  spaced café 🙂  "
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": true
+      }
+    }
+  }
+]

@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor_internal.h"
+#include "tools/model/architectures.h"
 #include <algorithm>
 namespace hrx::model::internal {
 uint64_t Product(uint64_t a, uint64_t b) {
@@ -141,9 +142,8 @@ const char *HeadNormTensorSuffix(std::string_view role) {
 namespace hrx::model {
 bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
                         std::optional<uint32_t> layer, std::string *name) {
-  if (!name || (m.family != "llama" && m.family != "qwen3" &&
-                m.family != "gemma3" && m.family != "qwen35" && m.family != "qwen2"))
-    return false;
+  const auto *architecture = internal::SelectModelArchitecture(m.family);
+  if (!name || !architecture) return false;
   const char *suffix = nullptr;
   if (!layer) {
     if (role == "token_embedding")
@@ -153,8 +153,6 @@ bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
     else if (role == "output")
       suffix =
           m.output_tied_to_embedding ? "token_embd.weight" : "output.weight";
-    else if (role == "rope_frequencies" && m.family == "llama")
-      suffix = "rope_freqs.weight";
   } else {
     if (role == "input_norm")
       suffix = "attn_norm.weight";
@@ -172,17 +170,9 @@ bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
       suffix = "attn_v.weight";
     else if (role == "attention_output")
       suffix = "attn_output.weight";
-    else if (m.family == "llama")
-      suffix = internal::LlamaTensorSuffix(role);
-    else if (m.family == "qwen3")
-      suffix = internal::Qwen3TensorSuffix(role);
-    else if (m.family == "qwen2")
-      suffix = internal::Qwen2TensorSuffix(role);
-    else if (m.family == "gemma3")
-      suffix = internal::Gemma3TensorSuffix(role);
-    else if (m.family == "qwen35")
-      suffix = internal::Qwen35TensorSuffix(role);
   }
+  if (!suffix)
+    suffix = architecture->extra_tensor_name(role, layer.has_value());
   if (!suffix)
     return false;
   *name = layer ? "blk." + std::to_string(*layer) + "." + suffix : suffix;
@@ -197,18 +187,9 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     ModelDescriptor m;
     m.family = catalog.architecture;
     m.name = catalog.name;
-    if (m.family == "llama")
-      internal::LoadLlama(l, m);
-    else if (m.family == "qwen3")
-      internal::LoadQwen3(l, m);
-    else if (m.family == "qwen2")
-      internal::LoadQwen2(l, m);
-    else if (m.family == "gemma3")
-      internal::LoadGemma3(l, m);
-    else if (m.family == "qwen35")
-      internal::LoadQwen35(l, m);
-    else
-      l.Fail("unsupported architecture: " + m.family);
+    const auto *architecture = internal::SelectModelArchitecture(m.family);
+    if (!architecture) l.Fail("unsupported architecture: " + m.family);
+    architecture->load(l, m);
     // Optional tensors with graph effects must not silently become unbound
     // extras.
     for (const auto &t : catalog.tensors) {

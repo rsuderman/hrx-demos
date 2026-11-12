@@ -1,6 +1,8 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/configuration_internal.h"
+#include "lib/loomify/architectures/llama.h"
+#include "lib/loomify/publication_internal.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
                const ConfigurationSettings &s, ConfigurationFacts *out,
@@ -127,4 +129,11 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   return true;
 }
 
+bool DeriveLlamaPublication(FILE *file, std::string_view family,
+    const model::TextMetadata &text, std::optional<PublicationTokenFacts> *out,
+    std::string *error) {
+  return DeriveNamedPublication(file, family, text,
+      {"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"},
+      {"end_text_id", "end_message_id", "end_turn_id"}, 2, 2, out, error);
+}
 } // namespace hrx::loomify_gguf::internal
