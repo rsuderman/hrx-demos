@@ -23,19 +23,40 @@ class GGUFError(ValueError):
 # id -> (name, elements per block, encoded bytes per block). Only types with
 # storage traits implemented in pinned HRX are accepted, even for extra tensors.
 GGML_TYPES = {
-    0: ("F32", 1, 4), 1: ("F16", 1, 2),
-    2: ("Q4_0", 32, 18), 3: ("Q4_1", 32, 20),
-    6: ("Q5_0", 32, 22), 7: ("Q5_1", 32, 24),
-    8: ("Q8_0", 32, 34), 9: ("Q8_1", 32, 40),
-    10: ("Q2_K", 256, 84), 11: ("Q3_K", 256, 110),
-    12: ("Q4_K", 256, 144), 13: ("Q5_K", 256, 176),
-    14: ("Q6_K", 256, 210), 15: ("Q8_K", 256, 292),
-    24: ("I8", 1, 1), 25: ("I16", 1, 2),
-    26: ("I32", 1, 4), 27: ("I64", 1, 8),
-    28: ("F64", 1, 8), 30: ("BF16", 1, 2),
+    0: ("F32", 1, 4),
+    1: ("F16", 1, 2),
+    2: ("Q4_0", 32, 18),
+    3: ("Q4_1", 32, 20),
+    6: ("Q5_0", 32, 22),
+    7: ("Q5_1", 32, 24),
+    8: ("Q8_0", 32, 34),
+    9: ("Q8_1", 32, 40),
+    10: ("Q2_K", 256, 84),
+    11: ("Q3_K", 256, 110),
+    12: ("Q4_K", 256, 144),
+    13: ("Q5_K", 256, 176),
+    14: ("Q6_K", 256, 210),
+    15: ("Q8_K", 256, 292),
+    24: ("I8", 1, 1),
+    25: ("I16", 1, 2),
+    26: ("I32", 1, 4),
+    27: ("I64", 1, 8),
+    28: ("F64", 1, 8),
+    30: ("BF16", 1, 2),
 }
-_SCALARS = {0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i",
-            6: "f", 7: "B", 10: "Q", 11: "q", 12: "d"}
+_SCALARS = {
+    0: "B",
+    1: "b",
+    2: "H",
+    3: "h",
+    4: "I",
+    5: "i",
+    6: "f",
+    7: "B",
+    10: "Q",
+    11: "q",
+    12: "d",
+}
 _MAX_HEADER_BYTES = 64 * 1024 * 1024
 _MAX_STRING_BYTES = 1024 * 1024
 _MAX_ENTRIES = 100_000
@@ -62,7 +83,7 @@ class Tensor:
     name: str
     shape: tuple[int, ...]  # GGUF order: dimension zero is the contiguous row.
     ggml_type: int
-    offset: int             # Relative to tensor data start.
+    offset: int  # Relative to tensor data start.
     size_bytes: int
 
     @property
@@ -89,7 +110,9 @@ def tensor_size(shape: tuple[int, ...], ggml_type: int) -> int:
         raise GGUFError(f"Invalid tensor dimensions {shape}")
     name, block, size = GGML_TYPES[ggml_type]
     if shape[0] % block:
-        raise GGUFError(f"Tensor row width {shape[0]} is not divisible by {name} block size {block}")
+        raise GGUFError(
+            f"Tensor row width {shape[0]} is not divisible by {name} block size {block}"
+        )
     elements = math.prod(shape)
     encoded = elements // block * size
     if elements > _UINT64_MAX or encoded > _UINT64_MAX:
@@ -105,7 +128,9 @@ class _Reader:
     def advance(self, count: int, *, read: bool = True) -> bytes:
         offset = self.stream.tell()
         if count < 0 or offset + count > self.limit:
-            raise GGUFError(f"Truncated or oversized GGUF header at byte {offset} (requested {count} bytes)")
+            raise GGUFError(
+                f"Truncated or oversized GGUF header at byte {offset} (requested {count} bytes)"
+            )
         if not read:
             self.stream.seek(count, os.SEEK_CUR)
             return b""
@@ -169,7 +194,9 @@ def inspect_gguf(path: Path, *, allow_fragment: bool = False) -> GGUF:
             raise GGUFError("Missing GGUF magic header")
         version = reader.scalar("I")
         if version not in (2, 3):
-            raise GGUFError(f"Unsupported GGUF version or byte order {version}; expected little-endian v2 or v3")
+            raise GGUFError(
+                f"Unsupported GGUF version or byte order {version}; expected little-endian v2 or v3"
+            )
         tensor_count, metadata_count = reader.scalar("Q"), reader.scalar("Q")
         if tensor_count > _MAX_ENTRIES or metadata_count > _MAX_ENTRIES:
             raise GGUFError(f"GGUF entry count exceeds {_MAX_ENTRIES}")
@@ -183,10 +210,17 @@ def inspect_gguf(path: Path, *, allow_fragment: bool = False) -> GGUF:
         split_count = metadata.get("split.count")
         if any(key.startswith("split.") for key in metadata):
             if split_count is None or (split_count.value != 1 and not allow_fragment):
-                raise GGUFError("Split GGUF requires the complete fragment set; inspect all fragments together")
+                raise GGUFError(
+                    "Split GGUF requires the complete fragment set; inspect all fragments together"
+                )
         alignment_entry = metadata.get("general.alignment", Metadata(4, 32))
         alignment = alignment_entry.value
-        if alignment_entry.value_type != 4 or not isinstance(alignment, int) or alignment <= 0 or alignment % 8:
+        if (
+            alignment_entry.value_type != 4
+            or not isinstance(alignment, int)
+            or alignment <= 0
+            or alignment % 8
+        ):
             raise GGUFError("general.alignment must be a positive uint32 multiple of 8")
         tensors = {}
         for _ in range(tensor_count):
@@ -203,7 +237,9 @@ def inspect_gguf(path: Path, *, allow_fragment: bool = False) -> GGUF:
             except GGUFError as exc:
                 raise GGUFError(f"{name}: {exc}") from exc
             if offset % alignment:
-                raise GGUFError(f"{name}: tensor offset {offset} is not aligned to {alignment} bytes")
+                raise GGUFError(
+                    f"{name}: tensor offset {offset} is not aligned to {alignment} bytes"
+                )
             tensors[name] = Tensor(name, shape, ggml_type, offset, size)
         header_bytes = stream.tell()
     data_offset = (header_bytes + alignment - 1) // alignment * alignment
@@ -242,13 +278,21 @@ def inspect_gguf_set(paths) -> GGUF:
             if key.startswith("split."):
                 continue
             if part.metadata.get(key) != value:
-                raise GGUFError(f"GGUF fragment {paths[index].name} is missing or disagrees on metadata {key}")
+                raise GGUFError(
+                    f"GGUF fragment {paths[index].name} is missing or disagrees on metadata {key}"
+                )
         count = part.metadata.get("split.count")
         number = part.metadata.get("split.no")
         if count is not None or number is not None:
             if count is None or number is None or count.value != len(parts):
-                raise GGUFError("Incomplete GGUF fragment set: split.count does not match supplied files")
-            if not isinstance(number.value, int) or number.value in split_numbers or not 0 <= number.value < len(parts):
+                raise GGUFError(
+                    "Incomplete GGUF fragment set: split.count does not match supplied files"
+                )
+            if (
+                not isinstance(number.value, int)
+                or number.value in split_numbers
+                or not 0 <= number.value < len(parts)
+            ):
                 raise GGUFError("Invalid or duplicate GGUF split.no")
             split_numbers.add(number.value)
         for name, tensor in part.tensors.items():
@@ -261,7 +305,15 @@ def inspect_gguf_set(paths) -> GGUF:
     for part in parts:
         count = part.metadata.get("split.tensors.count")
         if count is not None and count.value != len(tensors):
-            raise GGUFError("Incomplete GGUF fragment tensor set: split.tensors.count differs")
-    return GGUF(first.version, first.metadata, tensors,
-                sum(part.header_bytes for part in parts), first.data_offset,
-                sum(part.file_size for part in parts), tensor_files)
+            raise GGUFError(
+                "Incomplete GGUF fragment tensor set: split.tensors.count differs"
+            )
+    return GGUF(
+        first.version,
+        first.metadata,
+        tensors,
+        sum(part.header_bytes for part in parts),
+        first.data_offset,
+        sum(part.file_size for part in parts),
+        tensor_files,
+    )

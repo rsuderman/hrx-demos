@@ -11,7 +11,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .hem_common import InvalidInput
 
-
 _SENSITIVE = re.compile(
     r"(?:^|[_-])(token|password|passwd|secret|credentials?|authorization|api[_-]?key)(?:$|[_-])",
     re.I,
@@ -33,24 +32,36 @@ def _multiline(argv):
     groups, index = [], 0
     while index < len(argv):
         group = [argv[index]]
-        if argv[index] in ('--request', '--header', '-H', '--data-binary', '--device',
-                           '--listen', '--tokenizer', '--revision', '--cache-dir', '-c') and index + 1 < len(argv):
+        if argv[index] in (
+            "--request",
+            "--header",
+            "-H",
+            "--data-binary",
+            "--device",
+            "--listen",
+            "--tokenizer",
+            "--revision",
+            "--cache-dir",
+            "-c",
+        ) and index + 1 < len(argv):
             index += 1
             group.append(argv[index])
         groups.append(shlex.join(group))
         index += 1
-    lines, line = [], ''
+    lines, line = [], ""
     for group in groups:
-        force_break = bool(line) and (group.startswith(('--request ', '--header ', '--data-binary '))
-                                     or group.startswith(('http://', 'https://', "'http://", "'https://")))
+        force_break = bool(line) and (
+            group.startswith(("--request ", "--header ", "--data-binary "))
+            or group.startswith(("http://", "https://", "'http://", "'https://"))
+        )
         if line and (force_break or len(line) + len(group) + 1 > 78):
             lines.append(line)
             line = group
         else:
-            line = (line + ' ' + group).lstrip()
+            line = (line + " " + group).lstrip()
     if line:
         lines.append(line)
-    return ' \\\n  '.join(lines)
+    return " \\\n  ".join(lines)
 
 
 def _url(value: str) -> str:
@@ -63,13 +74,18 @@ def _url(value: str) -> str:
     pairs = parse_qsl(parsed.query, keep_blank_values=True)
     query = parsed.query
     if any(_SENSITIVE.search(key) for key, _ in pairs):
-        query = urlencode([(key, _REDACTED if _SENSITIVE.search(key) else val)
-                           for key, val in pairs])
+        query = urlencode(
+            [(key, _REDACTED if _SENSITIVE.search(key) else val) for key, val in pairs]
+        )
     return urlunsplit((parsed.scheme, host, parsed.path, query, parsed.fragment))
 
 
-def command(argv: Sequence[str], *, environment: Mapping[str, str] | None = None,
-            secrets: Sequence[str] = ()) -> str:
+def command(
+    argv: Sequence[str],
+    *,
+    environment: Mapping[str, str] | None = None,
+    secrets: Sequence[str] = (),
+) -> str:
     """Quote argv faithfully except for explicit or conventional credentials.
 
     Callers supply secrets for domain-specific values that cannot be inferred.
@@ -94,7 +110,8 @@ def command(argv: Sequence[str], *, environment: Mapping[str, str] | None = None
         elif value in ("-u", "--user", "--oauth2-bearer"):
             redact_next = True
         elif ":" in value and _SENSITIVE.search(
-                value.split(":", 1)[0].removeprefix("--header=").removeprefix("-H")):
+            value.split(":", 1)[0].removeprefix("--header=").removeprefix("-H")
+        ):
             value = value.split(":", 1)[0] + ": " + _REDACTED
         else:
             value = _url(value)
@@ -113,38 +130,68 @@ def command(argv: Sequence[str], *, environment: Mapping[str, str] | None = None
         assignments.append(f"{key}={value}")
     argv = (["env", *assignments] if assignments else []) + values
     rendered = shlex.join(argv)
-    display = '# Equivalent command\n' + _multiline(argv)
+    display = "# Equivalent command\n" + _multiline(argv)
     if _REDACTED in rendered or "%3Credacted%3E" in rendered:
         rendered += "  # credentials redacted; replay needs existing credentials"
-        display = '# Credentials redacted; supply credentials to replay.\n' + display
+        display = "# Credentials redacted; supply credentials to replay.\n" + display
     return Equivalent(rendered, display)
 
 
-def http(method: str, url: str, *, body_path: Path | None = None,
-         body: bytes | None = None, secrets: Sequence[str] = (),
-         headers: Mapping[str, str] | None = None) -> str:
+def http(
+    method: str,
+    url: str,
+    *,
+    body_path: Path | None = None,
+    body: bytes | None = None,
+    secrets: Sequence[str] = (),
+    headers: Mapping[str, str] | None = None,
+) -> str:
     """Show the actual published body path, verifying its transport bytes.
 
     The adapter must send these same bytes and keep the file inspectable. This
     helper does not create files or decide their lifetime or publication policy.
     """
-    argv = ["curl", "--fail-with-body", "--silent", "--show-error", "--request", method, url]
+    argv = [
+        "curl",
+        "--fail-with-body",
+        "--silent",
+        "--show-error",
+        "--request",
+        method,
+        url,
+    ]
     if body_path is not None or body is not None:
         if body_path is None or body is None:
-            raise InvalidInput("HTTP equivalent requires both the body file and submitted bytes")
+            raise InvalidInput(
+                "HTTP equivalent requires both the body file and submitted bytes"
+            )
         try:
             actual = body_path.read_bytes()
         except OSError as error:
             raise InvalidInput(f"cannot inspect HTTP body file: {error}") from error
         if actual != body:
             raise InvalidInput("HTTP body file differs from submitted bytes")
-        argv += ["--header", "Content-Type: application/json", "--data-binary", "@" + str(body_path)]
-    argv += [part for key, value in (headers or {}).items()
-             for part in ('--header', f'{key}: {value}')]
+        argv += [
+            "--header",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@" + str(body_path),
+        ]
+    argv += [
+        part
+        for key, value in (headers or {}).items()
+        for part in ("--header", f"{key}: {value}")
+    ]
     rendered = command(argv, secrets=secrets)
-    return Equivalent(rendered, rendered.display.replace('# Equivalent command', '# Native HTTP request', 1))
+    return Equivalent(
+        rendered,
+        rendered.display.replace("# Equivalent command", "# Native HTTP request", 1),
+    )
 
 
 def emit(equivalent: str, *, stream: TextIO | None = None) -> None:
-    print(getattr(equivalent, 'display', equivalent),
-          file=sys.stderr if stream is None else stream, flush=True)
+    print(
+        getattr(equivalent, "display", equivalent),
+        file=sys.stderr if stream is None else stream,
+        flush=True,
+    )

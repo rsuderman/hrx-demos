@@ -36,21 +36,32 @@ class ServiceObservation:
 class ServiceProvider(Protocol):
     """Supplies observations without exposing backend or CLI internals."""
 
-    async def list_services(self) -> Sequence[ServiceObservation]:
-        ...
+    async def list_services(self) -> Sequence[ServiceObservation]: ...
 
 
 class FakeServiceProvider:
     """Deterministic sample provider for tests and UI previews."""
 
-    def __init__(self, services: Optional[list[ServiceObservation]] = None,
-                 error: Optional[Exception] = None) -> None:
-        self.services = list(services if services is not None else [
-            ServiceObservation("local", "http://127.0.0.1:8080", "ready",
-                               "Listening · no models loaded"),
-            ServiceObservation("staging", "http://127.0.0.1:8081", "stopped",
-                               "Not running"),
-        ])
+    def __init__(
+        self,
+        services: Optional[list[ServiceObservation]] = None,
+        error: Optional[Exception] = None,
+    ) -> None:
+        self.services = list(
+            services
+            if services is not None
+            else [
+                ServiceObservation(
+                    "local",
+                    "http://127.0.0.1:8080",
+                    "ready",
+                    "Listening · no models loaded",
+                ),
+                ServiceObservation(
+                    "staging", "http://127.0.0.1:8081", "stopped", "Not running"
+                ),
+            ]
+        )
         self.error = error
 
     async def list_services(self) -> list[ServiceObservation]:
@@ -63,7 +74,15 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
     """Build the interactive app; importing the CLI does not import Textual."""
     from textual.app import App, ComposeResult
     from textual.containers import Horizontal
-    from textual.widgets import Footer, Header, Label, ListItem, ListView, RichLog, Static
+    from textual.widgets import (
+        Footer,
+        Header,
+        Label,
+        ListItem,
+        ListView,
+        RichLog,
+        Static,
+    )
     from rich.markup import escape
     from rich.text import Text
 
@@ -83,10 +102,7 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
         #body.compact #details { width: 1fr; height: 3fr; padding: 0 1; }
         #body.compact #logs { width: 1fr; height: 1fr; padding: 0 1; }
         """
-        OVERVIEW_HELP = (
-            "↑/↓ Select   Enter Details   l Logs\n"
-            "r Refresh   q Quit"
-        )
+        OVERVIEW_HELP = "↑/↓ Select   Enter Details   l Logs\n" "r Refresh   q Quit"
         DETAILS_HELP = "Esc Back   l Logs\nr Refresh   q Quit"
         LOGS_HELP = "↑/↓ Scroll   Space Pause/Resume\nEsc Back   q Quit"
         BINDINGS = [
@@ -174,7 +190,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                     self.query_one("#help", Static).update(self.DETAILS_HELP)
                     self.show_details()
                 self.query_one("#state", Static).update(
-                    f"{len(self.observations)} service(s) · observations")
+                    f"{len(self.observations)} service(s) · observations"
+                )
                 return
             if self._detail_identity is None:
                 return
@@ -185,7 +202,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
             listing.focus()
             if listing.index is None:
                 self.query_one("#details", Static).update(
-                    "Select a service to inspect its summary.")
+                    "Select a service to inspect its summary."
+                )
             else:
                 self.show_selection(listing.index)
 
@@ -204,7 +222,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                 source = self.log_provider.open_source(selection)
             except Exception as error:
                 self.query_one("#state", Static).update(
-                    f"Logs unavailable: {escape(str(error))}")
+                    f"Logs unavailable: {escape(str(error))}"
+                )
                 return
             self._log_source = source
             self._log_paused = False
@@ -220,10 +239,15 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
             log_view.write("Waiting for log output…")
             log_view.focus()
             self.query_one("#state", Static).update(
-                f"{escape(selection.name)} · {escape(selection.kind)} logs · following")
+                f"{escape(selection.name)} · {escape(selection.kind)} logs · following"
+            )
             self.query_one("#help", Static).update(self.LOGS_HELP)
-            self.run_worker(self._follow_logs(source, generation),
-                            name="follow-logs", group="logs", exclusive=True)
+            self.run_worker(
+                self._follow_logs(source, generation),
+                name="follow-logs",
+                group="logs",
+                exclusive=True,
+            )
 
         def action_pause_logs(self) -> None:
             if self._log_source is None:
@@ -255,8 +279,7 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
             try:
                 await source.wait_closed()
             except TimeoutError:
-                self.query_one("#state", Static).update(
-                    "Log source is still closing")
+                self.query_one("#state", Static).update("Log source is still closing")
                 return False
             finally:
                 self._log_closing = False
@@ -265,19 +288,28 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
             return True
 
         async def _follow_logs(self, source, generation: int) -> None:
-            while (generation == self._log_generation and
-                   source is self._log_source and self.is_running):
+            while (
+                generation == self._log_generation
+                and source is self._log_source
+                and self.is_running
+            ):
                 if self._log_paused:
                     await asyncio.sleep(0.05)
                     continue
                 try:
                     batch = await source.poll()
                 except Exception:
-                    if generation == self._log_generation and source is self._log_source:
+                    if (
+                        generation == self._log_generation
+                        and source is self._log_source
+                    ):
                         self._append_log("unavailable", "log source unavailable")
                     return
-                if (generation != self._log_generation or
-                        source is not self._log_source or not self.is_running):
+                if (
+                    generation != self._log_generation
+                    or source is not self._log_source
+                    or not self.is_running
+                ):
                     return
                 for entry in batch.entries:
                     self._append_log(entry.kind, entry.text)
@@ -292,7 +324,7 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                 rendered = prefix + row
                 self._log_lines.append(rendered)
                 self._log_characters += len(rendered)
-            while (len(self._log_lines) > 500 or self._log_characters > 256 * 1024):
+            while len(self._log_lines) > 500 or self._log_characters > 256 * 1024:
                 self._log_characters -= len(self._log_lines.popleft())
             log_view = self.query_one("#logs", RichLog)
             log_view.clear()
@@ -313,7 +345,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                 listing.disabled = True
                 self.query_one("#details", Static).update(
                     "Service observations could not be loaded.\n"
-                    "Check the provider and try again.")
+                    "Check the provider and try again."
+                )
                 return
             finally:
                 if generation == self._load_generation:
@@ -329,7 +362,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                 listing.index = None
                 state.update("No services configured")
                 self.query_one("#details", Static).update(
-                    "No locally managed Loom Serve services were found.")
+                    "No locally managed Loom Serve services were found."
+                )
                 if self._detail_identity is not None:
                     self.show_details()
                 return
@@ -341,16 +375,24 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
             listing.disabled = False
             state.update(f"{len(self.observations)} service(s) · observations")
             if self._detail_identity is not None:
-                listing.index = next((
-                    index for index, service in enumerate(self.observations)
-                    if service_identity(service) == self._detail_identity
-                ), None)
+                listing.index = next(
+                    (
+                        index
+                        for index, service in enumerate(self.observations)
+                        if service_identity(service) == self._detail_identity
+                    ),
+                    None,
+                )
                 self.show_details()
             else:
-                matching_index = next((
-                    index for index, service in enumerate(self.observations)
-                    if service_identity(service) == self._overview_identity
-                ), None)
+                matching_index = next(
+                    (
+                        index
+                        for index, service in enumerate(self.observations)
+                        if service_identity(service) == self._overview_identity
+                    ),
+                    None,
+                )
                 if not self._overview_selection_established:
                     matching_index = 0
                 listing.index = matching_index
@@ -358,7 +400,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                 if matching_index is None:
                     self.query_one("#details", Static).update(
                         "Previous selection is unavailable.\n"
-                        "Select a current service to continue.")
+                        "Select a current service to continue."
+                    )
                 else:
                     self.show_selection(matching_index)
 
@@ -381,7 +424,8 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
                 f"State: {escape(service.state)}\n"
                 f"Kind: {escape(service.kind)}\n"
                 f"Endpoint: {escape(service.endpoint)}\n\n"
-                f"{escape(service.summary)}")
+                f"{escape(service.summary)}"
+            )
 
         def show_details(self) -> None:
             identity = self._detail_identity
@@ -406,9 +450,11 @@ def create_app(provider: Optional[ServiceProvider] = None, log_provider=None):
 
     if provider is None:
         from .hem_tui_provider import LocalServiceProvider
+
         provider = LocalServiceProvider()
     if log_provider is None:
         from .hem_tui_logs import LocalLogProvider
+
         log_provider = LocalLogProvider()
     return LoomControlTui(provider, log_provider)
 

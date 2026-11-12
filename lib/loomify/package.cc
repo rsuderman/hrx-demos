@@ -17,14 +17,15 @@
 namespace hrx::loomify_gguf {
 namespace {
 namespace fs = std::filesystem;
-bool Fail(std::string* error, const std::string& message) {
-  if (error) *error = message;
+bool Fail(std::string *error, const std::string &message) {
+  if (error)
+    *error = message;
   return false;
 }
-bool ValidPath(const std::string& path) {
+bool ValidPath(const std::string &path) {
   return !path.empty() && path.find('\0') == std::string::npos;
 }
-bool Status(loomc_status_t status, std::string* error) {
+bool Status(loomc_status_t status, std::string *error) {
   const bool ok = loomc_status_is_ok(status);
   if (!ok) {
     const auto message = loomc_status_message(status);
@@ -33,31 +34,40 @@ bool Status(loomc_status_t status, std::string* error) {
   loomc_status_free(status);
   return ok;
 }
-bool ReadText(const fs::path& path, std::string* text, std::string* error) {
+bool ReadText(const fs::path &path, std::string *text, std::string *error) {
   std::error_code ec;
   if (!fs::is_regular_file(path, ec) || ec)
-    return Fail(error, "serving provider must be an existing regular file: " + path.string());
+    return Fail(error, "serving provider must be an existing regular file: " +
+                           path.string());
   std::ifstream stream(path, std::ios::binary);
-  if (!stream) return Fail(error, "cannot open serving provider: " + path.string());
+  if (!stream)
+    return Fail(error, "cannot open serving provider: " + path.string());
   std::ostringstream contents;
   contents << stream.rdbuf();
-  if (stream.bad()) return Fail(error, "cannot read serving provider: " + path.string());
+  if (stream.bad())
+    return Fail(error, "cannot read serving provider: " + path.string());
   *text = contents.str();
   return true;
 }
-bool Write(const fs::path& path, const std::string& text, std::string* error) {
+bool Write(const fs::path &path, const std::string &text, std::string *error) {
   std::ofstream stream(path, std::ios::binary);
   stream << text;
   stream.close();
-  return stream ? true : Fail(error, "cannot write serving provider: " + path.string());
+  return stream
+             ? true
+             : Fail(error, "cannot write serving provider: " + path.string());
 }
-std::string Json(const std::string& text) {
+std::string Json(const std::string &text) {
   std::ostringstream out;
   out << '"';
   for (unsigned char c : text) {
-    if (c == '"' || c == '\\') out << '\\' << char(c);
-    else if (c < 32) out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << unsigned(c);
-    else out << char(c);
+    if (c == '"' || c == '\\')
+      out << '\\' << char(c);
+    else if (c < 32)
+      out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+          << unsigned(c);
+    else
+      out << char(c);
   }
   out << '"';
   return out.str();
@@ -72,48 +82,61 @@ std::string Hex(std::string_view text) {
   }
   return encoded;
 }
-bool SerializeText(const loomc_module_t* module, std::string* text, std::string* error) {
+bool SerializeText(const loomc_module_t *module, std::string *text,
+                   std::string *error) {
   loomc_module_serialize_options_t options{};
   options.format = LOOMC_SOURCE_FORMAT_TEXT;
-  loomc_source_t* raw = nullptr;
-  const auto status = loomc_module_serialize_to_source(module, &options,
-      loomc_allocator_system(), &raw);
-  std::unique_ptr<loomc_source_t, decltype(&loomc_source_release)> source(raw, loomc_source_release);
-  if (!Status(status, error)) return false;
-  if (!source) return Fail(error, "native serialization returned no source");
+  loomc_source_t *raw = nullptr;
+  const auto status = loomc_module_serialize_to_source(
+      module, &options, loomc_allocator_system(), &raw);
+  std::unique_ptr<loomc_source_t, decltype(&loomc_source_release)> source(
+      raw, loomc_source_release);
+  if (!Status(status, error))
+    return false;
+  if (!source)
+    return Fail(error, "native serialization returned no source");
   const auto bytes = loomc_source_contents(source.get());
-  text->assign(reinterpret_cast<const char*>(bytes.data), bytes.data_length);
+  text->assign(reinterpret_cast<const char *>(bytes.data), bytes.data_length);
   return true;
 }
-struct CompanionSources { std::string prepare, control, weights; };
+struct CompanionSources {
+  std::string prepare, control, weights;
+};
 
 // Preserve the existing publication contract: only a newly created directory
 // is owned by this call; model.json is closed and renamed into place last.
 // Old serving renderers retire with their final consumers in delivery10.
-bool Publish(const fs::path& gguf, const fs::path& tokenizer,
-             const GgufBuildOptions& build, const GgufPackageOptions& package,
-             const char* name, const CompanionSources& sources,
-             const loomc_module_t* module, std::string* error) {
+bool Publish(const fs::path &gguf, const fs::path &tokenizer,
+             const GgufBuildOptions &build, const GgufPackageOptions &package,
+             const char *name, const CompanionSources &sources,
+             const loomc_module_t *module, std::string *error) {
   const fs::path destination(package.output_directory);
   std::error_code ec;
   if (!fs::create_directory(destination, ec) || ec)
-    return Fail(error, "cannot create new package output directory: " + ec.message());
+    return Fail(error,
+                "cannot create new package output directory: " + ec.message());
   const auto cleanup = [&] {
     std::error_code failure;
     fs::remove_all(destination, failure);
-    if (failure && error) *error += "; partial output cleanup failed: " + failure.message();
+    if (failure && error)
+      *error += "; partial output cleanup failed: " + failure.message();
     return false;
   };
   if (!Write(destination / "prepare.loom", sources.prepare, error) ||
       !Write(destination / "control.loom", sources.control, error) ||
-      !Write(destination / "weights.loom", sources.weights, error)) return cleanup();
+      !Write(destination / "weights.loom", sources.weights, error))
+    return cleanup();
   const std::string model_file = package.format == LOOMC_SOURCE_FORMAT_BYTECODE
-      ? "model.loombc" : "model.loom";
+                                     ? "model.loombc"
+                                     : "model.loom";
   loomc_module_serialize_options_t serialization{};
   serialization.format = package.format;
-  if (!Status(loomc_module_serialize_to_path(module, &serialization,
-      loomc_make_cstring_view((destination / model_file).c_str()),
-      loomc_allocator_system()), error)) return cleanup();
+  if (!Status(loomc_module_serialize_to_path(
+                  module, &serialization,
+                  loomc_make_cstring_view((destination / model_file).c_str()),
+                  loomc_allocator_system()),
+              error))
+    return cleanup();
   std::ostringstream document;
   document << "{\n  \"name\": " << Json(name) << ",\n  \"definition\": {\n"
            << "    \"kind\": \"text\",\n    \"prepare\": \"prepare.loom\",\n"
@@ -126,24 +149,27 @@ bool Publish(const fs::path& gguf, const fs::path& tokenizer,
            << "    \"prefill_capacity\": " << build.prefill_capacity << ",\n"
            << "    \"max_tokens\": 16,\n    \"session_cache_capacity\": 0,\n"
            << "    \"prefix_cache_capacity\": 0\n  }\n}\n";
-  if (!Write(destination / "model.json.tmp", document.str(), error)) return cleanup();
+  if (!Write(destination / "model.json.tmp", document.str(), error))
+    return cleanup();
   fs::rename(destination / "model.json.tmp", destination / "model.json", ec);
   if (ec) {
     Fail(error, "cannot publish model document: " + ec.message());
     return cleanup();
   }
-  if (error) error->clear();
+  if (error)
+    error->clear();
   return true;
 }
 } // namespace
 
-bool ConfigurePackageData(const std::string &source_asset,
-                          const model::TextMetadata &text_metadata,
-                          const std::optional<PublicationTokenFacts> &publication_tokens,
-                          const ArchitectureFiles &files, const GgufPackageOptions &package,
-                          PackageConfiguration *out, std::string *error) {
+bool ConfigurePackageData(
+    const std::string &source_asset, const model::TextMetadata &text_metadata,
+    const std::optional<PublicationTokenFacts> &publication_tokens,
+    const ArchitectureFiles &files, const GgufPackageOptions &package,
+    PackageConfiguration *out, std::string *error) {
   if (!out || !ValidPath(package.tokenizer) ||
-      (package.format != LOOMC_SOURCE_FORMAT_BYTECODE && package.format != LOOMC_SOURCE_FORMAT_TEXT))
+      (package.format != LOOMC_SOURCE_FORMAT_BYTECODE &&
+       package.format != LOOMC_SOURCE_FORMAT_TEXT))
     return Fail(error, "invalid serving package input configuration");
   std::error_code ec;
   const auto gguf = fs::canonical(source_asset, ec);
@@ -155,42 +181,53 @@ bool ConfigurePackageData(const std::string &source_asset,
   // Revision recognition and tokenizer association are package-only. Numerical
   // BuildModule never depends on an external tokenizer or chat admission.
   ChatPolicySelection chat;
-  if (!SelectChatPolicy(text_metadata, package.template_name, &chat, error)) return false;
+  if (!SelectChatPolicy(text_metadata, package.template_name, &chat, error))
+    return false;
   std::string tokenizer_json;
-  if (!ReadText(tokenizer, &tokenizer_json, error)) return false;
-  std::unique_ptr<FILE, decltype(&std::fclose)> input(std::fopen(gguf.c_str(), "rb"), std::fclose);
+  if (!ReadText(tokenizer, &tokenizer_json, error))
+    return false;
+  std::unique_ptr<FILE, decltype(&std::fclose)> input(
+      std::fopen(gguf.c_str(), "rb"), std::fclose);
   if (!input || std::setvbuf(input.get(), nullptr, _IONBF, 0))
     return Fail(error, "cannot open unbuffered GGUF for package token binding");
   std::vector<std::string> atomic_markers;
-  for (const auto& marker : chat.markers)
-    if (marker.require_single_token) atomic_markers.push_back(marker.text);
+  for (const auto &marker : chat.markers)
+    if (marker.require_single_token)
+      atomic_markers.push_back(marker.text);
   BoundTokenPolicy tokens;
   if (!BindTokenPolicy(input.get(), chat.tokens, text_metadata,
-      publication_tokens, atomic_markers, tokenizer_json, &tokens, error)) return false;
+                       publication_tokens, atomic_markers, tokenizer_json,
+                       &tokens, error))
+    return false;
   if (std::fclose(input.release()) != 0)
     return Fail(error, "cannot close package GGUF token input");
 
   PackageConfiguration prepared;
   prepared.options = package;
   prepared.options.tokenizer = tokenizer.string();
-  prepared.source = tokens.text_source + chat.configuration_source +
+  prepared.source =
+      tokens.text_source + chat.configuration_source +
       "\nglobal.rodata.def public @loomify.text.model_name = bytes(\"" +
       Hex(files.package_name) + "\")\n";
   prepared.chat = std::move(chat);
   *out = std::move(prepared);
-  if (error) error->clear();
+  if (error)
+    error->clear();
   return true;
 }
 
-bool GgufConfiguration::WritePackage(loomc_context_t* context, loomc_workspace_t* workspace,
-                                     std::string* error) const {
+bool GgufConfiguration::WritePackage(loomc_context_t *context,
+                                     loomc_workspace_t *workspace,
+                                     std::string *error) const {
   std::string ignored_error;
-  if (!error) error = &ignored_error;
+  if (!error)
+    error = &ignored_error;
   if (!impl_ || !impl_->package || !context || !workspace ||
       !ValidPath(impl_->package->options.output_directory))
     return Fail(error, "invalid serving package output configuration");
   if (impl_->options.context_capacity % 64 != 0)
-    return Fail(error, "Serve package context_capacity must be a multiple of 64");
+    return Fail(error,
+                "Serve package context_capacity must be a multiple of 64");
   const auto &package = impl_->package->options;
   const auto &chat = impl_->package->chat;
   const fs::path gguf(impl_->source_asset), tokenizer(package.tokenizer);
@@ -200,45 +237,59 @@ bool GgufConfiguration::WritePackage(loomc_context_t* context, loomc_workspace_t
   const fs::path source_alias(impl_->source_alias);
   const auto current_source = fs::canonical(source_alias, ec);
   if (ec || current_source != gguf)
-    return Fail(error, "GGUF input alias no longer resolves to the opened source");
+    return Fail(error,
+                "GGUF input alias no longer resolves to the opened source");
   if (!fs::is_regular_file(tokenizer, ec) || ec)
     return Fail(error, "tokenizer must be an existing tokenizer.json file");
   if (fs::exists(package.output_directory, ec) || ec)
     return Fail(error, "package output directory must not already exist");
 
   std::unique_ptr<BuiltGgufModule> numerical;
-  if (!BuildModule(context, workspace, &numerical, error)) return false;
-  const auto& files = *impl_->architecture;
+  if (!BuildModule(context, workspace, &numerical, error))
+    return false;
+  const auto &files = *impl_->architecture;
   const fs::path library_root(impl_->options.library_root);
   // Both native paths consume exactly the prepared, inspectable source bytes.
-  const auto joined_configuration = impl_->numerical.source + impl_->package->source;
-  loomc_module_t* raw_prepare = nullptr;
+  const auto joined_configuration =
+      impl_->numerical.source + impl_->package->source;
+  loomc_module_t *raw_prepare = nullptr;
   if (!LinkConfiguredProducts(context, workspace, joined_configuration,
-      {(library_root / files.preparation).string()}, {"prepare"}, false, &raw_prepare, error)) return false;
-  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> preparation(raw_prepare, loomc_module_release);
+                              {(library_root / files.preparation).string()},
+                              {"prepare"}, false, &raw_prepare, error))
+    return false;
+  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> preparation(
+      raw_prepare, loomc_module_release);
   // A cross-unit rodata declaration is not sufficient to retain its definition.
   // Keep this package-owned data alongside the fixed public control functions.
   auto control_roots = chat.roots;
   control_roots.push_back("loomify.text.model_name");
-  control_roots.insert(control_roots.end(), chat.data_roots.begin(), chat.data_roots.end());
-  loomc_module_t* raw_control = nullptr;
-  if (!LinkConfiguredProducts(context, workspace, joined_configuration,
-      {(library_root / files.execution).string(),
-       (library_root / chat.text_product).string(),
-       (library_root / resources::kGreedy).string(),
-       (library_root / resources::kTextCommon).string()}, control_roots, false, &raw_control, error)) return false;
-  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> control(raw_control, loomc_module_release);
+  control_roots.insert(control_roots.end(), chat.data_roots.begin(),
+                       chat.data_roots.end());
+  loomc_module_t *raw_control = nullptr;
+  if (!LinkConfiguredProducts(
+          context, workspace, joined_configuration,
+          {(library_root / files.execution).string(),
+           (library_root / chat.text_product).string(),
+           (library_root / resources::kGreedy).string(),
+           (library_root / resources::kTextCommon).string()},
+          control_roots, false, &raw_control, error))
+    return false;
+  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> control(
+      raw_control, loomc_module_release);
   CompanionSources companions;
   if (!SerializeText(preparation.get(), &companions.prepare, error) ||
       !SerializeText(control.get(), &companions.control, error) ||
-      !ReadText(library_root / files.weights, &companions.weights, error)) return false;
+      !ReadText(library_root / files.weights, &companions.weights, error))
+    return false;
   // The effective manifest rejects arbitrary metadata. Documentary identity is
   // kept in the existing text provider, without changing the runtime contract.
-  companions.control = "// GGUF template " + Json(chat.source_key) +
-      " Semantic skeleton SHA256 " + chat.skeleton_sha256 + "\n// Text policy " + Json(chat.text_product) +
+  companions.control =
+      "// GGUF template " + Json(chat.source_key) +
+      " Semantic skeleton SHA256 " + chat.skeleton_sha256 +
+      "\n// Text policy " + Json(chat.text_product) +
       (chat.preserved_baseline ? " (preserved greedy text baseline)" : "") +
       "\n" + companions.control;
-  return Publish(source_alias, tokenizer, impl_->options, package, files.package_name,
-      companions, numerical->module(), error);
+  return Publish(source_alias, tokenizer, impl_->options, package,
+                 files.package_name, companions, numerical->module(), error);
 }
 } // namespace hrx::loomify_gguf

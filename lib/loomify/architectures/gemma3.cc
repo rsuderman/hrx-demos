@@ -41,27 +41,19 @@ bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
       localbase = l.rope_base;
     } else if (l.rope_base != globalbase)
       return Fail(error, "inconsistent Gemma global rotary base");
-    for (const char *role : {"input_norm", "attention_post_norm", "ffn_norm", "ffn_post_norm"})
+    for (const char *role :
+         {"input_norm", "attention_post_norm", "ffn_norm", "ffn_post_norm"})
       if (!p.Tensor(l.tensors, role, E, 1, {0}, l.index))
         return false;
-    if (!p.Tensor(l.tensors, "query_norm", H, 1,
-                  {0}, l.index) ||
-        !p.Tensor(l.tensors, "key_norm", H, 1,
-                  {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", E, 4 * H, {6},
-                  l.index) ||
-        !p.Tensor(l.tensors, "key", E, H, {6},
-                  l.index) ||
-        !p.Tensor(l.tensors, "value", E, H, {6, 8},
-                  l.index) ||
-        !p.Tensor(l.tensors, "attention_output",
-                  4 * H, E, {12}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", E, F, {6},
-                  l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", E, F, {6},
-                  l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", F, E,
-                  {12, 14}, l.index))
+    if (!p.Tensor(l.tensors, "query_norm", H, 1, {0}, l.index) ||
+        !p.Tensor(l.tensors, "key_norm", H, 1, {0}, l.index) ||
+        !p.Tensor(l.tensors, "query", E, 4 * H, {6}, l.index) ||
+        !p.Tensor(l.tensors, "key", E, H, {6}, l.index) ||
+        !p.Tensor(l.tensors, "value", E, H, {6, 8}, l.index) ||
+        !p.Tensor(l.tensors, "attention_output", 4 * H, E, {12}, l.index) ||
+        !p.Tensor(l.tensors, "ffn_gate", E, F, {6}, l.index) ||
+        !p.Tensor(l.tensors, "ffn_up", E, F, {6}, l.index) ||
+        !p.Tensor(l.tensors, "ffn_down", F, E, {12, 14}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
                &v = *Role(l.tensors, "value"),

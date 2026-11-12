@@ -2,11 +2,11 @@
 
 Registry owns persistence; generated outputs are plain destination-to-Path maps.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 import re
-
 
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -26,24 +26,44 @@ def readable_file(path: Path) -> bool:
 
 
 def validate_model_id(model_id: str) -> None:
-    if not isinstance(model_id, str) or model_id in (".", "..") or not _MODEL_ID_RE.fullmatch(model_id):
-        raise ModelImportError("Model ID must start with a letter or digit and contain only letters, digits, '.', '_' or '-'")
+    if (
+        not isinstance(model_id, str)
+        or model_id in (".", "..")
+        or not _MODEL_ID_RE.fullmatch(model_id)
+    ):
+        raise ModelImportError(
+            "Model ID must start with a letter or digit and contain only letters, digits, '.', '_' or '-'"
+        )
 
 
 def generated_outputs(attempt, outputs, expected):
     """Verify a complete destination-to-file result before staging any member."""
-    if (not isinstance(attempt, Path) or not attempt.is_absolute() or attempt.is_symlink()
-            or type(outputs) is not dict or set(outputs) != set(expected)
-            or any(not isinstance(path, Path) for path in outputs.values())):
-        raise ModelImportError('Preparation result has missing or unknown generated outputs')
+    if (
+        not isinstance(attempt, Path)
+        or not attempt.is_absolute()
+        or attempt.is_symlink()
+        or type(outputs) is not dict
+        or set(outputs) != set(expected)
+        or any(not isinstance(path, Path) for path in outputs.values())
+    ):
+        raise ModelImportError(
+            "Preparation result has missing or unknown generated outputs"
+        )
     identities = set()
     for path in outputs.values():
         try:
             relative = path.relative_to(attempt)
-            if (not path.is_absolute() or '..' in relative.parts or path == attempt
-                    or any(part.is_symlink() for part in (path, *path.parents)
-                           if part == attempt or attempt in part.parents)
-                    or not readable_file(path)):
+            if (
+                not path.is_absolute()
+                or ".." in relative.parts
+                or path == attempt
+                or any(
+                    part.is_symlink()
+                    for part in (path, *path.parents)
+                    if part == attempt or attempt in part.parents
+                )
+                or not readable_file(path)
+            ):
                 raise ValueError()
             path.resolve(strict=True).relative_to(attempt.resolve(strict=True))
             stat = path.stat()
@@ -52,5 +72,7 @@ def generated_outputs(attempt, outputs, expected):
                 raise ValueError()
             identities.add(identity)
         except (OSError, ValueError, RuntimeError) as error:
-            raise ModelImportError('Preparation output is missing, aliased or outside its attempt') from error
+            raise ModelImportError(
+                "Preparation output is missing, aliased or outside its attempt"
+            ) from error
     return outputs

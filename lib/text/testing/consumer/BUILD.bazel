@@ -7,8 +7,8 @@ load("//lib/text/testing:render_deps.bzl", "RENDER_DEPS")
 
 cc_test(
     name = "existing_render_test",
-    testonly = True,
     size = "large",
+    testonly = True,
     srcs = [
         "//lib/text/testing:render_harness_sources",
         "//lib/text/protocols/chatml_thinking:hermes_test_sources",

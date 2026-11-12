@@ -3,6 +3,7 @@
 This decoder retains json.loads nonfinite constants and input-type behavior.
 Finite JSON admission belongs to other contracts, not this ownership reader.
 """
+
 import json
 import uuid
 
@@ -22,15 +23,20 @@ def decode_document(data):
     if len(data) > MAX_BYTES:
         raise ValueError()
     value = json.loads(data, object_pairs_hook=_unique)
+
     def depth(item, level=0):
         if level > 64:
             raise ValueError()
         if isinstance(item, dict):
-            for child in item.values(): depth(child, level + 1)
+            for child in item.values():
+                depth(child, level + 1)
         elif isinstance(item, list):
-            for child in item: depth(child, level + 1)
+            for child in item:
+                depth(child, level + 1)
+
     depth(value)
-    if not isinstance(value, dict): raise ValueError()
+    if not isinstance(value, dict):
+        raise ValueError()
     return value
 
 

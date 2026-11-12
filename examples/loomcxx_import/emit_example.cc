@@ -130,24 +130,34 @@ int main(int argc, char **argv) {
   const auto *wrapper = wrapper_source_create();
   loomc_source_options_t wrapper_options{};
   wrapper_options.identifier = loomc_make_cstring_view("affine.loom");
-  wrapper_options.contents = loomc_make_byte_span(wrapper[0].data, wrapper[0].size);
+  wrapper_options.contents =
+      loomc_make_byte_span(wrapper[0].data, wrapper[0].size);
   wrapper_options.storage = LOOMC_SOURCE_STORAGE_COPY;
   loomc_source_t *wrapper_text = nullptr;
-  if (!Ok(loomc_source_create(&wrapper_options, loomc_allocator_system(), &wrapper_text))) return 1;
+  if (!Ok(loomc_source_create(&wrapper_options, loomc_allocator_system(),
+                              &wrapper_text)))
+    return 1;
   Owner<loomc_source_t, loomc_source_release> wrapper_text_owner(wrapper_text);
   loomc_module_t *commands = nullptr;
   result = nullptr;
-  if (!Ok(loomc_module_deserialize_from_source(context, workspace, wrapper_text,
-      nullptr, loomc_allocator_system(), &commands, &result))) return 1;
+  if (!Ok(loomc_module_deserialize_from_source(
+          context, workspace, wrapper_text, nullptr, loomc_allocator_system(),
+          &commands, &result)))
+    return 1;
   Owner<loomc_module_t, loomc_module_release> commands_owner(commands);
   Owner<loomc_result_t, loomc_result_release> wrapper_result(result);
-  if (!Succeeded(result)) return 1;
+  if (!Succeeded(result))
+    return 1;
   loomc_linker_t *linker = nullptr;
-  if (!Ok(loomc_linker_create(context, nullptr, loomc_allocator_system(), &linker))) return 1;
+  if (!Ok(loomc_linker_create(context, nullptr, loomc_allocator_system(),
+                              &linker)))
+    return 1;
   Owner<loomc_linker_t, loomc_linker_release> linker_owner(linker);
   const loomc_link_module_provider_t providers[] = {
-      {commands, loomc_make_cstring_view("affine.loom"), LOOMC_LINK_PROVIDER_ROLE_INPUT},
-      {imported, loomc_make_cstring_view("affine.cc"), LOOMC_LINK_PROVIDER_ROLE_LIBRARY}};
+      {commands, loomc_make_cstring_view("affine.loom"),
+       LOOMC_LINK_PROVIDER_ROLE_INPUT},
+      {imported, loomc_make_cstring_view("affine.cc"),
+       LOOMC_LINK_PROVIDER_ROLE_LIBRARY}};
   const auto command_root = loomc_make_cstring_view("example.authored_affine");
   loomc_link_options_t link{};
   link.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
@@ -159,10 +169,12 @@ int main(int argc, char **argv) {
   link.root_symbol_count = 1;
   loomc_module_t *complete = nullptr;
   result = nullptr;
-  if (!Ok(loomc_link_module(linker, workspace, &link, &complete, &result))) return 1;
+  if (!Ok(loomc_link_module(linker, workspace, &link, &complete, &result)))
+    return 1;
   Owner<loomc_module_t, loomc_module_release> complete_owner(complete);
   Owner<loomc_result_t, loomc_result_release> link_result(result);
-  if (!Succeeded(result)) return 1;
+  if (!Succeeded(result))
+    return 1;
   imported_owner.reset();
   commands_owner.reset();
   loomc_module_serialize_options_t options = {};

@@ -13,7 +13,6 @@ from typing import Dict, List, TypedDict
 
 from ...hem_common import InvalidInput
 
-
 INTEGRATION_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 1
 ENDPOINT_SCHEMA_VERSION = 1
@@ -74,21 +73,39 @@ class Manifest(TypedDict):
 
 def provider_id(server: str) -> str:
     """Injective, case-preserving encoding; never lossy punctuation folding."""
-    if not isinstance(server, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", server):
+    if not isinstance(server, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.-]*", server
+    ):
         raise InvalidInput("invalid Pi server name")
-    encoded = base64.urlsafe_b64encode(server.encode("ascii")).decode("ascii").rstrip("=")
+    encoded = (
+        base64.urlsafe_b64encode(server.encode("ascii")).decode("ascii").rstrip("=")
+    )
     return "loom-hem-" + encoded
 
 
 class PiResult(dict):
     """Useful preview/failure payload plus the existing CLI dispatch exit hook."""
 
-    def __init__(self, state: str, *, configured: bool, changed: bool,
-                 completed: bool, exit_code: int = 0, accepted=None, **fields):
+    def __init__(
+        self,
+        state: str,
+        *,
+        configured: bool,
+        changed: bool,
+        completed: bool,
+        exit_code: int = 0,
+        accepted=None,
+        **fields,
+    ):
         if type(exit_code) is not int or exit_code not in range(5):
             raise InvalidInput("Pi result exit code must be 0, 1, 2, 3 or 4")
-        super().__init__(state=state, configured=configured, changed=changed,
-                         completed=completed, **fields)
+        super().__init__(
+            state=state,
+            configured=configured,
+            changed=changed,
+            completed=completed,
+            **fields,
+        )
         if accepted is not None:
             self["accepted"] = accepted
         self.exit_code = exit_code

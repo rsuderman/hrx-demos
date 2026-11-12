@@ -7,6 +7,7 @@ Supply --gguf/--tokenizer, or --recipe pointing to an existing recipe JSON.
 The converter and server must already be built/installed. Temporary packages
 and isolated server state are removed; the JSON result goes to stdout.
 """
+
 import argparse
 import json
 import os
@@ -56,7 +57,11 @@ def executable(value, name):
 
 def stop(process):
     if process.poll() is None:
-        for sig, timeout in ((signal.SIGINT, 15), (signal.SIGTERM, 5), (signal.SIGKILL, 5)):
+        for sig, timeout in (
+            (signal.SIGINT, 15),
+            (signal.SIGTERM, 5),
+            (signal.SIGKILL, 5),
+        ):
             try:
                 os.killpg(process.pid, sig)
             except ProcessLookupError:
@@ -75,8 +80,13 @@ def stop(process):
 def smoke(args, paths, converter, serve):
     root = Path(tempfile.mkdtemp(prefix="loomify-smoke-"))
     children = []
-    result = {"success": False, "inputs": {k: str(v) for k, v in paths.items()},
-              "converter": converter, "serve": serve, "cases": []}
+    result = {
+        "success": False,
+        "inputs": {k: str(v) for k, v in paths.items()},
+        "converter": converter,
+        "serve": serve,
+        "cases": [],
+    }
     env = dict(os.environ, PYTHONNOUSERSITE="1")
     for name in ("PYTHONPATH", "PYTHONHOME"):
         env.pop(name, None)
@@ -86,7 +96,8 @@ def smoke(args, paths, converter, serve):
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}{path}",
             data=json.dumps(body).encode() if body is not None else None,
-            headers={"Content-Type": "application/json"} if body is not None else {})
+            headers={"Content-Type": "application/json"} if body is not None else {},
+        )
         try:
             with http.open(req, timeout=timeout or args.timeout) as response:
                 return json.load(response)
@@ -96,10 +107,15 @@ def smoke(args, paths, converter, serve):
 
     def launch(command, log, directory):
         child_env = dict(env, LOOM_SERVE_DIR=str(directory / "state"))
-        process = subprocess.Popen(command, cwd=root, env=child_env,
-                                   stdout=log, stderr=subprocess.STDOUT,
-                                   stdin=subprocess.DEVNULL,
-                                   start_new_session=True)
+        process = subprocess.Popen(
+            command,
+            cwd=root,
+            env=child_env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         children.append(process)
         return process
 
@@ -111,12 +127,19 @@ def smoke(args, paths, converter, serve):
             directory.mkdir()
             package = directory / "package"
             with (directory / "export.log").open("w") as log:
-                process = launch([
-                    converter, f"--gguf={paths['gguf']}",
-                    f"--tokenizer={paths['tokenizer']}",
-                    f"--output-dir={package}", f"--format={fmt}",
-                    f"--prefill-capacity={args.prefill_capacity}",
-                    f"--context-capacity={args.context_capacity}"], log, directory)
+                process = launch(
+                    [
+                        converter,
+                        f"--gguf={paths['gguf']}",
+                        f"--tokenizer={paths['tokenizer']}",
+                        f"--output-dir={package}",
+                        f"--format={fmt}",
+                        f"--prefill-capacity={args.prefill_capacity}",
+                        f"--context-capacity={args.context_capacity}",
+                    ],
+                    log,
+                    directory,
+                )
                 try:
                     if process.wait(timeout=args.timeout) != 0:
                         raise RuntimeError(f"{fmt} export failed")
@@ -128,22 +151,39 @@ def smoke(args, paths, converter, serve):
                 port = sock.getsockname()[1]
             case["stage"] = "readiness"
             with (directory / "server.log").open("w") as log:
-                server = launch([
-                    serve, f"--device={args.device}", "--pool_backing=fixed",
-                    f"--listen=127.0.0.1:{port}",
-                    f"--model={package / 'model.json'}"], log, directory)
+                server = launch(
+                    [
+                        serve,
+                        f"--device={args.device}",
+                        "--pool_backing=fixed",
+                        f"--listen=127.0.0.1:{port}",
+                        f"--model={package / 'model.json'}",
+                    ],
+                    log,
+                    directory,
+                )
                 try:
                     deadline = time.monotonic() + args.timeout
                     while True:
                         if server.poll() is not None:
-                            raise RuntimeError(f"{fmt} server exited with {server.returncode}")
+                            raise RuntimeError(
+                                f"{fmt} server exited with {server.returncode}"
+                            )
                         try:
                             status = request(port, "/v1/status", timeout=1)
-                            entry = next((m for m in status.get("data", [])
-                                          if m.get("id") == model["name"]), {})
+                            entry = next(
+                                (
+                                    m
+                                    for m in status.get("data", [])
+                                    if m.get("id") == model["name"]
+                                ),
+                                {},
+                            )
                             registration = entry.get("loom", {})
                             if registration.get("registration") == "failed":
-                                raise RuntimeError(f"Registration failed: {registration.get('error')}")
+                                raise RuntimeError(
+                                    f"Registration failed: {registration.get('error')}"
+                                )
                             if registration.get("registration") == "ready":
                                 break
                         except (urllib.error.HTTPError, json.JSONDecodeError):
@@ -152,28 +192,47 @@ def smoke(args, paths, converter, serve):
                             pass
                         if time.monotonic() >= deadline:
                             raise TimeoutError(f"{fmt} readiness timed out")
-                        time.sleep(.1)
-                    case["devices"] = status.get("server", {}).get("resources", {}).get("devices", [])
+                        time.sleep(0.1)
+                    case["devices"] = (
+                        status.get("server", {}).get("resources", {}).get("devices", [])
+                    )
                     case["stage"] = "request"
-                    body = {"model": model["name"], "messages": [
-                        {"role": "user", "content": args.prompt}],
-                        "temperature": 0, "max_tokens": args.max_tokens}
-                    counted = request(port, "/v1/chat/completions/input_tokens", body)["input_tokens"]
+                    body = {
+                        "model": model["name"],
+                        "messages": [{"role": "user", "content": args.prompt}],
+                        "temperature": 0,
+                        "max_tokens": args.max_tokens,
+                    }
+                    counted = request(port, "/v1/chat/completions/input_tokens", body)[
+                        "input_tokens"
+                    ]
                     response = request(port, "/v1/chat/completions", body)
                     choice = response["choices"][0]
                     usage = response["usage"]
                     if usage["prompt_tokens"] != counted:
-                        raise RuntimeError("Input count and completion accounting disagree")
+                        raise RuntimeError(
+                            "Input count and completion accounting disagree"
+                        )
                     generated = usage["completion_tokens"]
-                    if type(generated) is not int or not 0 < generated <= args.max_tokens:
-                        raise RuntimeError("No generation progress or invalid completion count")
+                    if (
+                        type(generated) is not int
+                        or not 0 < generated <= args.max_tokens
+                    ):
+                        raise RuntimeError(
+                            "No generation progress or invalid completion count"
+                        )
                     if usage["total_tokens"] != counted + generated:
                         raise RuntimeError("Invalid total token accounting")
-                    if not isinstance(choice["message"], dict) or not choice.get("finish_reason"):
+                    if not isinstance(choice["message"], dict) or not choice.get(
+                        "finish_reason"
+                    ):
                         raise RuntimeError("Incomplete completion response")
-                    case.update(message=choice["message"], usage=usage,
-                                finish_reason=choice["finish_reason"],
-                                decode_exercised=generated > 1)
+                    case.update(
+                        message=choice["message"],
+                        usage=usage,
+                        finish_reason=choice["finish_reason"],
+                        decode_exercised=generated > 1,
+                    )
                 finally:
                     stop(server)
             case["stage"] = "shutdown"
@@ -186,15 +245,21 @@ def smoke(args, paths, converter, serve):
         a, b = result["cases"]
         for field in ("message", "usage", "finish_reason"):
             if a[field] != b[field]:
-                raise RuntimeError(f"SOURCE/bytecode {field} differs under identical greedy settings")
+                raise RuntimeError(
+                    f"SOURCE/bytecode {field} differs under identical greedy settings"
+                )
         result["success"] = True
     except (Exception, KeyboardInterrupt) as error:
         result["error"] = str(error) or "Interrupted"
-        result["logs"] = {str(p.relative_to(root)): p.read_text(errors="replace")[-4000:]
-                          for p in root.rglob("*.log")}
+        result["logs"] = {
+            str(p.relative_to(root)): p.read_text(errors="replace")[-4000:]
+            for p in root.rglob("*.log")
+        }
     finally:
-        previous = {sig: signal.signal(sig, signal.SIG_IGN)
-                    for sig in (signal.SIGINT, signal.SIGTERM)}
+        previous = {
+            sig: signal.signal(sig, signal.SIG_IGN)
+            for sig in (signal.SIGINT, signal.SIGTERM)
+        }
         try:
             for child in children:
                 try:
@@ -205,8 +270,11 @@ def smoke(args, paths, converter, serve):
                 try:
                     shutil.rmtree(root)
                 except OSError as error:
-                    result.update(success=False, cleanup_error=str(error),
-                                  retained_work_dir=str(root))
+                    result.update(
+                        success=False,
+                        cleanup_error=str(error),
+                        retained_work_dir=str(root),
+                    )
             else:
                 result.update(success=False, retained_work_dir=str(root))
         finally:
@@ -219,9 +287,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gguf", type=Path)
     parser.add_argument("--tokenizer", type=Path)
-    parser.add_argument("--recipe", type=Path, help="existing recipe JSON; use pinned local HF cache only")
-    parser.add_argument("--converter", help="existing loomify-gguf executable (otherwise PATH)")
-    parser.add_argument("--serve", help="existing loom-serve executable (otherwise PATH)")
+    parser.add_argument(
+        "--recipe",
+        type=Path,
+        help="existing recipe JSON; use pinned local HF cache only",
+    )
+    parser.add_argument(
+        "--converter", help="existing loomify-gguf executable (otherwise PATH)"
+    )
+    parser.add_argument(
+        "--serve", help="existing loom-serve executable (otherwise PATH)"
+    )
     parser.add_argument("--device", default="amdgpu")
     parser.add_argument("--prompt", default="Write a short greeting.")
     parser.add_argument("--max-tokens", type=int, default=32)
@@ -238,6 +314,7 @@ def main():
         serve = executable(args.serve, "loom-serve")
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
+
     def interrupted(_signum, _frame):
         raise KeyboardInterrupt()
 

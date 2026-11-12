@@ -5,7 +5,8 @@
 namespace hrx::model::internal {
 namespace {
 const char *Qwen3TensorSuffix(std::string_view role, bool is_layer) {
-  if (!is_layer) return nullptr;
+  if (!is_layer)
+    return nullptr;
 
   if (role == "post_norm")
     return "ffn_norm.weight";
@@ -28,6 +29,6 @@ void LoadQwen3(const Loader &l, ModelDescriptor &m) {
   }
 }
 } // namespace
-const ModelArchitecture kQwen3Architecture{
-    "qwen3", LoadQwen3, Qwen3TensorSuffix};
+const ModelArchitecture kQwen3Architecture{"qwen3", LoadQwen3,
+                                           Qwen3TensorSuffix};
 } // namespace hrx::model::internal

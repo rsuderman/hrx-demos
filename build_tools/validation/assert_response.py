@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Check that a captured chat stream completed with exactly Hello!."""
+
 import argparse
 import json
 from pathlib import Path
 
 EXPECTED = "Hello!"
+
+
 def exact_response(text):
     if text.strip() != EXPECTED:
         raise ValueError(f"Expected {EXPECTED!r}; received {text!r}")

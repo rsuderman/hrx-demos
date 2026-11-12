@@ -115,28 +115,50 @@ class LogSelection:
             raise InvalidInput("logs require a managed server or model selection")
         if not observation.server or not observation.launch_token:
             raise InvalidInput("selected service has no current managed launch")
-        server, launch_token = _name(observation.server), _name(observation.launch_token)
+        server, launch_token = _name(observation.server), _name(
+            observation.launch_token
+        )
         if observation.kind == "model":
-            if (not observation.name or type(observation.incarnation) is not int
-                    or observation.incarnation <= 0):
+            if (
+                not observation.name
+                or type(observation.incarnation) is not int
+                or observation.incarnation <= 0
+            ):
                 raise InvalidInput("selected model has no current managed incarnation")
-            return cls("model", server, launch_token,
-                       _name(observation.name), observation.incarnation)
+            return cls(
+                "model",
+                server,
+                launch_token,
+                _name(observation.name),
+                observation.incarnation,
+            )
         return cls("server", server, launch_token)
 
 
 def _records(root: Path, selection: LogSelection, deadline: Deadline):
     servers, instances = _read_snapshot(root, deadline)
-    server = next((item.record for item in servers
-                   if item.record["id"] == selection.server and
-                   item.record["launch_token"] == selection.launch_token), None)
+    server = next(
+        (
+            item.record
+            for item in servers
+            if item.record["id"] == selection.server
+            and item.record["launch_token"] == selection.launch_token
+        ),
+        None,
+    )
     instance = None
     if selection.kind == "model":
-        instance = next((dict(item.record, pipeline=item.pipeline) for item in instances
-                         if item.record["server_id"] == selection.server and
-                         item.record["launch_token"] == selection.launch_token and
-                         item.record["name"] == selection.model and
-                         item.record["incarnation"] == selection.incarnation), None)
+        instance = next(
+            (
+                dict(item.record, pipeline=item.pipeline)
+                for item in instances
+                if item.record["server_id"] == selection.server
+                and item.record["launch_token"] == selection.launch_token
+                and item.record["name"] == selection.model
+                and item.record["incarnation"] == selection.incarnation
+            ),
+            None,
+        )
     return server, instance
 
 
@@ -145,8 +167,14 @@ class ServerLogSource(_TrackedLogSource):
 
     _NAMES = ("process.log", "process.log.1", "bootstrap-error.txt")
 
-    def __init__(self, root: Path, selection: LogSelection, *, timeout: float,
-                 batch_bytes: int = MAX_LOG_BATCH_BYTES):
+    def __init__(
+        self,
+        root: Path,
+        selection: LogSelection,
+        *,
+        timeout: float,
+        batch_bytes: int = MAX_LOG_BATCH_BYTES,
+    ):
         self.root, self.selection = root, selection
         self._init_tracking(timeout)
         self.batch_bytes = batch_bytes
@@ -156,7 +184,9 @@ class ServerLogSource(_TrackedLogSource):
         self._ended = False
 
     def _managed_directory(self, record) -> Path:
-        expected = self.root / "servers" / self.selection.server / self.selection.launch_token
+        expected = (
+            self.root / "servers" / self.selection.server / self.selection.launch_token
+        )
         build = record.get("build")
         if not isinstance(build, dict) or Path(build.get("directory", "")) != expected:
             raise HemError("managed server log directory is unavailable")
@@ -168,14 +198,19 @@ class ServerLogSource(_TrackedLogSource):
             directory_flags |= os.O_NOFOLLOW
         directory_fd = os.open(str(self.root), directory_flags)
         try:
-            for component in ("servers", self.selection.server,
-                              self.selection.launch_token):
+            for component in (
+                "servers",
+                self.selection.server,
+                self.selection.launch_token,
+            ):
                 next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
                 os.close(directory_fd)
                 directory_fd = next_fd
             directory_info = os.fstat(directory_fd)
-            if (not stat.S_ISDIR(directory_info.st_mode)
-                    or directory_info.st_uid != os.getuid()):
+            if (
+                not stat.S_ISDIR(directory_info.st_mode)
+                or directory_info.st_uid != os.getuid()
+            ):
                 raise HemError("managed server log directory is unavailable")
             for name in self._NAMES:
                 try:
@@ -206,15 +241,19 @@ class ServerLogSource(_TrackedLogSource):
         if opened is None:
             continuity_lost = self._identity is not None
             if self._unavailable:
-                return _FileRead(at_eof=not continuity_lost,
-                                 continuity_lost=continuity_lost)
+                return _FileRead(
+                    at_eof=not continuity_lost, continuity_lost=continuity_lost
+                )
             self._unavailable = True
             entries = []
             if continuity_lost:
                 entries.append(LogEntry("gap", "server log file disappeared"))
             entries.append(LogEntry("unavailable", "server log unavailable"))
-            return _FileRead(tuple(entries), at_eof=not continuity_lost,
-                             continuity_lost=continuity_lost)
+            return _FileRead(
+                tuple(entries),
+                at_eof=not continuity_lost,
+                continuity_lost=continuity_lost,
+            )
         descriptor, _name_on_disk, info = opened
         entries = []
         try:
@@ -227,7 +266,9 @@ class ServerLogSource(_TrackedLogSource):
                 entries.append(LogEntry("reset", "server log file changed"))
                 self._offset = max(0, info.st_size - self.batch_bytes)
                 if self._offset:
-                    entries.append(LogEntry("gap", "earlier replacement log bytes omitted"))
+                    entries.append(
+                        LogEntry("gap", "earlier replacement log bytes omitted")
+                    )
             elif info.st_size < self._offset:
                 entries.append(LogEntry("gap", "server log was truncated"))
                 self._offset = 0
@@ -239,8 +280,10 @@ class ServerLogSource(_TrackedLogSource):
             if data:
                 entries.append(LogEntry("data", data.decode("utf-8", errors="replace")))
             final_info = os.fstat(descriptor)
-            at_eof = ((final_info.st_dev, final_info.st_ino) == identity
-                      and self._offset >= final_info.st_size)
+            at_eof = (
+                final_info.st_dev,
+                final_info.st_ino,
+            ) == identity and self._offset >= final_info.st_size
         finally:
             os.close(descriptor)
         return _FileRead(tuple(entries), len(data), at_eof)
@@ -260,11 +303,15 @@ class ServerLogSource(_TrackedLogSource):
             return LogBatch()
         if current is None:
             if not initial.at_eof and not initial.continuity_lost:
-                entries.append(LogEntry(
-                    "gap", "server launch ended before retained log was drained"))
+                entries.append(
+                    LogEntry(
+                        "gap", "server launch ended before retained log was drained"
+                    )
+                )
             self._ended = True
-            return LogBatch(tuple(entries) +
-                            (LogEntry("end", "server launch ended"),), True)
+            return LogBatch(
+                tuple(entries) + (LogEntry("end", "server launch ended"),), True
+            )
         try:
             process = current.get("process")
             process_ended = bool(process and _confirmed_exit(process))
@@ -281,39 +328,53 @@ class ServerLogSource(_TrackedLogSource):
             # Reopen/re-stat after logger exit is proven. Consume only the
             # remainder of this poll's byte budget; later polls drain the rest.
             final = self._read_file(
-                current, max(0, self.batch_bytes - initial.bytes_read))
+                current, max(0, self.batch_bytes - initial.bytes_read)
+            )
             entries.extend(final.entries)
             if not final.at_eof and not final.continuity_lost:
                 return LogBatch(tuple(entries))
             self._ended = True
-            return LogBatch(tuple(entries) +
-                            (LogEntry("end", "server process ended"),), True)
+            return LogBatch(
+                tuple(entries) + (LogEntry("end", "server process ended"),), True
+            )
         return LogBatch(tuple(entries))
 
 
-def _parse_native_batch(payload: bytes, selection: LogSelection,
-                        previous_cursor: Optional[str], *, executable=None):
+def _parse_native_batch(
+    payload: bytes,
+    selection: LogSelection,
+    previous_cursor: Optional[str],
+    *,
+    executable=None,
+):
     if not payload.endswith(b"\n"):
         raise HemError("native log response is incomplete")
     try:
         records = [json.loads(line) for line in payload.splitlines()]
     except (ValueError, UnicodeError) as error:
         raise HemError("native log response is malformed") from error
-    if (len(records) < 2 or any(not isinstance(item, dict) for item in records)
-            or records[0].get("event") != "stream"
-            or records[-1].get("event") != "cursor"):
+    if (
+        len(records) < 2
+        or any(not isinstance(item, dict) for item in records)
+        or records[0].get("event") != "stream"
+        or records[-1].get("event") != "cursor"
+    ):
         raise HemError("native log response is incomplete")
     header, footer = records[0], records[-1]
     identity = header.get("identity")
-    if (header.get("scope") != "model" or header.get("model") != selection.model
-            or not isinstance(identity, str) or len(identity.split(":")) != 2
-            or not all(part.isascii() and part.isdecimal()
-                       for part in identity.split(":"))):
+    if (
+        header.get("scope") != "model"
+        or header.get("model") != selection.model
+        or not isinstance(identity, str)
+        or len(identity.split(":")) != 2
+        or not all(part.isascii() and part.isdecimal() for part in identity.split(":"))
+    ):
         raise HemError("native log response has an invalid stream identity")
     if previous_cursor is not None:
         if not previous_cursor.startswith(identity + ":"):
             raise _StreamChanged(
-                "native log stream changed without rejecting its cursor")
+                "native log stream changed without rejecting its cursor"
+            )
         try:
             position = int(previous_cursor.rsplit(":", 1)[1])
         except (ValueError, IndexError) as error:
@@ -339,18 +400,25 @@ def _parse_native_batch(payload: bytes, selection: LogSelection,
     entries = []
     for item in records[1:-1]:
         if item["event"] == "gap":
-            entries.append(LogEntry("gap", f"native log gap {item['from']}..{item['to']}"))
+            entries.append(
+                LogEntry("gap", f"native log gap {item['from']}..{item['to']}")
+            )
         else:
             if executable is None:
-                text = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                text = json.dumps(
+                    item, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                )
             else:
                 from ..models import modalities
+
                 try:
                     event = freeze_json(item)
                     declaration, _catalog, _identity = pipelines.load(executable)
-                    text = modalities.get(declaration['modality']).interpret(event)
+                    text = modalities.get(declaration["modality"]).interpret(event)
                 except (ValueError, TypeError) as error:
-                    raise HemError('native log event has invalid JSON values') from error
+                    raise HemError(
+                        "native log event has invalid JSON values"
+                    ) from error
             entries.append(LogEntry("data", text))
     return identity, cursor, tuple(entries)
 
@@ -377,24 +445,43 @@ class NativeModelLogSource(_TrackedLogSource):
             return LogBatch()
         deadline = Deadline.after(self.timeout)
         record, instance = _records(self.root, self.selection, deadline)
-        if record is None or instance is None or not record.get("process") or not record.get("build"):
+        if (
+            record is None
+            or instance is None
+            or not record.get("process")
+            or not record.get("build")
+        ):
             return self._unavailable_batch()
         try:
-            with PinnedProcess(record["process"], record["build"]["executable"],
-                               emit=lambda _message: None) as process:
+            with PinnedProcess(
+                record["process"],
+                record["build"]["executable"],
+                emit=lambda _message: None,
+            ) as process:
                 client = NativeClient(
-                    record["endpoint"], deadline, process.connection,
-                    ownership_after=process.verify, emit=lambda _message: None,
+                    record["endpoint"],
+                    deadline,
+                    process.connection,
+                    ownership_after=process.verify,
+                    emit=lambda _message: None,
                 )
-                before = client.status(display=False, max_response_bytes=MAX_NATIVE_LOG_BYTES)
-                if registration(before, self.selection.model,
-                                self.selection.incarnation) is None:
+                before = client.status(
+                    display=False, max_response_bytes=MAX_NATIVE_LOG_BYTES
+                )
+                if (
+                    registration(
+                        before, self.selection.model, self.selection.incarnation
+                    )
+                    is None
+                ):
                     return self._unavailable_batch()
                 try:
                     sent_cursor = self._cursor is not None
                     response = client.logs(
-                        model=self.selection.model, cursor=self._cursor,
-                        max_response_bytes=MAX_NATIVE_LOG_BYTES)
+                        model=self.selection.model,
+                        cursor=self._cursor,
+                        max_response_bytes=MAX_NATIVE_LOG_BYTES,
+                    )
                 except HemError as error:
                     # Only a complete native rejection invalidates a cursor;
                     # observed headers on a malformed/oversized body do not.
@@ -407,16 +494,23 @@ class NativeModelLogSource(_TrackedLogSource):
                     if status == 404:
                         return self._unavailable_batch()
                     return self._unavailable_batch("model log unavailable")
-                after = client.status(display=False, max_response_bytes=MAX_NATIVE_LOG_BYTES)
-                if registration(after, self.selection.model,
-                                self.selection.incarnation) is None:
+                after = client.status(
+                    display=False, max_response_bytes=MAX_NATIVE_LOG_BYTES
+                )
+                if (
+                    registration(
+                        after, self.selection.model, self.selection.incarnation
+                    )
+                    is None
+                ):
                     return self._unavailable_batch()
         except (HemError, KeyError, TypeError, ValueError, OSError):
             return self._unavailable_batch()
         try:
-            executable = instance.get('pipeline')
+            executable = instance.get("pipeline")
             identity, cursor, entries = _parse_native_batch(
-                response.body, self.selection, self._cursor, executable=executable)
+                response.body, self.selection, self._cursor, executable=executable
+            )
         except _StreamChanged:
             self._cursor = None
             self._reset_pending = True
@@ -428,8 +522,11 @@ class NativeModelLogSource(_TrackedLogSource):
             return LogBatch()
         if current is None or current_instance is None:
             return self._unavailable_batch()
-        if (self._stream_identity is not None and identity != self._stream_identity
-                and not self._reset_pending):
+        if (
+            self._stream_identity is not None
+            and identity != self._stream_identity
+            and not self._reset_pending
+        ):
             self._cursor = None
             self._reset_pending = True
             return LogBatch((LogEntry("reset", "native log stream changed"),))
@@ -445,18 +542,18 @@ class NativeModelLogSource(_TrackedLogSource):
 class LocalLogProvider:
     """Create only sources authorized by an existing TUI observation identity."""
 
-    def __init__(self, root=None, *, timeout=1.0,
-                 batch_bytes=MAX_LOG_BATCH_BYTES):
+    def __init__(self, root=None, *, timeout=1.0, batch_bytes=MAX_LOG_BATCH_BYTES):
         self.root = Path(root) if root is not None else state_root()
         if not self.root.is_absolute():
             raise ValueError("TUI state root must be absolute")
-        if (type(batch_bytes) is not int or not 0 < batch_bytes <= 4 * 1024 * 1024):
+        if type(batch_bytes) is not int or not 0 < batch_bytes <= 4 * 1024 * 1024:
             raise ValueError("TUI log batch limit must be between 1 and 4194304 bytes")
         self.timeout, self.batch_bytes = timeout, batch_bytes
 
     def open_source(self, observation):
         selection = LogSelection.from_observation(observation)
         if selection.kind == "server":
-            return ServerLogSource(self.root, selection, timeout=self.timeout,
-                                   batch_bytes=self.batch_bytes)
+            return ServerLogSource(
+                self.root, selection, timeout=self.timeout, batch_bytes=self.batch_bytes
+            )
         return NativeModelLogSource(self.root, selection, timeout=self.timeout)

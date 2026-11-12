@@ -1,8 +1,8 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 
-load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 
 _CXXOPTS = select({
     "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
@@ -42,16 +42,25 @@ cc_test(
     size = "small",
     srcs = ["text_metadata_test.cc"],
     copts = _CXXOPTS,
-    deps = ["//tools/model:text_metadata", "@googletest//:gtest", "@googletest//:gtest_main"],
+    deps = [
+        "//tools/model:text_metadata",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
 )
+
 cc_test(
     name = "text_metadata_real_assets_test",
     size = "small",
-    tags = ["manual"],
     srcs = ["text_metadata_test.cc"],
-    defines = ["LOOMIFY_TEXT_REAL_ASSETS=1"],
     copts = _CXXOPTS,
-    deps = ["//tools/model:text_metadata", "@googletest//:gtest", "@googletest//:gtest_main"],
+    defines = ["LOOMIFY_TEXT_REAL_ASSETS=1"],
+    tags = ["manual"],
+    deps = [
+        "//tools/model:text_metadata",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
 )
 
 iree_cc_library(

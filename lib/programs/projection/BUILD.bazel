@@ -1,8 +1,15 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["interface.loom", "projection.loom", "matrix.loom"])
+
+exports_files([
+    "interface.loom",
+    "projection.loom",
+    "matrix.loom",
+])
+
 filegroup(
     name = "implementation_sources",
     srcs = [
@@ -26,11 +33,19 @@ filegroup(
         "//lib/kernels/epoch:active_rows.loom",
     ],
 )
-loom_merge(name = "implementation", srcs = [":implementation_sources"])
 
-filegroup(name = "matrix_sources", srcs = [
-    "matrix.loom", ":implementation_sources",
-    "//lib/kernels/projection:scaled_f16.loom",
-    "//lib/kernels/projection:f16_staging.loom",
-    "//lib/kernels/elementwise:swiglu_row.loom",
-])
+loom_merge(
+    name = "implementation",
+    srcs = [":implementation_sources"],
+)
+
+filegroup(
+    name = "matrix_sources",
+    srcs = [
+        "matrix.loom",
+        ":implementation_sources",
+        "//lib/kernels/projection:scaled_f16.loom",
+        "//lib/kernels/projection:f16_staging.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
+    ],
+)

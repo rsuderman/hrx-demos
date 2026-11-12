@@ -96,40 +96,48 @@ protected:
                    const std::vector<const char *> &root_names,
                    const std::string &replacement = {}) {
     auto provider = Load(provider_name);
-    if (!provider) return {};
+    if (!provider)
+      return {};
     const auto *wrappers = consumer_wrappers_create();
     std::string text;
     for (size_t i = 0; i < consumer_wrappers_size(); ++i)
       if (std::string_view(wrappers[i].name) == wrapper_name)
-        text.assign(reinterpret_cast<const char *>(wrappers[i].data), wrappers[i].size);
+        text.assign(reinterpret_cast<const char *>(wrappers[i].data),
+                    wrappers[i].size);
     EXPECT_FALSE(text.empty());
-    if (!replacement.empty()) text = replacement;
+    if (!replacement.empty())
+      text = replacement;
     loomc_source_options_t source_options{};
     source_options.contents = loomc_make_byte_span(text.data(), text.size());
     source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
     loomc_source_t *source = nullptr;
-    EXPECT_TRUE(Ok(loomc_source_create(&source_options, loomc_allocator_system(), &source)));
+    EXPECT_TRUE(Ok(loomc_source_create(&source_options,
+                                       loomc_allocator_system(), &source)));
     Owner<loomc_source_t, loomc_source_release> source_owner(source);
     loomc_module_t *wrapper = nullptr;
     loomc_result_t *result = nullptr;
-    auto parse = loomc_module_deserialize_from_source(context_.get(), workspace_.get(), source,
-        nullptr, loomc_allocator_system(), &wrapper, &result);
+    auto parse = loomc_module_deserialize_from_source(
+        context_.get(), workspace_.get(), source, nullptr,
+        loomc_allocator_system(), &wrapper, &result);
     ModuleOwner wrapper_owner(wrapper);
     EXPECT_TRUE(Ok(parse));
     EXPECT_TRUE(Succeeded(result));
     if (!result || !loomc_result_succeeded(result)) {
-      if (result) loomc_result_release(result);
+      if (result)
+        loomc_result_release(result);
       return {};
     }
     loomc_result_release(result);
     loomc_linker_t *linker = nullptr;
-    EXPECT_TRUE(Ok(loomc_linker_create(context_.get(), nullptr, loomc_allocator_system(), &linker)));
+    EXPECT_TRUE(Ok(loomc_linker_create(context_.get(), nullptr,
+                                       loomc_allocator_system(), &linker)));
     Owner<loomc_linker_t, loomc_linker_release> linker_owner(linker);
     loomc_link_module_provider_t providers[] = {
         {wrapper, {}, LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {provider.get(), {}, LOOMC_LINK_PROVIDER_ROLE_LIBRARY}};
     std::vector<loomc_string_view_t> roots;
-    for (auto name : root_names) roots.push_back(loomc_make_cstring_view(name));
+    for (auto name : root_names)
+      roots.push_back(loomc_make_cstring_view(name));
     loomc_link_options_t options{};
     options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
     options.structure_size = sizeof(options);
@@ -140,13 +148,15 @@ protected:
     options.root_symbol_count = roots.size();
     loomc_module_t *linked = nullptr;
     result = nullptr;
-    auto status = loomc_link_module(linker, workspace_.get(), &options, &linked, &result);
+    auto status =
+        loomc_link_module(linker, workspace_.get(), &options, &linked, &result);
     Owner<loomc_result_t, loomc_result_release> result_owner(result);
     if (replacement.empty()) {
       EXPECT_TRUE(Ok(status));
       EXPECT_TRUE(Succeeded(result));
     } else {
-      EXPECT_TRUE(!loomc_status_is_ok(status) || !result || !loomc_result_succeeded(result));
+      EXPECT_TRUE(!loomc_status_is_ok(status) || !result ||
+                  !loomc_result_succeeded(result));
       loomc_status_free(status);
     }
     return ModuleOwner(linked);
@@ -181,42 +191,47 @@ protected:
   Owner<loomc_workspace_t, loomc_workspace_release> workspace_;
 };
 
-TEST_F(LoomifyConsumerTest, ImportedKernelLinksMaintainedCommandsWithOwnedClosure) {
+TEST_F(LoomifyConsumerTest,
+       ImportedKernelLinksMaintainedCommandsWithOwnedClosure) {
   auto linked = Link("normalization.loombc", "consumer_commands.loom",
                      {"consumer.first", "consumer.second"});
   ASSERT_TRUE(linked);
   const auto text = Roundtrip(linked.get());
   EXPECT_NE(text.find("@consumer.first"), std::string::npos);
   EXPECT_NE(text.find("@consumer.second"), std::string::npos);
-  EXPECT_NE(text.find("kernel.launch @qwen38_rmsnorm_f32_prefill"), std::string::npos);
+  EXPECT_NE(text.find("kernel.launch @qwen38_rmsnorm_f32_prefill"),
+            std::string::npos);
   EXPECT_NE(text.find("scalar.rsqrtf"), std::string::npos);
   EXPECT_NE(text.find("kernel.workgroup.reduce"), std::string::npos);
 }
 TEST_F(LoomifyConsumerTest, NativeLinkRejectsMismatchedImportedKernelAbi) {
   // Every negative wrapper is internally well typed. Rejection therefore
   // checks its declared ABI against the actual imported numerical provider.
-  for (const char *wrapper : {
-      R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill() launch(%input: buffer, %weight: buffer, %output: buffer)
+  for (
+      const char *wrapper : {
+          R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill() launch(%input: buffer, %weight: buffer, %output: buffer)
 command.def public @consumer.first() launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[](%input, %weight, %output) : [](buffer, buffer, buffer)
   command.return
 })loom",
-      R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%n: f32) launch(%rows: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+          R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%n: f32) launch(%rows: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 command.def public @consumer.first(%rows: index, %n: f32, %epsilon: f32) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[%n](%rows, %epsilon, %input, %weight, %output) : [f32](index, f32, buffer, buffer, buffer)
   command.return
 })loom",
-      R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%rows: index) launch(%rows: index, %epsilon: index, %input: buffer, %weight: buffer, %output: buffer)
+          R"loom(kernel.decl @qwen38_rmsnorm_f32_prefill(%rows: index) launch(%rows: index, %epsilon: index, %input: buffer, %weight: buffer, %output: buffer)
 command.def public @consumer.first(%rows: index, %epsilon: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, index, buffer, buffer, buffer)
   command.return
 })loom"}) {
-    auto linked = Link("normalization.loombc", "consumer_commands.loom", {"consumer.first"}, wrapper);
+    auto linked = Link("normalization.loombc", "consumer_commands.loom",
+                       {"consumer.first"}, wrapper);
     EXPECT_FALSE(linked);
   }
 }
 TEST_F(LoomifyConsumerTest, ProvidersOnlyFeedMaintainedModelRmsNormAdapter) {
-  auto linked = Link("normalization_providers.loombc", "consumer_model_norm.loom", {"consumer.model_norm"});
+  auto linked = Link("normalization_providers.loombc",
+                     "consumer_model_norm.loom", {"consumer.model_norm"});
   ASSERT_TRUE(linked);
   const auto text = Roundtrip(linked.get());
   EXPECT_NE(text.find("kernel.launch @consumer.llama_norm"), std::string::npos);

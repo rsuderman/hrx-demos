@@ -29,6 +29,6 @@ void LoadLlama(const Loader &l, ModelDescriptor &m) {
          true);
 }
 } // namespace
-const ModelArchitecture kLlamaArchitecture{
-    "llama", LoadLlama, LlamaTensorSuffix};
+const ModelArchitecture kLlamaArchitecture{"llama", LoadLlama,
+                                           LlamaTensorSuffix};
 } // namespace hrx::model::internal

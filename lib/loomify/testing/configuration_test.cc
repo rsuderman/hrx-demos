@@ -121,7 +121,8 @@ TEST(ConfigurationFactsTest, SharedGeometryAtHistoryAndPoolBoundaries) {
 }
 TEST(ConfigurationFactsTest, OrdinaryPreparationUsesSharedTypedFacts) {
   const std::vector<model::ModelDescriptor> models = {
-      testing::LlamaModelFacts(), testing::gemma3::ModelFacts(), testing::Qwen3ModelFacts()};
+      testing::LlamaModelFacts(), testing::gemma3::ModelFacts(),
+      testing::Qwen3ModelFacts()};
   const uint64_t hidden[] = {3072, 1152, 1024};
   const uint64_t layers[] = {28, 6, 2};
   const uint64_t kv[] = {1024, 256, 1024};
@@ -129,41 +130,65 @@ TEST(ConfigurationFactsTest, OrdinaryPreparationUsesSharedTypedFacts) {
     for (uint64_t tokens : {1, 8, 128, 129, 512}) {
       ConfigurationFacts facts;
       std::string error;
-      ASSERT_TRUE(DeriveConfiguration(models[family], "fixture", {tokens, 513}, &facts, &error)) << error;
+      ASSERT_TRUE(DeriveConfiguration(models[family], "fixture", {tokens, 513},
+                                      &facts, &error))
+          << error;
       const auto values = Scalars(facts.source);
       const auto history = std::max<uint64_t>(tokens, 129);
       const std::vector<std::pair<const char *, uint64_t>> expected = {
-          {"hidden_size", hidden[family]}, {"layer_count", layers[family]},
-          {"kv_size", kv[family]}, {"history_capacity", history},
-          {"token_capacity", tokens}, {"cache_capacity", 513}, {"pool_capacity", 576},
-          {"cache_base", 768 + 4 * history}, {"map_origin", 2048}};
+          {"hidden_size", hidden[family]},
+          {"layer_count", layers[family]},
+          {"kv_size", kv[family]},
+          {"history_capacity", history},
+          {"token_capacity", tokens},
+          {"cache_capacity", 513},
+          {"pool_capacity", 576},
+          {"cache_base", 768 + 4 * history},
+          {"map_origin", 2048}};
       for (const auto &[field, value] : expected) {
         const auto &actual = values.at(std::string("loomify.serving.") + field);
-        EXPECT_EQ(std::stoull(actual.first), value) << models[family].family << field;
-        EXPECT_EQ(actual.second, (std::string(field) == "cache_base" || std::string(field) == "map_origin") ? "offset" : "index");
+        EXPECT_EQ(std::stoull(actual.first), value)
+            << models[family].family << field;
+        EXPECT_EQ(actual.second, (std::string(field) == "cache_base" ||
+                                  std::string(field) == "map_origin")
+                                     ? "offset"
+                                     : "index");
       }
     }
   ConfigurationFacts hybrid;
   std::string error;
-  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "fixture", {}, &hybrid, &error)) << error;
+  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "fixture", {},
+                                  &hybrid, &error))
+      << error;
   EXPECT_EQ(hybrid.source.find("@loomify.serving."), std::string::npos);
 }
-TEST(ConfigurationFactsTest, SharedNamesStillRejectMalformedConstructedBindings) {
-  for (const auto &original : {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(), testing::Qwen3ModelFacts(), testing::QwenModelFacts()})
+TEST(ConfigurationFactsTest,
+     SharedNamesStillRejectMalformedConstructedBindings) {
+  for (const auto &original :
+       {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(),
+        testing::Qwen3ModelFacts(), testing::QwenModelFacts()})
     for (int mutation = 0; mutation < 4; ++mutation) {
       auto model = original;
-      if (mutation == 0) model.layers[0].tensors[0].tensor.name = "blk.99.attn_norm.weight";
-      if (mutation == 1) model.layers[0].tensors.push_back(model.layers[0].tensors[0]);
+      if (mutation == 0)
+        model.layers[0].tensors[0].tensor.name = "blk.99.attn_norm.weight";
+      if (mutation == 1)
+        model.layers[0].tensors.push_back(model.layers[0].tensors[0]);
       if (mutation == 2) {
-        auto output = std::find_if(model.globals.begin(), model.globals.end(), [](const auto &b) { return b.role == "output"; });
+        auto output =
+            std::find_if(model.globals.begin(), model.globals.end(),
+                         [](const auto &b) { return b.role == "output"; });
         ASSERT_NE(output, model.globals.end());
-        output->tensor.name = model.output_tied_to_embedding ? "output.weight" : "token_embd.weight";
+        output->tensor.name = model.output_tied_to_embedding
+                                  ? "output.weight"
+                                  : "token_embd.weight";
       }
-      if (mutation == 3) model.layers[0].tensors[0].tensor.absolute_offset = uint64_t(INT64_MAX);
+      if (mutation == 3)
+        model.layers[0].tensors[0].tensor.absolute_offset = uint64_t(INT64_MAX);
       ConfigurationFacts facts;
       facts.source = "unchanged";
       std::string error;
-      EXPECT_FALSE(DeriveConfiguration(model, "fixture", {}, &facts, &error)) << original.family << mutation;
+      EXPECT_FALSE(DeriveConfiguration(model, "fixture", {}, &facts, &error))
+          << original.family << mutation;
       EXPECT_EQ(facts.source, "unchanged");
       EXPECT_FALSE(error.empty());
     }
@@ -171,7 +196,8 @@ TEST(ConfigurationFactsTest, SharedNamesStillRejectMalformedConstructedBindings)
 TEST(ConfigurationFactsTest, LlamaScalarFactsPreserveQualifiedF32Bits) {
   ConfigurationFacts facts;
   std::string error;
-  ASSERT_TRUE(DeriveConfiguration(Model(true), "asset", {}, &facts, &error)) << error;
+  ASSERT_TRUE(DeriveConfiguration(Model(true), "asset", {}, &facts, &error))
+      << error;
   const auto scalars = Scalars(facts.source);
   const float step = std::stof(scalars.at("llama.model.rotary_step").first);
   uint32_t bits;
@@ -180,21 +206,28 @@ TEST(ConfigurationFactsTest, LlamaScalarFactsPreserveQualifiedF32Bits) {
   EXPECT_FLOAT_EQ(std::stof(scalars.at("llama.model.attention_scale").first),
                   0.08838834764831845f);
 }
-TEST(ConfigurationFactsTest, LlamaBindingsSelectFormatsTyingAndOptionalRotaryData) {
-  for (const auto &m : {testing::LlamaModelFacts(), testing::LlamaPlainModelFacts()}) {
+TEST(ConfigurationFactsTest,
+     LlamaBindingsSelectFormatsTyingAndOptionalRotaryData) {
+  for (const auto &m :
+       {testing::LlamaModelFacts(), testing::LlamaPlainModelFacts()}) {
     ConfigurationFacts facts;
     std::string error;
-    ASSERT_TRUE(DeriveConfiguration(m, "fixture", {8, 256}, &facts, &error)) << error;
+    ASSERT_TRUE(DeriveConfiguration(m, "fixture", {8, 256}, &facts, &error))
+        << error;
     const auto scalars = Scalars(facts.source);
     const bool plain = !m.output_tied_to_embedding;
-    EXPECT_EQ(scalars.at("llama.model.embedding_storage_type").first, plain ? "12" : "14");
-    EXPECT_EQ(scalars.at("llama.model.tie_word_embeddings").first, plain ? "0" : "1");
-    EXPECT_EQ(scalars.at("llama.model.has_rope_frequencies").first, plain ? "0" : "1");
+    EXPECT_EQ(scalars.at("llama.model.embedding_storage_type").first,
+              plain ? "12" : "14");
+    EXPECT_EQ(scalars.at("llama.model.tie_word_embeddings").first,
+              plain ? "0" : "1");
+    EXPECT_EQ(scalars.at("llama.model.has_rope_frequencies").first,
+              plain ? "0" : "1");
     EXPECT_FLOAT_EQ(std::stof(scalars.at("llama.model.rotary_step").first),
                     float(std::pow(m.rope.base, -2.0 / 128.0)));
     size_t factor_count = 0;
     for (const auto &p : facts.parameters) {
-      if (p.role == "rope_frequencies") ++factor_count;
+      if (p.role == "rope_frequencies")
+        ++factor_count;
       if (p.role == "output") {
         EXPECT_EQ(p.tensor.name, plain ? "output.weight" : "token_embd.weight");
         EXPECT_EQ(p.tensor.storage_type, 14u);
@@ -204,7 +237,8 @@ TEST(ConfigurationFactsTest, LlamaBindingsSelectFormatsTyingAndOptionalRotaryDat
     EXPECT_EQ(facts.parameters.size(), plain ? 219u : 256u);
   }
 }
-TEST(ConfigurationFactsTest, LlamaMalformedOptionalRotaryOrOutputBindingPreservesOutput) {
+TEST(ConfigurationFactsTest,
+     LlamaMalformedOptionalRotaryOrOutputBindingPreservesOutput) {
   using Mutation = std::function<void(model::ModelDescriptor &)>;
   const std::vector<Mutation> mutations = {
       [](auto &m) { m.globals.push_back(m.globals[2]); },
@@ -235,7 +269,8 @@ TEST(ConfigurationFactsTest, Qwen27UsesActualFormatsBindingsAnd64LayerLookups) {
   const auto model = testing::QwenModelFacts(true);
   ConfigurationFacts facts;
   std::string error;
-  ASSERT_TRUE(DeriveConfiguration(model, "asset", {512, 513}, &facts, &error)) << error;
+  ASSERT_TRUE(DeriveConfiguration(model, "asset", {512, 513}, &facts, &error))
+      << error;
   const auto scalars = Scalars(facts.source);
   EXPECT_EQ(scalars.at("qwen.model.base_layers").first, "64");
   EXPECT_EQ(scalars.at("qwen.model.target_kv_planes").first, "32");
@@ -244,22 +279,29 @@ TEST(ConfigurationFactsTest, Qwen27UsesActualFormatsBindingsAnd64LayerLookups) {
   EXPECT_EQ(scalars.at("qwen.model.embedding_storage_type").first, "12");
   EXPECT_EQ(scalars.at("qwen.model.tie_word_embeddings").first, "0");
   EXPECT_EQ(facts.parameters.size(), 851u);
-  EXPECT_NE(facts.source.find("@loomify.config.attention_projections"), std::string::npos);
-  EXPECT_NE(facts.source.find("@loomify.config.gdn_projections"), std::string::npos);
+  EXPECT_NE(facts.source.find("@loomify.config.attention_projections"),
+            std::string::npos);
+  EXPECT_NE(facts.source.find("@loomify.config.gdn_projections"),
+            std::string::npos);
   EXPECT_EQ(scalars.count("qwen.model.ffn_gate_q4_layers"), 0u);
   EXPECT_EQ(scalars.count("qwen.model.attention_q6_layers"), 0u);
   for (size_t layer : {31u, 32u, 47u, 63u}) {
     const auto name = "blk." + std::to_string(layer) + ".ffn_down.weight";
-    auto it = std::find_if(facts.parameters.begin(), facts.parameters.end(), [&](const auto &p) { return p.tensor.name == name; });
+    auto it =
+        std::find_if(facts.parameters.begin(), facts.parameters.end(),
+                     [&](const auto &p) { return p.tensor.name == name; });
     ASSERT_NE(it, facts.parameters.end());
     EXPECT_EQ(it->tensor.storage_type, 12u);
     EXPECT_EQ(it->tensor.byte_size, 50135040u);
   }
   for (auto mutation : {0, 1, 2}) {
     auto bad = model;
-    if (mutation == 0) bad.layers[32].tensors.front().tensor.storage_type = 8;
-    if (mutation == 1) bad.layers[63].attention_ordinal = 0;
-    if (mutation == 2) bad.globals[2].tensor.name = "token_embd.weight";
+    if (mutation == 0)
+      bad.layers[32].tensors.front().tensor.storage_type = 8;
+    if (mutation == 1)
+      bad.layers[63].attention_ordinal = 0;
+    if (mutation == 2)
+      bad.globals[2].tensor.name = "token_embd.weight";
     ConfigurationFacts unchanged;
     unchanged.source = "sentinel";
     EXPECT_FALSE(DeriveConfiguration(bad, "asset", {}, &unchanged, &error));
@@ -270,27 +312,35 @@ TEST(ConfigurationFactsTest, IndependentGgufLayerMapControlsRoutesAndStorage) {
   model::ModelDescriptor model;
   model::GgufCatalog catalog;
   std::string error;
-  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&model, &catalog, &error)) << error;
+  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&model, &catalog, &error))
+      << error;
   ASSERT_EQ(model.layers.size(), 8u);
   EXPECT_EQ(catalog.tensors.size(), 102u);
   EXPECT_LT(catalog.bytes_read, catalog.data_offset + 1);
   for (size_t i = 0; i < 8; ++i) {
     EXPECT_EQ(model.layers[i].index, i);
     EXPECT_EQ(model.layers[i].kind, i % 2 ? model::LayerKind::kAttention
-                                        : model::LayerKind::kGatedDeltaNet);
+                                          : model::LayerKind::kGatedDeltaNet);
     EXPECT_EQ(i % 2 ? model.layers[i].attention_ordinal
-                    : model.layers[i].recurrent_ordinal, i / 2);
+                    : model.layers[i].recurrent_ordinal,
+              i / 2);
   }
   ConfigurationFacts facts;
-  ASSERT_TRUE(DeriveConfiguration(model, "independent.gguf", {3, 65}, &facts, &error)) << error;
+  ASSERT_TRUE(
+      DeriveConfiguration(model, "independent.gguf", {3, 65}, &facts, &error))
+      << error;
   const auto scalars = Scalars(facts.source);
-  for (const auto &expected : std::vector<std::pair<const char *, const char *>>{
-           {"qwen.model.base_layers", "8"}, {"qwen.model.gdn_layers", "4"},
-           {"qwen.model.group_count", "4"}, {"qwen.model.target_kv_planes", "8"},
+  for (const auto &expected :
+       std::vector<std::pair<const char *, const char *>>{
+           {"qwen.model.base_layers", "8"},
+           {"qwen.model.gdn_layers", "4"},
+           {"qwen.model.group_count", "4"},
+           {"qwen.model.target_kv_planes", "8"},
            {"qwen.model.gdn_state_bytes", "4489216"},
            {"qwen.model.private_row_stride", "4491776"},
            {"qwen.model.target_kv_token_bytes", "8192"}})
-    EXPECT_EQ(scalars.at(expected.first).first, expected.second) << expected.first;
+    EXPECT_EQ(scalars.at(expected.first).first, expected.second)
+        << expected.first;
   // One physical embedding binding also supplies the tied logical output.
   EXPECT_EQ(facts.parameters.size(), 103u);
   for (const auto &parameter : facts.parameters) {
@@ -302,40 +352,55 @@ TEST(ConfigurationFactsTest, IndependentGgufLayerMapControlsRoutesAndStorage) {
   }
   auto no_attention = model;
   no_attention.layers = {model.layers[0]};
-  EXPECT_FALSE(DeriveConfiguration(no_attention, "fixture", {}, &facts, &error));
+  EXPECT_FALSE(
+      DeriveConfiguration(no_attention, "fixture", {}, &facts, &error));
   auto too_many = model;
   too_many.layers.resize(65);
   EXPECT_FALSE(DeriveConfiguration(too_many, "fixture", {}, &facts, &error));
 }
-TEST(ConfigurationFactsTest, DescriptorFieldsAndFormatsDoNotSelectCheckpointPresets) {
+TEST(ConfigurationFactsTest,
+     DescriptorFieldsAndFormatsDoNotSelectCheckpointPresets) {
   for (bool tied : {true, false}) {
     model::ModelDescriptor model;
     model::GgufCatalog catalog;
     std::string error;
     ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&model, &catalog, &error,
-        4096, 8, tied)) << error;
+                                                    4096, 8, tied))
+        << error;
     ASSERT_EQ(model.embedding_width, 1024u);
     ASSERT_EQ(model.layers.size(), 8u);
     ConfigurationFacts facts;
-    ASSERT_TRUE(DeriveConfiguration(model, "changed.gguf", {3, 65}, &facts, &error)) << error;
+    ASSERT_TRUE(
+        DeriveConfiguration(model, "changed.gguf", {3, 65}, &facts, &error))
+        << error;
     const auto scalars = Scalars(facts.source);
     EXPECT_EQ(scalars.at("qwen.model.ffn_size").first, "4096");
     EXPECT_EQ(scalars.at("qwen.model.ffn_row_bytes").first, "16384");
     EXPECT_EQ(scalars.at("qwen.model.ffn_capacity_bytes").first, "8388608");
-    EXPECT_EQ(scalars.at("qwen.model.tie_word_embeddings").first, tied ? "1" : "0");
-    EXPECT_EQ(scalars.at("ggml.linear_q4k_q8_1_x4.output_capacity").first, "4096");
-    EXPECT_EQ(scalars.at("ggml.linear_q5k_q8_1_x4.output_capacity").first, "1024");
-    EXPECT_EQ(scalars.at("ggml.linear_q6k_q8_1_x4.output_capacity").first, "248320");
-    EXPECT_EQ(scalars.at("ggml.linear_q8_0_q8_1_x4.output_capacity").first, "4096");
-    EXPECT_EQ(scalars.at("ggml.quantize_q8_1_x4.group_capacity").first, "16384");
+    EXPECT_EQ(scalars.at("qwen.model.tie_word_embeddings").first,
+              tied ? "1" : "0");
+    EXPECT_EQ(scalars.at("ggml.linear_q4k_q8_1_x4.output_capacity").first,
+              "4096");
+    EXPECT_EQ(scalars.at("ggml.linear_q5k_q8_1_x4.output_capacity").first,
+              "1024");
+    EXPECT_EQ(scalars.at("ggml.linear_q6k_q8_1_x4.output_capacity").first,
+              "248320");
+    EXPECT_EQ(scalars.at("ggml.linear_q8_0_q8_1_x4.output_capacity").first,
+              "4096");
+    EXPECT_EQ(scalars.at("ggml.quantize_q8_1_x4.group_capacity").first,
+              "16384");
     for (const auto &parameter : facts.parameters) {
-      if (parameter.role == "ffn_gate") EXPECT_EQ(parameter.tensor.byte_size, 2359296u);
-      if (parameter.role == "ffn_down") EXPECT_EQ(parameter.tensor.byte_size, 2883584u);
+      if (parameter.role == "ffn_gate")
+        EXPECT_EQ(parameter.tensor.byte_size, 2359296u);
+      if (parameter.role == "ffn_down")
+        EXPECT_EQ(parameter.tensor.byte_size, 2883584u);
       if (parameter.role == "query") {
         EXPECT_EQ(parameter.tensor.storage_type, 8u);
         EXPECT_EQ(parameter.tensor.byte_size, 4456448u);
       }
-      if (parameter.role == "output") EXPECT_EQ(parameter.tensor.name, tied ? "token_embd.weight" : "output.weight");
+      if (parameter.role == "output")
+        EXPECT_EQ(parameter.tensor.name,
+                  tied ? "token_embd.weight" : "output.weight");
       const auto *source = model::FindTensor(catalog, parameter.tensor.name);
       ASSERT_NE(source, nullptr);
       EXPECT_EQ(parameter.tensor.absolute_offset, source->absolute_offset);
@@ -363,18 +428,22 @@ TEST(ConfigurationFactsTest, ScalarDataMustSurviveF32Representation) {
     descriptor.rms_epsilon = 2e-5;
     ConfigurationFacts facts;
     std::string error;
-    ASSERT_TRUE(DeriveConfiguration(descriptor, "fixture", {}, &facts, &error)) << error;
-    const auto key = llama ? "llama.model.rms_epsilon" : "qwen.model.rms_epsilon";
+    ASSERT_TRUE(DeriveConfiguration(descriptor, "fixture", {}, &facts, &error))
+        << error;
+    const auto key =
+        llama ? "llama.model.rms_epsilon" : "qwen.model.rms_epsilon";
     EXPECT_FLOAT_EQ(std::stof(Scalars(facts.source).at(key).first), 2e-5f);
     for (double value : {1e-100, std::numeric_limits<double>::max()}) {
       descriptor.rms_epsilon = value;
       facts.source = "sentinel";
-      EXPECT_FALSE(DeriveConfiguration(descriptor, "fixture", {}, &facts, &error));
+      EXPECT_FALSE(
+          DeriveConfiguration(descriptor, "fixture", {}, &facts, &error));
       EXPECT_EQ(facts.source, "sentinel");
     }
   }
 }
-TEST(ConfigurationFactsTest, SharedEncodingSizeUsesQ8BlocksAndPreservesFailureOutput) {
+TEST(ConfigurationFactsTest,
+     SharedEncodingSizeUsesQ8BlocksAndPreservesFailureOutput) {
   uint64_t bytes = 7;
   EXPECT_TRUE(model::EncodedTensorByteSize(8, 5120, 48, &bytes));
   EXPECT_EQ(bytes, 261120u);
@@ -385,7 +454,8 @@ TEST(ConfigurationFactsTest, SharedEncodingSizeUsesQ8BlocksAndPreservesFailureOu
     EXPECT_FALSE(model::EncodedTensorByteSize(tag, 31, 48, &bytes));
     EXPECT_EQ(bytes, 7u);
   }
-  EXPECT_FALSE(model::EncodedTensorByteSize(8, UINT64_MAX - 31, UINT64_MAX, &bytes));
+  EXPECT_FALSE(
+      model::EncodedTensorByteSize(8, UINT64_MAX - 31, UINT64_MAX, &bytes));
 }
 TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
   struct Expected {
@@ -396,12 +466,47 @@ TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
     const char *implementation, *preparation, *execution;
     PublicationLayout publication_layout;
   };
-  for (const auto &expected : std::vector<Expected>{
-           {"llama", "generated.llama_epoch", 131072, {}, resources::kLlamaImplementation, resources::kLlamaPreparation, resources::kLlamaExecution, PublicationLayout::kThreeStops},
-           {"gemma3", "generated.gemma3_epoch", 262144, {}, resources::kGemmaImplementation, resources::kGemmaPreparation, resources::kGemmaExecution, PublicationLayout::kEosAndTurn},
-           {"qwen2", "generated.qwen2_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen2Implementation, resources::kQwen2Preparation, resources::kQwen2Execution, PublicationLayout::kTextAndTurn},
-           {"qwen3", "generated.qwen3_epoch", 262144, {RequiredOperation::kScaledF16ProjectionV1}, resources::kQwen3Implementation, resources::kQwen3Preparation, resources::kQwen3Execution, PublicationLayout::kTextAndTurn},
-           {"qwen35", "generated.qwen_epoch", 262144, {RequiredOperation::kAttentionPrefillH256V1}, resources::kQwenImplementation, resources::kQwenPreparation, resources::kQwenExecution, PublicationLayout::kHostManaged}}) {
+  for (const auto &expected :
+       std::vector<Expected>{{"llama",
+                              "generated.llama_epoch",
+                              131072,
+                              {},
+                              resources::kLlamaImplementation,
+                              resources::kLlamaPreparation,
+                              resources::kLlamaExecution,
+                              PublicationLayout::kThreeStops},
+                             {"gemma3",
+                              "generated.gemma3_epoch",
+                              262144,
+                              {},
+                              resources::kGemmaImplementation,
+                              resources::kGemmaPreparation,
+                              resources::kGemmaExecution,
+                              PublicationLayout::kEosAndTurn},
+                             {"qwen2",
+                              "generated.qwen2_epoch",
+                              262144,
+                              {RequiredOperation::kScaledF16ProjectionV1},
+                              resources::kQwen2Implementation,
+                              resources::kQwen2Preparation,
+                              resources::kQwen2Execution,
+                              PublicationLayout::kTextAndTurn},
+                             {"qwen3",
+                              "generated.qwen3_epoch",
+                              262144,
+                              {RequiredOperation::kScaledF16ProjectionV1},
+                              resources::kQwen3Implementation,
+                              resources::kQwen3Preparation,
+                              resources::kQwen3Execution,
+                              PublicationLayout::kTextAndTurn},
+                             {"qwen35",
+                              "generated.qwen_epoch",
+                              262144,
+                              {RequiredOperation::kAttentionPrefillH256V1},
+                              resources::kQwenImplementation,
+                              resources::kQwenPreparation,
+                              resources::kQwenExecution,
+                              PublicationLayout::kHostManaged}}) {
     const auto *selected = SelectArchitecture(expected.family);
     ASSERT_NE(selected, nullptr);
     EXPECT_EQ(selected, SelectArchitecture(expected.family));
@@ -415,25 +520,31 @@ TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
     EXPECT_STREQ(selected->preparation, expected.preparation);
     EXPECT_STREQ(selected->execution, expected.execution);
     EXPECT_STREQ(selected->weights, resources::kWeights);
-    EXPECT_EQ(selected->package_name, std::string("loomify-") + expected.family);
+    EXPECT_EQ(selected->package_name,
+              std::string("loomify-") + expected.family);
   }
   EXPECT_EQ(SelectArchitecture("unimplemented"), nullptr);
-  EXPECT_EQ(ArchitectureFiles{}.publication_layout, PublicationLayout::kUnspecified);
+  EXPECT_EQ(ArchitectureFiles{}.publication_layout,
+            PublicationLayout::kUnspecified);
 }
-TEST(ConfigurationFactsTest, EverySelectedFamilyKeepsContextAdmissionAndRollback) {
-  for (const auto &model : {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(),
-                           testing::qwen2::ModelFacts(), testing::Qwen3ModelFacts(),
-                           testing::QwenModelFacts()}) {
+TEST(ConfigurationFactsTest,
+     EverySelectedFamilyKeepsContextAdmissionAndRollback) {
+  for (const auto &model :
+       {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(),
+        testing::qwen2::ModelFacts(), testing::Qwen3ModelFacts(),
+        testing::QwenModelFacts()}) {
     const uint64_t limit = model.family == "llama" ? 131072 : 262144;
     ConfigurationFacts facts;
     std::string error;
-    ASSERT_TRUE(DeriveConfiguration(model, "asset", {128, limit}, &facts, &error))
+    ASSERT_TRUE(
+        DeriveConfiguration(model, "asset", {128, limit}, &facts, &error))
         << model.family << ": " << error;
     const auto source = facts.source;
     const auto count = facts.parameters.size();
     for (const auto &settings : std::vector<ConfigurationSettings>{
              {0, 512}, {513, 1024}, {128, 127}, {128, limit + 1}}) {
-      EXPECT_FALSE(DeriveConfiguration(model, "asset", settings, &facts, &error));
+      EXPECT_FALSE(
+          DeriveConfiguration(model, "asset", settings, &facts, &error));
       EXPECT_EQ(facts.source, source);
       EXPECT_EQ(facts.parameters.size(), count);
     }
@@ -500,7 +611,8 @@ TEST(ConfigurationFactsTest, MalformedModelFactsPreserveOutput) {
   short_llama.layers.pop_back();
   ConfigurationFacts ignored;
   std::string short_error;
-  EXPECT_TRUE(DeriveConfiguration(short_llama, "asset", {}, &ignored, &short_error));
+  EXPECT_TRUE(
+      DeriveConfiguration(short_llama, "asset", {}, &ignored, &short_error));
   EXPECT_EQ(Scalars(ignored.source).at("llama.model.layer_count").first, "27");
   for (const Mutation &change : std::vector<Mutation>{
            [](auto &m) { m.layers[0].recurrent_ordinal = 18; },
@@ -577,8 +689,10 @@ void CheckLookupTuples(loomc_context_t *context, loomc_workspace_t *workspace,
       const bool qwen_gdn = kind == 4;
       const auto &descriptor = m.layers[layer];
       if ((attention && !llama) || (route && llama) ||
-          (qwen_attention && (llama || descriptor.kind != model::LayerKind::kAttention)) ||
-          (qwen_gdn && (llama || descriptor.kind != model::LayerKind::kGatedDeltaNet)))
+          (qwen_attention &&
+           (llama || descriptor.kind != model::LayerKind::kAttention)) ||
+          (qwen_gdn &&
+           (llama || descriptor.kind != model::LayerKind::kGatedDeltaNet)))
         continue;
       std::vector<uint64_t> tuple;
       if (route) {
@@ -592,9 +706,11 @@ void CheckLookupTuples(loomc_context_t *context, loomc_workspace_t *workspace,
         for (const char *r : {"query", "key", "value", "attention_output"})
           tuple.push_back(role(r).byte_size);
       } else if (qwen_gdn) {
-        for (const char *r : {"recurrent_qkv", "recurrent_gate", "alpha", "beta", "recurrent_output"})
+        for (const char *r : {"recurrent_qkv", "recurrent_gate", "alpha",
+                              "beta", "recurrent_output"})
           tuple.push_back(role(r).storage_type);
-        for (const char *r : {"recurrent_qkv", "recurrent_gate", "alpha", "beta", "recurrent_output"})
+        for (const char *r : {"recurrent_qkv", "recurrent_gate", "alpha",
+                              "beta", "recurrent_output"})
           tuple.push_back(role(r).byte_size);
       } else {
         tuple.push_back(m.layers[layer].feed_forward_width);
@@ -603,11 +719,16 @@ void CheckLookupTuples(loomc_context_t *context, loomc_workspace_t *workspace,
         for (const char *r : {"ffn_gate", "ffn_up", "ffn_down"})
           tuple.push_back(role(r).byte_size);
       }
-      const char *lookup = route ? "layer_route" : attention ? "layer_attention"
-          : qwen_attention ? "attention_projections" : qwen_gdn ? "gdn_projections" : "layer_ffn";
-      const std::string name = std::string("probe_") + lookup + "_" + std::to_string(layer);
+      const char *lookup = route            ? "layer_route"
+                           : attention      ? "layer_attention"
+                           : qwen_attention ? "attention_projections"
+                           : qwen_gdn       ? "gdn_projections"
+                                            : "layer_ffn";
+      const std::string name =
+          std::string("probe_") + lookup + "_" + std::to_string(layer);
       const auto lookup_index = qwen_attention ? *descriptor.attention_ordinal
-          : qwen_gdn ? *descriptor.recurrent_ordinal : layer;
+                                : qwen_gdn     ? *descriptor.recurrent_ordinal
+                                               : layer;
       expected.emplace(name, tuple);
       std::string types, values;
       for (size_t i = 0; i < tuple.size(); ++i) {
@@ -617,9 +738,9 @@ void CheckLookupTuples(loomc_context_t *context, loomc_workspace_t *workspace,
       source << "func.def public pure @" << name << "() -> (" << types
              << ") {\n"
              << "  %layer = index.constant " << lookup_index << " : index\n  "
-             << values << " = func.call pure @loomify.config."
-             << lookup << "(%layer) : (" << "index) -> (" << types
-             << ")\n  func.return " << values << " : " << types << "\n}\n";
+             << values << " = func.call pure @loomify.config." << lookup
+             << "(%layer) : (" << "index) -> (" << types << ")\n  func.return "
+             << values << " : " << types << "\n}\n";
     }
   }
   auto text = source.str();
@@ -704,18 +825,22 @@ TEST_F(ConfigurationNativeTest, SpecializesEveryLayerAndRouteTuple) {
     for (bool bytecode : {false, true})
       CheckLookupTuples(context, workspace, Model(llama), llama, bytecode);
 }
-TEST_F(ConfigurationNativeTest, IndependentGgufSpecializesAllEightRoutesAndTuples) {
+TEST_F(ConfigurationNativeTest,
+       IndependentGgufSpecializesAllEightRoutesAndTuples) {
   model::ModelDescriptor descriptor;
   std::string error;
-  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&descriptor, nullptr, &error)) << error;
+  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&descriptor, nullptr, &error))
+      << error;
   for (bool bytecode : {false, true})
     CheckLookupTuples(context, workspace, descriptor, false, bytecode);
 }
-TEST_F(ConfigurationNativeTest, ChangedGgufDimensionsAndFormatsReachSourceAndBytecodeLookups) {
+TEST_F(ConfigurationNativeTest,
+       ChangedGgufDimensionsAndFormatsReachSourceAndBytecodeLookups) {
   model::ModelDescriptor descriptor;
   std::string error;
   ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&descriptor, nullptr, &error,
-      4096, 8, false)) << error;
+                                                  4096, 8, false))
+      << error;
   for (bool bytecode : {false, true})
     CheckLookupTuples(context, workspace, descriptor, false, bytecode);
 }
@@ -725,17 +850,23 @@ TEST_F(ConfigurationNativeTest, PlainLlamaMixedLayerLookupsRoundTrip) {
                       bytecode);
 }
 // Resolve and fold real config consumers through the public native linker. The
-// bitcast keeps exact F32 rounding observable after a source/bytecode roundtrip.
+// bitcast keeps exact F32 rounding observable after a source/bytecode
+// roundtrip.
 TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
   for (bool llama : {true, false}) {
     ConfigurationFacts facts;
     std::string error;
-    ASSERT_TRUE(DeriveConfiguration(Model(llama), "asset", {}, &facts, &error)) << error;
-    std::vector<std::pair<std::string, float>> values = llama
-        ? std::vector<std::pair<std::string, float>>{
-              {"llama.model.rotary_step", 0.8146172165870667f},
-              {"llama.model.attention_scale", 0.08838834764831845f}}
-        : std::vector<std::pair<std::string, float>>{{"qwen.model.rms_epsilon", 1e-6f}};
+    ASSERT_TRUE(DeriveConfiguration(Model(llama), "asset", {}, &facts, &error))
+        << error;
+    std::vector<std::pair<std::string, float>> values =
+        llama
+            ? std::vector<
+                  std::pair<std::string, float>>{{"llama.model.rotary_step",
+                                                  0.8146172165870667f},
+                                                 {"llama.model.attention_scale",
+                                                  0.08838834764831845f}}
+            : std::vector<std::pair<std::string, float>>{
+                  {"qwen.model.rms_epsilon", 1e-6f}};
     std::string text = facts.source;
     for (size_t i = 0; i < values.size(); ++i)
       text += "func.def public @scalar_probe_" + std::to_string(i) +
@@ -749,32 +880,41 @@ TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
       options.identifier = loomc_make_cstring_view("scalar-facts.loom");
       options.contents = loomc_make_byte_span(text.data(), text.size());
       loomc_source_t *source = nullptr;
-      ASSERT_TRUE(Ok(loomc_source_create(&options, loomc_allocator_system(), &source)));
+      ASSERT_TRUE(
+          Ok(loomc_source_create(&options, loomc_allocator_system(), &source)));
       loomc_module_t *input = nullptr;
       loomc_result_t *result = nullptr;
-      ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(context, workspace, source, nullptr,
-          loomc_allocator_system(), &input, &result)));
-      ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+      ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
+          context, workspace, source, nullptr, loomc_allocator_system(), &input,
+          &result)));
+      ASSERT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
       loomc_source_release(source);
       loomc_result_release(result);
       if (bytecode) {
         source = nullptr;
-        ASSERT_TRUE(Ok(loomc_module_serialize_bytecode_to_source(input, nullptr,
-            loomc_allocator_system(), &source)));
+        ASSERT_TRUE(Ok(loomc_module_serialize_bytecode_to_source(
+            input, nullptr, loomc_allocator_system(), &source)));
         loomc_module_release(input);
         input = nullptr;
         result = nullptr;
-        ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(context, workspace, source, nullptr,
-            loomc_allocator_system(), &input, &result)));
-        ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+        ASSERT_TRUE(Ok(loomc_module_deserialize_from_source(
+            context, workspace, source, nullptr, loomc_allocator_system(),
+            &input, &result)));
+        ASSERT_TRUE(result && loomc_result_succeeded(result))
+            << Diagnostics(result);
         loomc_source_release(source);
         loomc_result_release(result);
       }
       std::vector<std::string> names;
-      for (size_t i = 0; i < values.size(); ++i) names.push_back("scalar_probe_" + std::to_string(i));
+      for (size_t i = 0; i < values.size(); ++i)
+        names.push_back("scalar_probe_" + std::to_string(i));
       std::vector<loomc_string_view_t> roots;
-      for (const auto &name : names) roots.push_back(loomc_make_cstring_view(name.c_str()));
-      loomc_link_module_provider_t provider{input, loomc_make_cstring_view("facts"), LOOMC_LINK_PROVIDER_ROLE_INPUT};
+      for (const auto &name : names)
+        roots.push_back(loomc_make_cstring_view(name.c_str()));
+      loomc_link_module_provider_t provider{input,
+                                            loomc_make_cstring_view("facts"),
+                                            LOOMC_LINK_PROVIDER_ROLE_INPUT};
       loomc_link_options_t link{};
       link.mode = LOOMC_LINK_MODE_LINK;
       link.module_providers = &provider;
@@ -783,31 +923,39 @@ TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
       link.root_symbol_count = roots.size();
       link.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
       loomc_linker_t *linker = nullptr;
-      ASSERT_TRUE(Ok(loomc_linker_create(context, nullptr, loomc_allocator_system(), &linker)));
+      ASSERT_TRUE(Ok(loomc_linker_create(context, nullptr,
+                                         loomc_allocator_system(), &linker)));
       loomc_module_t *linked = nullptr;
       result = nullptr;
-      ASSERT_TRUE(Ok(loomc_link_module(linker, workspace, &link, &linked, &result)));
-      ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+      ASSERT_TRUE(
+          Ok(loomc_link_module(linker, workspace, &link, &linked, &result)));
+      ASSERT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
       loomc_result_release(result);
       loomc_linker_release(linker);
       loomc_module_release(input);
       loomc_pass_program_t *passes = nullptr;
       result = nullptr;
-      ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(context,
-          loomc_make_cstring_view("combine,cse,dce"), nullptr, loomc_allocator_system(), &passes, &result)));
-      ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+      ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(
+          context, loomc_make_cstring_view("combine,cse,dce"), nullptr,
+          loomc_allocator_system(), &passes, &result)));
+      ASSERT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
       loomc_result_release(result);
       result = nullptr;
-      ASSERT_TRUE(Ok(loomc_pass_program_run(passes, workspace, linked, nullptr,
-          loomc_allocator_system(), &result)));
-      ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+      ASSERT_TRUE(
+          Ok(loomc_pass_program_run(passes, workspace, linked, nullptr,
+                                    loomc_allocator_system(), &result)));
+      ASSERT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
       loomc_result_release(result);
       loomc_pass_program_release(passes);
       source = nullptr;
-      ASSERT_TRUE(Ok(loomc_module_serialize_text_to_source(linked, nullptr,
-          loomc_allocator_system(), &source)));
+      ASSERT_TRUE(Ok(loomc_module_serialize_text_to_source(
+          linked, nullptr, loomc_allocator_system(), &source)));
       auto contents = loomc_source_contents(source);
-      std::string printed(reinterpret_cast<const char *>(contents.data), contents.data_length);
+      std::string printed(reinterpret_cast<const char *>(contents.data),
+                          contents.data_length);
       loomc_source_release(source);
       loomc_module_release(linked);
       for (size_t i = 0; i < values.size(); ++i) {
@@ -815,19 +963,24 @@ TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
         std::memcpy(&expected, &values[i].second, sizeof(expected));
         const auto begin = printed.find("@" + names[i] + "(");
         ASSERT_NE(begin, std::string::npos) << printed;
-        const auto body = printed.substr(begin, printed.find('}', begin) - begin);
+        const auto body =
+            printed.substr(begin, printed.find('}', begin) - begin);
         EXPECT_EQ(body.find("config.get"), std::string::npos) << body;
-        EXPECT_NE(body.find("scalar.constant " + std::to_string(expected) + " : i32"),
-                  std::string::npos) << body;
+        EXPECT_NE(
+            body.find("scalar.constant " + std::to_string(expected) + " : i32"),
+            std::string::npos)
+            << body;
       }
     }
   }
 }
 #ifdef LOOMIFY_CONFIGURATION_REAL_ASSETS
-TEST_F(ConfigurationNativeTest, HyperclovaxHeaderPreservesEveryRangeAndMixedTuple) {
+TEST_F(ConfigurationNativeTest,
+       HyperclovaxHeaderPreservesEveryRangeAndMixedTuple) {
   const char *path = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");
   ASSERT_NE(path, nullptr);
-  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"),
+                                                     std::fclose);
   ASSERT_TRUE(file);
   ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
   model::GgufCatalog catalog;
@@ -856,11 +1009,12 @@ TEST_F(ConfigurationNativeTest, HyperclovaxHeaderPreservesEveryRangeAndMixedTupl
   for (size_t i = 0; i < m.layers.size(); ++i)
     for (const auto &binding : m.layers[i].tensors) {
       const auto &tensors = expected.layers[i].tensors;
-      auto found = std::find_if(tensors.begin(), tensors.end(), [&](const auto &b) {
-        return b.role == binding.role;
-      });
+      auto found =
+          std::find_if(tensors.begin(), tensors.end(),
+                       [&](const auto &b) { return b.role == binding.role; });
       ASSERT_NE(found, tensors.end());
-      EXPECT_EQ(binding.tensor.storage_type, found->tensor.storage_type) << i << binding.role;
+      EXPECT_EQ(binding.tensor.storage_type, found->tensor.storage_type)
+          << i << binding.role;
     }
   for (bool bytecode : {false, true})
     CheckLookupTuples(context, workspace, m, true, bytecode);

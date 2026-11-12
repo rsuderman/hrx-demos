@@ -6,7 +6,7 @@
 #include <cstdlib>
 namespace hrx::loomify_gguf::testing {
 inline model::ModelDescriptor Qwen3ModelFacts(uint64_t hidden = 1024,
-                                             uint32_t layers = 2) {
+                                              uint32_t layers = 2) {
   model::ModelDescriptor m;
   m.family = "qwen3";
   m.name = "Qwen3 configuration fixture";
@@ -25,7 +25,8 @@ inline model::ModelDescriptor Qwen3ModelFacts(uint64_t hidden = 1024,
     t.rank = b == 1 ? 1 : 2;
     t.normalized_extents = {int64_t(a), int64_t(b), 1, 1};
     t.storage_type = tag;
-    if (!model::EncodedTensorByteSize(tag, a, b, &t.byte_size)) std::abort();
+    if (!model::EncodedTensorByteSize(tag, a, b, &t.byte_size))
+      std::abort();
     t.absolute_offset = next;
     next += (t.byte_size + 255) / 256 * 256;
     return model::TensorBinding{std::move(role), std::move(t)};
@@ -54,9 +55,11 @@ inline model::ModelDescriptor Qwen3ModelFacts(uint64_t hidden = 1024,
         tensor("key", p + "attn_k.weight", 12, hidden, 1024),
         tensor("value", p + "attn_v.weight", 14, hidden, 1024),
         tensor("attention_output", p + "attn_output.weight", 12, 2048, hidden),
-        tensor("ffn_gate", p + "ffn_gate.weight", 12, hidden, l.feed_forward_width),
+        tensor("ffn_gate", p + "ffn_gate.weight", 12, hidden,
+               l.feed_forward_width),
         tensor("ffn_up", p + "ffn_up.weight", 12, hidden, l.feed_forward_width),
-        tensor("ffn_down", p + "ffn_down.weight", 14, l.feed_forward_width, hidden)};
+        tensor("ffn_down", p + "ffn_down.weight", 14, l.feed_forward_width,
+               hidden)};
     m.layers.push_back(std::move(l));
   }
   return m;

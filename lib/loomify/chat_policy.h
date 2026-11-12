@@ -9,7 +9,15 @@
 #include <vector>
 namespace hrx::loomify_gguf {
 // Private selection data, never a numerical model or dispatch graph.
-enum class ChatRevision { LlamaHeadersBaseline, ChatmlInlineHistory, ChatmlExplicitReasoning, ChatmlHermes, ChatmlHermesNonThinking, GemmaTurns, ChatmlPlain };
+enum class ChatRevision {
+  LlamaHeadersBaseline,
+  ChatmlInlineHistory,
+  ChatmlExplicitReasoning,
+  ChatmlHermes,
+  ChatmlHermesNonThinking,
+  GemmaTurns,
+  ChatmlPlain
+};
 struct ChatMarker {
   std::string text;
   // Framing literals such as XML tags may encode as several ordinary tokens.
@@ -24,19 +32,19 @@ struct ChatPolicySelection {
   std::string source_text;
   // Public definitions linked with the selected maintained text provider.
   std::string configuration_source;
-  std::vector<const char*> data_roots;
+  std::vector<const char *> data_roots;
   TextTokenRequirements tokens;
   std::string text_product;
   bool preserved_baseline = false;
   std::vector<ChatMarker> markers;
-  std::vector<const char*> roots; // static literal names with process lifetime
+  std::vector<const char *> roots; // static literal names with process lifetime
 };
 // Known semantic skeletons admit only named literal/default slots.
 // Scalar default wins without a name;
 // otherwise exactly one listed candidate is unambiguous. Explicit names never
 // select scalar defaults. Any failure preserves *out; success clears error.
-bool SelectChatPolicy(const model::TextMetadata&,
-                      const std::optional<std::string>& template_name,
-                      ChatPolicySelection* out, std::string* error);
+bool SelectChatPolicy(const model::TextMetadata &,
+                      const std::optional<std::string> &template_name,
+                      ChatPolicySelection *out, std::string *error);
 } // namespace hrx::loomify_gguf
 #endif

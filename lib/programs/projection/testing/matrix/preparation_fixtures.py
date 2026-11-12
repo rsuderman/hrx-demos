@@ -2,17 +2,29 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 """Exact power-of-two scaling and active-prefix padding witnesses."""
+
 from pathlib import Path
 import sys
 
 
 def emit():
-    text = ['// Copyright 2026 AMD ROCm Software\n// SPDX-License-Identifier: MIT\n']
-    text.append('kernel.decl @llm.projection.prepare_scaled_f16(%T:index,%Tp:index,%K:index) launch(%T:index,%Tp:index,%K:index,%origin:offset,%count:buffer,%input:buffer,%scales:buffer,%output:buffer)\n')
-    for t,active in [(17,1),(17,17),(64,63),(128,65),(128,1),(256,129),(512,257),(512,511)]:
-        tp=(t+63)//64*64
-        name=f'prepare_t{t}_n{active}'
-        text.append(f'''func.def @{name}.init(%input:buffer,%count:buffer) {{
+    text = ["// Copyright 2026 AMD ROCm Software\n// SPDX-License-Identifier: MIT\n"]
+    text.append(
+        "kernel.decl @llm.projection.prepare_scaled_f16(%T:index,%Tp:index,%K:index) launch(%T:index,%Tp:index,%K:index,%origin:offset,%count:buffer,%input:buffer,%scales:buffer,%output:buffer)\n"
+    )
+    for t, active in [
+        (17, 1),
+        (17, 17),
+        (64, 63),
+        (128, 65),
+        (128, 1),
+        (256, 129),
+        (512, 257),
+        (512, 511),
+    ]:
+        tp = (t + 63) // 64 * 64
+        name = f"prepare_t{t}_n{active}"
+        text.append(f"""func.def @{name}.init(%input:buffer,%count:buffer) {{
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -109,9 +121,9 @@ check.scenario @{name} {{
   }}
   check.return
 }}
-''')
-    return ''.join(text)
+""")
+    return "".join(text)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     Path(sys.argv[1]).write_text(emit())

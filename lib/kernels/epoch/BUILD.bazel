@@ -1,4 +1,8 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 package(default_visibility = ["//visibility:public"])
-exports_files(["count.loom", "active_rows.loom"])
+
+exports_files([
+    "count.loom",
+    "active_rows.loom",
+])

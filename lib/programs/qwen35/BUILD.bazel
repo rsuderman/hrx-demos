@@ -11,6 +11,11 @@ _PROGRAM_SOURCES = [
     "output.loom",
     "output_interface.loom",
 ]
+
 # The standalone FFN adapter is selected by its operation fixtures only.
 exports_files(_PROGRAM_SOURCES + ["ffn_adapter.loom"])
-filegroup(name = "implementation_sources", srcs = _PROGRAM_SOURCES)
+
+filegroup(
+    name = "implementation_sources",
+    srcs = _PROGRAM_SOURCES,
+)

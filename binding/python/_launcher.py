@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from typing import Dict, NoReturn, Optional
 
-
 _LIBHSA_ENV = "IREE_HAL_AMDGPU_LIBHSA_PATH"
 _LIBAQLPROFILE_ENV = "IREE_HAL_AMDGPU_LIBAQLPROFILE_PATH"
 
@@ -21,7 +20,8 @@ def _required_library(directory: Path, name: str) -> Path:
 
 def native_environment(
     environ: Optional[Dict[str, str]] = None,
-    *, native_root: Optional[Path] = None,
+    *,
+    native_root: Optional[Path] = None,
 ) -> Dict[str, str]:
     """Return a bundled environment, optionally pinned to a retained closure.
 
@@ -31,7 +31,9 @@ def native_environment(
     """
     result = dict(os.environ if environ is None else environ)
     retained = native_root is not None
-    native_root = Path(native_root) if retained else Path(__file__).resolve().parent / "_native"
+    native_root = (
+        Path(native_root) if retained else Path(__file__).resolve().parent / "_native"
+    )
     if retained:
         for key in (_LIBHSA_ENV, _LIBAQLPROFILE_ENV, "LD_LIBRARY_PATH", "LD_PRELOAD"):
             result.pop(key, None)

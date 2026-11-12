@@ -29,7 +29,8 @@ struct GgufModelBuilder::Impl {
   std::string source_alias;
 };
 struct BuiltGgufModule::Impl {
-  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> module{nullptr, loomc_module_release};
+  std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> module{
+      nullptr, loomc_module_release};
   std::string configuration_source;
   std::string platform;
 };

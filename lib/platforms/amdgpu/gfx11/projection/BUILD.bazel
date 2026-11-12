@@ -1,8 +1,32 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["q4k.loom", "q6k.loom", "gated_q4k.loom"])
-filegroup(name = "sources", srcs = ["q4k.loom", "q6k.loom", "gated_q4k.loom"])
-loom_merge(name = "implementation", srcs = [":sources"])
-loom_merge(name = "implementation_text", srcs = [":sources"], output_format = "text", testonly = True)
+
+exports_files([
+    "q4k.loom",
+    "q6k.loom",
+    "gated_q4k.loom",
+])
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "q4k.loom",
+        "q6k.loom",
+        "gated_q4k.loom",
+    ],
+)
+
+loom_merge(
+    name = "implementation",
+    srcs = [":sources"],
+)
+
+loom_merge(
+    name = "implementation_text",
+    testonly = True,
+    srcs = [":sources"],
+    output_format = "text",
+)

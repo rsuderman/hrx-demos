@@ -1,4 +1,5 @@
 """ASR uses common checked resolution, independent of acquisition or native load."""
+
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,30 +12,49 @@ from tests.recipe_config_fixture import ConfigurationFixture
 
 class CuratedAssetsTest(ConfigurationFixture, unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.configure('moonshine-streaming-tiny')
+        self.configure("moonshine-streaming-tiny")
 
     def test_matching_fixed_config_and_all_dependencies_use_common_resolve(self):
         path = self.config_file('{"pending_requests":4,"options":{}}')
-        checked = hem_config.resolve(self.record, self.paths, self.dependencies, self.evidence, config_path=path)
-        self.assertEqual(checked.settings, {'pending_requests': 4, 'options': {}})
-        self.assertEqual(checked.modality, 'asr')
+        checked = hem_config.resolve(
+            self.record, self.paths, self.dependencies, self.evidence, config_path=path
+        )
+        self.assertEqual(checked.settings, {"pending_requests": 4, "options": {}})
+        self.assertEqual(checked.modality, "asr")
         self.assertEqual(set(checked.dependencies), set(self.dependencies))
-        self.assertEqual(checked.definition['kind'], 'recognition')
+        self.assertEqual(checked.definition["kind"], "recognition")
 
     def test_missing_generated_assets_and_bad_artifact_inventory_fail(self):
-        self.paths['rotary'].unlink()
-        with self.assertRaisesRegex(InvalidInput, 'unreadable'):
-            hem_config.resolve(self.record, self.paths, self.dependencies, self.evidence)
+        self.paths["rotary"].unlink()
+        with self.assertRaisesRegex(InvalidInput, "unreadable"):
+            hem_config.resolve(
+                self.record, self.paths, self.dependencies, self.evidence
+            )
 
     def test_complete_import_never_calls_preparation_or_preflight(self):
-        self.assertTrue(all(item['prepared_ownership'] == 'caller-owned' for item in self.record['assets']))
-        with patch('subprocess.Popen', side_effect=AssertionError('helper spawned')):
-            result = hem_config.resolve(self.record, self.paths, self.dependencies, self.evidence)
-        self.assertEqual(result.settings['pending_requests'], 4)
+        self.assertTrue(
+            all(
+                item["prepared_ownership"] == "caller-owned"
+                for item in self.record["assets"]
+            )
+        )
+        with patch("subprocess.Popen", side_effect=AssertionError("helper spawned")):
+            result = hem_config.resolve(
+                self.record, self.paths, self.dependencies, self.evidence
+            )
+        self.assertEqual(result.settings["pending_requests"], 4)
 
     def test_fixed_unknown_and_generated_path_overrides_fail(self):
-        for layer in ({'pending_requests': 8}, {'options': {'unknown': True}}, {'rows': 2}, {'rotary': 'other'}):
+        for layer in (
+            {"pending_requests": 8},
+            {"options": {"unknown": True}},
+            {"rows": 2},
+            {"rotary": "other"},
+        ):
             with self.subTest(layer=layer), self.assertRaises(InvalidInput):
-                hem_config.resolve(self.record, self.paths, self.dependencies, self.evidence, layer)
+                hem_config.resolve(
+                    self.record, self.paths, self.dependencies, self.evidence, layer
+                )

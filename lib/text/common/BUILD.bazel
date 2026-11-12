@@ -1,5 +1,24 @@
 load("//build_tools:loom_merge.bzl", "loom_merge")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["strings.loom", "json.loom", "identity.loom"])
-filegroup(name = "sources", srcs = ["strings.loom", "json.loom", "identity.loom", "//lib/serving:control_interface.loom"])
-loom_merge(name = "implementation", srcs = [":sources"])
+
+exports_files([
+    "strings.loom",
+    "json.loom",
+    "identity.loom",
+])
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "strings.loom",
+        "json.loom",
+        "identity.loom",
+        "//lib/serving:control_interface.loom",
+    ],
+)
+
+loom_merge(
+    name = "implementation",
+    srcs = [":sources"],
+)

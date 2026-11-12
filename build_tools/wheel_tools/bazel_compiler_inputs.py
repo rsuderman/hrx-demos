@@ -5,6 +5,7 @@ Bazel's local_config_cc records absolute tool/include paths, not their contents.
 The pinned container supplies system headers/tools; SDK-provided tools, their
 loaded libraries, and implicit include trees need an explicit content identity.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,8 +20,9 @@ ENVIRONMENT_KEY = "HRX_WHEEL_COMPILER_INPUTS"
 
 
 def _run(*command: str) -> str:
-    return subprocess.run(command, check=True, text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE).stdout
+    return subprocess.run(
+        command, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ).stdout
 
 
 def _loaded_libraries(tool: Path) -> list[Path]:
@@ -90,26 +92,40 @@ def fingerprint(rocm: Path, container_identity: str) -> dict:
         record = {"path": label, "sha256": content.hexdigest()}
         digest.update((label + "\0" + record["sha256"] + "\0").encode())
         records.append(record)
-    return {"contract": CONTRACT, "fingerprint": digest.hexdigest(),
-            "container_identity": container_identity, "inputs": records}
+    return {
+        "contract": CONTRACT,
+        "fingerprint": digest.hexdigest(),
+        "container_identity": container_identity,
+        "inputs": records,
+    }
 
 
 def configure(path: Path, identity: str) -> None:
     lines = path.read_text().splitlines()
     prefix = f"{ENVIRONMENT_KEY}="
-    lines = [line for line in lines if not any(
-        line.startswith(f"common --{option}={prefix}")
-        for option in ("action_env", "host_action_env"))]
-    lines.extend(f"common --{option}={prefix}{identity}"
-                 for option in ("action_env", "host_action_env"))
+    lines = [
+        line
+        for line in lines
+        if not any(
+            line.startswith(f"common --{option}={prefix}")
+            for option in ("action_env", "host_action_env")
+        )
+    ]
+    lines.extend(
+        f"common --{option}={prefix}{identity}"
+        for option in ("action_env", "host_action_env")
+    )
     path.write_text("\n".join(lines) + "\n")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rocm", required=True, type=Path)
-    parser.add_argument("--container-identity", required=True,
-                        help="Pinned image digest; also protects its system toolchain.")
+    parser.add_argument(
+        "--container-identity",
+        required=True,
+        help="Pinned image digest; also protects its system toolchain.",
+    )
     parser.add_argument("--bazelrc", type=Path)
     args = parser.parse_args()
     if not re.fullmatch(r"(?:\S+@)?sha256:[0-9a-f]{64}", args.container_identity):

@@ -1,4 +1,5 @@
 """One authored recipe grammar and packaged lookup, without acquisition effects."""
+
 from __future__ import annotations
 
 import builtins
@@ -32,11 +33,17 @@ def _name(value, path):
 
 
 def _relative(value, path, *, locator=False):
-    if (type(value) is not str or not value or "\\" in value or "\0" in value
-            or PurePosixPath(value).is_absolute()
-            or PureWindowsPath(value).drive
-            or any(part in ("", ".", "..") for part in value.split("/"))
-            or locator and any(part.startswith("-") for part in value.split("/"))):
+    if (
+        type(value) is not str
+        or not value
+        or "\\" in value
+        or "\0" in value
+        or PurePosixPath(value).is_absolute()
+        or PureWindowsPath(value).drive
+        or any(part in ("", ".", "..") for part in value.split("/"))
+        or locator
+        and any(part.startswith("-") for part in value.split("/"))
+    ):
         _fail(path, "expected a normalized relative path/locator")
     return value
 
@@ -68,18 +75,39 @@ def _decode(data: bytes):
     if type(data) is not bytes or len(data) > MAX_BYTES:
         _fail("document", "expected at most 1 MiB of UTF-8 JSON bytes")
     try:
-        value = json.loads(data.decode("utf-8"), object_pairs_hook=_unique,
-                           parse_constant=lambda token: _fail("document", f"nonfinite value {token}"))
+        value = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_unique,
+            parse_constant=lambda token: _fail("document", f"nonfinite value {token}"),
+        )
         _finite(value, "document")
     except (ValueError, UnicodeError, RecursionError) as error:
-        raise HemError("Invalid recipe document: malformed UTF-8 JSON or excessive nesting") from error
+        raise HemError(
+            "Invalid recipe document: malformed UTF-8 JSON or excessive nesting"
+        ) from error
     return value, hashlib.sha256(data).hexdigest()
 
 
 def parse(data: bytes) -> tuple[dict, str]:
     """Read authored format3 without imports, acquisition or implementation policy."""
     value, identity = _decode(data)
-    _object(value, ("format", "id", "name", "executable", "files", "configuration", *( ("preparation_inputs",) if type(value) is dict and "preparation_inputs" in value else ())), "document")
+    _object(
+        value,
+        (
+            "format",
+            "id",
+            "name",
+            "executable",
+            "files",
+            "configuration",
+            *(
+                ("preparation_inputs",)
+                if type(value) is dict and "preparation_inputs" in value
+                else ()
+            ),
+        ),
+        "document",
+    )
     if "preparation_inputs" in value and type(value["preparation_inputs"]) is not dict:
         _fail("preparation_inputs", "expected pinned source object")
     if type(value["format"]) is not int or value["format"] != 3:
@@ -87,7 +115,9 @@ def parse(data: bytes) -> tuple[dict, str]:
     _name(value["id"], "id")
     _relative(value["executable"], "executable", locator=True)
     if not value["executable"].endswith("/executable.json"):
-        _fail("executable", "expected a direct catalog-relative executable.json reference")
+        _fail(
+            "executable", "expected a direct catalog-relative executable.json reference"
+        )
     if type(value["name"]) is not str or not value["name"].strip():
         _fail("name", "expected nonempty string")
     if type(value["configuration"]) is not dict:
@@ -101,19 +131,29 @@ def parse(data: bytes) -> tuple[dict, str]:
         _object(item, ("path", "source"), where)
         path = _relative(item["path"], where + ".path")
         parts = PurePosixPath(path)
-        if any(parts == other or parts in other.parents or other in parts.parents for other in paths):
+        if any(
+            parts == other or parts in other.parents or other in parts.parents
+            for other in paths
+        ):
             _fail(where + ".path", "duplicate or overlapping file destination")
         paths.append(parts)
         source = item["source"]
         if type(source) is not dict:
             _fail(where + ".source", "expected an object")
         if source.get("kind") == "huggingface":
-            _object(source, ("kind", "repo_id", "revision", "filename"), where + ".source")
+            _object(
+                source, ("kind", "repo_id", "revision", "filename"), where + ".source"
+            )
             repo = _relative(source["repo_id"], where + ".source.repo_id", locator=True)
-            filename = _relative(source["filename"], where + ".source.filename", locator=True)
+            filename = _relative(
+                source["filename"], where + ".source.filename", locator=True
+            )
             revision = source["revision"]
             if type(revision) is not str or not _REVISION.fullmatch(revision):
-                _fail(where + ".source.revision", "expected immutable lowercase 40-hex revision")
+                _fail(
+                    where + ".source.revision",
+                    "expected immutable lowercase 40-hex revision",
+                )
             coordinate = repo, revision, filename
             if coordinate in coordinates:
                 _fail(where + ".source", "duplicate HF coordinates")
@@ -127,9 +167,14 @@ def parse(data: bytes) -> tuple[dict, str]:
 
 def _paths(identifier=None, *, executable=None):
     from . import pipelines
+
     if executable is None:
         root = pipelines._root()
-        pattern = "**/recipes/*.json" if identifier is None else f"**/recipes/{identifier}.json"
+        pattern = (
+            "**/recipes/*.json"
+            if identifier is None
+            else f"**/recipes/{identifier}.json"
+        )
     else:
         manifest, _ = pipelines._manifest(executable)
         root = manifest.parent
@@ -156,11 +201,16 @@ def _read(path):
 
 def _admit(document, path):
     from . import pipelines
-    expected = (path.parent.parent.relative_to(pipelines._root()) / 'executable.json').as_posix()
-    if document['executable'] != expected:
-        _fail(document['id'], 'recipe location differs from its executable catalog')
+
+    expected = (
+        path.parent.parent.relative_to(pipelines._root()) / "executable.json"
+    ).as_posix()
+    if document["executable"] != expected:
+        _fail(document["id"], "recipe location differs from its executable catalog")
     executable, _, _ = pipelines.load(document["executable"])
-    pipelines.validate_files(executable, document["files"], document.get("preparation_inputs"))
+    pipelines.validate_files(
+        executable, document["files"], document.get("preparation_inputs")
+    )
 
 
 def load(recipe_id: str) -> tuple[dict, str]:
@@ -182,6 +232,7 @@ def list(executable=None) -> tuple[tuple[dict, str], ...]:
     """Selected catalog recipes or strict global inventory, sorted by recipe ID."""
     if executable is not None:
         from . import pipelines
+
         pipelines.load(executable)
     result, ids = [], set()
     for path in _paths(executable=executable):
@@ -192,7 +243,9 @@ def list(executable=None) -> tuple[tuple[dict, str], ...]:
         if path.name != document["id"] + ".json":
             _fail(document["id"], "filename and declared ID differ")
         if executable is not None and document["executable"] != executable:
-            _fail(document["id"], "declaration differs from selected catalog executable")
+            _fail(
+                document["id"], "declaration differs from selected catalog executable"
+            )
         _admit(document, path)
         result.append((document, identity))
     return tuple(sorted(result, key=lambda item: item[0]["id"]))

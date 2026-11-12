@@ -1,8 +1,8 @@
 """Shared static-fixture matrix and existing AMDGPU test launcher."""
 
-load(":loomcxx.bzl", "loom_fixture")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load(":loomcxx.bzl", "loom_fixture")
 
 def loom_gpu_test(name, srcs, deps, configs):
     """Runs a native numerical/contract fixture with the common target policy."""

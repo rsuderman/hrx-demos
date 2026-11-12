@@ -1,7 +1,6 @@
 load(":bytecode.bzl", "bytecode_catalogs")
 load(":catalog_sources.bzl", "CATALOG_BUILDS")
 
-
 exports_files(
     [
         "llm/qwen/kernels/qwen38/layer_decode.loom",
@@ -11,9 +10,15 @@ exports_files(
     visibility = ["//loomcxx-pipeline/llm:__pkg__"],
 )
 
-bytecode_catalogs(name = "bytecode_catalogs", catalogs = CATALOG_BUILDS)
+bytecode_catalogs(
+    name = "bytecode_catalogs",
+    catalogs = CATALOG_BUILDS,
+)
 
-exports_files(["llm/common/fixed_epoch_abi.loom"], visibility = ["//visibility:public"])
+exports_files(
+    ["llm/common/fixed_epoch_abi.loom"],
+    visibility = ["//visibility:public"],
+)
 
 filegroup(
     name = "qwen_control_contract_inputs",

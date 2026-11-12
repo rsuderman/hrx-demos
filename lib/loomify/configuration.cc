@@ -4,7 +4,8 @@
 namespace hrx::loomify_gguf {
 namespace {
 bool Fail(std::string *error, const char *message) {
-  if (error) *error = message;
+  if (error)
+    *error = message;
   return false;
 }
 } // namespace
@@ -16,7 +17,8 @@ bool DeriveConfiguration(const model::ModelDescriptor &m,
     return Fail(error,
                 "configuration requires output and source asset identity");
   const auto *architecture = SelectArchitecture(m.family);
-  if (!architecture) return Fail(error, "unsupported model family");
+  if (!architecture)
+    return Fail(error, "unsupported model family");
   const auto limit = architecture->context_capacity_limit;
   if (!s.token_capacity || s.token_capacity > 512 ||
       s.context_capacity < s.token_capacity || s.context_capacity > limit)

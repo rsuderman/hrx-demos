@@ -35,7 +35,11 @@ def bytecode_catalogs(name, catalogs):
                 tools = [generator],
                 outs = ["intermediate/" + str(index) + ".loom"],
                 cmd = "$(execpath %s) prepare --source=$(location %s) --from-policy='%s' --policy='%s' --policy-symbol='%s' --output=$@" % (
-                    generator, policy["source"], policy["from"], policy["to"], policy.get("symbol", "policy"),
+                    generator,
+                    policy["source"],
+                    policy["from"],
+                    policy["to"],
+                    policy.get("symbol", "policy"),
                 ),
             )
             inputs = [":" + prepared if source == policy["source"] else source for source in inputs]
@@ -46,7 +50,8 @@ def bytecode_catalogs(name, catalogs):
             tools = [linker],
             outs = ["bytecode/" + path],
             cmd = "$(execpath %s) %s --mode=merge --to=bc --output=$@" % (
-                linker, " ".join(["$(location %s)" % source for source in inputs]),
+                linker,
+                " ".join(["$(location %s)" % source for source in inputs]),
             ),
         )
         targets.append(":" + target)

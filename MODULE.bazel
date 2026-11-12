@@ -9,8 +9,8 @@ module(
 bazel_dep(name = "hrx", version = "0.0.0", repo_name = "hrx_system")
 git_override(
     module_name = "hrx",
-    remote = "https://github.com/ROCm/hrx-system.git",
     commit = "a4013927033e13f4046b2ec8d1c4162c7c8628b1",
+    remote = "https://github.com/ROCm/hrx-system.git",
 )
 
 # HRX's test dependencies are not inherited by downstream modules. Keep this

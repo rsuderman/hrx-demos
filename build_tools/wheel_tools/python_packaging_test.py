@@ -20,7 +20,16 @@ from build_tools.wheel_tools import validate_wheel as wheel_validation
 from build_tools.model_tools import loom_catalog, package_families
 from build_tools.model_tools.catalog_test_fixture import CatalogFixture
 from build_tools.validation import recipe_inventory
-from build_tools.wheel_tools.validate_wheel import HEM_MODULES, MODEL_MODULES, MODEL_PYTHON_PATHS, OBSOLETE_MODULES, OBSOLETE_ENTRY_POINTS, REQUIRED_ENTRY_POINTS, PI_ASSETS, validate_wheel
+from build_tools.wheel_tools.validate_wheel import (
+    HEM_MODULES,
+    MODEL_MODULES,
+    MODEL_PYTHON_PATHS,
+    OBSOLETE_MODULES,
+    OBSOLETE_ENTRY_POINTS,
+    REQUIRED_ENTRY_POINTS,
+    PI_ASSETS,
+    validate_wheel,
+)
 from binding.python.integrations.pi import hem_pi_assets, hem_pi_contracts
 import hashlib
 import json
@@ -32,977 +41,1735 @@ from build_tools.versioning import read_package_version
 
 class PackagingTest(unittest.TestCase):
     def setUp(self):
-        temporary=tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
-        self.root=Path(temporary.name)
-        self.fixture=CatalogFixture(self.root/'catalog-fixture')
-        shutil.copytree(packaging.REPO_ROOT/'binding',self.fixture.repository/'binding',dirs_exist_ok=True)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.fixture = CatalogFixture(self.root / "catalog-fixture")
+        shutil.copytree(
+            packaging.REPO_ROOT / "binding",
+            self.fixture.repository / "binding",
+            dirs_exist_ok=True,
+        )
         for build in self.fixture.builds.values():
-            if build['helper']:
-                identifier = json.loads((packaging.REPO_ROOT/build['helper']['contract']).read_bytes())['id']
+            if build["helper"]:
+                identifier = json.loads(
+                    (packaging.REPO_ROOT / build["helper"]["contract"]).read_bytes()
+                )["id"]
                 operation = self.fixture.operations[identifier]
-                (self.fixture.repository/build['helper']['contract']).write_text(
-                    json.dumps(operation,indent=2)+'\n')
-        patch.object(wheel_validation,'REPO_ROOT',self.fixture.repository).start()
-        reviewed=recipe_inventory.load_release()
-        self.release=self.fixture.release(reviewed)
-        original=recipe_inventory.load_release
-        patch.object(recipe_inventory,'load_release',side_effect=lambda path=None:self.release if path is None else original(path)).start()
+                (self.fixture.repository / build["helper"]["contract"]).write_text(
+                    json.dumps(operation, indent=2) + "\n"
+                )
+        patch.object(wheel_validation, "REPO_ROOT", self.fixture.repository).start()
+        reviewed = recipe_inventory.load_release()
+        self.release = self.fixture.release(reviewed)
+        original = recipe_inventory.load_release
+        patch.object(
+            recipe_inventory,
+            "load_release",
+            side_effect=lambda path=None: (
+                self.release if path is None else original(path)
+            ),
+        ).start()
         self.addCleanup(patch.stopall)
 
     def context(self, *, environment=None, options=None):
-        return packaging.BazelBuildContext(self.root/'bazel', self.root,
-            options if options is not None else packaging.wheel_build_options(self.root/'rocm'),
-            environment if environment is not None else packaging.bazel_environment())
+        return packaging.BazelBuildContext(
+            self.root / "bazel",
+            self.root,
+            (
+                options
+                if options is not None
+                else packaging.wheel_build_options(self.root / "rocm")
+            ),
+            environment if environment is not None else packaging.bazel_environment(),
+        )
 
     def test_build_includes_catalog_but_native_mapping_only_contains_server(self):
-        context=self.context()
-        with patch.object(packaging,'_native_output',return_value=self.root/'server') as query, patch.object(packaging.subprocess,'run') as run:
-            outputs=packaging.build_native_executables(context)
-        self.assertEqual(set(outputs),{'loom-serve'})
-        self.assertEqual(packaging.BAZEL_TARGETS,{'loom-serve':'//:loom-serve'})
-        query.assert_called_once_with(context, '//:loom-serve')
-        self.assertIn(packaging.BAZEL_TARGETS['loom-serve'],run.call_args.args[0])
-        self.assertIn(loom_catalog.CATALOG_TARGET,run.call_args.args[0])
-        self.assertEqual(run.call_args.args[0][-1],loom_catalog.CATALOG_TARGET)
-        self.assertNotIn('epoch_check',' '.join(run.call_args.args[0]))
+        context = self.context()
+        with (
+            patch.object(
+                packaging, "_native_output", return_value=self.root / "server"
+            ) as query,
+            patch.object(packaging.subprocess, "run") as run,
+        ):
+            outputs = packaging.build_native_executables(context)
+        self.assertEqual(set(outputs), {"loom-serve"})
+        self.assertEqual(packaging.BAZEL_TARGETS, {"loom-serve": "//:loom-serve"})
+        query.assert_called_once_with(context, "//:loom-serve")
+        self.assertIn(packaging.BAZEL_TARGETS["loom-serve"], run.call_args.args[0])
+        self.assertIn(loom_catalog.CATALOG_TARGET, run.call_args.args[0])
+        self.assertEqual(run.call_args.args[0][-1], loom_catalog.CATALOG_TARGET)
+        self.assertNotIn("epoch_check", " ".join(run.call_args.args[0]))
 
     def test_explicit_cache_disable_overrides_stale_rc_for_build_and_query(self):
         with patch.dict(os.environ, {"HRX_BAZEL_CACHE_ENABLED": "0"}):
-            context=self.context()
-        with patch.object(packaging, "_native_output", return_value=self.root / "server"), patch.object(packaging.subprocess, "run") as run:
+            context = self.context()
+        with (
+            patch.object(
+                packaging, "_native_output", return_value=self.root / "server"
+            ),
+            patch.object(packaging.subprocess, "run") as run,
+        ):
             packaging.build_native_executables(context)
-            context.query('//:loom-serve')
+            context.query("//:loom-serve")
         for call in run.call_args_list:
-            for option in ('--disk_cache=', '--action_env=HRX_WHEEL_COMPILER_INPUTS=',
-                           '--host_action_env=HRX_WHEEL_COMPILER_INPUTS='):
+            for option in (
+                "--disk_cache=",
+                "--action_env=HRX_WHEEL_COMPILER_INPUTS=",
+                "--host_action_env=HRX_WHEEL_COMPILER_INPUTS=",
+            ):
                 self.assertIn(option, call.args[0])
 
     def test_catalog_stages_share_one_context_and_required_decoder_lookup(self):
-        command=packaging.BazelBuildPy(packaging.BinaryDistribution())
-        command.build_lib=str(self.root/'build')
-        prepared=object()
+        command = packaging.BazelBuildPy(packaging.BinaryDistribution())
+        command.build_lib = str(self.root / "build")
+        prepared = object()
         with ExitStack() as stack:
-            for name,result in (('validate_wheel_platform',None),('discover_bazel',self.root/'bazel'),
-                                ('discover_rocm_root',self.root/'rocm'),('build_native_executables',{}),
-                                ('discover_hrx_source',self.root/'hrx'),('stage_native_payload',[])):
-                stack.enter_context(patch.object(packaging,name,return_value=result))
-            build=stack.enter_context(patch.object(packaging,'build_native_executables',return_value={}))
-            stack.enter_context(patch.object(packaging.build_py,'run'))
-            prepare=stack.enter_context(patch.object(package_families,'prepare',return_value=prepared))
-            stage=stack.enter_context(patch.object(package_families,'stage',return_value=[]))
-            helpers=stack.enter_context(patch.object(package_families,'stage_helpers',return_value=[]))
+            for name, result in (
+                ("validate_wheel_platform", None),
+                ("discover_bazel", self.root / "bazel"),
+                ("discover_rocm_root", self.root / "rocm"),
+                ("build_native_executables", {}),
+                ("discover_hrx_source", self.root / "hrx"),
+                ("stage_native_payload", []),
+            ):
+                stack.enter_context(patch.object(packaging, name, return_value=result))
+            build = stack.enter_context(
+                patch.object(packaging, "build_native_executables", return_value={})
+            )
+            stack.enter_context(patch.object(packaging.build_py, "run"))
+            prepare = stack.enter_context(
+                patch.object(package_families, "prepare", return_value=prepared)
+            )
+            stage = stack.enter_context(
+                patch.object(package_families, "stage", return_value=[])
+            )
+            helpers = stack.enter_context(
+                patch.object(package_families, "stage_helpers", return_value=[])
+            )
             command.run()
-        context=build.call_args.args[0]
-        prepare.assert_called_once_with(context.query,context.repository)
-        package=Path(command.build_lib)/'hrx_solutions'
-        stage.assert_called_once_with(package,prepared,context.repository)
-        helpers.assert_called_once_with(package/'_native',prepared,repository=context.repository)
+        context = build.call_args.args[0]
+        prepare.assert_called_once_with(context.query, context.repository)
+        package = Path(command.build_lib) / "hrx_solutions"
+        stage.assert_called_once_with(package, prepared, context.repository)
+        helpers.assert_called_once_with(
+            package / "_native", prepared, repository=context.repository
+        )
 
     @contextmanager
     def buildpy_fixture(self):
-        fixture=self.fixture
-        rocm=self.root/'rocm'
+        fixture = self.fixture
+        rocm = self.root / "rocm"
         for name in packaging.ROCM_RUNTIME_ROOTS:
-            path=rocm/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(name.encode())
-        server=self.root/'server';server.write_bytes(b'native fixture')
-        command=packaging.BazelBuildPy(packaging.BinaryDistribution());command.build_lib=str(self.root/'build')
-        package=Path(command.build_lib)/'hrx_solutions';python_file=package/'__init__.py'
-        def python_stage():
-            package.mkdir(parents=True);python_file.write_bytes(b'# python fixture')
-        original=packaging.resolve_rocm_runtime_payload
-        contexts=[]
-        def query(context,target):
-            contexts.append(context);return fixture.query(target)
-        with ExitStack() as stack:
-            for name,result in (('validate_wheel_platform',None),('discover_bazel',self.root/'bazel'),
-                                ('discover_rocm_root',rocm),('build_native_executables',{'loom-serve':server}),
-                                ('discover_hrx_source',fixture.hrx)):
-                stack.enter_context(patch.object(packaging,name,return_value=result))
-            stack.enter_context(patch.object(packaging,'REPO_ROOT',fixture.repository))
-            stack.enter_context(patch.object(packaging.build_py,'run',side_effect=python_stage))
-            stack.enter_context(patch.object(packaging.build_py,'get_outputs',side_effect=lambda *args:[str(python_file)]))
-            stack.enter_context(patch.object(packaging,'resolve_rocm_runtime_payload',side_effect=lambda root,**kwargs:original(root,needed_libraries=lambda _:())))
-            stack.enter_context(patch.object(packaging.BazelBuildContext,'query',query))
-            stack.enter_context(patch.object(loom_catalog.subprocess,'run',side_effect=fixture.decode))
-            yield command,package,contexts
+            path = rocm / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode())
+        server = self.root / "server"
+        server.write_bytes(b"native fixture")
+        command = packaging.BazelBuildPy(packaging.BinaryDistribution())
+        command.build_lib = str(self.root / "build")
+        package = Path(command.build_lib) / "hrx_solutions"
+        python_file = package / "__init__.py"
 
-    def test_buildpy_actual_catalog_queries_stage_catalogs_and_owned_helper_outputs(self):
-        with self.buildpy_fixture() as (command,package,contexts):
-            command.run();first=command.get_outputs()
-            helper=package/'_native/share/loom-serve/preparers/moonshine'
-            self.assertEqual({p.name for p in helper.iterdir()},{*self.fixture.tools,'operation.json','LICENSE','provenance.json'})
-            for name,content in self.fixture.tools.items():self.assertEqual((helper/name).read_bytes(),content)
-            self.assertEqual(json.loads((helper/'operation.json').read_bytes()),self.fixture.operation)
-            (helper/'stale.py').write_text('stale');(package/'_native/bin/retired').write_text('stale')
-            command.run();final=command.get_outputs()
-            self.assertFalse((helper/'stale.py').exists());self.assertFalse((package/'_native/bin/retired').exists())
-        self.assertEqual(self.fixture.queried,[loom_catalog.CATALOG_TARGET,loom_catalog.DECODER_TARGET]*2)
-        self.assertIs(contexts[0],contexts[1]);self.assertIs(contexts[2],contexts[3])
-        self.assertEqual(set(first),set(final));self.assertEqual(len(final),len(set(final)))
-        self.assertEqual({str(p) for p in package.rglob('*') if p.is_file()},set(final))
-        self.assertEqual(sum(p.suffix=='.loombc' for p in command._catalog_outputs),46)
-        from binding.python.models import recipes,pipelines
-        recipe_inventory.validate_installed_catalogs(package,recipes.parse,pipelines.parse,self.fixture.repository)
+        def python_stage():
+            package.mkdir(parents=True)
+            python_file.write_bytes(b"# python fixture")
+
+        original = packaging.resolve_rocm_runtime_payload
+        contexts = []
+
+        def query(context, target):
+            contexts.append(context)
+            return fixture.query(target)
+
+        with ExitStack() as stack:
+            for name, result in (
+                ("validate_wheel_platform", None),
+                ("discover_bazel", self.root / "bazel"),
+                ("discover_rocm_root", rocm),
+                ("build_native_executables", {"loom-serve": server}),
+                ("discover_hrx_source", fixture.hrx),
+            ):
+                stack.enter_context(patch.object(packaging, name, return_value=result))
+            stack.enter_context(
+                patch.object(packaging, "REPO_ROOT", fixture.repository)
+            )
+            stack.enter_context(
+                patch.object(packaging.build_py, "run", side_effect=python_stage)
+            )
+            stack.enter_context(
+                patch.object(
+                    packaging.build_py,
+                    "get_outputs",
+                    side_effect=lambda *args: [str(python_file)],
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    packaging,
+                    "resolve_rocm_runtime_payload",
+                    side_effect=lambda root, **kwargs: original(
+                        root, needed_libraries=lambda _: ()
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch.object(packaging.BazelBuildContext, "query", query)
+            )
+            stack.enter_context(
+                patch.object(loom_catalog.subprocess, "run", side_effect=fixture.decode)
+            )
+            yield command, package, contexts
+
+    def test_buildpy_actual_catalog_queries_stage_catalogs_and_owned_helper_outputs(
+        self,
+    ):
+        with self.buildpy_fixture() as (command, package, contexts):
+            command.run()
+            first = command.get_outputs()
+            helper = package / "_native/share/loom-serve/preparers/moonshine"
+            self.assertEqual(
+                {p.name for p in helper.iterdir()},
+                {*self.fixture.tools, "operation.json", "LICENSE", "provenance.json"},
+            )
+            for name, content in self.fixture.tools.items():
+                self.assertEqual((helper / name).read_bytes(), content)
+            self.assertEqual(
+                json.loads((helper / "operation.json").read_bytes()),
+                self.fixture.operation,
+            )
+            (helper / "stale.py").write_text("stale")
+            (package / "_native/bin/retired").write_text("stale")
+            command.run()
+            final = command.get_outputs()
+            self.assertFalse((helper / "stale.py").exists())
+            self.assertFalse((package / "_native/bin/retired").exists())
+        self.assertEqual(
+            self.fixture.queried,
+            [loom_catalog.CATALOG_TARGET, loom_catalog.DECODER_TARGET] * 2,
+        )
+        self.assertIs(contexts[0], contexts[1])
+        self.assertIs(contexts[2], contexts[3])
+        self.assertEqual(set(first), set(final))
+        self.assertEqual(len(final), len(set(final)))
+        self.assertEqual(
+            {str(p) for p in package.rglob("*") if p.is_file()}, set(final)
+        )
+        self.assertEqual(
+            sum(p.suffix == ".loombc" for p in command._catalog_outputs), 46
+        )
+        from binding.python.models import recipes, pipelines
+
+        recipe_inventory.validate_installed_catalogs(
+            package, recipes.parse, pipelines.parse, self.fixture.repository
+        )
 
     def test_duplicate_recipe_refused_before_actual_buildpy_clears_package(self):
-        with self.buildpy_fixture() as (command,package,_):
-            package.mkdir(parents=True);retained=package/'retained.txt';retained.write_text('retained')
-            path=next((self.fixture.repository/'loom-pipeline').rglob('recipes/*.json'))
-            document=json.loads(path.read_bytes());document['id']='misplaced';path.write_text(json.dumps(document))
-            with self.assertRaisesRegex(ValueError,'misplaced'):command.run()
-            self.assertEqual(retained.read_text(),'retained');self.assertEqual(self.fixture.queried,[])
+        with self.buildpy_fixture() as (command, package, _):
+            package.mkdir(parents=True)
+            retained = package / "retained.txt"
+            retained.write_text("retained")
+            path = next(
+                (self.fixture.repository / "loom-pipeline").rglob("recipes/*.json")
+            )
+            document = json.loads(path.read_bytes())
+            document["id"] = "misplaced"
+            path.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, "misplaced"):
+                command.run()
+            self.assertEqual(retained.read_text(), "retained")
+            self.assertEqual(self.fixture.queried, [])
 
     def test_actual_packaging_omitted_catalog_fails_independent_wheel_acceptance(self):
-        with zipfile.ZipFile(self.wheel()) as archive:baseline={name:archive.read(name) for name in archive.namelist()}
-        for expected in self.release['executables'].values():
-            prefix='hrx_solutions/loom-pipeline/'+expected['compiled']['root']+'/'
-            candidate=self.root/'omitted-catalog.whl'
-            with zipfile.ZipFile(candidate,'w') as archive:
-                for name,content in baseline.items():
-                    if not name.startswith(prefix):archive.writestr(name,content)
-            with self.assertRaises(RuntimeError):validate_wheel(candidate)
+        with zipfile.ZipFile(self.wheel()) as archive:
+            baseline = {name: archive.read(name) for name in archive.namelist()}
+        for expected in self.release["executables"].values():
+            prefix = "hrx_solutions/loom-pipeline/" + expected["compiled"]["root"] + "/"
+            candidate = self.root / "omitted-catalog.whl"
+            with zipfile.ZipFile(candidate, "w") as archive:
+                for name, content in baseline.items():
+                    if not name.startswith(prefix):
+                        archive.writestr(name, content)
+            with self.assertRaises(RuntimeError):
+                validate_wheel(candidate)
 
     def test_incomplete_catalog_refused_before_existing_package_is_cleared(self):
-        with self.buildpy_fixture() as (command,package,_):
-            package.mkdir(parents=True);retained=package/'retained.txt';retained.write_text('retained')
+        with self.buildpy_fixture() as (command, package, _):
+            package.mkdir(parents=True)
+            retained = package / "retained.txt"
+            retained.write_text("retained")
             self.fixture.products.pop(next(iter(self.fixture.products)))
-            with patch.object(packaging.build_py,'run') as python_stage, patch.object(package_families,'stage') as stage:
-                with self.assertRaisesRegex(ValueError,'Missing selected compiler'):command.run()
-                python_stage.assert_not_called();stage.assert_not_called()
-            self.assertEqual(retained.read_text(),'retained')
+            with (
+                patch.object(packaging.build_py, "run") as python_stage,
+                patch.object(package_families, "stage") as stage,
+            ):
+                with self.assertRaisesRegex(ValueError, "Missing selected compiler"):
+                    command.run()
+                python_stage.assert_not_called()
+                stage.assert_not_called()
+            self.assertEqual(retained.read_text(), "retained")
 
     def test_build_and_all_queries_keep_snapshot_and_metrics_stay_build_only(self):
-        environment={'BUILD':'original', 'HRX_BAZEL_METRICS_DIR':str(self.root/'metrics')}
-        options=['--config=opt', '--disk_cache=']
-        context=self.context(environment=environment,options=options)
-        server=self.root/'server';server.write_bytes(b'executable')
+        environment = {
+            "BUILD": "original",
+            "HRX_BAZEL_METRICS_DIR": str(self.root / "metrics"),
+        }
+        options = ["--config=opt", "--disk_cache="]
+        context = self.context(environment=environment, options=options)
+        server = self.root / "server"
+        server.write_bytes(b"executable")
+
         def run(arguments, **kwargs):
             # Simulate an inherited environment/options change during the build.
-            self.assertEqual(kwargs['env']['BUILD'],'original')
-            environment['BUILD']='changed';options.append('--unreviewed-option')
-            kwargs['env']['BUILD']='child-only'
-            return subprocess.CompletedProcess(arguments,0,stdout='server\n')
-        with patch.object(packaging.subprocess,'run',side_effect=run) as process:
-            self.assertEqual(packaging.build_native_executables(context), {'loom-serve':server})
-            for target in (loom_catalog.DECODER_TARGET,loom_catalog.CATALOG_TARGET):
-                self.assertEqual(context.query(target),(server,))
+            self.assertEqual(kwargs["env"]["BUILD"], "original")
+            environment["BUILD"] = "changed"
+            options.append("--unreviewed-option")
+            kwargs["env"]["BUILD"] = "child-only"
+            return subprocess.CompletedProcess(arguments, 0, stdout="server\n")
+
+        with patch.object(packaging.subprocess, "run", side_effect=run) as process:
+            self.assertEqual(
+                packaging.build_native_executables(context), {"loom-serve": server}
+            )
+            for target in (loom_catalog.DECODER_TARGET, loom_catalog.CATALOG_TARGET):
+                self.assertEqual(context.query(target), (server,))
         for call in process.call_args_list:
-            args=call.args[0]
-            self.assertEqual(args[0],str(context.executable))
-            self.assertEqual(call.kwargs['cwd'],context.repository)
+            args = call.args[0]
+            self.assertEqual(args[0], str(context.executable))
+            self.assertEqual(call.kwargs["cwd"], context.repository)
             # The mock changed its private child env; the immutable source stayed original.
-            self.assertEqual(context.environment['BUILD'],'original')
-            self.assertNotIn('--unreviewed-option',args)
-            self.assertIn('--disk_cache=',args)
-            metrics=any(arg.startswith(('--profile=','--build_event_json_file=')) for arg in args)
-            self.assertEqual(metrics,args[1]=='build')
-        with self.assertRaises(TypeError):context.environment['BUILD']='mutate'
-        with self.assertRaises(FrozenInstanceError):context.options=()
+            self.assertEqual(context.environment["BUILD"], "original")
+            self.assertNotIn("--unreviewed-option", args)
+            self.assertIn("--disk_cache=", args)
+            metrics = any(
+                arg.startswith(("--profile=", "--build_event_json_file="))
+                for arg in args
+            )
+            self.assertEqual(metrics, args[1] == "build")
+        with self.assertRaises(TypeError):
+            context.environment["BUILD"] = "mutate"
+        with self.assertRaises(FrozenInstanceError):
+            context.options = ()
 
     def test_hrx_source_lookup_uses_the_build_snapshot(self):
-        context=self.context(environment={'BUILD':'original'})
-        source=self.root/'external/selected-hrx'
-        source.mkdir(parents=True);(source/'MODULE.bazel').write_text('module()')
+        context = self.context(environment={"BUILD": "original"})
+        source = self.root / "external/selected-hrx"
+        source.mkdir(parents=True)
+        (source / "MODULE.bazel").write_text("module()")
+
         def run(arguments, **kwargs):
-            self.assertEqual(arguments[0],str(context.executable))
-            self.assertEqual(kwargs['cwd'],context.repository)
-            self.assertEqual(kwargs['env'],{'BUILD':'original'})
-            if arguments[1]=='mod': output='{"hrx_system":"selected-hrx"}'
-            elif arguments[1]=='info': output=str(self.root)
-            else: output=''
-            return subprocess.CompletedProcess(arguments,0,stdout=output)
-        with patch.object(packaging,'bazel_environment',side_effect=AssertionError('recomputed environment')), patch.object(packaging.subprocess,'run',side_effect=run) as process:
-            self.assertEqual(packaging.discover_hrx_source(context),source)
-        self.assertEqual([call.args[0][1] for call in process.call_args_list],['fetch','mod','info'])
+            self.assertEqual(arguments[0], str(context.executable))
+            self.assertEqual(kwargs["cwd"], context.repository)
+            self.assertEqual(kwargs["env"], {"BUILD": "original"})
+            if arguments[1] == "mod":
+                output = '{"hrx_system":"selected-hrx"}'
+            elif arguments[1] == "info":
+                output = str(self.root)
+            else:
+                output = ""
+            return subprocess.CompletedProcess(arguments, 0, stdout=output)
+
+        with (
+            patch.object(
+                packaging,
+                "bazel_environment",
+                side_effect=AssertionError("recomputed environment"),
+            ),
+            patch.object(packaging.subprocess, "run", side_effect=run) as process,
+        ):
+            self.assertEqual(packaging.discover_hrx_source(context), source)
+        self.assertEqual(
+            [call.args[0][1] for call in process.call_args_list],
+            ["fetch", "mod", "info"],
+        )
 
     def test_wheel_bootstrap_payload_discovers_source_before_rocm_setup(self):
-        script=(packaging.REPO_ROOT/'.github/scripts/build_python_wheel.sh').read_text()
-        line=next(line for line in script.splitlines() if line.startswith('HRX_SOURCE_DIR=$('))
+        script = (
+            packaging.REPO_ROOT / ".github/scripts/build_python_wheel.sh"
+        ).read_text()
+        line = next(
+            line for line in script.splitlines() if line.startswith("HRX_SOURCE_DIR=$(")
+        )
         # Execute the actual shell-owned -c payload, rather than a copied helper
         # call that could keep passing while the build entry becomes stale.
-        payload,=shlex.split(line.split(' -c ',1)[1][:-1])
-        source=self.root/'external/bootstrap-hrx'
-        source.mkdir(parents=True);(source/'MODULE.bazel').write_text('module()')
-        trace=self.root/'bazel-calls.jsonl'
-        bazel=self.root/'fake-bazel'
+        (payload,) = shlex.split(line.split(" -c ", 1)[1][:-1])
+        source = self.root / "external/bootstrap-hrx"
+        source.mkdir(parents=True)
+        (source / "MODULE.bazel").write_text("module()")
+        trace = self.root / "bazel-calls.jsonl"
+        bazel = self.root / "fake-bazel"
         bazel.write_text(
-            '#!'+sys.executable+'\nimport json,sys\nfrom pathlib import Path\n'
-            +f'with Path({str(trace)!r}).open("a") as stream: stream.write(json.dumps(sys.argv[1:])+"\\n")\n'
-            +'if sys.argv[1]=="mod": print(json.dumps({"hrx_system":"bootstrap-hrx"}))\n'
-            +f'elif sys.argv[1]=="info": print({str(self.root)!r})\n')
+            "#!"
+            + sys.executable
+            + "\nimport json,sys\nfrom pathlib import Path\n"
+            + f'with Path({str(trace)!r}).open("a") as stream: stream.write(json.dumps(sys.argv[1:])+"\\n")\n'
+            + 'if sys.argv[1]=="mod": print(json.dumps({"hrx_system":"bootstrap-hrx"}))\n'
+            + f'elif sys.argv[1]=="info": print({str(self.root)!r})\n'
+        )
         bazel.chmod(0o700)
-        environment=os.environ.copy()
-        environment.update(BAZEL=str(bazel),IREE_ROCM_PATH=str(self.root/'absent-rocm'),
-                           HRX_ROCM_ROOT=str(self.root/'absent-rocm'))
-        process=subprocess.run([sys.executable,'-c',payload],cwd=packaging.REPO_ROOT,
-                               env=environment,capture_output=True,text=True)
-        self.assertEqual(process.returncode,0,process.stderr)
-        self.assertEqual(process.stdout.strip(),str(source))
-        self.assertEqual([json.loads(line) for line in trace.read_text().splitlines()],
-                         [['fetch','--repo=@hrx_system'],['mod','dump_repo_mapping',''],['info','output_base']])
-        self.assertFalse((self.root/'absent-rocm').exists())
+        environment = os.environ.copy()
+        environment.update(
+            BAZEL=str(bazel),
+            IREE_ROCM_PATH=str(self.root / "absent-rocm"),
+            HRX_ROCM_ROOT=str(self.root / "absent-rocm"),
+        )
+        process = subprocess.run(
+            [sys.executable, "-c", payload],
+            cwd=packaging.REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(process.stdout.strip(), str(source))
+        self.assertEqual(
+            [json.loads(line) for line in trace.read_text().splitlines()],
+            [
+                ["fetch", "--repo=@hrx_system"],
+                ["mod", "dump_repo_mapping", ""],
+                ["info", "output_base"],
+            ],
+        )
+        self.assertFalse((self.root / "absent-rocm").exists())
 
     def test_query_preserves_order_symlink_locator_and_native_singleton_checks(self):
-        target=self.root/'actual';target.write_bytes(b'LOOM')
-        alias=self.root/'alias';alias.symlink_to(target)
-        context=self.context(environment={})
-        with patch.object(packaging.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout='alias\nactual\n')):
-            self.assertEqual(context.query('target'),(alias,target))
-            with self.assertRaisesRegex(RuntimeError,'Expected one'):
-                packaging._native_output(context,'target')
-        for content,message in (('', 'Expected one'), ('missing\n','does not exist')):
-            with patch.object(packaging.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=content)):
-                with self.assertRaisesRegex(RuntimeError,message):packaging._native_output(context,'target')
-        with patch.object(packaging.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout='alias\n')):
-            self.assertEqual(packaging._native_output(context,'target'),target)
+        target = self.root / "actual"
+        target.write_bytes(b"LOOM")
+        alias = self.root / "alias"
+        alias.symlink_to(target)
+        context = self.context(environment={})
+        with patch.object(
+            packaging.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, stdout="alias\nactual\n"),
+        ):
+            self.assertEqual(context.query("target"), (alias, target))
+            with self.assertRaisesRegex(RuntimeError, "Expected one"):
+                packaging._native_output(context, "target")
+        for content, message in (("", "Expected one"), ("missing\n", "does not exist")):
+            with patch.object(
+                packaging.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, stdout=content),
+            ):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    packaging._native_output(context, "target")
+        with patch.object(
+            packaging.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, stdout="alias\n"),
+        ):
+            self.assertEqual(packaging._native_output(context, "target"), target)
 
     def test_staging_removes_stale_binary_and_preserves_runtime(self):
-        rocm=self.root/'rocm'
+        rocm = self.root / "rocm"
         for name in packaging.ROCM_RUNTIME_ROOTS:
-            path=rocm/name
-            path.parent.mkdir(parents=True,exist_ok=True)
+            path = rocm / name
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
-        hrx=self.root/'hrx'
+        hrx = self.root / "hrx"
         hrx.mkdir()
-        (hrx/'LICENSE').write_text('license')
-        server=self.root/'server'
-        server.write_text('server')
-        native=self.root/'_native'
-        (native/'bin').mkdir(parents=True)
-        (native/'bin/loom-qwen-epoch-check').write_text('stale checker')
-        (native/'lib').mkdir()
-        (native/'lib/stale.so').write_text('stale library')
-        old_helper = native / Path('share/loom-serve/preparers/moonshine')
+        (hrx / "LICENSE").write_text("license")
+        server = self.root / "server"
+        server.write_text("server")
+        native = self.root / "_native"
+        (native / "bin").mkdir(parents=True)
+        (native / "bin/loom-qwen-epoch-check").write_text("stale checker")
+        (native / "lib").mkdir()
+        (native / "lib/stale.so").write_text("stale library")
+        old_helper = native / Path("share/loom-serve/preparers/moonshine")
         old_helper.mkdir(parents=True)
-        (old_helper / 'stale.py').write_text('stale helper')
-        outputs=packaging.stage_native_payload(native,{'loom-serve':server},rocm,hrx,needed_libraries=lambda _:())
-        self.assertEqual({path.name for path in (native/'bin').iterdir()},{'loom-serve'})
-        self.assertFalse((native/'lib/stale.so').exists())
-        self.assertFalse((native / Path('share/loom-serve/preparers/moonshine')).exists())
-        self.assertTrue((native/'bin/loom-serve').stat().st_mode & 0o111)
+        (old_helper / "stale.py").write_text("stale helper")
+        outputs = packaging.stage_native_payload(
+            native, {"loom-serve": server}, rocm, hrx, needed_libraries=lambda _: ()
+        )
+        self.assertEqual(
+            {path.name for path in (native / "bin").iterdir()}, {"loom-serve"}
+        )
+        self.assertFalse((native / "lib/stale.so").exists())
+        self.assertFalse(
+            (native / Path("share/loom-serve/preparers/moonshine")).exists()
+        )
+        self.assertTrue((native / "bin/loom-serve").stat().st_mode & 0o111)
         for name in packaging.ROCM_RUNTIME_ROOTS:
-            self.assertIn(native/name,outputs)
+            self.assertIn(native / name, outputs)
 
     def wheel(self, *, obsolete=False, missing=None):
-        package=self.root/'staged'
-        catalog=self.fixture.stage(package)
-        runtime_license=package/'_native/share/loom-serve/LICENSE'
-        runtime_license.parent.mkdir(parents=True,exist_ok=True)
-        runtime_license.write_bytes((self.fixture.hrx/'LICENSE').read_bytes())
-        members={
-            'hrx_solutions/_native/bin/loom-serve':b'server',
-            'hrx_solutions/_native/share/loom-serve/LICENSE':b'license',
-            'hrx_solutions/_native/lib/libhsa-runtime64.so.1':b'hsa',
-            'hrx_solutions/_native/lib/libhsa-amd-aqlprofile64.so.1':b'profile',
+        package = self.root / "staged"
+        catalog = self.fixture.stage(package)
+        runtime_license = package / "_native/share/loom-serve/LICENSE"
+        runtime_license.parent.mkdir(parents=True, exist_ok=True)
+        runtime_license.write_bytes((self.fixture.hrx / "LICENSE").read_bytes())
+        members = {
+            "hrx_solutions/_native/bin/loom-serve": b"server",
+            "hrx_solutions/_native/share/loom-serve/LICENSE": b"license",
+            "hrx_solutions/_native/lib/libhsa-runtime64.so.1": b"hsa",
+            "hrx_solutions/_native/lib/libhsa-amd-aqlprofile64.so.1": b"profile",
         }
-        members.update({'hrx_solutions/'+path.relative_to(package).as_posix():path.read_bytes() for path in catalog})
-        members.update({'hrx_solutions/pi_extension/'+name:
-                        (packaging.REPO_ROOT/'binding/python/pi_extension'/name).read_bytes()
-                        for name in PI_ASSETS})
-        members.update({'hrx_solutions/'+name:(packaging.REPO_ROOT/'binding/python'/name).read_bytes()
-                        for name in wheel_validation.CLIENT_ASSETS})
-        for name in ('runtime_paths.py','loom_serve.py', *(name+'.py' for name in HEM_MODULES), *wheel_validation.MODEL_PYTHON_PATHS, *wheel_validation.CLI_FILES, *wheel_validation.OMP_PYTHON_PATHS, *wheel_validation.OPENCODE_PYTHON_PATHS, *wheel_validation.OPENWEBUI_PYTHON_PATHS, *wheel_validation.PI_PYTHON_FILES, *wheel_validation.SHARED_INTEGRATION_PYTHON_PATHS):
-            members['hrx_solutions/'+name]=(packaging.REPO_ROOT/'binding/python'/name).read_bytes()
-        for name in ('tui/__init__.py', 'tui/hem_tui.py', 'tui/hem_tui_details.py',
-                     'tui/hem_tui_logs.py', 'tui/hem_tui_provider.py', *('control/__init__.py', 'control/hem_http.py', 'control/hem_instances.py', 'control/hem_operation_targets.py', 'control/hem_process.py', 'control/hem_shutdown.py', 'control/hem_state.py')):
-            members['hrx_solutions/'+name]=(packaging.REPO_ROOT/'binding/python'/name).read_bytes()
-        version=read_package_version()
-        prefix=f'hrx_solutions-{version}.dist-info/'
-        members[prefix+'METADATA']=(f'Metadata-Version: 2.1\nName: hrx-solutions\nVersion: {version}\nRequires-Python: >=3.9\nRequires-Dist: textual<2,>=0.47\nDescription-Content-Type: text/markdown\n\n'+(packaging.REPO_ROOT/'PYPI_README.md').read_text()).encode()
-        members[prefix+'entry_points.txt']=('[console_scripts]\n'+''.join(f'{command} = {target}\n' for command,target in REQUIRED_ENTRY_POINTS.items())).encode()
+        members.update(
+            {
+                "hrx_solutions/"
+                + path.relative_to(package).as_posix(): path.read_bytes()
+                for path in catalog
+            }
+        )
+        members.update(
+            {
+                "hrx_solutions/pi_extension/"
+                + name: (
+                    packaging.REPO_ROOT / "binding/python/pi_extension" / name
+                ).read_bytes()
+                for name in PI_ASSETS
+            }
+        )
+        members.update(
+            {
+                "hrx_solutions/"
+                + name: (packaging.REPO_ROOT / "binding/python" / name).read_bytes()
+                for name in wheel_validation.CLIENT_ASSETS
+            }
+        )
+        for name in (
+            "runtime_paths.py",
+            "loom_serve.py",
+            *(name + ".py" for name in HEM_MODULES),
+            *wheel_validation.MODEL_PYTHON_PATHS,
+            *wheel_validation.CLI_FILES,
+            *wheel_validation.OMP_PYTHON_PATHS,
+            *wheel_validation.OPENCODE_PYTHON_PATHS,
+            *wheel_validation.OPENWEBUI_PYTHON_PATHS,
+            *wheel_validation.PI_PYTHON_FILES,
+            *wheel_validation.SHARED_INTEGRATION_PYTHON_PATHS,
+        ):
+            members["hrx_solutions/" + name] = (
+                packaging.REPO_ROOT / "binding/python" / name
+            ).read_bytes()
+        for name in (
+            "tui/__init__.py",
+            "tui/hem_tui.py",
+            "tui/hem_tui_details.py",
+            "tui/hem_tui_logs.py",
+            "tui/hem_tui_provider.py",
+            *(
+                "control/__init__.py",
+                "control/hem_http.py",
+                "control/hem_instances.py",
+                "control/hem_operation_targets.py",
+                "control/hem_process.py",
+                "control/hem_shutdown.py",
+                "control/hem_state.py",
+            ),
+        ):
+            members["hrx_solutions/" + name] = (
+                packaging.REPO_ROOT / "binding/python" / name
+            ).read_bytes()
+        version = read_package_version()
+        prefix = f"hrx_solutions-{version}.dist-info/"
+        members[prefix + "METADATA"] = (
+            f"Metadata-Version: 2.1\nName: hrx-solutions\nVersion: {version}\nRequires-Python: >=3.9\nRequires-Dist: textual<2,>=0.47\nDescription-Content-Type: text/markdown\n\n"
+            + (packaging.REPO_ROOT / "PYPI_README.md").read_text()
+        ).encode()
+        members[prefix + "entry_points.txt"] = (
+            "[console_scripts]\n"
+            + "".join(
+                f"{command} = {target}\n"
+                for command, target in REQUIRED_ENTRY_POINTS.items()
+            )
+        ).encode()
         if obsolete:
-            members['hrx_solutions/_native/bin/loom-qwen-epoch-check']=b'obsolete'
+            members["hrx_solutions/_native/bin/loom-qwen-epoch-check"] = b"obsolete"
         if missing:
             del members[missing]
-        wheel=self.root/'fixture.whl'
-        with zipfile.ZipFile(wheel,'w') as archive:
-            for name,data in members.items():
-                archive.writestr(name,data)
+        wheel = self.root / "fixture.whl"
+        with zipfile.ZipFile(wheel, "w") as archive:
+            for name, data in members.items():
+                archive.writestr(name, data)
         return wheel
 
     def test_client_resources_materialize_one_authored_companion(self):
         from binding.python.integrations.opencode import hem_opencode
         from binding.python.integrations.omp import hem_omp
-        for directory,installer in (('omp_extension',hem_omp),('opencode_plugin',hem_opencode)):
-            expected={name.removeprefix(directory+'/') for name in wheel_validation.CLIENT_ASSETS
-                      if name.startswith(directory+'/')} | {'native_protocol.ts'}
-            assets=installer.bundled_assets()
-            self.assertEqual(set(assets),expected)
-            for name,data in assets.items():
-                source=packaging.REPO_ROOT/'binding/python'
-                source=source/name if name=='native_protocol.ts' else source/directory/name
-                self.assertEqual(data,source.read_bytes())
-            self.assertFalse((packaging.REPO_ROOT/'binding/python'/directory/'native_protocol.ts').exists())
+
+        for directory, installer in (
+            ("omp_extension", hem_omp),
+            ("opencode_plugin", hem_opencode),
+        ):
+            expected = {
+                name.removeprefix(directory + "/")
+                for name in wheel_validation.CLIENT_ASSETS
+                if name.startswith(directory + "/")
+            } | {"native_protocol.ts"}
+            assets = installer.bundled_assets()
+            self.assertEqual(set(assets), expected)
+            for name, data in assets.items():
+                source = packaging.REPO_ROOT / "binding/python"
+                source = (
+                    source / name
+                    if name == "native_protocol.ts"
+                    else source / directory / name
+                )
+                self.assertEqual(data, source.read_bytes())
+            self.assertFalse(
+                (
+                    packaging.REPO_ROOT
+                    / "binding/python"
+                    / directory
+                    / "native_protocol.ts"
+                ).exists()
+            )
 
     def test_wheel_requires_each_client_resource_and_exact_reviewed_bytes_once(self):
-        for name in (*wheel_validation.CLIENT_ASSETS, *('tui/__init__.py', 'tui/hem_tui.py', 'tui/hem_tui_details.py',
-                     'tui/hem_tui_logs.py', 'tui/hem_tui_provider.py', *('control/__init__.py', 'control/hem_http.py', 'control/hem_instances.py', 'control/hem_operation_targets.py', 'control/hem_process.py', 'control/hem_shutdown.py', 'control/hem_state.py'))):
-            with self.subTest(missing=name), self.assertRaisesRegex(RuntimeError,'missing setup assets'):
-                validate_wheel(self.wheel(missing='hrx_solutions/'+name))
-        for selected in ('native_protocol.ts', *wheel_validation.CLI_FILES, *('tui/__init__.py', 'tui/hem_tui.py', 'tui/hem_tui_details.py',
-                     'tui/hem_tui_logs.py', 'tui/hem_tui_provider.py', *('control/__init__.py', 'control/hem_http.py', 'control/hem_instances.py', 'control/hem_operation_targets.py', 'control/hem_process.py', 'control/hem_shutdown.py', 'control/hem_state.py'))):
-            for failure in ('changed','duplicate'):
+        for name in (
+            *wheel_validation.CLIENT_ASSETS,
+            *(
+                "tui/__init__.py",
+                "tui/hem_tui.py",
+                "tui/hem_tui_details.py",
+                "tui/hem_tui_logs.py",
+                "tui/hem_tui_provider.py",
+                *(
+                    "control/__init__.py",
+                    "control/hem_http.py",
+                    "control/hem_instances.py",
+                    "control/hem_operation_targets.py",
+                    "control/hem_process.py",
+                    "control/hem_shutdown.py",
+                    "control/hem_state.py",
+                ),
+            ),
+        ):
+            with (
+                self.subTest(missing=name),
+                self.assertRaisesRegex(RuntimeError, "missing setup assets"),
+            ):
+                validate_wheel(self.wheel(missing="hrx_solutions/" + name))
+        for selected in (
+            "native_protocol.ts",
+            *wheel_validation.CLI_FILES,
+            *(
+                "tui/__init__.py",
+                "tui/hem_tui.py",
+                "tui/hem_tui_details.py",
+                "tui/hem_tui_logs.py",
+                "tui/hem_tui_provider.py",
+                *(
+                    "control/__init__.py",
+                    "control/hem_http.py",
+                    "control/hem_instances.py",
+                    "control/hem_operation_targets.py",
+                    "control/hem_process.py",
+                    "control/hem_shutdown.py",
+                    "control/hem_state.py",
+                ),
+            ),
+        ):
+            for failure in ("changed", "duplicate"):
                 with self.subTest(failure=failure):
-                    wheel=self.wheel()
+                    wheel = self.wheel()
                     with zipfile.ZipFile(wheel) as archive:
-                        members={name:archive.read(name) for name in archive.namelist()}
-                    member='hrx_solutions/'+selected
-                    if failure=='changed':members[member]+=b'// changed'
-                    with zipfile.ZipFile(wheel,'w') as archive:
-                        for name,data in members.items():archive.writestr(name,data)
-                        if failure=='duplicate':
+                        members = {
+                            name: archive.read(name) for name in archive.namelist()
+                        }
+                    member = "hrx_solutions/" + selected
+                    if failure == "changed":
+                        members[member] += b"// changed"
+                    with zipfile.ZipFile(wheel, "w") as archive:
+                        for name, data in members.items():
+                            archive.writestr(name, data)
+                        if failure == "duplicate":
                             import warnings
+
                             with warnings.catch_warnings():
-                                warnings.simplefilter('ignore',UserWarning)
-                                archive.writestr(member,members[member])
-                    with self.assertRaisesRegex(RuntimeError,'client asset duplicates or differs|CLI module duplicates or differs'):
+                                warnings.simplefilter("ignore", UserWarning)
+                                archive.writestr(member, members[member])
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "client asset duplicates or differs|CLI module duplicates or differs",
+                    ):
                         validate_wheel(wheel)
 
     def test_sdist_requires_each_exact_regular_client_resource_once(self):
-        for assets, validator in (((*wheel_validation.CLIENT_ASSETS, *('tui/__init__.py', 'tui/hem_tui.py', 'tui/hem_tui_details.py',
-                     'tui/hem_tui_logs.py', 'tui/hem_tui_provider.py', *('control/__init__.py', 'control/hem_http.py', 'control/hem_instances.py', 'control/hem_operation_targets.py', 'control/hem_process.py', 'control/hem_shutdown.py', 'control/hem_state.py'))), wheel_validation.validate_client_sdist),
-                                  (wheel_validation.CLI_FILES, wheel_validation.validate_cli_sdist)):
+        for assets, validator in (
+            (
+                (
+                    *wheel_validation.CLIENT_ASSETS,
+                    *(
+                        "tui/__init__.py",
+                        "tui/hem_tui.py",
+                        "tui/hem_tui_details.py",
+                        "tui/hem_tui_logs.py",
+                        "tui/hem_tui_provider.py",
+                        *(
+                            "control/__init__.py",
+                            "control/hem_http.py",
+                            "control/hem_instances.py",
+                            "control/hem_operation_targets.py",
+                            "control/hem_process.py",
+                            "control/hem_shutdown.py",
+                            "control/hem_state.py",
+                        ),
+                    ),
+                ),
+                wheel_validation.validate_client_sdist,
+            ),
+            (wheel_validation.CLI_FILES, wheel_validation.validate_cli_sdist),
+        ):
             for selected in assets:
-                for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                    path = self.root / 'client-source.tar.gz'
-                    with tarfile.open(path, 'w:gz') as archive:
+                for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                    path = self.root / "client-source.tar.gz"
+                    with tarfile.open(path, "w:gz") as archive:
                         for name in assets:
-                            data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                            if name == selected and failure == 'missing':
+                            data = (
+                                packaging.REPO_ROOT / "binding/python" / name
+                            ).read_bytes()
+                            if name == selected and failure == "missing":
                                 continue
-                            if name == selected and failure == 'changed':
-                                data += b'changed'
-                            member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                            if name == selected and failure == "changed":
+                                data += b"changed"
+                            member = tarfile.TarInfo(
+                                "hrx-solutions/binding/python/" + name
+                            )
                             member.size = len(data)
-                            if name == selected and failure == 'symlink':
+                            if name == selected and failure == "symlink":
                                 member.type = tarfile.SYMTYPE
-                                member.linkname = '/unreviewed/module.py'
+                                member.linkname = "/unreviewed/module.py"
                             archive.addfile(member, io.BytesIO(data))
-                            if name == selected and failure == 'duplicate':
+                            if name == selected and failure == "duplicate":
                                 archive.addfile(member, io.BytesIO(data))
                     with self.subTest(selected=selected, failure=failure):
                         if failure:
-                            with self.assertRaisesRegex(RuntimeError, 'client asset|CLI module'):
+                            with self.assertRaisesRegex(
+                                RuntimeError, "client asset|CLI module"
+                            ):
                                 validator(path)
                         else:
                             validator(path)
 
     def test_sdist_requires_each_exact_regular_omp_source_once(self):
-        names = ('integrations/__init__.py', 'integrations/omp/__init__.py',
-                 'integrations/omp/hem_omp.py', 'integrations/omp/hem_omp_yaml.py')
+        names = (
+            "integrations/__init__.py",
+            "integrations/omp/__init__.py",
+            "integrations/omp/hem_omp.py",
+            "integrations/omp/hem_omp_yaml.py",
+        )
         for target in names:
-            for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                path = self.root / 'omp-source.tar.gz'
-                with tarfile.open(path, 'w:gz') as archive:
+            for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                path = self.root / "omp-source.tar.gz"
+                with tarfile.open(path, "w:gz") as archive:
                     for name in names:
-                        data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                        if name == target and failure == 'missing':
+                        data = (
+                            packaging.REPO_ROOT / "binding/python" / name
+                        ).read_bytes()
+                        if name == target and failure == "missing":
                             continue
-                        if name == target and failure == 'changed':
-                            data += b'\n# changed source'
-                        member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                        if name == target and failure == "changed":
+                            data += b"\n# changed source"
+                        member = tarfile.TarInfo("hrx-solutions/binding/python/" + name)
                         member.size = len(data)
-                        if name == target and failure == 'symlink':
+                        if name == target and failure == "symlink":
                             member.type = tarfile.SYMTYPE
-                            member.linkname = '/unreviewed/' + name
+                            member.linkname = "/unreviewed/" + name
                         archive.addfile(member, io.BytesIO(data))
-                        if name == target and failure == 'duplicate':
+                        if name == target and failure == "duplicate":
                             archive.addfile(member, io.BytesIO(data))
                 with self.subTest(target=target, failure=failure):
                     if failure:
-                        with self.assertRaisesRegex(RuntimeError, 'OMP source'):
+                        with self.assertRaisesRegex(RuntimeError, "OMP source"):
                             wheel_validation.validate_omp_sdist(path)
                     else:
                         wheel_validation.validate_omp_sdist(path)
 
     def test_sdist_requires_each_exact_regular_opencode_source_once(self):
-        names = ('integrations/__init__.py', 'integrations/opencode/__init__.py',
-                 'integrations/opencode/hem_opencode.py')
+        names = (
+            "integrations/__init__.py",
+            "integrations/opencode/__init__.py",
+            "integrations/opencode/hem_opencode.py",
+        )
         for target in names:
-            for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                path = self.root / 'opencode-source.tar.gz'
-                with tarfile.open(path, 'w:gz') as archive:
+            for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                path = self.root / "opencode-source.tar.gz"
+                with tarfile.open(path, "w:gz") as archive:
                     for name in names:
-                        data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                        if name == target and failure == 'missing':
+                        data = (
+                            packaging.REPO_ROOT / "binding/python" / name
+                        ).read_bytes()
+                        if name == target and failure == "missing":
                             continue
-                        if name == target and failure == 'changed':
-                            data += b'\n# changed source'
-                        member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                        if name == target and failure == "changed":
+                            data += b"\n# changed source"
+                        member = tarfile.TarInfo("hrx-solutions/binding/python/" + name)
                         member.size = len(data)
-                        if name == target and failure == 'symlink':
+                        if name == target and failure == "symlink":
                             member.type = tarfile.SYMTYPE
-                            member.linkname = '/unreviewed/' + name
+                            member.linkname = "/unreviewed/" + name
                         archive.addfile(member, io.BytesIO(data))
-                        if name == target and failure == 'duplicate':
+                        if name == target and failure == "duplicate":
                             archive.addfile(member, io.BytesIO(data))
                 with self.subTest(target=target, failure=failure):
                     if failure:
-                        with self.assertRaisesRegex(RuntimeError, 'OpenCode source'):
+                        with self.assertRaisesRegex(RuntimeError, "OpenCode source"):
                             wheel_validation.validate_opencode_sdist(path)
                     else:
                         wheel_validation.validate_opencode_sdist(path)
 
     def test_wheel_requires_each_exact_regular_omp_source_once(self):
         import warnings
-        for target in ('integrations/__init__.py', 'integrations/omp/__init__.py',
-                       'integrations/omp/hem_omp.py', 'integrations/omp/hem_omp_yaml.py'):
-            for failure in ('missing', 'changed', 'duplicate', 'symlink', 'directory'):
+
+        for target in (
+            "integrations/__init__.py",
+            "integrations/omp/__init__.py",
+            "integrations/omp/hem_omp.py",
+            "integrations/omp/hem_omp_yaml.py",
+        ):
+            for failure in ("missing", "changed", "duplicate", "symlink", "directory"):
                 wheel = self.wheel()
-                target_path = 'hrx_solutions/' + target
+                target_path = "hrx_solutions/" + target
                 with zipfile.ZipFile(wheel) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
-                        if name == target_path and failure == 'missing':
+                        if name == target_path and failure == "missing":
                             continue
                         member = zipfile.ZipInfo(name)
-                        if name == target_path and failure in ('symlink', 'directory'):
-                            member.external_attr = (0o120777 if failure == 'symlink' else 0o040777) << 16
-                        archive.writestr(member, data + b'changed' if name == target_path and failure == 'changed' else data)
-                        if name == target_path and failure == 'duplicate':
+                        if name == target_path and failure in ("symlink", "directory"):
+                            member.external_attr = (
+                                0o120777 if failure == "symlink" else 0o040777
+                            ) << 16
+                        archive.writestr(
+                            member,
+                            (
+                                data + b"changed"
+                                if name == target_path and failure == "changed"
+                                else data
+                            ),
+                        )
+                        if name == target_path and failure == "duplicate":
                             with warnings.catch_warnings():
-                                warnings.simplefilter('ignore', UserWarning)
+                                warnings.simplefilter("ignore", UserWarning)
                                 archive.writestr(member, data)
-                diagnostic = 'OMP source|missing setup assets'
-                if target == 'integrations/__init__.py':
-                    diagnostic = 'OMP source|Pi Python source|missing setup assets'
-                with self.subTest(target=target, failure=failure), self.assertRaisesRegex(RuntimeError, diagnostic) as raised:
+                diagnostic = "OMP source|missing setup assets"
+                if target == "integrations/__init__.py":
+                    diagnostic = "OMP source|Pi Python source|missing setup assets"
+                with (
+                    self.subTest(target=target, failure=failure),
+                    self.assertRaisesRegex(RuntimeError, diagnostic) as raised,
+                ):
                     validate_wheel(wheel)
                 self.assertIn(target, str(raised.exception))
 
     def test_wheel_requires_each_exact_regular_opencode_source_once(self):
         import warnings
-        for target in ('integrations/__init__.py', 'integrations/opencode/__init__.py',
-                       'integrations/opencode/hem_opencode.py'):
-            for failure in ('missing', 'changed', 'duplicate', 'symlink', 'directory'):
+
+        for target in (
+            "integrations/__init__.py",
+            "integrations/opencode/__init__.py",
+            "integrations/opencode/hem_opencode.py",
+        ):
+            for failure in ("missing", "changed", "duplicate", "symlink", "directory"):
                 wheel = self.wheel()
-                target_path = 'hrx_solutions/' + target
+                target_path = "hrx_solutions/" + target
                 with zipfile.ZipFile(wheel) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
-                        if name == target_path and failure == 'missing':
+                        if name == target_path and failure == "missing":
                             continue
                         member = zipfile.ZipInfo(name)
-                        if name == target_path and failure in ('symlink', 'directory'):
-                            member.external_attr = (0o120777 if failure == 'symlink' else 0o040777) << 16
-                        archive.writestr(member, data + b'changed' if name == target_path and failure == 'changed' else data)
-                        if name == target_path and failure == 'duplicate':
+                        if name == target_path and failure in ("symlink", "directory"):
+                            member.external_attr = (
+                                0o120777 if failure == "symlink" else 0o040777
+                            ) << 16
+                        archive.writestr(
+                            member,
+                            (
+                                data + b"changed"
+                                if name == target_path and failure == "changed"
+                                else data
+                            ),
+                        )
+                        if name == target_path and failure == "duplicate":
                             with warnings.catch_warnings():
-                                warnings.simplefilter('ignore', UserWarning)
+                                warnings.simplefilter("ignore", UserWarning)
                                 archive.writestr(member, data)
-                diagnostic = 'OpenCode source|missing setup assets'
-                if target == 'integrations/__init__.py':
-                    diagnostic = 'OMP source|Pi Python source|missing setup assets'
-                with self.subTest(target=target, failure=failure), self.assertRaisesRegex(RuntimeError, diagnostic) as raised:
+                diagnostic = "OpenCode source|missing setup assets"
+                if target == "integrations/__init__.py":
+                    diagnostic = "OMP source|Pi Python source|missing setup assets"
+                with (
+                    self.subTest(target=target, failure=failure),
+                    self.assertRaisesRegex(RuntimeError, diagnostic) as raised,
+                ):
                     validate_wheel(wheel)
                 self.assertIn(target, str(raised.exception))
 
     def test_sdist_requires_each_exact_regular_openwebui_source_once(self):
-        names = ('integrations/__init__.py', 'integrations/openwebui/__init__.py', 'integrations/openwebui/hem_openwebui.py', 'integrations/openwebui/hem_openwebui_http.py', 'integrations/openwebui/hem_openwebui_state.py', 'integrations/openwebui/hem_openwebui_stt.py', 'integrations/openwebui/hem_openwebui_tts.py', 'integrations/openwebui/hem_openwebui_receipts.py', 'integrations/openwebui/hem_openwebui_wire.py')
+        names = (
+            "integrations/__init__.py",
+            "integrations/openwebui/__init__.py",
+            "integrations/openwebui/hem_openwebui.py",
+            "integrations/openwebui/hem_openwebui_http.py",
+            "integrations/openwebui/hem_openwebui_state.py",
+            "integrations/openwebui/hem_openwebui_stt.py",
+            "integrations/openwebui/hem_openwebui_tts.py",
+            "integrations/openwebui/hem_openwebui_receipts.py",
+            "integrations/openwebui/hem_openwebui_wire.py",
+        )
         for target in names:
-            for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                path = self.root / 'openwebui-source.tar.gz'
-                with tarfile.open(path, 'w:gz') as archive:
+            for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                path = self.root / "openwebui-source.tar.gz"
+                with tarfile.open(path, "w:gz") as archive:
                     for name in names:
-                        data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                        if name == target and failure == 'missing':
+                        data = (
+                            packaging.REPO_ROOT / "binding/python" / name
+                        ).read_bytes()
+                        if name == target and failure == "missing":
                             continue
-                        if name == target and failure == 'changed':
-                            data += b'\n# changed source'
-                        member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                        if name == target and failure == "changed":
+                            data += b"\n# changed source"
+                        member = tarfile.TarInfo("hrx-solutions/binding/python/" + name)
                         member.size = len(data)
-                        if name == target and failure == 'symlink':
+                        if name == target and failure == "symlink":
                             member.type = tarfile.SYMTYPE
-                            member.linkname = '/unreviewed/' + name
+                            member.linkname = "/unreviewed/" + name
                         archive.addfile(member, io.BytesIO(data))
-                        if name == target and failure == 'duplicate':
+                        if name == target and failure == "duplicate":
                             archive.addfile(member, io.BytesIO(data))
                 with self.subTest(target=target, failure=failure):
                     if failure:
-                        with self.assertRaisesRegex(RuntimeError, 'OpenWebUI source'):
+                        with self.assertRaisesRegex(RuntimeError, "OpenWebUI source"):
                             wheel_validation.validate_openwebui_sdist(path)
                     else:
                         wheel_validation.validate_openwebui_sdist(path)
 
     def test_wheel_requires_each_exact_regular_openwebui_source_once(self):
         import warnings
-        for target in ('integrations/__init__.py', 'integrations/openwebui/__init__.py', 'integrations/openwebui/hem_openwebui.py', 'integrations/openwebui/hem_openwebui_http.py', 'integrations/openwebui/hem_openwebui_state.py', 'integrations/openwebui/hem_openwebui_stt.py', 'integrations/openwebui/hem_openwebui_tts.py', 'integrations/openwebui/hem_openwebui_receipts.py', 'integrations/openwebui/hem_openwebui_wire.py'):
-            for failure in ('missing', 'changed', 'duplicate', 'symlink', 'directory'):
+
+        for target in (
+            "integrations/__init__.py",
+            "integrations/openwebui/__init__.py",
+            "integrations/openwebui/hem_openwebui.py",
+            "integrations/openwebui/hem_openwebui_http.py",
+            "integrations/openwebui/hem_openwebui_state.py",
+            "integrations/openwebui/hem_openwebui_stt.py",
+            "integrations/openwebui/hem_openwebui_tts.py",
+            "integrations/openwebui/hem_openwebui_receipts.py",
+            "integrations/openwebui/hem_openwebui_wire.py",
+        ):
+            for failure in ("missing", "changed", "duplicate", "symlink", "directory"):
                 wheel = self.wheel()
-                target_path = 'hrx_solutions/' + target
+                target_path = "hrx_solutions/" + target
                 with zipfile.ZipFile(wheel) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
-                        if name == target_path and failure == 'missing':
+                        if name == target_path and failure == "missing":
                             continue
                         member = zipfile.ZipInfo(name)
-                        if name == target_path and failure in ('symlink', 'directory'):
-                            member.external_attr = (0o120777 if failure == 'symlink' else 0o040777) << 16
-                        archive.writestr(member, data + b'changed' if name == target_path and failure == 'changed' else data)
-                        if name == target_path and failure == 'duplicate':
+                        if name == target_path and failure in ("symlink", "directory"):
+                            member.external_attr = (
+                                0o120777 if failure == "symlink" else 0o040777
+                            ) << 16
+                        archive.writestr(
+                            member,
+                            (
+                                data + b"changed"
+                                if name == target_path and failure == "changed"
+                                else data
+                            ),
+                        )
+                        if name == target_path and failure == "duplicate":
                             with warnings.catch_warnings():
-                                warnings.simplefilter('ignore', UserWarning)
+                                warnings.simplefilter("ignore", UserWarning)
                                 archive.writestr(member, data)
-                diagnostic = 'OpenWebUI source|missing setup assets'
-                if target == 'integrations/__init__.py':
-                    diagnostic = 'OMP source|Pi Python source|missing setup assets'
-                with self.subTest(target=target, failure=failure), self.assertRaisesRegex(RuntimeError, diagnostic) as raised:
+                diagnostic = "OpenWebUI source|missing setup assets"
+                if target == "integrations/__init__.py":
+                    diagnostic = "OMP source|Pi Python source|missing setup assets"
+                with (
+                    self.subTest(target=target, failure=failure),
+                    self.assertRaisesRegex(RuntimeError, diagnostic) as raised,
+                ):
                     validate_wheel(wheel)
                 self.assertIn(target, str(raised.exception))
 
     def test_sdist_requires_each_exact_regular_shared_integration_source_once(self):
-        names = ('integrations/__init__.py', 'integrations/hem_integrations.py',
-                 'integrations/hem_client_documents.py', 'integrations/hem_clients_endpoints.py')
+        names = (
+            "integrations/__init__.py",
+            "integrations/hem_integrations.py",
+            "integrations/hem_client_documents.py",
+            "integrations/hem_clients_endpoints.py",
+        )
         for target in names:
-            for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                path = self.root / 'shared-integrations-source.tar.gz'
-                with tarfile.open(path, 'w:gz') as archive:
+            for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                path = self.root / "shared-integrations-source.tar.gz"
+                with tarfile.open(path, "w:gz") as archive:
                     for name in names:
-                        data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                        if name == target and failure == 'missing':
+                        data = (
+                            packaging.REPO_ROOT / "binding/python" / name
+                        ).read_bytes()
+                        if name == target and failure == "missing":
                             continue
-                        if name == target and failure == 'changed':
-                            data += b'\n# changed source'
-                        member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                        if name == target and failure == "changed":
+                            data += b"\n# changed source"
+                        member = tarfile.TarInfo("hrx-solutions/binding/python/" + name)
                         member.size = len(data)
-                        if name == target and failure == 'symlink':
+                        if name == target and failure == "symlink":
                             member.type = tarfile.SYMTYPE
-                            member.linkname = '/unreviewed/' + name
+                            member.linkname = "/unreviewed/" + name
                         archive.addfile(member, io.BytesIO(data))
-                        if name == target and failure == 'duplicate':
+                        if name == target and failure == "duplicate":
                             archive.addfile(member, io.BytesIO(data))
                 with self.subTest(target=target, failure=failure):
                     if failure:
-                        with self.assertRaisesRegex(RuntimeError, 'shared integration source'):
+                        with self.assertRaisesRegex(
+                            RuntimeError, "shared integration source"
+                        ):
                             wheel_validation.validate_shared_integrations_sdist(path)
                     else:
                         wheel_validation.validate_shared_integrations_sdist(path)
 
-
     def test_wheel_requires_each_exact_regular_shared_integration_source_once(self):
         import warnings
-        for target in ('integrations/__init__.py', 'integrations/hem_integrations.py',
-                       'integrations/hem_client_documents.py', 'integrations/hem_clients_endpoints.py'):
-            for failure in ('missing', 'changed', 'duplicate', 'symlink', 'directory'):
+
+        for target in (
+            "integrations/__init__.py",
+            "integrations/hem_integrations.py",
+            "integrations/hem_client_documents.py",
+            "integrations/hem_clients_endpoints.py",
+        ):
+            for failure in ("missing", "changed", "duplicate", "symlink", "directory"):
                 wheel = self.wheel()
-                target_path = 'hrx_solutions/' + target
+                target_path = "hrx_solutions/" + target
                 with zipfile.ZipFile(wheel) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
-                        if name == target_path and failure == 'missing':
+                        if name == target_path and failure == "missing":
                             continue
                         member = zipfile.ZipInfo(name)
-                        if name == target_path and failure in ('symlink', 'directory'):
-                            member.external_attr = (0o120777 if failure == 'symlink' else 0o040777) << 16
-                        archive.writestr(member, data + b'changed' if name == target_path and failure == 'changed' else data)
-                        if name == target_path and failure == 'duplicate':
+                        if name == target_path and failure in ("symlink", "directory"):
+                            member.external_attr = (
+                                0o120777 if failure == "symlink" else 0o040777
+                            ) << 16
+                        archive.writestr(
+                            member,
+                            (
+                                data + b"changed"
+                                if name == target_path and failure == "changed"
+                                else data
+                            ),
+                        )
+                        if name == target_path and failure == "duplicate":
                             with warnings.catch_warnings():
-                                warnings.simplefilter('ignore', UserWarning)
+                                warnings.simplefilter("ignore", UserWarning)
                                 archive.writestr(member, data)
-                owner = 'Pi Python' if target == 'integrations/__init__.py' else 'shared integration'
-                with self.subTest(target=target, failure=failure), self.assertRaisesRegex(RuntimeError, owner + ' source|missing setup assets'):
+                owner = (
+                    "Pi Python"
+                    if target == "integrations/__init__.py"
+                    else "shared integration"
+                )
+                with (
+                    self.subTest(target=target, failure=failure),
+                    self.assertRaisesRegex(
+                        RuntimeError, owner + " source|missing setup assets"
+                    ),
+                ):
                     validate_wheel(wheel)
-
 
     def test_staged_recipe_consumers_use_real_functions_and_reject_program_drift(self):
         from binding.python.models import pipelines
         from binding.python.hem_common import HemError
+
         # Use the exact installed checker body, rebasing only its import namespace
         # to this composed source. Producer bytecode/decode fixtures are explicit;
         # parser, finite selector, program checks and modality functions are real.
-        checker=packaging.REPO_ROOT/'build_tools/validation/check_installed_wheel.py'
-        tree=ast.parse(checker.read_text())
-        function=next(node for node in tree.body if isinstance(node,ast.FunctionDef)
-                      and node.name=='check_recipe_consumers')
+        checker = (
+            packaging.REPO_ROOT / "build_tools/validation/check_installed_wheel.py"
+        )
+        tree = ast.parse(checker.read_text())
+        function = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "check_recipe_consumers"
+        )
         for node in ast.walk(function):
-            if isinstance(node,ast.ImportFrom) and node.module.startswith('hrx_solutions'):
-                node.module=node.module.replace('hrx_solutions','binding.python',1)
-        namespace={'Path':Path}
-        exec(compile(ast.Module(body=[function],type_ignores=[]),str(checker),'exec'),namespace)
+            if isinstance(node, ast.ImportFrom) and node.module.startswith(
+                "hrx_solutions"
+            ):
+                node.module = node.module.replace("hrx_solutions", "binding.python", 1)
+        namespace = {"Path": Path}
+        exec(
+            compile(ast.Module(body=[function], type_ignores=[]), str(checker), "exec"),
+            namespace,
+        )
         self.wheel()
-        package=self.root/'staged'
-        consume=namespace['check_recipe_consumers']
-        with patch.object(pipelines,'catalog_roots',return_value=(package/'loom-pipeline',)):
-            self.assertEqual(consume(package),('moonshine-streaming-tiny','pocket-tts-alba','qwen35-08b-q5-k-xl','qwen38-27b-q5-k-xl'))
-            module=package/'loom-pipeline/llm/qwen/qwen_08b/pipeline.loombc'
-            original=module.read_bytes()
-            module.write_bytes(b'LOOMtampered')
-            with self.assertRaisesRegex(RuntimeError,'Program hash mismatch'): consume(package)
+        package = self.root / "staged"
+        consume = namespace["check_recipe_consumers"]
+        with patch.object(
+            pipelines, "catalog_roots", return_value=(package / "loom-pipeline",)
+        ):
+            self.assertEqual(
+                consume(package),
+                (
+                    "moonshine-streaming-tiny",
+                    "pocket-tts-alba",
+                    "qwen35-08b-q5-k-xl",
+                    "qwen38-27b-q5-k-xl",
+                ),
+            )
+            module = package / "loom-pipeline/llm/qwen/qwen_08b/pipeline.loombc"
+            original = module.read_bytes()
+            module.write_bytes(b"LOOMtampered")
+            with self.assertRaisesRegex(RuntimeError, "Program hash mismatch"):
+                consume(package)
             module.write_bytes(original)
-            recipe=package/'loom-pipeline/recognition/moonshine/streaming_tiny/recipes/moonshine-streaming-tiny.json'
+            recipe = (
+                package
+                / "loom-pipeline/recognition/moonshine/streaming_tiny/recipes/moonshine-streaming-tiny.json"
+            )
             recipe.unlink()
-            with self.assertRaisesRegex(RuntimeError,'recipe inventory'): consume(package)
+            with self.assertRaisesRegex(RuntimeError, "recipe inventory"):
+                consume(package)
 
     def test_public_recipe_query_consumer_matches_real_cli_without_state(self):
         from binding.python import hem_cli
         from binding.python.models import model_download
         from binding.python.models.preparation import moonshine as moonshine_preparation
-        checker=packaging.REPO_ROOT/'build_tools/validation/check_installed_wheel.py'
-        function=next(node for node in ast.parse(checker.read_text()).body
-                      if isinstance(node,ast.FunctionDef) and node.name=='check_public_recipe_queries')
-        namespace={}
-        exec(compile(ast.Module(body=[function],type_ignores=[]),str(checker),'exec'),namespace)
-        state=self.root/'query-state'
+
+        checker = (
+            packaging.REPO_ROOT / "build_tools/validation/check_installed_wheel.py"
+        )
+        function = next(
+            node
+            for node in ast.parse(checker.read_text()).body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "check_public_recipe_queries"
+        )
+        namespace = {}
+        exec(
+            compile(ast.Module(body=[function], type_ignores=[]), str(checker), "exec"),
+            namespace,
+        )
+        state = self.root / "query-state"
+
         def invoke(*arguments):
-            output,diagnostic=io.StringIO(),io.StringIO()
-            from contextlib import redirect_stdout,redirect_stderr
-            with redirect_stdout(output),redirect_stderr(diagnostic):
-                status=hem_cli.main([*arguments,'--json'])
-            self.assertEqual(status,0,diagnostic.getvalue()+output.getvalue())
-            return json.loads(output.getvalue()),diagnostic.getvalue()
-        with patch.dict(os.environ,{'LOOM_SERVE_DIR':str(state)}), \
-             patch.object(model_download,'_run_hf',side_effect=AssertionError('query must not fetch')), \
-             patch.object(moonshine_preparation,'preflight',side_effect=AssertionError('query must not preflight')):
-            self.assertEqual(namespace['check_public_recipe_queries'](invoke),
-                             ('moonshine-streaming-tiny','pocket-tts-alba','qwen35-08b-q5-k-xl','qwen38-27b-q5-k-xl'))
+            output, diagnostic = io.StringIO(), io.StringIO()
+            from contextlib import redirect_stdout, redirect_stderr
+
+            with redirect_stdout(output), redirect_stderr(diagnostic):
+                status = hem_cli.main([*arguments, "--json"])
+            self.assertEqual(status, 0, diagnostic.getvalue() + output.getvalue())
+            return json.loads(output.getvalue()), diagnostic.getvalue()
+
+        with (
+            patch.dict(os.environ, {"LOOM_SERVE_DIR": str(state)}),
+            patch.object(
+                model_download,
+                "_run_hf",
+                side_effect=AssertionError("query must not fetch"),
+            ),
+            patch.object(
+                moonshine_preparation,
+                "preflight",
+                side_effect=AssertionError("query must not preflight"),
+            ),
+        ):
+            self.assertEqual(
+                namespace["check_public_recipe_queries"](invoke),
+                (
+                    "moonshine-streaming-tiny",
+                    "pocket-tts-alba",
+                    "qwen35-08b-q5-k-xl",
+                    "qwen38-27b-q5-k-xl",
+                ),
+            )
         self.assertFalse(state.exists())
 
     def test_source_and_wheel_reject_each_retired_model_module(self):
-        retired = ('models/moonshine_preparation.py', 'models/moonshine_preparer_identity.py',
-                   'models/pipelines_qwen.py', 'models/pipelines_moonshine.py', 'models/recipe_types.py', 'models/curated_catalog.py', 'models/hem_model_operations.py',
-                   'models/qwen_validation.py', 'models/pipeline_validation.py', 'pipeline_validation.py')
+        retired = (
+            "models/moonshine_preparation.py",
+            "models/moonshine_preparer_identity.py",
+            "models/pipelines_qwen.py",
+            "models/pipelines_moonshine.py",
+            "models/recipe_types.py",
+            "models/curated_catalog.py",
+            "models/hem_model_operations.py",
+            "models/qwen_validation.py",
+            "models/pipeline_validation.py",
+            "pipeline_validation.py",
+        )
         for name in retired:
-            source = self.root / 'retired-source.tar.gz'
-            with tarfile.open(source, 'w:gz') as archive:
-                content = b'# retired graph must not ship\n'
-                member = tarfile.TarInfo('package/binding/python/' + name)
+            source = self.root / "retired-source.tar.gz"
+            with tarfile.open(source, "w:gz") as archive:
+                content = b"# retired graph must not ship\n"
+                member = tarfile.TarInfo("package/binding/python/" + name)
                 member.size = len(content)
                 archive.addfile(member, io.BytesIO(content))
-            with self.subTest(source=name), self.assertRaisesRegex(RuntimeError, 'retired model execution authorities'):
+            with (
+                self.subTest(source=name),
+                self.assertRaisesRegex(
+                    RuntimeError, "retired model execution authorities"
+                ),
+            ):
                 wheel_validation.validate_models_sdist(source)
             wheel = self.wheel()
-            with zipfile.ZipFile(wheel, 'a') as archive:
-                archive.writestr('hrx_solutions/' + name, content)
-            with self.subTest(wheel=name), self.assertRaisesRegex(RuntimeError, 'retired model execution authorities'):
+            with zipfile.ZipFile(wheel, "a") as archive:
+                archive.writestr("hrx_solutions/" + name, content)
+            with (
+                self.subTest(wheel=name),
+                self.assertRaisesRegex(
+                    RuntimeError, "retired model execution authorities"
+                ),
+            ):
                 validate_wheel(wheel)
 
     def test_sdist_requires_each_exact_regular_model_source_once(self):
         names = (
-            'models/__init__.py', 'models/gguf.py', 'models/hem_config.py',
-            'models/hem_models.py', 'models/model_download.py', 'models/model_store.py',
-            'models/preparation/__init__.py', 'models/preparation/moonshine.py', 'models/preparation/moonshine_contract.py',
-            'models/preparation/pocket.py', 'models/preparation/pocket_contract.py', 'models/pocket.py',
-            'models/recipes.py', 'models/pipelines.py',
-            'models/modalities/__init__.py', 'models/modalities/chat.py', 'models/modalities/asr.py', 'models/modalities/tts.py',
+            "models/__init__.py",
+            "models/gguf.py",
+            "models/hem_config.py",
+            "models/hem_models.py",
+            "models/model_download.py",
+            "models/model_store.py",
+            "models/preparation/__init__.py",
+            "models/preparation/moonshine.py",
+            "models/preparation/moonshine_contract.py",
+            "models/preparation/pocket.py",
+            "models/preparation/pocket_contract.py",
+            "models/pocket.py",
+            "models/recipes.py",
+            "models/pipelines.py",
+            "models/modalities/__init__.py",
+            "models/modalities/chat.py",
+            "models/modalities/asr.py",
+            "models/modalities/tts.py",
         )
         for target in names:
-            for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                path = self.root / 'models-source.tar.gz'
-                with tarfile.open(path, 'w:gz') as archive:
+            for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                path = self.root / "models-source.tar.gz"
+                with tarfile.open(path, "w:gz") as archive:
                     for name in names:
-                        data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                        if name == target and failure == 'missing':
+                        data = (
+                            packaging.REPO_ROOT / "binding/python" / name
+                        ).read_bytes()
+                        if name == target and failure == "missing":
                             continue
-                        if name == target and failure == 'changed':
-                            data += b'\n# changed source'
-                        member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                        if name == target and failure == "changed":
+                            data += b"\n# changed source"
+                        member = tarfile.TarInfo("hrx-solutions/binding/python/" + name)
                         member.size = len(data)
-                        if name == target and failure == 'symlink':
+                        if name == target and failure == "symlink":
                             member.type = tarfile.SYMTYPE
-                            member.linkname = '/unreviewed/' + name
+                            member.linkname = "/unreviewed/" + name
                         archive.addfile(member, io.BytesIO(data))
-                        if name == target and failure == 'duplicate':
+                        if name == target and failure == "duplicate":
                             archive.addfile(member, io.BytesIO(data))
                 with self.subTest(target=target, failure=failure):
                     if failure:
-                        with self.assertRaisesRegex(RuntimeError, 'model source'):
+                        with self.assertRaisesRegex(RuntimeError, "model source"):
                             wheel_validation.validate_models_sdist(path)
                     else:
                         wheel_validation.validate_models_sdist(path)
 
     def test_wheel_requires_exact_regular_model_source_once(self):
         import warnings
-        for failure in ('changed', 'duplicate', 'symlink'):
+
+        for failure in ("changed", "duplicate", "symlink"):
             wheel = self.wheel()
-            target = 'hrx_solutions/models/gguf.py'
+            target = "hrx_solutions/models/gguf.py"
             with zipfile.ZipFile(wheel) as archive:
                 members = {name: archive.read(name) for name in archive.namelist()}
-            with zipfile.ZipFile(wheel, 'w') as archive:
+            with zipfile.ZipFile(wheel, "w") as archive:
                 for name, data in members.items():
                     member = zipfile.ZipInfo(name)
-                    if name == target and failure == 'symlink':
+                    if name == target and failure == "symlink":
                         member.external_attr = 0o120777 << 16
-                    archive.writestr(member, data + b'changed' if name == target and failure == 'changed' else data)
-                    if name == target and failure == 'duplicate':
+                    archive.writestr(
+                        member,
+                        (
+                            data + b"changed"
+                            if name == target and failure == "changed"
+                            else data
+                        ),
+                    )
+                    if name == target and failure == "duplicate":
                         with warnings.catch_warnings():
-                            warnings.simplefilter('ignore', UserWarning)
+                            warnings.simplefilter("ignore", UserWarning)
                             archive.writestr(member, data)
-            with self.subTest(failure=failure), self.assertRaisesRegex(RuntimeError, 'model source'):
+            with (
+                self.subTest(failure=failure),
+                self.assertRaisesRegex(RuntimeError, "model source"),
+            ):
                 validate_wheel(wheel)
 
     def test_sdist_requires_each_exact_regular_pi_python_source_once(self):
         names = (
-            'integrations/__init__.py',
-            'integrations/pi/__init__.py',
-            'integrations/pi/hem_pi.py',
-            'integrations/pi/hem_pi_assets.py',
-            'integrations/pi/hem_pi_contracts.py',
-            'integrations/pi/hem_pi_endpoints.py',
-            'integrations/pi/hem_pi_files.py',
-            'integrations/pi/hem_pi_state.py',
+            "integrations/__init__.py",
+            "integrations/pi/__init__.py",
+            "integrations/pi/hem_pi.py",
+            "integrations/pi/hem_pi_assets.py",
+            "integrations/pi/hem_pi_contracts.py",
+            "integrations/pi/hem_pi_endpoints.py",
+            "integrations/pi/hem_pi_files.py",
+            "integrations/pi/hem_pi_state.py",
         )
         for target in names:
-            for failure in (None, 'missing', 'changed', 'symlink', 'duplicate'):
-                path = self.root / 'pi-python-source.tar.gz'
-                with tarfile.open(path, 'w:gz') as archive:
+            for failure in (None, "missing", "changed", "symlink", "duplicate"):
+                path = self.root / "pi-python-source.tar.gz"
+                with tarfile.open(path, "w:gz") as archive:
                     for name in names:
-                        data = (packaging.REPO_ROOT / 'binding/python' / name).read_bytes()
-                        if name == target and failure == 'missing':
+                        data = (
+                            packaging.REPO_ROOT / "binding/python" / name
+                        ).read_bytes()
+                        if name == target and failure == "missing":
                             continue
-                        if name == target and failure == 'changed':
-                            data += b'\n# changed source'
-                        member = tarfile.TarInfo('hrx-solutions/binding/python/' + name)
+                        if name == target and failure == "changed":
+                            data += b"\n# changed source"
+                        member = tarfile.TarInfo("hrx-solutions/binding/python/" + name)
                         member.size = len(data)
-                        if name == target and failure == 'symlink':
+                        if name == target and failure == "symlink":
                             member.type = tarfile.SYMTYPE
-                            member.linkname = '/unreviewed/' + name
+                            member.linkname = "/unreviewed/" + name
                         archive.addfile(member, io.BytesIO(data))
-                        if name == target and failure == 'duplicate':
+                        if name == target and failure == "duplicate":
                             archive.addfile(member, io.BytesIO(data))
                 with self.subTest(target=target, failure=failure):
                     if failure:
-                        with self.assertRaisesRegex(RuntimeError, 'Pi Python source'):
+                        with self.assertRaisesRegex(RuntimeError, "Pi Python source"):
                             wheel_validation.validate_pi_python_sdist(path)
                     else:
                         wheel_validation.validate_pi_python_sdist(path)
 
     def test_wheel_requires_each_exact_regular_pi_python_source_once(self):
         import warnings
+
         names = (
-            'integrations/__init__.py',
-            'integrations/pi/__init__.py',
-            'integrations/pi/hem_pi.py',
-            'integrations/pi/hem_pi_assets.py',
-            'integrations/pi/hem_pi_contracts.py',
-            'integrations/pi/hem_pi_endpoints.py',
-            'integrations/pi/hem_pi_files.py',
-            'integrations/pi/hem_pi_state.py',
+            "integrations/__init__.py",
+            "integrations/pi/__init__.py",
+            "integrations/pi/hem_pi.py",
+            "integrations/pi/hem_pi_assets.py",
+            "integrations/pi/hem_pi_contracts.py",
+            "integrations/pi/hem_pi_endpoints.py",
+            "integrations/pi/hem_pi_files.py",
+            "integrations/pi/hem_pi_state.py",
         )
         for target in names:
-            with self.subTest(missing=target), self.assertRaisesRegex(RuntimeError, 'missing setup assets'):
-                validate_wheel(self.wheel(missing='hrx_solutions/' + target))
-            for failure in ('changed', 'duplicate', 'symlink'):
+            with (
+                self.subTest(missing=target),
+                self.assertRaisesRegex(RuntimeError, "missing setup assets"),
+            ):
+                validate_wheel(self.wheel(missing="hrx_solutions/" + target))
+            for failure in ("changed", "duplicate", "symlink"):
                 wheel = self.wheel()
                 with zipfile.ZipFile(wheel) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
                         member = zipfile.ZipInfo(name)
-                        if name == 'hrx_solutions/' + target and failure == 'symlink':
+                        if name == "hrx_solutions/" + target and failure == "symlink":
                             member.external_attr = 0o120777 << 16
-                        archive.writestr(member, data + b'changed' if name == 'hrx_solutions/' + target and failure == 'changed' else data)
-                        if name == 'hrx_solutions/' + target and failure == 'duplicate':
+                        archive.writestr(
+                            member,
+                            (
+                                data + b"changed"
+                                if name == "hrx_solutions/" + target
+                                and failure == "changed"
+                                else data
+                            ),
+                        )
+                        if name == "hrx_solutions/" + target and failure == "duplicate":
                             with warnings.catch_warnings():
-                                warnings.simplefilter('ignore', UserWarning)
+                                warnings.simplefilter("ignore", UserWarning)
                                 archive.writestr(member, data)
-                with self.subTest(target=target, failure=failure), self.assertRaisesRegex(RuntimeError, 'Pi Python source'):
+                with (
+                    self.subTest(target=target, failure=failure),
+                    self.assertRaisesRegex(RuntimeError, "Pi Python source"),
+                ):
                     validate_wheel(wheel)
 
     def test_pi_resources_match_contract_and_loader_metadata(self):
         assets = hem_pi_assets.bundled_assets()
-        prefix = hem_pi_contracts.EXTENSION_PATH + '/'
+        prefix = hem_pi_contracts.EXTENSION_PATH + "/"
         self.assertEqual(set(assets), {prefix + name for name in PI_ASSETS})
-        self.assertEqual(hem_pi_assets.asset_digests(assets),
-                         {name: hashlib.sha256(data).hexdigest() for name, data in assets.items()})
-        profile = json.loads(assets[prefix+'profile.json'])
+        self.assertEqual(
+            hem_pi_assets.asset_digests(assets),
+            {name: hashlib.sha256(data).hexdigest() for name, data in assets.items()},
+        )
+        profile = json.loads(assets[prefix + "profile.json"])
         for key, value in profile.items():
             expected = getattr(hem_pi_contracts, key.upper())
-            self.assertEqual(value, list(expected) if isinstance(expected, tuple) else expected)
-        metadata = json.loads(assets[prefix+'package.json'])
-        self.assertEqual(metadata['pi']['extensions'], ['./index.ts'])
-        self.assertFalse(metadata.get('dependencies'))
-        self.assertFalse(metadata.get('scripts'))
+            self.assertEqual(
+                value, list(expected) if isinstance(expected, tuple) else expected
+            )
+        metadata = json.loads(assets[prefix + "package.json"])
+        self.assertEqual(metadata["pi"]["extensions"], ["./index.ts"])
+        self.assertFalse(metadata.get("dependencies"))
+        self.assertFalse(metadata.get("scripts"))
 
     def test_wheel_requires_every_pi_resource_and_reviewed_bytes(self):
         for name in PI_ASSETS:
-            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'missing setup assets'):
-                validate_wheel(self.wheel(missing='hrx_solutions/pi_extension/'+name))
+            with (
+                self.subTest(name=name),
+                self.assertRaisesRegex(RuntimeError, "missing setup assets"),
+            ):
+                validate_wheel(self.wheel(missing="hrx_solutions/pi_extension/" + name))
         wheel = self.wheel()
         with zipfile.ZipFile(wheel) as archive:
             members = {name: archive.read(name) for name in archive.namelist()}
-        members['hrx_solutions/pi_extension/index.ts'] += b'\n// changed\n'
-        with zipfile.ZipFile(wheel, 'w') as archive:
+        members["hrx_solutions/pi_extension/index.ts"] += b"\n// changed\n"
+        with zipfile.ZipFile(wheel, "w") as archive:
             for name, data in members.items():
                 archive.writestr(name, data)
-        with self.assertRaisesRegex(RuntimeError, 'Pi asset differs'):
+        with self.assertRaisesRegex(RuntimeError, "Pi asset differs"):
             validate_wheel(wheel)
 
     def test_sdist_requires_identical_regular_pi_resources(self):
-        for failure in (None, 'missing', 'changed', 'symlink'):
-            path = self.root/'source.tar.gz'
-            with tarfile.open(path, 'w:gz') as archive:
+        for failure in (None, "missing", "changed", "symlink"):
+            path = self.root / "source.tar.gz"
+            with tarfile.open(path, "w:gz") as archive:
                 for name in PI_ASSETS:
-                    data = (packaging.REPO_ROOT/'binding/python/pi_extension'/name).read_bytes()
-                    if name == 'index.ts' and failure == 'missing':
+                    data = (
+                        packaging.REPO_ROOT / "binding/python/pi_extension" / name
+                    ).read_bytes()
+                    if name == "index.ts" and failure == "missing":
                         continue
-                    if name == 'index.ts' and failure == 'changed':
-                        data += b'// changed'
-                    member = tarfile.TarInfo('hrx-solutions/binding/python/pi_extension/'+name)
+                    if name == "index.ts" and failure == "changed":
+                        data += b"// changed"
+                    member = tarfile.TarInfo(
+                        "hrx-solutions/binding/python/pi_extension/" + name
+                    )
                     member.size = len(data)
-                    if name == 'index.ts' and failure == 'symlink':
+                    if name == "index.ts" and failure == "symlink":
                         member.type = tarfile.SYMTYPE
-                        member.linkname = '/unreviewed/index.ts'
+                        member.linkname = "/unreviewed/index.ts"
                     archive.addfile(member, io.BytesIO(data))
             with self.subTest(failure=failure):
                 if failure:
-                    with self.assertRaisesRegex(RuntimeError, 'Pi asset'):
+                    with self.assertRaisesRegex(RuntimeError, "Pi asset"):
                         validate_pi_sdist(path)
                 else:
                     validate_pi_sdist(path)
 
     def test_setuptools_stages_models_from_declared_packages(self):
         from setuptools.config.pyprojecttoml import read_configuration
-        configuration = read_configuration(packaging.REPO_ROOT / 'pyproject.toml', expand=False)
-        options = configuration['tool']['setuptools']
-        distribution = packaging.BinaryDistribution({
-            'packages': options['packages'],
-            'package_dir': {name: str(packaging.REPO_ROOT / path)
-                            for name, path in options['package-dir'].items()},
-        })
-        distribution.script_name = str(packaging.REPO_ROOT / 'setup.py')
+
+        configuration = read_configuration(
+            packaging.REPO_ROOT / "pyproject.toml", expand=False
+        )
+        options = configuration["tool"]["setuptools"]
+        distribution = packaging.BinaryDistribution(
+            {
+                "packages": options["packages"],
+                "package_dir": {
+                    name: str(packaging.REPO_ROOT / path)
+                    for name, path in options["package-dir"].items()
+                },
+            }
+        )
+        distribution.script_name = str(packaging.REPO_ROOT / "setup.py")
         command = packaging.build_py(distribution)
-        command.build_lib = str(self.root / 'python-stage')
+        command.build_lib = str(self.root / "python-stage")
         command.ensure_finalized()
         command.run()
-        expected = {*wheel_validation.MODEL_PYTHON_PATHS,
-                    *wheel_validation.CLI_FILES, *('tui/__init__.py', 'tui/hem_tui.py', 'tui/hem_tui_details.py',
-                     'tui/hem_tui_logs.py', 'tui/hem_tui_provider.py', *('control/__init__.py', 'control/hem_http.py', 'control/hem_instances.py', 'control/hem_operation_targets.py', 'control/hem_process.py', 'control/hem_shutdown.py', 'control/hem_state.py')), *wheel_validation.PI_PYTHON_FILES}
-        expected.update(('integrations/__init__.py', 'integrations/omp/__init__.py',
-                         'integrations/omp/hem_omp.py', 'integrations/omp/hem_omp_yaml.py'))
-        expected.update(('integrations/__init__.py', 'integrations/opencode/__init__.py',
-                         'integrations/opencode/hem_opencode.py'))
-        expected.update(('integrations/__init__.py', 'integrations/openwebui/__init__.py', 'integrations/openwebui/hem_openwebui.py', 'integrations/openwebui/hem_openwebui_http.py', 'integrations/openwebui/hem_openwebui_state.py', 'integrations/openwebui/hem_openwebui_stt.py', 'integrations/openwebui/hem_openwebui_tts.py', 'integrations/openwebui/hem_openwebui_receipts.py', 'integrations/openwebui/hem_openwebui_wire.py'))
-        expected.update(('integrations/__init__.py', 'integrations/hem_integrations.py',
-                         'integrations/hem_client_documents.py', 'integrations/hem_clients_endpoints.py'))
-        staged = Path(command.build_lib) / 'hrx_solutions'
-        self.assertTrue(expected <= {path.relative_to(staged).as_posix()
-                                     for path in staged.rglob('*.py')})
-        self.assertTrue({str(packaging.REPO_ROOT / 'binding/python' / name) for name in expected}
-                        <= set(command.get_source_files()))
-        self.assertEqual((staged / 'models/recipes.py').read_bytes(),
-                         (packaging.REPO_ROOT / 'binding/python/models/recipes.py').read_bytes())
+        expected = {
+            *wheel_validation.MODEL_PYTHON_PATHS,
+            *wheel_validation.CLI_FILES,
+            *(
+                "tui/__init__.py",
+                "tui/hem_tui.py",
+                "tui/hem_tui_details.py",
+                "tui/hem_tui_logs.py",
+                "tui/hem_tui_provider.py",
+                *(
+                    "control/__init__.py",
+                    "control/hem_http.py",
+                    "control/hem_instances.py",
+                    "control/hem_operation_targets.py",
+                    "control/hem_process.py",
+                    "control/hem_shutdown.py",
+                    "control/hem_state.py",
+                ),
+            ),
+            *wheel_validation.PI_PYTHON_FILES,
+        }
+        expected.update(
+            (
+                "integrations/__init__.py",
+                "integrations/omp/__init__.py",
+                "integrations/omp/hem_omp.py",
+                "integrations/omp/hem_omp_yaml.py",
+            )
+        )
+        expected.update(
+            (
+                "integrations/__init__.py",
+                "integrations/opencode/__init__.py",
+                "integrations/opencode/hem_opencode.py",
+            )
+        )
+        expected.update(
+            (
+                "integrations/__init__.py",
+                "integrations/openwebui/__init__.py",
+                "integrations/openwebui/hem_openwebui.py",
+                "integrations/openwebui/hem_openwebui_http.py",
+                "integrations/openwebui/hem_openwebui_state.py",
+                "integrations/openwebui/hem_openwebui_stt.py",
+                "integrations/openwebui/hem_openwebui_tts.py",
+                "integrations/openwebui/hem_openwebui_receipts.py",
+                "integrations/openwebui/hem_openwebui_wire.py",
+            )
+        )
+        expected.update(
+            (
+                "integrations/__init__.py",
+                "integrations/hem_integrations.py",
+                "integrations/hem_client_documents.py",
+                "integrations/hem_clients_endpoints.py",
+            )
+        )
+        staged = Path(command.build_lib) / "hrx_solutions"
+        self.assertTrue(
+            expected
+            <= {path.relative_to(staged).as_posix() for path in staged.rglob("*.py")}
+        )
+        self.assertTrue(
+            {str(packaging.REPO_ROOT / "binding/python" / name) for name in expected}
+            <= set(command.get_source_files())
+        )
+        self.assertEqual(
+            (staged / "models/recipes.py").read_bytes(),
+            (packaging.REPO_ROOT / "binding/python/models/recipes.py").read_bytes(),
+        )
 
     def test_registered_sdist_gate_rejects_changed_source_with_identical_recipes(self):
-        from binding.python.models import recipes,pipelines
-        root=self.fixture.repository
-        metadata={path.name for path in (root/'loom-pipeline').iterdir()
-                  if path.is_file() and (path.suffix=='.bzl' or path.name=='BUILD.bazel')}
-        paths=recipe_inventory.source_paths(self.release)|metadata
-        baseline={'loom-pipeline/'+name:(root/'loom-pipeline'/name).read_bytes() for name in paths}
-        for expected in self.release['operations'].values():
-            operation = expected['source']
-            baseline[operation]=(root/operation).read_bytes()
-        source=next(name for name in baseline if name.endswith('.loom'))
-        unrelated=('validate_pi_sdist','validate_pi_python_sdist','validate_client_sdist',
-                   'validate_models_sdist','validate_cli_sdist','validate_omp_sdist',
-                   'validate_opencode_sdist','validate_openwebui_sdist','validate_shared_integrations_sdist')
-        for changed in (False,True):
-            members=dict(baseline)
-            if changed:members[source]=b'changed native program, unchanged recipes'
-            archive_path=self.root/'source.tar.gz'
-            with tarfile.open(archive_path,'w:gz') as archive:
-                for name,content in members.items():
-                    entry=tarfile.TarInfo('package/'+name);entry.size=len(content)
-                    archive.addfile(entry,io.BytesIO(content))
+        from binding.python.models import recipes, pipelines
+
+        root = self.fixture.repository
+        metadata = {
+            path.name
+            for path in (root / "loom-pipeline").iterdir()
+            if path.is_file() and (path.suffix == ".bzl" or path.name == "BUILD.bazel")
+        }
+        paths = recipe_inventory.source_paths(self.release) | metadata
+        baseline = {
+            "loom-pipeline/" + name: (root / "loom-pipeline" / name).read_bytes()
+            for name in paths
+        }
+        for expected in self.release["operations"].values():
+            operation = expected["source"]
+            baseline[operation] = (root / operation).read_bytes()
+        source = next(name for name in baseline if name.endswith(".loom"))
+        unrelated = (
+            "validate_pi_sdist",
+            "validate_pi_python_sdist",
+            "validate_client_sdist",
+            "validate_models_sdist",
+            "validate_cli_sdist",
+            "validate_omp_sdist",
+            "validate_opencode_sdist",
+            "validate_openwebui_sdist",
+            "validate_shared_integrations_sdist",
+        )
+        for changed in (False, True):
+            members = dict(baseline)
+            if changed:
+                members[source] = b"changed native program, unchanged recipes"
+            archive_path = self.root / "source.tar.gz"
+            with tarfile.open(archive_path, "w:gz") as archive:
+                for name, content in members.items():
+                    entry = tarfile.TarInfo("package/" + name)
+                    entry.size = len(content)
+                    archive.addfile(entry, io.BytesIO(content))
             with ExitStack() as stack:
-                stack.enter_context(patch.object(sys,'argv',['validate-wheel','fixture.whl','--sdist',str(archive_path)]))
-                stack.enter_context(patch.object(wheel_validation,'validate_wheel',return_value=(2,1)))
-                for name in unrelated:stack.enter_context(patch.object(wheel_validation,name))
+                stack.enter_context(
+                    patch.object(
+                        sys,
+                        "argv",
+                        ["validate-wheel", "fixture.whl", "--sdist", str(archive_path)],
+                    )
+                )
+                stack.enter_context(
+                    patch.object(
+                        wheel_validation, "validate_wheel", return_value=(2, 1)
+                    )
+                )
+                for name in unrelated:
+                    stack.enter_context(patch.object(wheel_validation, name))
                 # Real combined catalog checker and real parsers at the registered
                 # CLI entrypoint. Unrelated Python/client/ELF gates are isolated.
                 if changed:
-                    with self.assertRaisesRegex(RuntimeError,'Source catalog differs'):wheel_validation.main()
-                else:self.assertEqual(wheel_validation.main(),0)
+                    with self.assertRaisesRegex(RuntimeError, "Source catalog differs"):
+                        wheel_validation.main()
+                else:
+                    self.assertEqual(wheel_validation.main(), 0)
 
     def test_setuptools_excludes_source_operation_from_installed_model_package(self):
         from setuptools.config.pyprojecttoml import read_configuration
-        options=read_configuration(packaging.REPO_ROOT/'pyproject.toml',expand=False)['tool']['setuptools']
-        source=self.root/'python-source';models=source/'models';models.mkdir(parents=True)
-        (source/'__init__.py').write_text('')
-        (models/'__init__.py').write_text('')
-        preparation=models/'preparation';preparation.mkdir()
-        (preparation/'__init__.py').write_text('')
-        operation=preparation/'operation-fixture.json';operation.write_text('{"trusted":true}')
-        distribution=packaging.BinaryDistribution({
-            'packages':['hrx_solutions','hrx_solutions.models','hrx_solutions.models.preparation'],
-            'package_dir':{'hrx_solutions':str(source)},
-            # Model JSON may be found by source manifests/package-data; actual
-            # exclusion must still leave installed native contract as authority.
-            'package_data':{'hrx_solutions.models':['*.json'], 'hrx_solutions.models.preparation':['*.json']},
-            'exclude_package_data':options['exclude-package-data'],
-        })
-        distribution.script_name=str(packaging.REPO_ROOT/'setup.py')
-        command=packaging.build_py(distribution);command.build_lib=str(self.root/'python-stage')
-        command.ensure_finalized();command.run()
-        self.assertTrue((Path(command.build_lib)/'hrx_solutions/models/__init__.py').is_file())
-        self.assertFalse(list(Path(command.build_lib).rglob('*.json')))
+
+        options = read_configuration(
+            packaging.REPO_ROOT / "pyproject.toml", expand=False
+        )["tool"]["setuptools"]
+        source = self.root / "python-source"
+        models = source / "models"
+        models.mkdir(parents=True)
+        (source / "__init__.py").write_text("")
+        (models / "__init__.py").write_text("")
+        preparation = models / "preparation"
+        preparation.mkdir()
+        (preparation / "__init__.py").write_text("")
+        operation = preparation / "operation-fixture.json"
+        operation.write_text('{"trusted":true}')
+        distribution = packaging.BinaryDistribution(
+            {
+                "packages": [
+                    "hrx_solutions",
+                    "hrx_solutions.models",
+                    "hrx_solutions.models.preparation",
+                ],
+                "package_dir": {"hrx_solutions": str(source)},
+                # Model JSON may be found by source manifests/package-data; actual
+                # exclusion must still leave installed native contract as authority.
+                "package_data": {
+                    "hrx_solutions.models": ["*.json"],
+                    "hrx_solutions.models.preparation": ["*.json"],
+                },
+                "exclude_package_data": options["exclude-package-data"],
+            }
+        )
+        distribution.script_name = str(packaging.REPO_ROOT / "setup.py")
+        command = packaging.build_py(distribution)
+        command.build_lib = str(self.root / "python-stage")
+        command.ensure_finalized()
+        command.run()
+        self.assertTrue(
+            (Path(command.build_lib) / "hrx_solutions/models/__init__.py").is_file()
+        )
+        self.assertFalse(list(Path(command.build_lib).rglob("*.json")))
         self.assertTrue(operation.is_file())
 
     def test_wheel_contains_new_validation_assets(self):
-        libraries,size=validate_wheel(self.wheel())
-        self.assertEqual(libraries,2)
-        self.assertGreater(size,0)
-        with zipfile.ZipFile(self.root/'fixture.whl') as archive:
-            catalog = [name for name in archive.namelist() if name.startswith('hrx_solutions/loom-pipeline/llm/')]
+        libraries, size = validate_wheel(self.wheel())
+        self.assertEqual(libraries, 2)
+        self.assertGreater(size, 0)
+        with zipfile.ZipFile(self.root / "fixture.whl") as archive:
+            catalog = [
+                name
+                for name in archive.namelist()
+                if name.startswith("hrx_solutions/loom-pipeline/llm/")
+            ]
             self.assertEqual(len(catalog), 12)
-            self.assertEqual(sum(name.endswith('.loombc') for name in catalog), 3)
-            self.assertFalse(any(name.endswith('sources.txt') for name in catalog))
-        with self.assertRaisesRegex(RuntimeError,'recipe inventory'):
-            validate_wheel(self.wheel(missing='hrx_solutions/loom-pipeline/llm/qwen/qwen_27b/recipes/qwen38-27b-q5-k-xl.json'))
+            self.assertEqual(sum(name.endswith(".loombc") for name in catalog), 3)
+            self.assertFalse(any(name.endswith("sources.txt") for name in catalog))
+        with self.assertRaisesRegex(RuntimeError, "recipe inventory"):
+            validate_wheel(
+                self.wheel(
+                    missing="hrx_solutions/loom-pipeline/llm/qwen/qwen_27b/recipes/qwen38-27b-q5-k-xl.json"
+                )
+            )
         for name in MODEL_PYTHON_PATHS:
-            with self.subTest(module=name), self.assertRaisesRegex(RuntimeError, 'missing setup assets'):
-                validate_wheel(self.wheel(missing='hrx_solutions/'+name))
+            with (
+                self.subTest(module=name),
+                self.assertRaisesRegex(RuntimeError, "missing setup assets"),
+            ):
+                validate_wheel(self.wheel(missing="hrx_solutions/" + name))
 
     def test_wheel_requires_both_architecture_catalogs(self):
-        for filename in ('pipeline.loombc', 'executable.json', 'recipes/qwen35-08b-q5-k-xl.json'):
+        for filename in (
+            "pipeline.loombc",
+            "executable.json",
+            "recipes/qwen35-08b-q5-k-xl.json",
+        ):
             with self.subTest(filename=filename), self.assertRaises(RuntimeError):
-                validate_wheel(self.wheel(missing='hrx_solutions/loom-pipeline/llm/qwen/qwen_08b/'+filename))
+                validate_wheel(
+                    self.wheel(
+                        missing="hrx_solutions/loom-pipeline/llm/qwen/qwen_08b/"
+                        + filename
+                    )
+                )
 
     def test_wheel_rejects_source_fallback_corruption_and_metadata_drift(self):
-        for mutation in ('source','bytecode','extra','semantic','recipe','source_hash','source_inventory','bytecode_hash','format'):
-            wheel=self.wheel()
-            with zipfile.ZipFile(wheel) as archive:members={name:archive.read(name) for name in archive.namelist()}
-            local='hrx_solutions/loom-pipeline/llm/qwen/qwen_08b/'
-            if mutation=='source':members[local+'control.loom']=b'hidden source'
-            elif mutation=='bytecode':members[local+'pipeline.loombc']=b'LOOMstale'
-            elif mutation=='extra':members[local+'weights.loombc']=b'LOOMextra'
+        for mutation in (
+            "source",
+            "bytecode",
+            "extra",
+            "semantic",
+            "recipe",
+            "source_hash",
+            "source_inventory",
+            "bytecode_hash",
+            "format",
+        ):
+            wheel = self.wheel()
+            with zipfile.ZipFile(wheel) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            local = "hrx_solutions/loom-pipeline/llm/qwen/qwen_08b/"
+            if mutation == "source":
+                members[local + "control.loom"] = b"hidden source"
+            elif mutation == "bytecode":
+                members[local + "pipeline.loombc"] = b"LOOMstale"
+            elif mutation == "extra":
+                members[local + "weights.loombc"] = b"LOOMextra"
             else:
-                name=local+('recipes/qwen35-08b-q5-k-xl.json' if mutation=='recipe' else 'executable.json')
-                data=json.loads(members[name])
-                if mutation=='recipe':data['id']='wrong'
-                elif mutation=='semantic':data['serving']['defaults']['rows']=3
-                elif mutation=='source_hash':data['provenance']['source_declaration_sha256']='0'*64
-                elif mutation=='source_inventory':data['provenance']['source_files'].pop(next(iter(data['provenance']['source_files'])))
-                elif mutation=='bytecode_hash':data['programs']['files']['pipeline.loombc']='0'*64
-                else:data['format']=2
-                members[name]=json.dumps(data).encode()
-            with zipfile.ZipFile(wheel,'w') as archive:
-                for name,content in members.items():archive.writestr(name,content)
+                name = local + (
+                    "recipes/qwen35-08b-q5-k-xl.json"
+                    if mutation == "recipe"
+                    else "executable.json"
+                )
+                data = json.loads(members[name])
+                if mutation == "recipe":
+                    data["id"] = "wrong"
+                elif mutation == "semantic":
+                    data["serving"]["defaults"]["rows"] = 3
+                elif mutation == "source_hash":
+                    data["provenance"]["source_declaration_sha256"] = "0" * 64
+                elif mutation == "source_inventory":
+                    data["provenance"]["source_files"].pop(
+                        next(iter(data["provenance"]["source_files"]))
+                    )
+                elif mutation == "bytecode_hash":
+                    data["programs"]["files"]["pipeline.loombc"] = "0" * 64
+                else:
+                    data["format"] = 2
+                members[name] = json.dumps(data).encode()
+            with zipfile.ZipFile(wheel, "w") as archive:
+                for name, content in members.items():
+                    archive.writestr(name, content)
             from binding.python.hem_common import HemError
-            with self.subTest(mutation=mutation),self.assertRaises((RuntimeError,HemError)):validate_wheel(wheel)
+
+            with (
+                self.subTest(mutation=mutation),
+                self.assertRaises((RuntimeError, HemError)),
+            ):
+                validate_wheel(wheel)
 
     def test_wheel_requires_every_hem_component_and_entrypoint(self):
-        for name in (*(module+'.py' for module in HEM_MODULES), *wheel_validation.CLI_FILES):
+        for name in (
+            *(module + ".py" for module in HEM_MODULES),
+            *wheel_validation.CLI_FILES,
+        ):
             with self.subTest(module=name), self.assertRaisesRegex(RuntimeError, name):
-                validate_wheel(self.wheel(missing='hrx_solutions/'+name))
+                validate_wheel(self.wheel(missing="hrx_solutions/" + name))
         for target in REQUIRED_ENTRY_POINTS.values():
             module = target.split(":")[0].replace(".", "/") + ".py"
-            with self.subTest(entrypoint_module=module), self.assertRaisesRegex(RuntimeError, 'missing setup assets'):
+            with (
+                self.subTest(entrypoint_module=module),
+                self.assertRaisesRegex(RuntimeError, "missing setup assets"),
+            ):
                 validate_wheel(self.wheel(missing=module))
         wheel = self.wheel()
         with zipfile.ZipFile(wheel) as archive:
             members = {name: archive.read(name) for name in archive.namelist()}
-        entrypoint = next(name for name in members if name.endswith('/entry_points.txt'))
+        entrypoint = next(
+            name for name in members if name.endswith("/entry_points.txt")
+        )
         original = members[entrypoint]
         for command, target in REQUIRED_ENTRY_POINTS.items():
             with self.subTest(command=command):
-                members[entrypoint] = original.replace(f'{command} = {target}'.encode(),
-                                                       f'{command} = wrong.module:main'.encode())
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                members[entrypoint] = original.replace(
+                    f"{command} = {target}".encode(),
+                    f"{command} = wrong.module:main".encode(),
+                )
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
                         archive.writestr(name, data)
                 with self.assertRaisesRegex(RuntimeError, command):
@@ -1011,48 +1778,69 @@ class PackagingTest(unittest.TestCase):
     def test_wheel_rejects_retired_manager_surface(self):
         for module in OBSOLETE_MODULES:
             wheel = self.wheel()
-            with zipfile.ZipFile(wheel, 'a') as archive:
-                archive.writestr('hrx_solutions/' + module + '.py', b'retired')
-            with self.subTest(module=module), self.assertRaisesRegex(RuntimeError, 'retired manager modules'):
+            with zipfile.ZipFile(wheel, "a") as archive:
+                archive.writestr("hrx_solutions/" + module + ".py", b"retired")
+            with (
+                self.subTest(module=module),
+                self.assertRaisesRegex(RuntimeError, "retired manager modules"),
+            ):
                 validate_wheel(wheel)
         for command in OBSOLETE_ENTRY_POINTS:
             wheel = self.wheel()
             with zipfile.ZipFile(wheel) as archive:
                 members = {name: archive.read(name) for name in archive.namelist()}
-            entrypoint = next(name for name in members if name.endswith('/entry_points.txt'))
-            members[entrypoint] += f'{command} = hrx_solutions.setup_cli:main\n'.encode()
-            with zipfile.ZipFile(wheel, 'w') as archive:
+            entrypoint = next(
+                name for name in members if name.endswith("/entry_points.txt")
+            )
+            members[
+                entrypoint
+            ] += f"{command} = hrx_solutions.setup_cli:main\n".encode()
+            with zipfile.ZipFile(wheel, "w") as archive:
                 for name, data in members.items():
                     archive.writestr(name, data)
-            with self.subTest(command=command), self.assertRaisesRegex(RuntimeError, 'retired commands'):
+            with (
+                self.subTest(command=command),
+                self.assertRaisesRegex(RuntimeError, "retired commands"),
+            ):
                 validate_wheel(wheel)
 
     def test_wheel_requires_control_and_rejects_hem_even_alongside_control(self):
         # Literal metadata is independent of the validator's required/retired sets.
         for scripts, error in (
-            ('loom-serve = hrx_solutions.loom_serve:main\n', 'does not expose the loom-control command'),
-            ('loom-serve = hrx_solutions.loom_serve:main\n'
-             'loom-hem = hrx_solutions.hem_cli:main\n', 'retired commands: loom-hem'),
-            ('loom-serve = hrx_solutions.loom_serve:main\n'
-             'loom-control = hrx_solutions.hem_cli:main\n'
-             'loom-hem = hrx_solutions.hem_cli:main\n', 'retired commands: loom-hem'),
+            (
+                "loom-serve = hrx_solutions.loom_serve:main\n",
+                "does not expose the loom-control command",
+            ),
+            (
+                "loom-serve = hrx_solutions.loom_serve:main\n"
+                "loom-hem = hrx_solutions.hem_cli:main\n",
+                "retired commands: loom-hem",
+            ),
+            (
+                "loom-serve = hrx_solutions.loom_serve:main\n"
+                "loom-control = hrx_solutions.hem_cli:main\n"
+                "loom-hem = hrx_solutions.hem_cli:main\n",
+                "retired commands: loom-hem",
+            ),
         ):
             with self.subTest(scripts=scripts):
                 wheel = self.wheel()
                 with zipfile.ZipFile(wheel) as archive:
                     members = {name: archive.read(name) for name in archive.namelist()}
-                entrypoint = next(name for name in members if name.endswith('/entry_points.txt'))
-                members[entrypoint] = ('[console_scripts]\n' + scripts).encode()
-                with zipfile.ZipFile(wheel, 'w') as archive:
+                entrypoint = next(
+                    name for name in members if name.endswith("/entry_points.txt")
+                )
+                members[entrypoint] = ("[console_scripts]\n" + scripts).encode()
+                with zipfile.ZipFile(wheel, "w") as archive:
                     for name, data in members.items():
                         archive.writestr(name, data)
                 with self.assertRaisesRegex(RuntimeError, error):
                     validate_wheel(wheel)
 
     def test_wheel_rejects_old_checker(self):
-        with self.assertRaisesRegex(RuntimeError,'obsolete model execution checkers'):
+        with self.assertRaisesRegex(RuntimeError, "obsolete model execution checkers"):
             validate_wheel(self.wheel(obsolete=True))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

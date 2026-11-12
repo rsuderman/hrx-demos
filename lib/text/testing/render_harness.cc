@@ -440,9 +440,8 @@ void CheckInputPolicy(ChatVM &vm, const InputPolicyExpectations &expectations) {
         // Capacity+1 probing must reject truncation and leave output untouched.
         std::fill(actual.begin(), actual.end(), -991);
         count = 99;
-        auto status =
-            PrepareMode(chat, format, boundary, expected.size() - 1,
-                        actual.data(), &count);
+        auto status = PrepareMode(chat, format, boundary, expected.size() - 1,
+                                  actual.data(), &count);
         const bool accepted = iree_status_is_ok(status);
         Diagnostic(status);
         EXPECT_FALSE(accepted);

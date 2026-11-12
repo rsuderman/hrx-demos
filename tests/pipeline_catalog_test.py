@@ -1,4 +1,5 @@
 """Complete-root integrity and checked emission across selected recipe setup."""
+
 from contextlib import redirect_stderr
 from dataclasses import replace
 import io
@@ -22,101 +23,194 @@ class PipelineCatalogTest(ConfigurationFixture, unittest.TestCase):
         self.configure()
 
     def resolved(self, **kwargs):
-        return hem_config.resolve(self.record, self.paths, self.dependencies, self.evidence, **kwargs)
+        return hem_config.resolve(
+            self.record, self.paths, self.dependencies, self.evidence, **kwargs
+        )
 
-    def test_checked_identity_covers_full_authoritative_source_and_installed_roots(self):
-        other = self.catalog_root / 'other/policy.loom'
-        other.parent.mkdir(); other.write_text('outside selected leaf')
+    def test_checked_identity_covers_full_authoritative_source_and_installed_roots(
+        self,
+    ):
+        other = self.catalog_root / "other/policy.loom"
+        other.parent.mkdir()
+        other.write_text("outside selected leaf")
         checked = self.resolved()
-        self.assertEqual(checked.catalog_relative_path, self.catalog.relative_to(self.catalog_root))
-        self.assertEqual(checked.catalog_tree_sha256, hem_process.tree_identity(self.catalog_root, Deadline.after()))
-        installed = self.root / 'installed/loom-pipeline'
+        self.assertEqual(
+            checked.catalog_relative_path, self.catalog.relative_to(self.catalog_root)
+        )
+        self.assertEqual(
+            checked.catalog_tree_sha256,
+            hem_process.tree_identity(self.catalog_root, Deadline.after()),
+        )
+        installed = self.root / "installed/loom-pipeline"
         shutil.copytree(self.catalog_root, installed)
-        with patch.object(hem_config.pipelines, 'catalog_roots', return_value=(installed,)):
+        with patch.object(
+            hem_config.pipelines, "catalog_roots", return_value=(installed,)
+        ):
             repeated = self.resolved()
-        self.assertEqual((repeated.catalog_relative_path, repeated.catalog_tree_sha256),
-                         (checked.catalog_relative_path, checked.catalog_tree_sha256))
+        self.assertEqual(
+            (repeated.catalog_relative_path, repeated.catalog_tree_sha256),
+            (checked.catalog_relative_path, checked.catalog_tree_sha256),
+        )
 
     def test_catalog_identity_brackets_recipe_program_and_definition_reads(self):
-        for target, name in ((hem_config.recipes, 'load'), (hem_config.pipelines, 'programs'),
-                             (self.modality, 'definition')):
+        for target, name in (
+            (hem_config.recipes, "load"),
+            (hem_config.pipelines, "programs"),
+            (self.modality, "definition"),
+        ):
             with self.subTest(stage=name):
-                policy = self.catalog_root / 'outside-policy'
-                policy.write_text('before')
+                policy = self.catalog_root / "outside-policy"
+                policy.write_text("before")
                 original = getattr(target, name)
+
                 def drift(*args, **kwargs):
                     result = original(*args, **kwargs)
-                    policy.write_text('after')
+                    policy.write_text("after")
                     return result
-                with patch.object(target, name, side_effect=drift), self.assertRaisesRegex(InvalidInput, 'changed'):
+
+                with (
+                    patch.object(target, name, side_effect=drift),
+                    self.assertRaisesRegex(InvalidInput, "changed"),
+                ):
                     self.resolved()
 
     def test_checked_value_refuses_catalog_without_authoritative_root(self):
-        foreign_root = self.root / 'foreign'
+        foreign_root = self.root / "foreign"
         shutil.copytree(self.catalog_root, foreign_root)
         foreign = foreign_root / self.catalog.relative_to(self.catalog_root)
-        with patch.object(hem_config.pipelines, 'load', return_value=(self.executable,foreign,self.executable_identity)), self.assertRaisesRegex(InvalidInput, 'outside'):
+        with (
+            patch.object(
+                hem_config.pipelines,
+                "load",
+                return_value=(self.executable, foreign, self.executable_identity),
+            ),
+            self.assertRaisesRegex(InvalidInput, "outside"),
+        ):
             self.resolved()
 
     def test_root_identity_and_definition_share_original_deadline(self):
         budget = Deadline.after()
         original = hem_process.tree_identity
-        with patch.object(hem_process, 'tree_identity', wraps=original) as identity:
+        with patch.object(hem_process, "tree_identity", wraps=original) as identity:
             self.resolved(deadline=budget)
         self.assertGreaterEqual(identity.call_count, 2)
         self.assertTrue(all(call.args[1] is budget for call in identity.call_args_list))
-        clock = [0.0]; budget = Deadline(1.0, clock=lambda: clock[0])
-        def expire(*args): clock[0] = 2.0; return (self.executable,self.catalog,self.executable_identity)
-        with patch.object(hem_config.pipelines, 'load', side_effect=expire), self.assertRaises(DeadlineExpired):
+        clock = [0.0]
+        budget = Deadline(1.0, clock=lambda: clock[0])
+
+        def expire(*args):
+            clock[0] = 2.0
+            return (self.executable, self.catalog, self.executable_identity)
+
+        with (
+            patch.object(hem_config.pipelines, "load", side_effect=expire),
+            self.assertRaises(DeadlineExpired),
+        ):
             self.resolved(deadline=budget)
 
     def test_emission_only_rebases_checked_definition_without_reselecting(self):
         checked = self.resolved()
-        retained = self.root / 'retained'; shutil.copytree(self.catalog_root, retained)
+        retained = self.root / "retained"
+        shutil.copytree(self.catalog_root, retained)
         selected = retained / checked.catalog_relative_path
-        with patch.object(hem_config.pipelines, 'load', side_effect=AssertionError('reselection')), \
-             patch.object(self.modality, 'finalize', side_effect=AssertionError('revalidation')):
-            emitted = hem_config.deployment_document(checked, 'other', catalog=selected, device="gpu-worker")
-        self.assertEqual(emitted['definition'], checked.definition_document())
-        self.assertEqual(emitted['name'], 'other')
-        self.assertEqual(emitted['base_directory'], str(selected))
-        self.assertEqual(emitted['device'], 'gpu-worker')
+        with (
+            patch.object(
+                hem_config.pipelines, "load", side_effect=AssertionError("reselection")
+            ),
+            patch.object(
+                self.modality, "finalize", side_effect=AssertionError("revalidation")
+            ),
+        ):
+            emitted = hem_config.deployment_document(
+                checked, "other", catalog=selected, device="gpu-worker"
+            )
+        self.assertEqual(emitted["definition"], checked.definition_document())
+        self.assertEqual(emitted["name"], "other")
+        self.assertEqual(emitted["base_directory"], str(selected))
+        self.assertEqual(emitted["device"], "gpu-worker")
 
     def test_default_device_is_native_selected_and_invalid_names_are_rejected(self):
         checked = self.resolved()
-        document = hem_config.deployment_document(checked, 'default', catalog=self.catalog)
-        self.assertEqual(set(document), {'name', 'admission', 'base_directory', 'definition'})
-        self.assertEqual(document['admission'], 'drained')
-        for device in (0, 2, -1, True, '', 'two words', '\x00', 'gpu\n', 'β'):
+        document = hem_config.deployment_document(
+            checked, "default", catalog=self.catalog
+        )
+        self.assertEqual(
+            set(document), {"name", "admission", "base_directory", "definition"}
+        )
+        self.assertEqual(document["admission"], "drained")
+        for device in (0, 2, -1, True, "", "two words", "\x00", "gpu\n", "β"):
             with self.subTest(device=device), self.assertRaises(InvalidInput):
-                hem_config.deployment_document(checked, 'invalid', catalog=self.catalog, device=device)
+                hem_config.deployment_document(
+                    checked, "invalid", catalog=self.catalog, device=device
+                )
 
     def test_retained_complete_root_drift_and_different_program_form_are_refused(self):
         checked = self.resolved()
-        for where in ('outside-selected', str(checked.catalog_relative_path / 'program.loom')):
-            retained = self.root / 'retained'; shutil.copytree(self.catalog_root, retained)
-            target = retained / where; target.write_text('changed')
-            with self.assertRaisesRegex(InvalidInput, 'differs'):
-                hem_config.deployment_document(checked, 'alias', catalog=retained / checked.catalog_relative_path)
+        for where in (
+            "outside-selected",
+            str(checked.catalog_relative_path / "program.loom"),
+        ):
+            retained = self.root / "retained"
+            shutil.copytree(self.catalog_root, retained)
+            target = retained / where
+            target.write_text("changed")
+            with self.assertRaisesRegex(InvalidInput, "differs"):
+                hem_config.deployment_document(
+                    checked, "alias", catalog=retained / checked.catalog_relative_path
+                )
             shutil.rmtree(retained)
 
     def test_emission_requires_exact_relative_location_before_reading_root(self):
         checked = self.resolved()
-        forged = replace(checked, catalog_relative_path=Path('../bad'))
-        with patch.object(hem_process, 'tree_identity', side_effect=AssertionError('read foreign root')), self.assertRaises(InvalidInput):
-            hem_config.deployment_document(forged, 'alias', catalog=self.catalog)
+        forged = replace(checked, catalog_relative_path=Path("../bad"))
+        with (
+            patch.object(
+                hem_process,
+                "tree_identity",
+                side_effect=AssertionError("read foreign root"),
+            ),
+            self.assertRaises(InvalidInput),
+        ):
+            hem_config.deployment_document(forged, "alias", catalog=self.catalog)
 
     def test_emission_root_reads_do_not_refresh_expired_invocation_budget(self):
-        checked = self.resolved(); budget = Deadline(0.0, clock=lambda: 1.0)
-        with patch.object(hem_process, 'tree_identity', side_effect=AssertionError('expired budget read')), self.assertRaises(DeadlineExpired):
-            hem_config.deployment_document(checked, 'alias', catalog=self.catalog, deadline=budget)
+        checked = self.resolved()
+        budget = Deadline(0.0, clock=lambda: 1.0)
+        with (
+            patch.object(
+                hem_process,
+                "tree_identity",
+                side_effect=AssertionError("expired budget read"),
+            ),
+            self.assertRaises(DeadlineExpired),
+        ):
+            hem_config.deployment_document(
+                checked, "alias", catalog=self.catalog, deadline=budget
+            )
 
     def test_offline_exports_two_names_without_native_calls_or_named_catalogs(self):
         checked = self.resolved()
-        with patch.object(hem_config, 'resolve', return_value=checked), \
-             patch.object(hem_config.pipelines, 'load', side_effect=AssertionError('selected binding again')), \
-             patch('binding.python.control.hem_state.Registry', side_effect=AssertionError('state')), \
-             patch('subprocess.Popen', side_effect=AssertionError('native')), redirect_stderr(io.StringIO()):
-            for name in ('first', 'second'):
-                result = hem_config.export_deployment(self.record, self.paths, self.dependencies, self.evidence, self.root / (name + '.json'), name)
-                self.assertTrue(result['completed'])
+        with (
+            patch.object(hem_config, "resolve", return_value=checked),
+            patch.object(
+                hem_config.pipelines,
+                "load",
+                side_effect=AssertionError("selected binding again"),
+            ),
+            patch(
+                "binding.python.control.hem_state.Registry",
+                side_effect=AssertionError("state"),
+            ),
+            patch("subprocess.Popen", side_effect=AssertionError("native")),
+            redirect_stderr(io.StringIO()),
+        ):
+            for name in ("first", "second"):
+                result = hem_config.export_deployment(
+                    self.record,
+                    self.paths,
+                    self.dependencies,
+                    self.evidence,
+                    self.root / (name + ".json"),
+                    name,
+                )
+                self.assertTrue(result["completed"])

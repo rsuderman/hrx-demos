@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 """Independent plain ChatML inputs, with explicit raw-template default proof."""
+
 import copy
 
 REVISION = "58c1a1f0"
@@ -32,4 +33,5 @@ def check_reference(rows, source_override: bool):
     assert "add_generation_prompt" not in omitted["kwargs"]
     assert omitted["text"] == by_name["generation-false"]["text"]
     assert by_name["one-user"]["text"] == (
-        "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n")
+        "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"
+    )

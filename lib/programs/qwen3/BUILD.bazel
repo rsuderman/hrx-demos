@@ -1,8 +1,17 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 package(default_visibility = ["//visibility:public"])
-_SOURCES = ["attention.loom", "ffn.loom", "layer.loom", "output.loom", "publication.loom"]
+
+_SOURCES = [
+    "attention.loom",
+    "ffn.loom",
+    "layer.loom",
+    "output.loom",
+    "publication.loom",
+]
+
 exports_files(_SOURCES)
+
 filegroup(
     name = "implementation_sources",
     srcs = _SOURCES + [

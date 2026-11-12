@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 """Check independent row completeness and the explicitly selected local anchors."""
+
 import argparse
 import json
 from pathlib import Path

@@ -66,19 +66,22 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   loomc_product_t *product = nullptr;
   loomc_result_t *result = nullptr;
   const auto build_status = loomc_cmd_program_product_build_module(
-      workspace, module, &options, loomc_allocator_system(), &product,
-      &result);
+      workspace, module, &options, loomc_allocator_system(), &product, &result);
   const bool built = loomc_status_is_ok(build_status) && result &&
                      loomc_result_succeeded(result) && product;
   loomc_status_free(build_status);
   if (!built) {
     EXPECT_FALSE(expect_success) << Diagnostics(result);
     if (!expect_success)
-      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"), std::string::npos)
+      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"),
+                std::string::npos)
           << Diagnostics(result);
-    if (result) loomc_result_release(result);
-    if (product) loomc_product_release(product);
-    for (auto *request : requests) loomc_request_release(request);
+    if (result)
+      loomc_result_release(result);
+    if (product)
+      loomc_product_release(product);
+    for (auto *request : requests)
+      loomc_request_release(request);
     loomc_target_profile_release(profile);
     return;
   }
@@ -105,9 +108,9 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
     compile.type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS;
     compile.structure_size = sizeof(compile);
     compile.target_profile = profile;
-    const auto compile_status = loomc_compile_artifact(
-        compiler, workspace, nullptr, leaf, &compile,
-        loomc_allocator_system(), &result);
+    const auto compile_status =
+        loomc_compile_artifact(compiler, workspace, nullptr, leaf, &compile,
+                               loomc_allocator_system(), &result);
     const bool accepted = loomc_status_is_ok(compile_status) && result &&
                           loomc_result_succeeded(result);
     loomc_status_free(compile_status);
@@ -115,7 +118,8 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
       EXPECT_TRUE(accepted) << Diagnostics(result);
     } else if (!accepted) {
       rejected = true;
-      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"), std::string::npos)
+      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"),
+                std::string::npos)
           << Diagnostics(result);
     }
     if (result && loomc_result_succeeded(result)) {
@@ -126,7 +130,8 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
     loomc_module_release(leaf);
     loomc_request_release(request);
   }
-  if (!expect_success) EXPECT_TRUE(rejected);
+  if (!expect_success)
+    EXPECT_TRUE(rejected);
   loomc_compiler_release(compiler);
   loomc_target_profile_release(profile);
 }
@@ -181,7 +186,8 @@ protected:
     EXPECT_EQ(attribute.kind, LOOM_ATTR_I64);
     return attribute.i64;
   }
-  void InspectPrepared(loomc_module_t *module, const model::ModelDescriptor &descriptor) {
+  void InspectPrepared(loomc_module_t *module,
+                       const model::ModelDescriptor &descriptor) {
     const size_t layers = descriptor.layers.size();
     const uint64_t hidden = descriptor.embedding_width;
     const uint64_t vocabulary = descriptor.vocabulary_size;
@@ -194,8 +200,8 @@ protected:
     loomc_result_release(result);
     const auto *epoch = Definition(view.module, "generated.llama_epoch");
     ASSERT_TRUE(epoch && loom_command_def_isa(epoch));
-    const auto *epoch_body = loom_region_const_entry_block(
-        loom_command_def_body(epoch));
+    const auto *epoch_body =
+        loom_region_const_entry_block(loom_command_def_body(epoch));
     ASSERT_EQ(epoch_body->arg_count, 7u);
     std::vector<const loom_op_t *> boundary;
     for (const auto *op = epoch_body->first_op; op; op = op->next_op)
@@ -204,11 +210,15 @@ protected:
         boundary.push_back(op);
     ASSERT_EQ(boundary.size(), 3u);
     ASSERT_TRUE(loom_buffer_alloca_isa(boundary[0]));
-    EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 16);
+    EXPECT_EQ(
+        Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 16);
     const auto selected_ids = loom_op_const_results(boundary[0])[0];
     ASSERT_TRUE(loom_command_launch_isa(boundary[1]));
-    EXPECT_EQ(Text(view.module, view.module->symbols.entries[
-        loom_command_launch_callee(boundary[1]).symbol_id].name_id),
+    EXPECT_EQ(
+        Text(view.module,
+             view.module->symbols
+                 .entries[loom_command_launch_callee(boundary[1]).symbol_id]
+                 .name_id),
         "loomify.llama.model");
     const auto model_args = loom_command_launch_bindings(boundary[1]);
     ASSERT_EQ(model_args.count, 7u);
@@ -216,8 +226,11 @@ protected:
       EXPECT_EQ(model_args.values[j], epoch_body->arg_ids[j]);
     EXPECT_EQ(model_args.values[6], selected_ids);
     ASSERT_TRUE(loom_kernel_launch_isa(boundary[2]));
-    EXPECT_EQ(Text(view.module, view.module->symbols.entries[
-        loom_kernel_launch_callee(boundary[2]).symbol_id].name_id),
+    EXPECT_EQ(
+        Text(view.module,
+             view.module->symbols
+                 .entries[loom_kernel_launch_callee(boundary[2]).symbol_id]
+                 .name_id),
         "llama32_publish_epoch_id");
     const auto publication_args = loom_kernel_launch_arguments(boundary[2]);
     ASSERT_EQ(publication_args.count, 3u);
@@ -256,11 +269,14 @@ protected:
       ASSERT_EQ(bindings.count, 6u);
       for (size_t j = 0; j < 5; ++j)
         EXPECT_EQ(bindings.values[j], body->arg_ids[j]);
-      const auto *count_alloc = loom_value_def_op(
-          loom_module_value(view.module, bindings.values[5]));
+      const auto *count_alloc =
+          loom_value_def_op(loom_module_value(view.module, bindings.values[5]));
       ASSERT_TRUE(count_alloc && loom_buffer_alloca_isa(count_alloc));
-      EXPECT_EQ(Constant(view.module, loom_buffer_alloca_byte_length(count_alloc)), 12);
-      if (count_value != 0) EXPECT_EQ(bindings.values[5], count_value);
+      EXPECT_EQ(
+          Constant(view.module, loom_buffer_alloca_byte_length(count_alloc)),
+          12);
+      if (count_value != 0)
+        EXPECT_EQ(bindings.values[5], count_value);
       count_value = bindings.values[5];
       ++layer;
     }
@@ -275,7 +291,8 @@ protected:
     loomc_pass_program_t *passes = nullptr;
     result = nullptr;
     ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(
-        context, loomc_make_cstring_view(
+        context,
+        loomc_make_cstring_view(
             "inline-callables,canonicalize,select-templates{rewrite=inline},canonicalize"),
         nullptr, loomc_allocator_system(), &passes, &result)));
     ASSERT_TRUE(result && loomc_result_succeeded(result))
@@ -330,7 +347,8 @@ protected:
               }
               if (loom_kernel_launch_isa(op)) {
                 const auto callee = loom_kernel_launch_callee(op);
-                const auto name = Text(view.module,
+                const auto name = Text(
+                    view.module,
                     view.module->symbols.entries[callee.symbol_id].name_id);
                 if (name == "llm.token_embedding_epoch_f32") {
                   ++embedding_count;
@@ -342,7 +360,8 @@ protected:
                   ASSERT_EQ(args.count, 8u);
                   EXPECT_EQ(Constant(view.module, args.values[0]), hidden);
                   EXPECT_EQ(Constant(view.module, args.values[1]), vocabulary);
-                  EXPECT_EQ(Constant(view.module, args.values[2]), embedding_tag);
+                  EXPECT_EQ(Constant(view.module, args.values[2]),
+                            embedding_tag);
                 }
               }
               for (size_t i = 0; i < op->region_count; ++i)
@@ -379,7 +398,8 @@ protected:
         loomc_make_cstring_view("llama-model-test-config");
     // Plain descriptor fixture: explicit publication identities are test data,
     // while the public builder derives these from its real GGUF vocabulary.
-    const std::string source_text = facts.source + extra_source +
+    const std::string source_text =
+        facts.source + extra_source +
         "config.def @llama.publication.end_text_id = 128001 : i32\n"
         "config.def @llama.publication.end_message_id = 128008 : i32\n"
         "config.def @llama.publication.end_turn_id = 128009 : i32\n";
@@ -408,13 +428,16 @@ protected:
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
     loomc_result_release(result);
-    loomc_module_t* raw_targets = nullptr;
+    loomc_module_t *raw_targets = nullptr;
     result = nullptr;
-    const auto target_path = root + "/lib/platforms/amdgpu/gfx11/targets.loombc";
-    ASSERT_TRUE(Ok(loomc_module_deserialize_from_path(context, workspace,
-        loomc_make_cstring_view(target_path.c_str()), nullptr, loomc_allocator_system(), &raw_targets, &result)));
+    const auto target_path =
+        root + "/lib/platforms/amdgpu/gfx11/targets.loombc";
+    ASSERT_TRUE(Ok(loomc_module_deserialize_from_path(
+        context, workspace, loomc_make_cstring_view(target_path.c_str()),
+        nullptr, loomc_allocator_system(), &raw_targets, &result)));
     Module targets(raw_targets, loomc_module_release);
-    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
     loomc_result_release(result);
     loomc_linker_t *raw_linker = nullptr;
     ASSERT_TRUE(Ok(loomc_linker_create(context, nullptr,
@@ -426,9 +449,9 @@ protected:
          LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {implementation.get(), loomc_make_cstring_view("implementation"),
          LOOMC_LINK_PROVIDER_ROLE_INPUT},
-        {targets.get(), loomc_make_cstring_view("platform"), LOOMC_LINK_PROVIDER_ROLE_INPUT}};
-    const loomc_string_view_t roots[] = {
-        loomc_make_cstring_view(entry_symbol)};
+        {targets.get(), loomc_make_cstring_view("platform"),
+         LOOMC_LINK_PROVIDER_ROLE_INPUT}};
+    const loomc_string_view_t roots[] = {loomc_make_cstring_view(entry_symbol)};
     loomc_link_options_t options{};
     options.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
     options.structure_size = sizeof(options);
@@ -527,7 +550,8 @@ TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndEpochRoot) {
   std::string error;
   model::GgufCatalog catalog;
   ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
-  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error))
+      << error;
   ASSERT_EQ(descriptor.family, "llama");
   file.reset();
   ASSERT_EQ(descriptor.layers.size(), 28u);
@@ -547,22 +571,27 @@ TEST_F(ConfiguredLlamaModelTest, FullDescriptorFixtureUsesMaintainedProducts) {
   for (bool text : {false, true})
     Build(testing::LlamaModelFacts(), 128, false, text);
 }
-TEST_F(ConfiguredLlamaModelTest, PlainLlamaUsesOnlyActualBindingsInBothProducts) {
+TEST_F(ConfiguredLlamaModelTest,
+       PlainLlamaUsesOnlyActualBindingsInBothProducts) {
   for (bool text : {false, true})
     for (uint64_t rows : {8u, 64u})
       Build(testing::LlamaPlainModelFacts(), rows, false, text);
 }
-TEST_F(ConfiguredLlamaModelTest, RealHyperclovaxUsesMaintainedArchitectureAndEpochRoot) {
+TEST_F(ConfiguredLlamaModelTest,
+       RealHyperclovaxUsesMaintainedArchitectureAndEpochRoot) {
   const char *path = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");
-  if (!path) GTEST_SKIP() << "requires explicit immutable HyperCLOVAX GGUF gate";
-  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"), std::fclose);
+  if (!path)
+    GTEST_SKIP() << "requires explicit immutable HyperCLOVAX GGUF gate";
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"),
+                                                     std::fclose);
   ASSERT_TRUE(file);
   ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
   model::GgufCatalog catalog;
   model::ModelDescriptor descriptor;
   std::string error;
   ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
-  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error))
+      << error;
   ASSERT_EQ(descriptor.family, "llama");
   ASSERT_EQ(descriptor.layers.size(), 24u);
   EXPECT_FALSE(descriptor.output_tied_to_embedding);
@@ -570,11 +599,13 @@ TEST_F(ConfiguredLlamaModelTest, RealHyperclovaxUsesMaintainedArchitectureAndEpo
     for (uint64_t rows : {8u, 64u})
       Build(descriptor, rows, true, text);
 }
-TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProviders) {
+TEST_F(ConfiguredLlamaModelTest,
+       AlteredScalarDataReachesRotaryAndAttentionProviders) {
   ConfigurationFacts facts;
   std::string error;
   ASSERT_TRUE(DeriveConfiguration(testing::LlamaModelFacts(), "fixture", {},
-                                  &facts, &error)) << error;
+                                  &facts, &error))
+      << error;
   // Scalar leaf sensitivity does not widen full-model geometry admission.
   for (const auto &entry : std::vector<std::pair<std::string, std::string>>{
            {"llama.model.rotary_step", "0.75"},
@@ -582,9 +613,11 @@ TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProvi
     const auto start = facts.source.find("config.def @" + entry.first + " = ");
     ASSERT_NE(start, std::string::npos);
     facts.source.replace(start, facts.source.find('\n', start) - start,
-        "config.def @" + entry.first + " = " + entry.second + " : f32");
+                         "config.def @" + entry.first + " = " + entry.second +
+                             " : f32");
   }
-  for (const char *product : {"implementation_text.loom", "implementation.loombc"}) {
+  for (const char *product :
+       {"implementation_text.loom", "implementation.loombc"}) {
     Module module(nullptr, loomc_module_release);
     Link(facts, product, &module);
     ASSERT_TRUE(module);
@@ -592,21 +625,26 @@ TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProvi
     // Inspect the same canonicalized representation used by prepared products.
     loomc_pass_program_t *passes = nullptr;
     loomc_result_t *result = nullptr;
-    ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(context,
-        loomc_make_cstring_view("canonicalize"), nullptr,
+    ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(
+        context, loomc_make_cstring_view("canonicalize"), nullptr,
         loomc_allocator_system(), &passes, &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
     loomc_result_release(result);
     result = nullptr;
-    ASSERT_TRUE(Ok(loomc_pass_program_run(passes, workspace, module.get(), nullptr,
-        loomc_allocator_system(), &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    ASSERT_TRUE(
+        Ok(loomc_pass_program_run(passes, workspace, module.get(), nullptr,
+                                  loomc_allocator_system(), &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
     loomc_result_release(result);
     loomc_pass_program_release(passes);
     loomc_module_interop_view_t view{};
     result = nullptr;
-    ASSERT_TRUE(Ok(loomc_module_get_interop_view(module.get(), loomc_allocator_system(), &view, &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result)) << Diagnostics(result);
+    ASSERT_TRUE(Ok(loomc_module_get_interop_view(
+        module.get(), loomc_allocator_system(), &view, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
     loomc_result_release(result);
     for (const auto &entry : std::vector<std::pair<const char *, float>>{
              {"llama32_rotary_query", 0.75f},
@@ -615,25 +653,36 @@ TEST_F(ConfiguredLlamaModelTest, AlteredScalarDataReachesRotaryAndAttentionProvi
       const auto *kernel = Definition(view.module, entry.first);
       ASSERT_TRUE(kernel && loom_kernel_def_isa(kernel)) << entry.first;
       size_t uses = 0;
-      std::function<void(const loom_region_t *)> inspect = [&](const loom_region_t *region) {
-        for (size_t b = 0; b < region->block_count; ++b)
-          for (const auto *op = region->blocks[b]->first_op; op; op = op->next_op) {
-            const auto spelling = loom_op_vtable_name(loom_op_vtable(view.module, op));
-            if (std::string(spelling.data, spelling.size) == "template.apply") {
-              for (size_t i = 0; i < op->operand_count; ++i) {
-                const auto *operand = loom_module_value(view.module, loom_op_const_operands(op)[i]);
-                // Buffer and position arguments have no defining operation.
-                // The public IR accessor requires excluding block arguments.
-                if (loom_value_is_block_arg(operand)) continue;
-                const auto *value = loom_value_def_op(operand);
-                if (!value || !loom_scalar_constant_isa(value)) continue;
-                const auto attribute = loom_scalar_constant_value(value);
-                if (attribute.kind == LOOM_ATTR_F64 && float(attribute.f64) == entry.second) ++uses;
+      std::function<void(const loom_region_t *)> inspect =
+          [&](const loom_region_t *region) {
+            for (size_t b = 0; b < region->block_count; ++b)
+              for (const auto *op = region->blocks[b]->first_op; op;
+                   op = op->next_op) {
+                const auto spelling =
+                    loom_op_vtable_name(loom_op_vtable(view.module, op));
+                if (std::string(spelling.data, spelling.size) ==
+                    "template.apply") {
+                  for (size_t i = 0; i < op->operand_count; ++i) {
+                    const auto *operand = loom_module_value(
+                        view.module, loom_op_const_operands(op)[i]);
+                    // Buffer and position arguments have no defining operation.
+                    // The public IR accessor requires excluding block
+                    // arguments.
+                    if (loom_value_is_block_arg(operand))
+                      continue;
+                    const auto *value = loom_value_def_op(operand);
+                    if (!value || !loom_scalar_constant_isa(value))
+                      continue;
+                    const auto attribute = loom_scalar_constant_value(value);
+                    if (attribute.kind == LOOM_ATTR_F64 &&
+                        float(attribute.f64) == entry.second)
+                      ++uses;
+                  }
+                }
+                for (size_t i = 0; i < op->region_count; ++i)
+                  inspect(loom_op_regions(op)[i]);
               }
-            }
-            for (size_t i = 0; i < op->region_count; ++i) inspect(loom_op_regions(op)[i]);
-          }
-      };
+          };
       inspect(loom_kernel_def_body(kernel));
       EXPECT_GT(uses, 0u) << entry.first;
     }
@@ -643,11 +692,18 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
   ConfigurationFacts facts;
   std::string error;
   ASSERT_TRUE(DeriveConfiguration(testing::LlamaPlainModelFacts(), "asset", {},
-                                  &facts, &error)) << error;
+                                  &facts, &error))
+      << error;
   // Root the real production operation directly. A full-model root would let
   // unrelated unresolved FFN/projection templates mask the intended failure.
-  struct Case { int hidden; int vocabulary; int tag; bool accepted; };
-  for (const auto *product : {"implementation_text.loom", "implementation.loombc"}) {
+  struct Case {
+    int hidden;
+    int vocabulary;
+    int tag;
+    bool accepted;
+  };
+  for (const auto *product :
+       {"implementation_text.loom", "implementation.loombc"}) {
     for (const auto c : {Case{512, 3, 12, true}, Case{512, 3, 14, true},
                          Case{512, 3, 13, false}, Case{513, 3, 12, false},
                          Case{512, 0, 12, false}}) {
@@ -655,10 +711,18 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
           "template.decl @llm.embedding.epoch_f32(%r:index,%h:index,%v:index,%t:index,%b:index,%e:buffer,%c:buffer,%i:buffer,%w:view<[%b]xi8>,%o:view<[%r]x[%h]xf32>)\n"
           "command.def @embedding.contract() launch(%e:buffer,%c:buffer,%i:buffer,%w:buffer,%o:buffer) {\n"
           " %r = index.constant 8 : index\n"
-          " %h = index.constant " + std::to_string(c.hidden) + " : index\n"
-          " %v = index.constant " + std::to_string(c.vocabulary) + " : index\n"
-          " %t = index.constant " + std::to_string(c.tag) + " : index\n"
-          " %b = index.constant " + std::to_string(c.tag == 14 ? 1260 : 864) + " : index\n"
+          " %h = index.constant " +
+          std::to_string(c.hidden) +
+          " : index\n"
+          " %v = index.constant " +
+          std::to_string(c.vocabulary) +
+          " : index\n"
+          " %t = index.constant " +
+          std::to_string(c.tag) +
+          " : index\n"
+          " %b = index.constant " +
+          std::to_string(c.tag == 14 ? 1260 : 864) +
+          " : index\n"
           " %z = index.constant 0 : offset\n"
           " %table = buffer.view %w[%z] : buffer -> view<[%b]xi8>\n"
           " %out = buffer.view %o[%z] : buffer -> view<[%r]x[%h]xf32>\n"

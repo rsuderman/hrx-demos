@@ -1,6 +1,6 @@
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_library")
 load("//loomcxx-pipeline/build:loomcxx.bzl", "loomcxx_module")
 load("//loomcxx-pipeline/build:testing.bzl", "loom_gpu_test", "loom_test_matrix")
-load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,10 +8,39 @@ loomcxx_module(
     name = "normalization",
     src = "normalization.cxx",
     bridges = [
-        ("llm.rmsnorm.row", "llm_rmsnorm_row", "cxx.llm.rmsnorm.row", "zero-origins",
-         ["index", "f32", "index", "index", "offset", "i1", "f32", "buffer", "buffer", "buffer"]),
-        ("qwen38.rmsnorm_f32.row", "qwen38_rmsnorm_f32_row", "cxx.qwen38.rmsnorm_f32.row", "raw",
-         ["index", "index", "offset", "f32", "buffer", "buffer", "buffer"]),
+        (
+            "llm.rmsnorm.row",
+            "llm_rmsnorm_row",
+            "cxx.llm.rmsnorm.row",
+            "zero-origins",
+            [
+                "index",
+                "f32",
+                "index",
+                "index",
+                "offset",
+                "i1",
+                "f32",
+                "buffer",
+                "buffer",
+                "buffer",
+            ],
+        ),
+        (
+            "qwen38.rmsnorm_f32.row",
+            "qwen38_rmsnorm_f32_row",
+            "cxx.qwen38.rmsnorm_f32.row",
+            "raw",
+            [
+                "index",
+                "index",
+                "offset",
+                "f32",
+                "buffer",
+                "buffer",
+                "buffer",
+            ],
+        ),
     ],
 )
 
@@ -43,15 +72,9 @@ loom_library(
     ],
 )
 
-
 # Numerical cases/configuration stay explicit; import/fixture/matrix mechanics do not.
 loom_test_matrix(
     name = "normalization",
-    fixture = "normalization_test.loom.in",
-    definitions = {
-        "original": [":original_definitions"],
-        "alternative": [":alternative_definitions"],
-    },
     cases = [
         {
             "name": "w" + str(width) + "r" + str(rows),
@@ -83,14 +106,21 @@ loom_test_matrix(
             (5120, 1, "0.001", "5120.0"),
         ]
     ],
+    definitions = {
+        "original": [":original_definitions"],
+        "alternative": [":alternative_definitions"],
+    },
+    fixture = "normalization_test.loom.in",
 )
 
 # Distinct public provider modules make private dispatch bypass observable.
 [
     loom_gpu_test(
         name = family + "_selection_test",
-        srcs = [":normalization_checks_w257r3", "normalization_" + family + "_selection.loom"],
-        deps = [":alternative_definitions"],
+        srcs = [
+            ":normalization_checks_w257r3",
+            "normalization_" + family + "_selection.loom",
+        ],
         configs = {
             "pilot.rows": "3",
             "pilot.selection": mode,
@@ -101,6 +131,10 @@ loom_test_matrix(
             "llama.model.norm_weight_bytes": "1028",
             "llama.model.rms_epsilon": "0.125",
         },
+        deps = [":alternative_definitions"],
     )
-    for family, mode in [("shared", "1"), ("qwen", "2")]
+    for family, mode in [
+        ("shared", "1"),
+        ("qwen", "2"),
+    ]
 ]

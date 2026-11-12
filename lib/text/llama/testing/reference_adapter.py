@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 """Local independent template inputs; never imports a production recognizer."""
+
 import copy
 import json
 
@@ -22,12 +23,12 @@ def render_kwargs(case, source_override: bool):
     kwargs["bos_token"] = "<|begin_of_text|>"
     if source_override:
         import jinja2
+
         # Use the template's own source fallback, never wall time or extraction.
         kwargs["strftime_now"] = jinja2.Undefined(name="strftime_now")
     else:
         kwargs["date_string"] = "26 Jul 2024"
     return (request["messages"], tools, kwargs)
-
 
 
 def error_record(error):

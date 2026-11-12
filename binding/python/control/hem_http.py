@@ -17,7 +17,13 @@ import time
 from urllib.parse import urlsplit
 
 from .. import hem_display
-from ..hem_common import Deadline, DeadlineExpired, HemError, InvalidInput, UncertainOutcome
+from ..hem_common import (
+    Deadline,
+    DeadlineExpired,
+    HemError,
+    InvalidInput,
+    UncertainOutcome,
+)
 
 
 @dataclass(frozen=True)
@@ -30,8 +36,12 @@ class NativeResponse:
         try:
             return json.loads(self.body)
         except (ValueError, UnicodeError) as error:
-            raise HemError("native response is not valid JSON", accepted=self.accepted,
-                           status=self.status, reason="invalid_json") from error
+            raise HemError(
+                "native response is not valid JSON",
+                accepted=self.accepted,
+                status=self.status,
+                reason="invalid_json",
+            ) from error
 
 
 class NativeClient:
@@ -46,43 +56,84 @@ class NativeClient:
     Explicit external URL control passes no hook and gains no process rights.
     """
 
-    def __init__(self, endpoint, deadline=None, ownership=None, *, ownership_after=None, emit=hem_display.emit,
-                 secrets=()):
+    def __init__(
+        self,
+        endpoint,
+        deadline=None,
+        ownership=None,
+        *,
+        ownership_after=None,
+        emit=hem_display.emit,
+        secrets=(),
+    ):
         parsed = urlsplit(endpoint)
         try:
             port = parsed.port
         except ValueError as error:
             raise InvalidInput("invalid native endpoint port") from error
-        if (parsed.scheme != "http" or not parsed.hostname or parsed.username is not None
-                or parsed.password is not None or parsed.path not in ("", "/")
-                or parsed.query or parsed.fragment):
-            raise InvalidInput("native endpoint must be a direct http://host:port origin")
+        if (
+            parsed.scheme != "http"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise InvalidInput(
+                "native endpoint must be a direct http://host:port origin"
+            )
         self.endpoint = endpoint.rstrip("/")
         self.host, self.port = parsed.hostname, port or 80
         self.deadline, self.ownership = deadline, ownership
         if (ownership is None) != (ownership_after is None):
-            raise InvalidInput("managed HTTP requires both socket ownership and post-response identity checks")
+            raise InvalidInput(
+                "managed HTTP requires both socket ownership and post-response identity checks"
+            )
         self.ownership_after = ownership_after
         self.emit, self.secrets = emit, secrets
 
     def get(self, path, *, display=True, headers=None, max_response_bytes=None):
-        return self._request("GET", path, display=display, headers=headers,
-                             max_response_bytes=max_response_bytes)
+        return self._request(
+            "GET",
+            path,
+            display=display,
+            headers=headers,
+            max_response_bytes=max_response_bytes,
+        )
 
     def post(self, path, body_path):
         path_obj = Path(body_path).absolute()
         try:
             body = path_obj.read_bytes()
         except OSError as error:
-            raise InvalidInput(f"cannot read native request document: {error}") from error
+            raise InvalidInput(
+                f"cannot read native request document: {error}"
+            ) from error
         return self._request("POST", path, body=body, body_path=path_obj)
 
-    def _request(self, method, path, *, body=None, body_path=None, display=True,
-                 headers=None, max_response_bytes=None):
-        if not path.startswith("/") or path.startswith("//") or any(c in path for c in "\r\n?#"):
-            raise InvalidInput("native request path must be an absolute path without query or fragment")
-        if (max_response_bytes is not None and
-                (type(max_response_bytes) is not int or max_response_bytes <= 0)):
+    def _request(
+        self,
+        method,
+        path,
+        *,
+        body=None,
+        body_path=None,
+        display=True,
+        headers=None,
+        max_response_bytes=None,
+    ):
+        if (
+            not path.startswith("/")
+            or path.startswith("//")
+            or any(c in path for c in "\r\n?#")
+        ):
+            raise InvalidInput(
+                "native request path must be an absolute path without query or fragment"
+            )
+        if max_response_bytes is not None and (
+            type(max_response_bytes) is not int or max_response_bytes <= 0
+        ):
             raise InvalidInput("native response byte limit must be a positive integer")
         # A bounded standalone observation still has one total I/O budget.
         budget = self.deadline or Deadline.after()
@@ -92,21 +143,31 @@ class NativeClient:
         # or transport headers may make the printed curl differ from the request.
         if any(key not in ("X-Loom-Model", "X-Loom-Cursor") for key in request_headers):
             raise InvalidInput("unsupported native request header")
-        if any(not isinstance(value, str) or any(c in value for c in "\r\n")
-               for value in request_headers.values()):
+        if any(
+            not isinstance(value, str) or any(c in value for c in "\r\n")
+            for value in request_headers.values()
+        ):
             raise InvalidInput("invalid native request header value")
-        equivalent = hem_display.http(method, self.endpoint + path,
-                                      body_path=body_path, body=body, secrets=self.secrets,
-                                      headers=request_headers)
+        equivalent = hem_display.http(
+            method,
+            self.endpoint + path,
+            body_path=body_path,
+            body=body,
+            secrets=self.secrets,
+            headers=request_headers,
+        )
         if display:
             self.emit(equivalent)
-        connection = http.client.HTTPConnection(self.host, self.port, timeout=budget.remaining())
+        connection = http.client.HTTPConnection(
+            self.host, self.port, timeout=budget.remaining()
+        )
         submitted = False
         status = None
         timer = None
         try:
             connection.sock = _connect(self.host, self.port, budget)
             connected_socket = connection.sock
+
             # Interrupt trickled headers/body as well as individual blocked reads.
             # A socket timeout alone resets per recv and is not a total deadline.
             def interrupt():
@@ -114,6 +175,7 @@ class NativeClient:
                     connected_socket.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
+
             timer = threading.Timer(budget.remaining(), interrupt)
             timer.daemon = True
             timer.start()
@@ -126,8 +188,9 @@ class NativeClient:
             connection.request(method, path, body=body, headers=request_headers)
             response = connection.getresponse()
             status = response.status
-            payload = response.read(None if max_response_bytes is None
-                                    else max_response_bytes + 1)
+            payload = response.read(
+                None if max_response_bytes is None else max_response_bytes + 1
+            )
             if self.ownership_after is not None:
                 self.ownership_after(budget)
             budget.remaining()
@@ -135,16 +198,23 @@ class NativeClient:
                 raise HemError(
                     f"native HTTP response exceeds {max_response_bytes} bytes",
                     accepted=(200 <= status < 300) if method == "POST" else None,
-                    status=status, reason="response_too_large")
+                    status=status,
+                    reason="response_too_large",
+                )
             if 200 <= status < 300:
-                return NativeResponse(status, payload, True if method == "POST" else None)
-            diagnostic = payload.decode('utf-8', errors='replace')
+                return NativeResponse(
+                    status, payload, True if method == "POST" else None
+                )
+            diagnostic = payload.decode("utf-8", errors="replace")
             for secret in self.secrets:
                 if secret:
                     diagnostic = diagnostic.replace(secret, "<redacted>")
-            raise HemError(f"native HTTP {status}: {diagnostic}",
-                           accepted=False if method == "POST" else None,
-                           status=status, reason="http_status")
+            raise HemError(
+                f"native HTTP {status}: {diagnostic}",
+                accepted=False if method == "POST" else None,
+                status=status,
+                reason="http_status",
+            )
         except UncertainOutcome as error:
             # The post-response identity check can be uncertain even though
             # this socket already delivered an authoritative acknowledgment.
@@ -159,37 +229,58 @@ class NativeClient:
                     try:
                         budget.remaining()
                     except DeadlineExpired:
-                        raise DeadlineExpired("native accepted request; response incomplete at deadline",
-                                              accepted=True, status=status,
-                                              reason="response_incomplete") from error
-                    raise HemError("native accepted request but response body was lost; inspect status",
-                                   accepted=True, status=status,
-                                   reason="response_incomplete") from error
+                        raise DeadlineExpired(
+                            "native accepted request; response incomplete at deadline",
+                            accepted=True,
+                            status=status,
+                            reason="response_incomplete",
+                        ) from error
+                    raise HemError(
+                        "native accepted request but response body was lost; inspect status",
+                        accepted=True,
+                        status=status,
+                        reason="response_incomplete",
+                    ) from error
                 if status is not None and status >= 400:
-                    raise HemError(f"native HTTP {status}; error response body was lost", accepted=False,
-                                   status=status, reason="response_incomplete") from error
-                raise UncertainOutcome("native mutation response lost; inspect before retrying",
-                                       accepted=None, status=status,
-                                       reason="response_incomplete") from error
+                    raise HemError(
+                        f"native HTTP {status}; error response body was lost",
+                        accepted=False,
+                        status=status,
+                        reason="response_incomplete",
+                    ) from error
+                raise UncertainOutcome(
+                    "native mutation response lost; inspect before retrying",
+                    accepted=None,
+                    status=status,
+                    reason="response_incomplete",
+                ) from error
             try:
                 budget.remaining()
             except DeadlineExpired as expired:
                 expired.status = status
-                expired.reason = "response_incomplete" if status is not None else "connection_failed"
+                expired.reason = (
+                    "response_incomplete" if status is not None else "connection_failed"
+                )
                 raise
-            raise HemError(f"native HTTP observation/connection failed: {error}",
-                           accepted=False if method == "POST" else None,
-                           status=status, reason=("connection_refused" if
-                               isinstance(error, ConnectionRefusedError) else
-                               "connection_failed")) from error
+            raise HemError(
+                f"native HTTP observation/connection failed: {error}",
+                accepted=False if method == "POST" else None,
+                status=status,
+                reason=(
+                    "connection_refused"
+                    if isinstance(error, ConnectionRefusedError)
+                    else "connection_failed"
+                ),
+            ) from error
         finally:
             if timer is not None:
                 timer.cancel()
             connection.close()
 
     def status(self, *, display=True, max_response_bytes=None):
-        document = self.get("/v1/status", display=display,
-                            max_response_bytes=max_response_bytes).json()
+        document = self.get(
+            "/v1/status", display=display, max_response_bytes=max_response_bytes
+        ).json()
         _inventory(document, require_incarnation=True)
         return document
 
@@ -205,8 +296,7 @@ class NativeClient:
             headers["X-Loom-Model"] = model
         if cursor is not None:
             headers["X-Loom-Cursor"] = cursor
-        return self.get("/logz", headers=headers,
-                        max_response_bytes=max_response_bytes)
+        return self.get("/logz", headers=headers, max_response_bytes=max_response_bytes)
 
     def wait(self, predicate, *, accepted=True, interval=0.05):
         """Poll native status only; never replay a mutation or infer acceptance.
@@ -216,7 +306,9 @@ class NativeClient:
         if observation cannot resolve an earlier lost response.
         """
         if self.deadline is None:
-            raise InvalidInput("native completion wait requires the invocation deadline")
+            raise InvalidInput(
+                "native completion wait requires the invocation deadline"
+            )
         if interval <= 0:
             raise InvalidInput("poll interval must be positive")
         first = True
@@ -234,16 +326,23 @@ class NativeClient:
                     # Acceptance does not establish completion. A failed or
                     # invalid observation cannot tell us the mutation's outcome.
                     raise UncertainOutcome(
-                        f"native completion observation failed: {error}", accepted=accepted,
-                        status=error.status, reason=error.reason) from error
+                        f"native completion observation failed: {error}",
+                        accepted=accepted,
+                        status=error.status,
+                        reason=error.reason,
+                    ) from error
                 first = False
                 if predicate(document):
                     return document
                 time.sleep(min(interval, self.deadline.remaining()))
         except DeadlineExpired as error:
             if accepted is None:
-                raise UncertainOutcome("native outcome remains uncertain at deadline; inspect before retrying") from error
-            raise DeadlineExpired("native accepted work remains pending at deadline", accepted=accepted) from error
+                raise UncertainOutcome(
+                    "native outcome remains uncertain at deadline; inspect before retrying"
+                ) from error
+            raise DeadlineExpired(
+                "native accepted work remains pending at deadline", accepted=accepted
+            ) from error
         except HemError as error:
             # Predicate errors come from successfully observed native state,
             # so retain their classification (for example preparation failure).
@@ -256,11 +355,13 @@ def _connect(host, port, budget):
     # getaddrinfo has no socket timeout. Bound the caller's DNS wait without
     # letting an unresolved hostname consume the lifecycle budget indefinitely.
     answers = queue.Queue(maxsize=1)
+
     def resolve():
         try:
             answers.put((socket.getaddrinfo(host, port, type=socket.SOCK_STREAM), None))
         except OSError as error:
             answers.put((None, error))
+
     resolver = threading.Thread(target=resolve, daemon=True)
     resolver.start()
     try:
@@ -285,21 +386,35 @@ def _connect(host, port, budget):
 
 
 def _inventory(document, *, require_incarnation):
-    if not isinstance(document, dict) or document.get("object") != "list" or not isinstance(document.get("data"), list):
+    if (
+        not isinstance(document, dict)
+        or document.get("object") != "list"
+        or not isinstance(document.get("data"), list)
+    ):
         raise HemError("native inventory response has an invalid shape")
     if require_incarnation and not isinstance(document.get("server"), dict):
-        raise HemError("retirement/registration observation requires /v1/status, not discovery")
+        raise HemError(
+            "retirement/registration observation requires /v1/status, not discovery"
+        )
     seen = set()
     for item in document["data"]:
-        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
-                or item["id"] in seen or not isinstance(item.get("loom"), dict)):
-            raise HemError("native inventory contains invalid or duplicate registrations")
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("id"), str)
+            or item["id"] in seen
+            or not isinstance(item.get("loom"), dict)
+        ):
+            raise HemError(
+                "native inventory contains invalid or duplicate registrations"
+            )
         seen.add(item["id"])
         incarnation = item["loom"].get("incarnation")
         if require_incarnation and (type(incarnation) is not int or incarnation <= 0):
             raise HemError("native status lacks a valid registration incarnation")
-        if any(key in item["loom"] and not isinstance(item["loom"][key], dict)
-               for key in ("status", "parameters")):
+        if any(
+            key in item["loom"] and not isinstance(item["loom"][key], dict)
+            for key in ("status", "parameters")
+        ):
             raise HemError("native status contains invalid state/parameter details")
     return document["data"]
 
@@ -307,14 +422,18 @@ def _inventory(document, *, require_incarnation):
 def registration(document, name, incarnation=None):
     """Find an exact status incarnation, never from discovery /v1/models."""
     for item in _inventory(document, require_incarnation=True):
-        if item["id"] == name and (incarnation is None or item["loom"]["incarnation"] == incarnation):
+        if item["id"] == name and (
+            incarnation is None or item["loom"]["incarnation"] == incarnation
+        ):
             return item
     return None
 
 
 def retired(document, name, incarnation):
     if type(incarnation) is not int or incarnation <= 0:
-        raise InvalidInput("retirement requires the original positive native incarnation")
+        raise InvalidInput(
+            "retirement requires the original positive native incarnation"
+        )
     return registration(document, name, incarnation) is None
 
 
@@ -341,6 +460,9 @@ def active_ready(document, name, incarnation):
     loom = item["loom"]
     if loom.get("error") is not None:
         raise HemError(f"native preparation failed: {loom['error']}", accepted=True)
-    return (loom.get("registration") == "ready" and loom.get("parameter_operation") == "idle"
-            and primary_parameters(loom).get("active") is True
-            and loom.get("status", {}).get("admission") == "drained")
+    return (
+        loom.get("registration") == "ready"
+        and loom.get("parameter_operation") == "idle"
+        and primary_parameters(loom).get("active") is True
+        and loom.get("status", {}).get("admission") == "drained"
+    )

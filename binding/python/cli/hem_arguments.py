@@ -12,7 +12,9 @@ from ..hem_common import DEFAULT_TIMEOUT, InvalidInput
 
 def name(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
-        raise argparse.ArgumentTypeError("use a name containing letters, digits, '.', '_' or '-'")
+        raise argparse.ArgumentTypeError(
+            "use a name containing letters, digits, '.', '_' or '-'"
+        )
     return value
 
 
@@ -37,20 +39,27 @@ def timeout(value: str) -> float:
 
 
 def output(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
-                        help="write one JSON action result to stdout; diagnostics and command "
-                             "equivalents stay on stderr; help remains text")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="write one JSON action result to stdout; diagnostics and command "
+        "equivalents stay on stderr; help remains text",
+    )
 
 
 def lifecycle(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--timeout", type=timeout, default=DEFAULT_TIMEOUT,
-                        metavar="SECONDS")
+    parser.add_argument(
+        "--timeout", type=timeout, default=DEFAULT_TIMEOUT, metavar="SECONDS"
+    )
 
 
 def selector(parser: argparse.ArgumentParser) -> None:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--server", type=name)
-    group.add_argument("--url", help="native endpoint; does not grant process ownership")
+    group.add_argument(
+        "--url", help="native endpoint; does not grant process ownership"
+    )
 
 
 SERVING_OPTIONS = ("rows", "context_capacity", "prefill_capacity", "mtp_depth")
@@ -80,5 +89,7 @@ def select_server(explicit: str | None, configured: list[str]) -> str:
             raise InvalidInput(f"unknown server: {explicit}")
         return explicit
     if len(configured) != 1:
-        raise InvalidInput("select --server NAME or --url URL; expected one configured server")
+        raise InvalidInput(
+            "select --server NAME or --url URL; expected one configured server"
+        )
     return configured[0]

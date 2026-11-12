@@ -2,10 +2,21 @@
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
 load("//build_tools:loom_merge.bzl", "loom_merge")
+
 package(default_visibility = ["//visibility:public"])
+
 exports_files(glob(["**/*.loom"]))
-loom_library(name = "norm_interface", srcs = ["norm/norm_interface.loom"])
-loom_library(name = "ffn_interface", srcs = ["ffn/ffn_interface.loom"])
+
+loom_library(
+    name = "norm_interface",
+    srcs = ["norm/norm_interface.loom"],
+)
+
+loom_library(
+    name = "ffn_interface",
+    srcs = ["ffn/ffn_interface.loom"],
+)
+
 loom_library(
     name = "norm",
     srcs = [
@@ -16,6 +27,7 @@ loom_library(
         "//lib/kernels/epoch:active_rows.loom",
     ],
 )
+
 loom_library(
     name = "ffn",
     srcs = [
@@ -37,7 +49,6 @@ loom_library(
     ],
 )
 
-
 loom_library(
     name = "output",
     srcs = [
@@ -46,7 +57,8 @@ loom_library(
         "//lib/kernels/epoch:count.loom",
         "//lib/kernels/projection:q6k.loom",
         "//lib/kernels/quantization:q8_1_x4.loom",
-        "//lib/programs/llama:output.loom", "//lib/programs/output:last_greedy.loom",
+        "//lib/programs/llama:output.loom",
+        "//lib/programs/output:last_greedy.loom",
         "//lib/programs/llama:output_interface.loom",
         "output/output_norm_last.loom",
         "//lib/kernels/normalization:rmsnorm_row.loom",
@@ -59,8 +71,15 @@ loom_library(
         "//lib/kernels/projection:qk_common.loom",
     ],
 )
-loom_library(name = "publication", srcs = ["publication/publication.loom", "publication/publication_interface.loom", "//lib/kernels/epoch:count.loom"])
 
+loom_library(
+    name = "publication",
+    srcs = [
+        "publication/publication.loom",
+        "publication/publication_interface.loom",
+        "//lib/kernels/epoch:count.loom",
+    ],
+)
 
 loom_library(
     name = "attention_native",
@@ -113,6 +132,19 @@ _CONFIGURED_PROVIDER_SOURCES = [
     "//lib/kernels/embedding:epoch_f32_sources",
 ]
 
-filegroup(name = "configured_provider_sources", srcs = _CONFIGURED_PROVIDER_SOURCES)
-loom_merge(name = "configured_providers", srcs = _CONFIGURED_PROVIDER_SOURCES)
-loom_merge(name = "configured_provider_text", srcs = _CONFIGURED_PROVIDER_SOURCES, output_format = "text", testonly = True)
+filegroup(
+    name = "configured_provider_sources",
+    srcs = _CONFIGURED_PROVIDER_SOURCES,
+)
+
+loom_merge(
+    name = "configured_providers",
+    srcs = _CONFIGURED_PROVIDER_SOURCES,
+)
+
+loom_merge(
+    name = "configured_provider_text",
+    testonly = True,
+    srcs = _CONFIGURED_PROVIDER_SOURCES,
+    output_format = "text",
+)

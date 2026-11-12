@@ -3,9 +3,18 @@
 _HEADERS = [
     "@hrx_system//loom/src/loom/import/cxx:include/loomcxx/" + path
     for path in [
-        "atomic.h", "buffer.h", "cache.h", "encoding_type.h", "index.h",
-        "kernel.h", "predicate.h", "scalar.h", "shape.h", "target.h",
-        "target/amdgpu.h", "view.h",
+        "atomic.h",
+        "buffer.h",
+        "cache.h",
+        "encoding_type.h",
+        "index.h",
+        "kernel.h",
+        "predicate.h",
+        "scalar.h",
+        "shape.h",
+        "target.h",
+        "target/amdgpu.h",
+        "view.h",
     ]
 ]
 

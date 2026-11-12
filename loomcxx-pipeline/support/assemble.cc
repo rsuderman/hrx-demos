@@ -96,28 +96,36 @@ void Bridge(loom_module_t *module, const char *family_name,
                                      &ret));
 }
 loom_type_t Type(const std::string &name) {
-  if (name == "buffer") return loom_type_buffer();
-  if (name == "index") return loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
-  if (name == "offset") return loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET);
-  if (name == "i1") return loom_type_scalar(LOOM_SCALAR_TYPE_I1);
-  return loom_type_scalar(LOOM_SCALAR_TYPE_F32); // Parser admits only these types.
+  if (name == "buffer")
+    return loom_type_buffer();
+  if (name == "index")
+    return loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+  if (name == "offset")
+    return loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET);
+  if (name == "i1")
+    return loom_type_scalar(LOOM_SCALAR_TYPE_I1);
+  return loom_type_scalar(
+      LOOM_SCALAR_TYPE_F32); // Parser admits only these types.
 }
 loom_op_t *Find(loom_module_t *module, const std::string &name) {
   loom_string_id_t string;
-  Require(loom_module_intern_string(module, iree_make_cstring_view(name.c_str()),
-                                     &string));
+  Require(loom_module_intern_string(
+      module, iree_make_cstring_view(name.c_str()), &string));
   auto id = loom_module_find_symbol(module, string);
   return id == LOOM_SYMBOL_ID_INVALID ? nullptr
-      : module->symbols.entries[id].defining_op;
+                                      : module->symbols.entries[id].defining_op;
 }
 bool Matches(loom_module_t *module, loom_op_t *op,
              const std::vector<loom_type_t> &types) {
   if (!op || !loom_template_decl_isa(op) ||
-      loom_template_decl_results(op).count != 0) return false;
+      loom_template_decl_results(op).count != 0)
+    return false;
   auto args = loom_template_decl_args(op);
-  if (args.count != types.size()) return false;
+  if (args.count != types.size())
+    return false;
   for (size_t i = 0; i < types.size(); ++i)
-    if (!loom_type_equal(loom_module_value_type(module, args.values[i]), types[i]))
+    if (!loom_type_equal(loom_module_value_type(module, args.values[i]),
+                         types[i]))
       return false;
   return true;
 }
@@ -135,8 +143,10 @@ bool Validate(loom_module_t *module, const loomcxx_pipeline::Mapping &m) {
       loom_template_decl_cc(imported) != LOOM_TEMPLATE_CC_DEVICE ||
       (family && !Matches(module, family, public_types)) ||
       Find(module, m.provider)) {
-    std::fprintf(stderr, "ABI mapping for %s: imported/public signature, device "
-                         "convention or provider identity mismatch\n", m.family.c_str());
+    std::fprintf(stderr,
+                 "ABI mapping for %s: imported/public signature, device "
+                 "convention or provider identity mismatch\n",
+                 m.family.c_str());
     return false;
   }
   return true;
@@ -145,7 +155,8 @@ bool Validate(loom_module_t *module, const loomcxx_pipeline::Mapping &m) {
 
 int main(int argc, char **argv) {
   if (argc != 3 && argc != 4) {
-    std::fprintf(stderr, "usage: assemble INPUT.loombc OUTPUT.loombc [MAPPINGS.abi]\n");
+    std::fprintf(stderr,
+                 "usage: assemble INPUT.loombc OUTPUT.loombc [MAPPINGS.abi]\n");
     return 1;
   }
   std::vector<loomcxx_pipeline::Mapping> mappings;
@@ -188,10 +199,12 @@ int main(int argc, char **argv) {
   }
   // Admit the complete mapping set before mutating the module.
   for (const auto &mapping : mappings)
-    if (!Validate(native, mapping)) return 1;
+    if (!Validate(native, mapping))
+      return 1;
   for (const auto &mapping : mappings) {
     std::vector<loom_type_t> types;
-    for (const auto &name : mapping.types) types.push_back(Type(name));
+    for (const auto &name : mapping.types)
+      types.push_back(Type(name));
     Bridge(native, mapping.family.c_str(), mapping.provider.c_str(),
            mapping.imported_family.c_str(), types, mapping.pointer_origins);
   }

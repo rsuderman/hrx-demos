@@ -1,4 +1,5 @@
 """Saved server definitions and bounded observations of owned native processes."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,13 +22,16 @@ def configure(parser):
         child = commands.add_parser(command)
         arguments.output(child)
         if command != "list":
-            child.add_argument("server", nargs="?" if command == "start" else None,
-                               type=arguments.name)
+            child.add_argument(
+                "server", nargs="?" if command == "start" else None, type=arguments.name
+            )
         if command == "start":
             child.add_argument("--name", type=arguments.name)
             child.add_argument("--device", default=None)
             child.add_argument("--listen", default=None)
-            child.add_argument("--pool-backing", choices=("fixed", "elastic"), default=None)
+            child.add_argument(
+                "--pool-backing", choices=("fixed", "elastic"), default=None
+            )
         if command in ("start", "shutdown"):
             arguments.lifecycle(child)
         if command == "shutdown":
@@ -40,8 +44,14 @@ def validate(args):
     if args.command == "start":
         if bool(args.server) == bool(args.name):
             raise InvalidInput("use server start NAME or server start --name NAME")
-        if args.server and (args.device is not None or args.listen is not None or args.pool_backing is not None):
-            raise InvalidInput("saved server start reuses settings; use --name to create another definition")
+        if args.server and (
+            args.device is not None
+            or args.listen is not None
+            or args.pool_backing is not None
+        ):
+            raise InvalidInput(
+                "saved server start reuses settings; use --name to create another definition"
+            )
 
 
 def resolve_server(registry, explicit=None, url=None):
@@ -51,7 +61,9 @@ def resolve_server(registry, explicit=None, url=None):
     if url is not None:
         client = NativeClient(url)  # Validate without connecting or adopting.
         return dict(id=None, endpoint=client.endpoint, external=True)
-    selected = arguments.select_server(explicit, [row['id'] for row in registry.list_servers()])
+    selected = arguments.select_server(
+        explicit, [row["id"] for row in registry.list_servers()]
+    )
     return dict(registry.get_server(selected), external=False)
 
 
@@ -59,7 +71,9 @@ def _settings(args):
     # The native device and endpoint are explicit infrastructure choices. Do not
     # pick a GPU/backend or claim a port implicitly for a new saved definition.
     if not args.device or not args.device.strip() or not args.listen:
-        raise InvalidInput("new server requires --device DEVICE and --listen LOOPBACK_HOST:PORT")
+        raise InvalidInput(
+            "new server requires --device DEVICE and --listen LOOPBACK_HOST:PORT"
+        )
     settings = dict(device=args.device, listen=args.listen)
     if args.pool_backing is not None:
         settings["pool_backing"] = args.pool_backing
@@ -68,20 +82,24 @@ def _settings(args):
 
 
 def _log_paths(record):
-    if not record.get('build'):
+    if not record.get("build"):
         return []
-    directory = Path(record['build']['directory'])
-    return [str(directory / name) for name in ('bootstrap-error.txt', 'process.log.1', 'process.log')]
+    directory = Path(record["build"]["directory"])
+    return [
+        str(directory / name)
+        for name in ("bootstrap-error.txt", "process.log.1", "process.log")
+    ]
 
 
 class ObservationResult(dict):
     """An observation payload can remain useful when its health requires nonzero."""
+
     @property
     def exit_code(self):
-        items = self.get('items', [self])
-        if any(item['state'] == 'unknown' for item in items):
+        items = self.get("items", [self])
+        if any(item["state"] == "unknown" for item in items):
             return 4
-        return 1 if any(item['state'] == 'unhealthy' for item in items) else 0
+        return 1 if any(item["state"] == "unhealthy" for item in items) else 0
 
 
 def _observed(state, **fields):
@@ -91,12 +109,17 @@ def _observed(state, **fields):
 def _observation(registry, manager, server_id, deadline):
     """Project core's one lock-held observation without probing again."""
     observation = manager.observe_and_reconcile(server_id, deadline)
-    fields = dict(server=server_id, record=observation.record,
-                  observed_at=observation.observed_at, native=observation.native,
-                  process_health=observation.process_health, http_health=observation.http_health)
+    fields = dict(
+        server=server_id,
+        record=observation.record,
+        observed_at=observation.observed_at,
+        native=observation.native,
+        process_health=observation.process_health,
+        http_health=observation.http_health,
+    )
     if observation.error is not None:
         hem_display.emit(observation.error)
-        fields['error'] = observation.error
+        fields["error"] = observation.error
     return _observed(observation.state, completed=True, **fields)
 
 
@@ -110,27 +133,33 @@ def _log_delta(snapshot, current):
 def _logs(registry, manager, record, follow, *, json_output=False):
     paths = _log_paths(record)
     if paths:
-        hem_display.emit(hem_display.command(['tail', '-c', '65536', *(['-F'] if follow else []), *paths]))
+        hem_display.emit(
+            hem_display.command(
+                ["tail", "-c", "65536", *(["-F"] if follow else []), *paths]
+            )
+        )
     snapshot = read_logs(record)
     if follow:
         # Live diagnostics go to stderr, keeping --json stdout one final result.
         # No lifecycle lock spans this deliberate, caller-interruptible stream.
         if snapshot:
-            sys.stderr.write(snapshot.decode('utf-8', errors='replace'))
+            sys.stderr.write(snapshot.decode("utf-8", errors="replace"))
             sys.stderr.flush()
         try:
-            while record.get('process'):
+            while record.get("process"):
                 try:
                     with manager.pin(record) as pinned:
                         pinned.verify()
                 except HemError:
                     break
-                time.sleep(.1)
+                time.sleep(0.1)
                 current = read_logs(record)
                 if current != snapshot:
                     # Preserve append/rotation continuity within the bounded
                     # combined tail. If no overlap survives, emit the new tail.
-                    sys.stderr.write(_log_delta(snapshot, current).decode('utf-8', errors='replace'))
+                    sys.stderr.write(
+                        _log_delta(snapshot, current).decode("utf-8", errors="replace")
+                    )
                     sys.stderr.flush()
                     snapshot = current
         except KeyboardInterrupt:
@@ -139,50 +168,85 @@ def _logs(registry, manager, record, follow, *, json_output=False):
         if not json_output:
             # Human mode has no duplicate final stdout snapshot: retain bytes
             # appended between the final observation and process exit/Ctrl-C.
-            sys.stderr.write(_log_delta(snapshot, final).decode('utf-8', errors='replace'))
+            sys.stderr.write(
+                _log_delta(snapshot, final).decode("utf-8", errors="replace")
+            )
             sys.stderr.flush()
         snapshot = final
-    return result('logs', completed=True, server=record['id'], paths=paths,
-                  logs=snapshot.decode('utf-8', errors='replace'), followed=follow)
+    return result(
+        "logs",
+        completed=True,
+        server=record["id"],
+        paths=paths,
+        logs=snapshot.decode("utf-8", errors="replace"),
+        followed=follow,
+    )
 
 
 def run(args, deadline):
-    settings = _settings(args) if args.command == 'start' and args.name else None
+    settings = _settings(args) if args.command == "start" and args.name else None
     budget = deadline or Deadline.after()
     registry = Registry(deadline=budget)
     manager = ProcessManager(registry)
-    if args.command == 'shutdown':
-        payload = ShutdownManager(registry, processes=manager).shutdown(args.server, budget, abort=args.abort)
+    if args.command == "shutdown":
+        payload = ShutdownManager(registry, processes=manager).shutdown(
+            args.server, budget, abort=args.abort
+        )
         return update_result(registry, budget, payload)
-    if args.command == 'start':
+    if args.command == "start":
         server_id = args.name or args.server
         if args.name:
-            with registry.lock('server', server_id, deadline=budget):
-                if server_id in [row['id'] for row in registry.list_servers()]:
-                    raise HemError('server name already exists; use server start NAME to reuse saved settings', accepted=False)
+            with registry.lock("server", server_id, deadline=budget):
+                if server_id in [row["id"] for row in registry.list_servers()]:
+                    raise HemError(
+                        "server name already exists; use server start NAME to reuse saved settings",
+                        accepted=False,
+                    )
                 registry.create_server(server_id, saved_settings=settings)
         else:
-            settings = registry.get_server(server_id)['saved_settings']
+            settings = registry.get_server(server_id)["saved_settings"]
         record = manager.start(server_id, settings, budget)
-        payload = result('running', completed=True, server=server_id, accepted=True,
-                      record=record, endpoint=record['endpoint'], process=record['process'],
-                      log_paths=_log_paths(record))
+        payload = result(
+            "running",
+            completed=True,
+            server=server_id,
+            accepted=True,
+            record=record,
+            endpoint=record["endpoint"],
+            process=record["process"],
+            log_paths=_log_paths(record),
+        )
         return update_result(registry, budget, payload)
-    if args.command == 'show':
-        return result('configured', completed=True, server=args.server,
-                      saved_settings=registry.get_server(args.server)['saved_settings'])
-    if args.command == 'list':
+    if args.command == "show":
+        return result(
+            "configured",
+            completed=True,
+            server=args.server,
+            saved_settings=registry.get_server(args.server)["saved_settings"],
+        )
+    if args.command == "list":
         # Give each independent observation a bounded budget; one unavailable
         # server must not consume or hide the remaining configured inventory.
         items = []
         for row in registry.list_servers():
             observation_budget = Deadline.after()
             scoped = Registry(registry.root, deadline=observation_budget)
-            items.append(_observation(scoped, ProcessManager(scoped), row['id'], observation_budget))
-        return ObservationResult(result('inventory', completed=True, items=items))
-    if args.command in ('status', 'reconcile'):
-        return update_result(registry, budget, _observation(registry, manager, args.server, budget))
-    if args.command == 'logs':
-        return _logs(registry, manager, registry.get_server(args.server), args.follow,
-                     json_output=getattr(args, 'json', False))
-    raise InvalidInput('unknown server command')
+            items.append(
+                _observation(
+                    scoped, ProcessManager(scoped), row["id"], observation_budget
+                )
+            )
+        return ObservationResult(result("inventory", completed=True, items=items))
+    if args.command in ("status", "reconcile"):
+        return update_result(
+            registry, budget, _observation(registry, manager, args.server, budget)
+        )
+    if args.command == "logs":
+        return _logs(
+            registry,
+            manager,
+            registry.get_server(args.server),
+            args.follow,
+            json_output=getattr(args, "json", False),
+        )
+    raise InvalidInput("unknown server command")

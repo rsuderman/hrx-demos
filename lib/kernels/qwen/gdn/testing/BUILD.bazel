@@ -1,20 +1,106 @@
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
-load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
-loom_library(name = "profile", srcs = ["gdn_config.loom"])
-loom_test(name = "gdn_core_execution_test", srcs = ["core_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", "//lib/kernels/qwen:spans", ":profile"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
 
-loom_library(name = "profile27", srcs = ["gdn48_config.loom"])
-loom_test(name = "gdn48_execution_test", srcs = ["gdn48_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", "//lib/kernels/qwen:spans", ":profile27"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+loom_library(
+    name = "profile",
+    srcs = ["gdn_config.loom"],
+)
 
-loom_test(name = "clear_2048_execution_test", srcs = ["clear_2048_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", ":profile"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+loom_test(
+    name = "gdn_core_execution_test",
+    srcs = ["core_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        "//lib/kernels/qwen:spans",
+        ":profile",
+    ],
+)
 
-loom_test(name = "partial_2048_execution_test", srcs = ["partial_2048_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", "//lib/kernels/qwen:spans", ":profile"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+loom_library(
+    name = "profile27",
+    srcs = ["gdn48_config.loom"],
+)
 
-loom_test(name = "clear_6144_execution_test", srcs = ["clear_6144_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", ":profile27"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+loom_test(
+    name = "gdn48_execution_test",
+    srcs = ["gdn48_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        "//lib/kernels/qwen:spans",
+        ":profile27",
+    ],
+)
 
-loom_test(name = "partial_6144_execution_test", srcs = ["partial_6144_checks.loom"], deps = ["//lib/kernels/qwen/gdn:core", "//lib/kernels/qwen:spans", ":profile27"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+loom_test(
+    name = "clear_2048_execution_test",
+    srcs = ["clear_2048_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        ":profile",
+    ],
+)
 
-loom_test(name = "scalar_execution_test", srcs = ["//lib/platforms/amdgpu/gfx11:targets.loom", "scalar_checks.loom", "//lib/kernels/qwen:common/layer_prefill.loom", "//lib/kernels/qwen:common/layer_decode.loom", "//lib/kernels/normalization:rmsnorm_row.loom", "//lib/kernels/elementwise:residual_row.loom", "//lib/kernels/elementwise:swiglu_row.loom"], deps = ["//lib/kernels/qwen/gdn:core", "//lib/kernels/qwen:spans", ":profile"], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE])
+loom_test(
+    name = "partial_2048_execution_test",
+    srcs = ["partial_2048_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        "//lib/kernels/qwen:spans",
+        ":profile",
+    ],
+)
+
+loom_test(
+    name = "clear_6144_execution_test",
+    srcs = ["clear_6144_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        ":profile27",
+    ],
+)
+
+loom_test(
+    name = "partial_6144_execution_test",
+    srcs = ["partial_6144_checks.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        "//lib/kernels/qwen:spans",
+        ":profile27",
+    ],
+)
+
+loom_test(
+    name = "scalar_execution_test",
+    srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "scalar_checks.loom",
+        "//lib/kernels/qwen:common/layer_prefill.loom",
+        "//lib/kernels/qwen:common/layer_decode.loom",
+        "//lib/kernels/normalization:rmsnorm_row.loom",
+        "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [
+        "//lib/kernels/qwen/gdn:core",
+        "//lib/kernels/qwen:spans",
+        ":profile",
+    ],
+)

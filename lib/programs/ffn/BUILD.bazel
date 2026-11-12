@@ -1,7 +1,21 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["interface.loom", "ffn.loom", "matrix_swiglu.loom"])
-loom_library(name = "interface", srcs = ["interface.loom"])
-loom_library(name = "ffn", srcs = ["ffn.loom"])
+
+exports_files([
+    "interface.loom",
+    "ffn.loom",
+    "matrix_swiglu.loom",
+])
+
+loom_library(
+    name = "interface",
+    srcs = ["interface.loom"],
+)
+
+loom_library(
+    name = "ffn",
+    srcs = ["ffn.loom"],
+)

@@ -10,9 +10,19 @@ import shlex
 import subprocess
 
 try:
-    from ..versioning import REPO_ROOT, next_dev_version, read_package_version, validate_release_version
+    from ..versioning import (
+        REPO_ROOT,
+        next_dev_version,
+        read_package_version,
+        validate_release_version,
+    )
 except ImportError:
-    from build_tools.versioning import REPO_ROOT, next_dev_version, read_package_version, validate_release_version
+    from build_tools.versioning import (
+        REPO_ROOT,
+        next_dev_version,
+        read_package_version,
+        validate_release_version,
+    )
 
 
 def git(root: Path, *args: str) -> str:
@@ -21,8 +31,13 @@ def git(root: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def prepare_release(version: str, *, bump_dev: bool = False,
-                    dry_run: bool = False, root: Path = REPO_ROOT) -> None:
+def prepare_release(
+    version: str,
+    *,
+    bump_dev: bool = False,
+    dry_run: bool = False,
+    root: Path = REPO_ROOT,
+) -> None:
     validate_release_version(version)
     current = read_package_version(root)
     if git(root, "branch", "--show-current") != "main":

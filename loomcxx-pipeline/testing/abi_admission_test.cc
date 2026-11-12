@@ -36,16 +36,19 @@ protected:
             mappings.c_str(), static_cast<char *>(nullptr));
       _exit(127);
     }
-    if (child < 0) return -1;
+    if (child < 0)
+      return -1;
     int status = 0;
-    if (waitpid(child, &status, 0) != child || !WIFEXITED(status)) return -1;
+    if (waitpid(child, &status, 0) != child || !WIFEXITED(status))
+      return -1;
     return WEXITSTATUS(status);
   }
   std::string Replace(const std::string &from, const std::string &to) {
     std::string text = mapping_;
     auto position = text.find(from);
     EXPECT_NE(position, std::string::npos);
-    if (position != std::string::npos) text.replace(position, from.size(), to);
+    if (position != std::string::npos)
+      text.replace(position, from.size(), to);
     return text;
   }
   std::string mapping_, directory_;

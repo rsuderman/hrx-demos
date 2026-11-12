@@ -40,7 +40,9 @@ def _validate_schema(connection, version, *, deadline=None):
     check()
     if version not in (1, 2):
         raise HemError(f"unsupported state schema {version}; inventory was not reset")
-    actual = dict(connection.execute("SELECT name,sql FROM sqlite_master WHERE type='table'"))
+    actual = dict(
+        connection.execute("SELECT name,sql FROM sqlite_master WHERE type='table'")
+    )
     check()
     statements = _SCHEMA + ((_PI_SCHEMA,) if version == 2 else ())
     expected = {statement.split()[2]: statement for statement in statements}
@@ -60,6 +62,7 @@ def _validate_schema(connection, version, *, deadline=None):
     check()
     if version == 2:
         from ..integrations.pi.hem_pi_state import _read_target
+
         _read_target(connection)
         check()
 
@@ -70,7 +73,9 @@ def _migrate(connection):
 
 
 def _name(value):
-    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.-]*", value
+    ):
         raise InvalidInput("resource IDs must contain letters, digits, '.', '_' or '-'")
     return value
 
@@ -95,9 +100,25 @@ def decode_record(table, data, revision, identities):
         _json(data)  # also reject non-finite values accepted by json.loads
         if any(data.get(column) != value for column, value in identities.items()):
             raise ValueError("record identity does not match inventory key")
-        required = {"models": {"assets", "provenance", "directory", "pipeline", "validation", "pending"},
-                    "servers": {"saved_settings", "launch_token", "phase", "pending"},
-                    "instances": {"model_id", "settings", "document", "dependencies", "incarnation", "pending"}}
+        required = {
+            "models": {
+                "assets",
+                "provenance",
+                "directory",
+                "pipeline",
+                "validation",
+                "pending",
+            },
+            "servers": {"saved_settings", "launch_token", "phase", "pending"},
+            "instances": {
+                "model_id",
+                "settings",
+                "document",
+                "dependencies",
+                "incarnation",
+                "pending",
+            },
+        }
         if not required[table].issubset(data):
             raise ValueError("record is missing current fields")
     except (ValueError, TypeError, InvalidInput) as error:
@@ -154,12 +175,20 @@ def _rename_new(source, destination):
         rename = library.renameat2
     except AttributeError:
         raise HemError("safe publication requires Linux renameat2 support") from None
-    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
     rename.restype = ctypes.c_int
     if rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1):
         code = ctypes.get_errno()
         if code == errno.EEXIST:
-            raise HemError(f"destination already exists; inspect without adopting or replacing: {destination}")
+            raise HemError(
+                f"destination already exists; inspect without adopting or replacing: {destination}"
+            )
         raise HemError(f"no-overwrite publication failed: {os.strerror(code)}")
 
 
@@ -169,7 +198,11 @@ class ResourceLock:
     """
 
     def __init__(self, root, kind, resource_id, deadline, *, path=None):
-        self.path = path if path is not None else root / "locks" / f"{kind}-{_name(resource_id)}.lock"
+        self.path = (
+            path
+            if path is not None
+            else root / "locks" / f"{kind}-{_name(resource_id)}.lock"
+        )
         self.kind = kind
         self.deadline = deadline
         self.descriptor = None
@@ -180,7 +213,9 @@ class ResourceLock:
             raise HemError("resource locks are not reentrant")
         order = {"model": 0, "server": 1, "integration": 2, "target": 3}
         if any(order[item.kind] > order[self.kind] for item in held):
-            raise HemError("acquire model before server before integration before target locks")
+            raise HemError(
+                "acquire model before server before integration before target locks"
+            )
         return held
 
     def __enter__(self):
@@ -189,7 +224,11 @@ class ResourceLock:
         descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o077
+            ):
                 raise HemError("lock must be a private same-user regular file")
             while True:
                 self.deadline.remaining()
@@ -226,7 +265,9 @@ class Registry:
 
     def __init__(self, root=None, *, deadline=None):
         configured = root if root is not None else os.environ.get("LOOM_SERVE_DIR")
-        self.root = Path(configured) if configured is not None else Path.home() / ".loom"
+        self.root = (
+            Path(configured) if configured is not None else Path.home() / ".loom"
+        )
         if not self.root.is_absolute():
             raise InvalidInput("LOOM_SERVE_DIR/state root must be absolute")
         self.deadline = deadline
@@ -240,7 +281,12 @@ class Registry:
             raise HemError("state database cannot be a symlink")
         with self._transaction(allow_legacy=True) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
             if version == 0 and not tables:
                 for statement in _SCHEMA:
                     connection.execute(statement)
@@ -256,6 +302,7 @@ class Registry:
     def _transaction(self, *, allow_legacy=False):
         deadline = self.deadline or Deadline.after()
         connection = None
+
         def execute(statement):
             while True:
                 deadline.remaining()
@@ -263,17 +310,28 @@ class Registry:
                     return connection.execute(statement)
                 except sqlite3.OperationalError as error:
                     code = getattr(error, "sqlite_errorcode", None)
-                    busy = (code & 0xff) in (5, 6) if code is not None else "locked" in str(error).lower()
+                    busy = (
+                        (code & 0xFF) in (5, 6)
+                        if code is not None
+                        else "locked" in str(error).lower()
+                    )
                     if not busy:
                         raise
                     time.sleep(min(0.01, deadline.remaining()))
+
         try:
             deadline.remaining()
             connection = sqlite3.connect(self.database, timeout=0, isolation_level=None)
-            connection.set_progress_handler(lambda: int(deadline.clock() >= deadline.expires_at), 1000)
+            connection.set_progress_handler(
+                lambda: int(deadline.clock() >= deadline.expires_at), 1000
+            )
             version = execute("PRAGMA user_version").fetchone()[0]
-            if version not in ((0, 1, SCHEMA_VERSION) if allow_legacy else (SCHEMA_VERSION,)):
-                raise HemError(f"unsupported state schema {version}; inventory was not reset")
+            if version not in (
+                (0, 1, SCHEMA_VERSION) if allow_legacy else (SCHEMA_VERSION,)
+            ):
+                raise HemError(
+                    f"unsupported state schema {version}; inventory was not reset"
+                )
             execute("PRAGMA foreign_keys=ON")
             execute("PRAGMA synchronous=FULL")
             execute("PRAGMA journal_mode=DELETE")
@@ -282,7 +340,9 @@ class Registry:
             execute("COMMIT")
         except sqlite3.Error as error:
             deadline.remaining()
-            raise HemError(f"state database unavailable; inventory retained: {error}") from error
+            raise HemError(
+                f"state database unavailable; inventory retained: {error}"
+            ) from error
         finally:
             if connection is not None:
                 connection.close()  # rolls back uncommitted work, including BaseException
@@ -290,20 +350,28 @@ class Registry:
     def lock(self, kind, resource_id, *, deadline=None):
         if kind not in ("model", "server"):
             raise InvalidInput("lock kind must be model or server")
-        return ResourceLock(self.root, kind, resource_id, deadline or self.deadline or Deadline.after())
+        return ResourceLock(
+            self.root, kind, resource_id, deadline or self.deadline or Deadline.after()
+        )
 
     @staticmethod
     def _read(connection, table, key):
-        columns = ("server_id", "launch_token", "name") if table == "instances" else ("id",)
+        columns = (
+            ("server_id", "launch_token", "name") if table == "instances" else ("id",)
+        )
         where = " AND ".join(f"{column}=?" for column in columns)
-        row = connection.execute(f"SELECT revision,data FROM {table} WHERE {where}", key).fetchone()
+        row = connection.execute(
+            f"SELECT revision,data FROM {table} WHERE {where}", key
+        ).fetchone()
         if row is None:
             raise HemError(f"unknown {table[:-1]}: {'/'.join(key)}")
         return decode_record(table, row[1], row[0], dict(zip(columns, key)))
 
     @staticmethod
     def _write(connection, table, key, record, expected_revision):
-        columns = ("server_id", "launch_token", "name") if table == "instances" else ("id",)
+        columns = (
+            ("server_id", "launch_token", "name") if table == "instances" else ("id",)
+        )
         where = " AND ".join(f"{column}=?" for column in columns)
         data = dict(record)
         data.pop("revision", None)
@@ -312,7 +380,10 @@ class Registry:
         if table == "servers":
             args.append(data.get("launch_token"))
         args.extend((*key, expected_revision))
-        count = connection.execute(f"UPDATE {table} SET data=?,revision=revision+1{extra} WHERE {where} AND revision=?", args).rowcount
+        count = connection.execute(
+            f"UPDATE {table} SET data=?,revision=revision+1{extra} WHERE {where} AND revision=?",
+            args,
+        ).rowcount
         if count != 1:
             raise HemError("state changed; inspect before retrying")
         return dict(data, revision=expected_revision + 1)
@@ -327,7 +398,11 @@ class Registry:
 
     def get_instance(self, server_id, launch_token, name):
         with self._transaction() as connection:
-            return self._read(connection, "instances", (_name(server_id), _name(launch_token), _name(name)))
+            return self._read(
+                connection,
+                "instances",
+                (_name(server_id), _name(launch_token), _name(name)),
+            )
 
     def list_models(self):
         return self._list("models")
@@ -341,8 +416,12 @@ class Registry:
     def _list(self, table, *, server_id=None):
         with self._transaction() as connection:
             columns = "server_id,launch_token,name" if table == "instances" else "id"
-            clause, args = (" WHERE server_id=?", (_name(server_id),)) if server_id else ("", ())
-            keys = connection.execute(f"SELECT {columns} FROM {table}{clause} ORDER BY {columns}", args).fetchall()
+            clause, args = (
+                (" WHERE server_id=?", (_name(server_id),)) if server_id else ("", ())
+            )
+            keys = connection.execute(
+                f"SELECT {columns} FROM {table}{clause} ORDER BY {columns}", args
+            ).fetchall()
             return [self._read(connection, table, tuple(key)) for key in keys]
 
     def prepare_model(self, model_id, *, assets, provenance=None):
@@ -361,32 +440,58 @@ class Registry:
             if not isinstance(asset, dict):
                 raise InvalidInput("model asset mappings must be objects")
             logical = Path(asset.get("logical_path", ""))
-            if (not logical.parts or logical.is_absolute() or ".." in logical.parts or
-                    str(logical) in names or asset.get("ownership") not in ("owned", "reference") or
-                    not Path(asset.get("source_path", "")).is_absolute()):
+            if (
+                not logical.parts
+                or logical.is_absolute()
+                or ".." in logical.parts
+                or str(logical) in names
+                or asset.get("ownership") not in ("owned", "reference")
+                or not Path(asset.get("source_path", "")).is_absolute()
+            ):
                 raise InvalidInput("ambiguous or unsafe model asset mapping")
-            if any(logical in Path(other).parents or Path(other) in logical.parents for other in names):
+            if any(
+                logical in Path(other).parents or Path(other) in logical.parents
+                for other in names
+            ):
                 raise InvalidInput("model asset mappings overlap")
             names.add(str(logical))
         staging = self.root / "models" / f".{model_id}.staging-{uuid.uuid4().hex}"
-        record = dict(id=model_id, assets=assets, provenance=provenance,
-                      directory=str(self.root / "models" / model_id), pipeline=None,
-                      validation=None, pending=dict(stage="staging", path=str(staging)))
+        record = dict(
+            id=model_id,
+            assets=assets,
+            provenance=provenance,
+            directory=str(self.root / "models" / model_id),
+            pipeline=None,
+            validation=None,
+            pending=dict(stage="staging", path=str(staging)),
+        )
         with self._transaction() as connection:
-            row = connection.execute("SELECT id FROM models WHERE id=?", (model_id,)).fetchone()
+            row = connection.execute(
+                "SELECT id FROM models WHERE id=?", (model_id,)
+            ).fetchone()
             if row:
                 current = self._read(connection, "models", (model_id,))
                 if current["assets"] != assets or current["provenance"] != provenance:
-                    raise HemError("model ID already has different mappings; use another ID")
+                    raise HemError(
+                        "model ID already has different mappings; use another ID"
+                    )
                 record = current
                 staging = None
                 pending = current["pending"]
-                if pending and pending["stage"] == "staging" and not pending.get("inode"):
+                if (
+                    pending
+                    and pending["stage"] == "staging"
+                    and not pending.get("inode")
+                ):
                     staging = Path(pending["path"])
             else:
                 if os.path.lexists(record["directory"]):
-                    raise HemError("untracked model directory exists; explicit inspection/cleanup required")
-                connection.execute("INSERT INTO models VALUES(?,1,?)", (model_id, _json(record)))
+                    raise HemError(
+                        "untracked model directory exists; explicit inspection/cleanup required"
+                    )
+                connection.execute(
+                    "INSERT INTO models VALUES(?,1,?)", (model_id, _json(record))
+                )
         # Reservation is durable before creating a recoverable temporary directory.
         if staging is not None:
             if staging.is_symlink():
@@ -413,17 +518,30 @@ class Registry:
             _flush_tree(staging)
             identity = staging.stat()
             pending = dict(pending, device=identity.st_dev, inode=identity.st_ino)
-            current = self.update_model(model_id, {"pending": pending}, expected_revision=current["revision"])
+            current = self.update_model(
+                model_id, {"pending": pending}, expected_revision=current["revision"]
+            )
             _rename_new(staging, destination)
             _sync_dir(destination.parent)
         else:
             if destination.is_symlink() or not destination.is_dir():
-                raise HemError("staging is missing; preserve record and inspect acquisition")
+                raise HemError(
+                    "staging is missing; preserve record and inspect acquisition"
+                )
             identity = destination.stat()
-            if (pending.get("device"), pending.get("inode")) != (identity.st_dev, identity.st_ino):
-                raise HemError("published directory identity is unproven; refusing orphan adoption")
+            if (pending.get("device"), pending.get("inode")) != (
+                identity.st_dev,
+                identity.st_ino,
+            ):
+                raise HemError(
+                    "published directory identity is unproven; refusing orphan adoption"
+                )
             _sync_dir(destination.parent)
-        return self.update_model(model_id, {"pending": {"stage": "qualification"}}, expected_revision=current["revision"])
+        return self.update_model(
+            model_id,
+            {"pending": {"stage": "qualification"}},
+            expected_revision=current["revision"],
+        )
 
     def record_validation(self, model_id, *, valid, pipeline=None, evidence=None):
         """Record the latest caller-performed pipeline validation; no history."""
@@ -432,48 +550,99 @@ class Registry:
         current = self.get_model(model_id)
         if current["pending"] and current["pending"]["stage"] == "staging":
             raise HemError("publish model assets before recording qualification")
-        return self.update_model(model_id, {
-            "validation": {"valid": valid, "evidence": evidence},
-            "pipeline": pipeline if valid else None,
-            "pending": None if valid else {"stage": "published-invalid"},
-        }, expected_revision=current["revision"])
+        return self.update_model(
+            model_id,
+            {
+                "validation": {"valid": valid, "evidence": evidence},
+                "pipeline": pipeline if valid else None,
+                "pending": None if valid else {"stage": "published-invalid"},
+            },
+            expected_revision=current["revision"],
+        )
 
     def update_model(self, model_id, changes, *, expected_revision):
         if set(changes) - {"pending", "validation", "pipeline", "profile"}:
             raise InvalidInput("model mappings are immutable")
         with self._transaction() as connection:
             current = self._read(connection, "models", (_name(model_id),))
-            return self._write(connection, "models", (model_id,), dict(current, **changes), expected_revision)
+            return self._write(
+                connection,
+                "models",
+                (model_id,),
+                dict(current, **changes),
+                expected_revision,
+            )
 
     def create_server(self, server_id, *, saved_settings):
         server_id = _name(server_id)
-        record = dict(id=server_id, saved_settings=saved_settings, current_settings=None,
-                      launch_token=None, endpoint=None, process=None, build=None,
-                      phase="stopped", pending=None)
+        record = dict(
+            id=server_id,
+            saved_settings=saved_settings,
+            current_settings=None,
+            launch_token=None,
+            endpoint=None,
+            process=None,
+            build=None,
+            phase="stopped",
+            pending=None,
+        )
         with self._transaction() as connection:
-            connection.execute("INSERT INTO servers VALUES(?,NULL,1,?)", (server_id, _json(record)))
+            connection.execute(
+                "INSERT INTO servers VALUES(?,NULL,1,?)", (server_id, _json(record))
+            )
         return dict(record, revision=1)
 
     def update_server(self, server_id, changes, *, expected_token, expected_revision):
-        allowed = {"current_settings", "endpoint", "process", "build", "phase", "pending"}
+        allowed = {
+            "current_settings",
+            "endpoint",
+            "process",
+            "build",
+            "phase",
+            "pending",
+        }
         if set(changes) - allowed:
             raise InvalidInput("server definition is immutable")
-        if "phase" in changes and changes["phase"] not in {"starting", "running", "stopping", "stopped", "unknown"}:
+        if "phase" in changes and changes["phase"] not in {
+            "starting",
+            "running",
+            "stopping",
+            "stopped",
+            "unknown",
+        }:
             raise InvalidInput("invalid server phase")
         with self._transaction() as connection:
             current = self._read(connection, "servers", (_name(server_id),))
             if current["launch_token"] != expected_token:
                 raise HemError("server launch changed; inspect before updating")
-            return self._write(connection, "servers", (server_id,), dict(current, **changes), expected_revision)
+            return self._write(
+                connection,
+                "servers",
+                (server_id,),
+                dict(current, **changes),
+                expected_revision,
+            )
 
     def reserve_launch(self, server_id, *, launch_token, current_settings, endpoint):
         with self._transaction() as connection:
             current = self._read(connection, "servers", (_name(server_id),))
-            if current["launch_token"] is not None or current["pending"] is not None or current["phase"] != "stopped":
+            if (
+                current["launch_token"] is not None
+                or current["pending"] is not None
+                or current["phase"] != "stopped"
+            ):
                 raise HemError("prior launch is unresolved; reconcile before starting")
-            updated = dict(current, launch_token=_name(launch_token), current_settings=current_settings,
-                           endpoint=endpoint, phase="starting", pending={"action": "start", "stage": "reserved"})
-            return self._write(connection, "servers", (server_id,), updated, current["revision"])
+            updated = dict(
+                current,
+                launch_token=_name(launch_token),
+                current_settings=current_settings,
+                endpoint=endpoint,
+                phase="starting",
+                pending={"action": "start", "stage": "reserved"},
+            )
+            return self._write(
+                connection, "servers", (server_id,), updated, current["revision"]
+            )
 
     def clear_server(self, server_id, *, expected_token, expected_revision):
         """Caller has proved exit/reboot. Clear current instances, keep definition."""
@@ -482,42 +651,91 @@ class Registry:
             if current["launch_token"] != expected_token:
                 raise HemError("server launch changed; cannot clear another launch")
             connection.execute("DELETE FROM instances WHERE server_id=?", (server_id,))
-            updated = dict(current, launch_token=None, current_settings=None, endpoint=None,
-                           process=None, build=None, phase="stopped", pending=None)
-            return self._write(connection, "servers", (server_id,), updated, expected_revision)
+            updated = dict(
+                current,
+                launch_token=None,
+                current_settings=None,
+                endpoint=None,
+                process=None,
+                build=None,
+                phase="stopped",
+                pending=None,
+            )
+            return self._write(
+                connection, "servers", (server_id,), updated, expected_revision
+            )
 
-    def create_instance(self, server_id, launch_token, name, *, model_id=None,
-                        settings=None, document=None, dependencies=None, incarnation=None,
-                        pending=None):
+    def create_instance(
+        self,
+        server_id,
+        launch_token,
+        name,
+        *,
+        model_id=None,
+        settings=None,
+        document=None,
+        dependencies=None,
+        incarnation=None,
+        pending=None,
+    ):
         server_id, launch_token, name = map(_name, (server_id, launch_token, name))
-        record = dict(server_id=server_id, launch_token=launch_token, name=name,
-                      model_id=model_id, settings=settings, document=document,
-                      dependencies=dependencies, incarnation=incarnation, pending=pending)
+        record = dict(
+            server_id=server_id,
+            launch_token=launch_token,
+            name=name,
+            model_id=model_id,
+            settings=settings,
+            document=document,
+            dependencies=dependencies,
+            incarnation=incarnation,
+            pending=pending,
+        )
         with self._transaction() as connection:
             server = self._read(connection, "servers", (server_id,))
-            if server["launch_token"] != launch_token or server["phase"] != "running" or server["pending"]:
+            if (
+                server["launch_token"] != launch_token
+                or server["phase"] != "running"
+                or server["pending"]
+            ):
                 raise HemError("server is not accepting new managed registrations")
             if model_id is not None:
                 model = self._read(connection, "models", (_name(model_id),))
-                if model["pending"] or not model["validation"] or not model["validation"]["valid"]:
+                if (
+                    model["pending"]
+                    or not model["validation"]
+                    or not model["validation"]["valid"]
+                ):
                     raise HemError("model is not qualified")
-            connection.execute("INSERT INTO instances VALUES(?,?,?,?,1,?)",
-                               (server_id, launch_token, name, model_id, _json(record)))
+            connection.execute(
+                "INSERT INTO instances VALUES(?,?,?,?,1,?)",
+                (server_id, launch_token, name, model_id, _json(record)),
+            )
         return dict(record, revision=1)
 
-    def update_instance(self, server_id, launch_token, name, changes, *, expected_revision):
+    def update_instance(
+        self, server_id, launch_token, name, changes, *, expected_revision
+    ):
         if set(changes) - {"incarnation", "pending"}:
             raise InvalidInput("submitted instance configuration is immutable")
         key = tuple(map(_name, (server_id, launch_token, name)))
         with self._transaction() as connection:
             current = self._read(connection, "instances", key)
-            return self._write(connection, "instances", key, dict(current, **changes), expected_revision)
+            return self._write(
+                connection,
+                "instances",
+                key,
+                dict(current, **changes),
+                expected_revision,
+            )
 
     def retire_instance(self, server_id, launch_token, name, *, expected_revision):
         """Caller has proved the original incarnation retired; delete current row."""
         key = tuple(map(_name, (server_id, launch_token, name)))
         with self._transaction() as connection:
-            count = connection.execute("DELETE FROM instances WHERE server_id=? AND launch_token=? AND name=? AND revision=?", (*key, expected_revision)).rowcount
+            count = connection.execute(
+                "DELETE FROM instances WHERE server_id=? AND launch_token=? AND name=? AND revision=?",
+                (*key, expected_revision),
+            ).rowcount
             if count != 1:
                 raise HemError("instance changed; inspect before clearing")
 
@@ -532,19 +750,30 @@ class Registry:
         Retained live deployment documents should have unique launch/name paths.
         """
         relative = Path(relative_path)
-        if (not relative.parts or relative.is_absolute() or ".." in relative.parts or
-                relative.parts[0] in {"models", "locks"} or relative.parts[0].startswith("control.sqlite3")):
-            raise InvalidInput("generated document must have a safe non-model relative path")
+        if (
+            not relative.parts
+            or relative.is_absolute()
+            or ".." in relative.parts
+            or relative.parts[0] in {"models", "locks"}
+            or relative.parts[0].startswith("control.sqlite3")
+        ):
+            raise InvalidInput(
+                "generated document must have a safe non-model relative path"
+            )
         destination = self.root / relative
         parent = self.root
         for part in relative.parts[:-1]:
             parent = parent / part
             _directory(parent)
         temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+        )
         try:
             with os.fdopen(descriptor, "wb") as stream:
-                stream.write(content if isinstance(content, bytes) else content.encode("utf-8"))
+                stream.write(
+                    content if isinstance(content, bytes) else content.encode("utf-8")
+                )
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, destination)

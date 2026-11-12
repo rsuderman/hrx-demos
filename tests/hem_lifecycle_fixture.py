@@ -1,4 +1,5 @@
 """Shared CPU lifecycle fixtures; no test-case modules are imported here."""
+
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -9,13 +10,19 @@ import time
 from binding.python.control import hem_process
 from binding.python.hem_common import UncertainOutcome
 
+
 def inventory(*items):
     return {"object": "list", "data": list(items), "server": {"worker_count": 1}}
 
 
 def model(incarnation=17, **overrides):
-    loom = dict(incarnation=incarnation, registration="ready", parameter_operation="idle",
-                parameters={"active": True}, status={"admission": "drained"})
+    loom = dict(
+        incarnation=incarnation,
+        registration="ready",
+        parameter_operation="idle",
+        parameters={"active": True},
+        status={"admission": "drained"},
+    )
     loom.update(overrides)
     return dict(id="chat", loom=loom)
 
@@ -23,6 +30,7 @@ def model(incarnation=17, **overrides):
 @contextmanager
 def fixture(respond=None):
     records = []
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -43,9 +51,12 @@ def fixture(respond=None):
                     pass
             else:
                 reply(self, inventory(model()))
+
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
-    worker = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.005), daemon=True)
+    worker = threading.Thread(
+        target=lambda: server.serve_forever(poll_interval=0.005), daemon=True
+    )
     worker.start()
     try:
         yield "http://127.0.0.1:" + str(server.server_port), records
@@ -66,7 +77,7 @@ def reply(handler, payload, status=200):
 
 def port():
     with socket.socket() as sock:
-        sock.bind(('127.0.0.1', 0))
+        sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
@@ -81,14 +92,14 @@ def wait_exit(process, seconds=3):
             # Procfs executable data may disappear before pidfd reports exit.
             # Retry the same owned record; uncertainty never counts as success.
             uncertain = error
-        time.sleep(.01)
+        time.sleep(0.01)
     if uncertain is not None:
         raise uncertain
-    raise AssertionError(f'owned process did not exit: {process}')
+    raise AssertionError(f"owned process did not exit: {process}")
 
 
 # An independent ELF proves bootstrap-to-native executable identity.
-PROCESS_NATIVE = r'''
+PROCESS_NATIVE = r"""
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -118,11 +129,11 @@ int main(int argc, char **argv) {
  }
  return 0;
 }
-'''
+"""
 
 
 # Real pin/accepted-connection association through registration and retirement.
-INSTANCES_NATIVE = r'''
+INSTANCES_NATIVE = r"""
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -160,11 +171,11 @@ int main(int argc, char **argv) {
  }
  return 0;
 }
-'''
+"""
 
 
 # Public server CLI diagnostics and health protocol.
-SERVER_CLI_NATIVE = r'''
+SERVER_CLI_NATIVE = r"""
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -190,4 +201,4 @@ int main(int argc,char **argv) {
  }
  return 0;
 }
-'''
+"""

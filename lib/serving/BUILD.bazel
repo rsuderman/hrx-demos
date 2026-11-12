@@ -1,11 +1,29 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
 load("//build_tools:loom_resources.bzl", "loom_resources")
-load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["weights.loom", "greedy.loom", "request_check.loom", "control_interface.loom", "ordinary_control.loom", "ordinary_prepare.loom"])
-loom_merge(name = "greedy", srcs = ["greedy.loom", "request_check.loom"])
+
+exports_files([
+    "weights.loom",
+    "greedy.loom",
+    "request_check.loom",
+    "control_interface.loom",
+    "ordinary_control.loom",
+    "ordinary_prepare.loom",
+])
+
+loom_merge(
+    name = "greedy",
+    srcs = [
+        "greedy.loom",
+        "request_check.loom",
+    ],
+)
+
 _PRODUCTS = {
     "//lib/text/protocols/chatml_thinking:plain": "kChatmlPlain",
     "//lib/architectures/qwen2:implementation": "kQwen2Implementation",
@@ -36,10 +54,23 @@ _PRODUCTS = {
     ":greedy": "kGreedy",
     ":weights.loom": "kWeights",
 }
-filegroup(name = "export_products", srcs = _PRODUCTS.keys())
-loom_resources(name = "library_resources_header", products = _PRODUCTS, out = "library_resources.h")
+
+filegroup(
+    name = "export_products",
+    srcs = _PRODUCTS.keys(),
+)
+
+loom_resources(
+    name = "library_resources_header",
+    out = "library_resources.h",
+    products = _PRODUCTS,
+)
+
 iree_cc_library(
     name = "library_resources",
     hdrs = [":library_resources_header"],
-    visibility = ["//lib/loomify:__pkg__", "//tools/loomify-gguf:__pkg__"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//tools/loomify-gguf:__pkg__",
+    ],
 )

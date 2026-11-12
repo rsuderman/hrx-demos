@@ -14,7 +14,6 @@ from collections import defaultdict
 from pathlib import Path
 from packaging.requirements import Requirement
 
-
 try:
     from ..validation import recipe_inventory
     from ..versioning import read_package_version
@@ -38,142 +37,181 @@ STABLE_RUNTIME_NAMES = {
 }
 ROCM_LIBRARY_PREFIXES = ("libamd", "libhsa", "libroc")
 HEM_MODULES = (
-    "hem_bootstrap", "hem_cli", "hem_common",
+    "hem_bootstrap",
+    "hem_cli",
+    "hem_common",
     "hem_display",
 )
 MODEL_MODULES = (
-    'gguf',
-    'hem_config',
-    'hem_models',
-    'model_download',
-    'model_store',
-    'recipes',
-    'pipelines',
-    'pocket',
+    "gguf",
+    "hem_config",
+    "hem_models",
+    "model_download",
+    "model_store",
+    "recipes",
+    "pipelines",
+    "pocket",
 )
-MODEL_PYTHON_PATHS = ('models/__init__.py',
-    'models/preparation/__init__.py', 'models/preparation/moonshine.py', 'models/preparation/pocket.py',
-    'models/preparation/moonshine_contract.py', 'models/preparation/pocket_contract.py',
-    *('models/' + name + '.py' for name in MODEL_MODULES),
-    'models/modalities/__init__.py', 'models/modalities/chat.py', 'models/modalities/asr.py', 'models/modalities/tts.py')
+MODEL_PYTHON_PATHS = (
+    "models/__init__.py",
+    "models/preparation/__init__.py",
+    "models/preparation/moonshine.py",
+    "models/preparation/pocket.py",
+    "models/preparation/moonshine_contract.py",
+    "models/preparation/pocket_contract.py",
+    *("models/" + name + ".py" for name in MODEL_MODULES),
+    "models/modalities/__init__.py",
+    "models/modalities/chat.py",
+    "models/modalities/asr.py",
+    "models/modalities/tts.py",
+)
 
 RETIRED_MODEL_PYTHON_PATHS = (
-    'models/moonshine_preparation.py', 'models/moonshine_preparer_identity.py',
-    'models/pipelines_qwen.py', 'models/pipelines_moonshine.py',
-    'models/recipe_types.py', 'models/curated_catalog.py', 'models/hem_model_operations.py',
-    'models/qwen_validation.py', 'models/pipeline_validation.py', 'pipeline_validation.py',
+    "models/moonshine_preparation.py",
+    "models/moonshine_preparer_identity.py",
+    "models/pipelines_qwen.py",
+    "models/pipelines_moonshine.py",
+    "models/recipe_types.py",
+    "models/curated_catalog.py",
+    "models/hem_model_operations.py",
+    "models/qwen_validation.py",
+    "models/pipeline_validation.py",
+    "pipeline_validation.py",
 )
 
 CLI_FILES = (
-    'cli/__init__.py',
-    'cli/hem_arguments.py',
-    'cli/hem_help.py',
-    'cli/hem_render.py',
-    'cli/hem_instance_cli.py',
-    'cli/hem_model_cli.py',
-    'cli/hem_server_cli.py',
-    'cli/hem_modality_cli.py',
-    'cli/hem_executable_cli.py',
-    'cli/hem_pi_cli.py',
-    'cli/hem_omp_cli.py',
-    'cli/hem_opencode_cli.py',
-    'cli/hem_openwebui_cli.py',
+    "cli/__init__.py",
+    "cli/hem_arguments.py",
+    "cli/hem_help.py",
+    "cli/hem_render.py",
+    "cli/hem_instance_cli.py",
+    "cli/hem_model_cli.py",
+    "cli/hem_server_cli.py",
+    "cli/hem_modality_cli.py",
+    "cli/hem_executable_cli.py",
+    "cli/hem_pi_cli.py",
+    "cli/hem_omp_cli.py",
+    "cli/hem_opencode_cli.py",
+    "cli/hem_openwebui_cli.py",
 )
 
-TUI_MODULES = ('tui/__init__.py', 'tui/hem_tui.py', 'tui/hem_tui_details.py',
-                     'tui/hem_tui_logs.py', 'tui/hem_tui_provider.py')
-
+TUI_MODULES = (
+    "tui/__init__.py",
+    "tui/hem_tui.py",
+    "tui/hem_tui_details.py",
+    "tui/hem_tui_logs.py",
+    "tui/hem_tui_provider.py",
+)
 
 
 SHARED_INTEGRATION_PYTHON_PATHS = (
-    'integrations/__init__.py',
-    'integrations/hem_integrations.py',
-    'integrations/hem_client_documents.py',
-    'integrations/hem_clients_endpoints.py',
+    "integrations/__init__.py",
+    "integrations/hem_integrations.py",
+    "integrations/hem_client_documents.py",
+    "integrations/hem_clients_endpoints.py",
 )
 
 
 OPENCODE_PYTHON_PATHS = (
-    'integrations/__init__.py',
-    'integrations/opencode/__init__.py',
-    'integrations/opencode/hem_opencode.py',
+    "integrations/__init__.py",
+    "integrations/opencode/__init__.py",
+    "integrations/opencode/hem_opencode.py",
 )
 
 OMP_PYTHON_PATHS = (
-    'integrations/__init__.py',
-    'integrations/omp/__init__.py',
-    'integrations/omp/hem_omp.py',
-    'integrations/omp/hem_omp_yaml.py',
+    "integrations/__init__.py",
+    "integrations/omp/__init__.py",
+    "integrations/omp/hem_omp.py",
+    "integrations/omp/hem_omp_yaml.py",
 )
 OPENWEBUI_PYTHON_PATHS = (
-    'integrations/__init__.py',
-    'integrations/openwebui/__init__.py',
-    'integrations/openwebui/hem_openwebui.py',
-    'integrations/openwebui/hem_openwebui_http.py',
-    'integrations/openwebui/hem_openwebui_state.py',
-    'integrations/openwebui/hem_openwebui_stt.py',
-    'integrations/openwebui/hem_openwebui_tts.py',
-    'integrations/openwebui/hem_openwebui_receipts.py',
-    'integrations/openwebui/hem_openwebui_wire.py',
+    "integrations/__init__.py",
+    "integrations/openwebui/__init__.py",
+    "integrations/openwebui/hem_openwebui.py",
+    "integrations/openwebui/hem_openwebui_http.py",
+    "integrations/openwebui/hem_openwebui_state.py",
+    "integrations/openwebui/hem_openwebui_stt.py",
+    "integrations/openwebui/hem_openwebui_tts.py",
+    "integrations/openwebui/hem_openwebui_receipts.py",
+    "integrations/openwebui/hem_openwebui_wire.py",
 )
 
 
 PI_PYTHON_FILES = (
-    'integrations/__init__.py',
-    'integrations/pi/__init__.py',
-    'integrations/pi/hem_pi.py',
-    'integrations/pi/hem_pi_assets.py',
-    'integrations/pi/hem_pi_contracts.py',
-    'integrations/pi/hem_pi_endpoints.py',
-    'integrations/pi/hem_pi_files.py',
-    'integrations/pi/hem_pi_state.py',
+    "integrations/__init__.py",
+    "integrations/pi/__init__.py",
+    "integrations/pi/hem_pi.py",
+    "integrations/pi/hem_pi_assets.py",
+    "integrations/pi/hem_pi_contracts.py",
+    "integrations/pi/hem_pi_endpoints.py",
+    "integrations/pi/hem_pi_files.py",
+    "integrations/pi/hem_pi_state.py",
 )
 CONTROL_PYTHON_PATHS = (
-    'control/__init__.py',
-    'control/hem_http.py',
-    'control/hem_instances.py',
-    'control/hem_operation_targets.py',
-    'control/hem_process.py',
-    'control/hem_shutdown.py',
-    'control/hem_state.py',
+    "control/__init__.py",
+    "control/hem_http.py",
+    "control/hem_instances.py",
+    "control/hem_operation_targets.py",
+    "control/hem_process.py",
+    "control/hem_shutdown.py",
+    "control/hem_state.py",
 )
 
-PI_ASSETS = ("index.ts", "discovery.ts", "budgets.ts", "stream.ts",
-             "profile.json", "package.json")
+PI_ASSETS = (
+    "index.ts",
+    "discovery.ts",
+    "budgets.ts",
+    "stream.ts",
+    "profile.json",
+    "package.json",
+)
 # Independent authored resource inventory; do not derive acceptance from installers.
 CLIENT_ASSETS = (
     "native_protocol.ts",
-    "omp_extension/index.ts", "omp_extension/discovery.ts", "omp_extension/installation.ts",
-    "omp_extension/activation.ts", "omp_extension/stream.ts", "omp_extension/profile.json", "omp_extension/package.json",
-    "opencode_plugin/index.ts", "opencode_plugin/discovery.ts", "opencode_plugin/installation.ts",
-    "opencode_plugin/profile.json", "opencode_plugin/package.json",
+    "omp_extension/index.ts",
+    "omp_extension/discovery.ts",
+    "omp_extension/installation.ts",
+    "omp_extension/activation.ts",
+    "omp_extension/stream.ts",
+    "omp_extension/profile.json",
+    "omp_extension/package.json",
+    "opencode_plugin/index.ts",
+    "opencode_plugin/discovery.ts",
+    "opencode_plugin/installation.ts",
+    "opencode_plugin/profile.json",
+    "opencode_plugin/package.json",
 )
 OBSOLETE_MODULES = (
-    'hem_integrations', 'hem_client_documents', 'hem_clients_endpoints',
-    'hem_openwebui',
-    'hem_openwebui_http',
-    'hem_openwebui_state',
-    'hem_openwebui_stt', 'hem_openwebui_tts',
-    'hem_openwebui_receipts',
-    'hem_openwebui_wire',
-
-    'hem_opencode',
-    'hem_arguments',
-    'hem_help',
-    'hem_render',
-    'hem_instance_cli',
-    'hem_model_cli',
-    'hem_server_cli',
-    'hem_pipeline_cli',
-    'hem_pi_cli',
-    'hem_omp_cli',
-    'hem_opencode_cli',
-    'hem_openwebui_cli',
-
-
-    "hem_omp", "hem_omp_yaml",
-    "setup_cli", "serve_start", "connection_manager", "server_manager",
-    "remote_registry", "state_store",
+    "hem_integrations",
+    "hem_client_documents",
+    "hem_clients_endpoints",
+    "hem_openwebui",
+    "hem_openwebui_http",
+    "hem_openwebui_state",
+    "hem_openwebui_stt",
+    "hem_openwebui_tts",
+    "hem_openwebui_receipts",
+    "hem_openwebui_wire",
+    "hem_opencode",
+    "hem_arguments",
+    "hem_help",
+    "hem_render",
+    "hem_instance_cli",
+    "hem_model_cli",
+    "hem_server_cli",
+    "hem_pipeline_cli",
+    "hem_pi_cli",
+    "hem_omp_cli",
+    "hem_opencode_cli",
+    "hem_openwebui_cli",
+    "hem_omp",
+    "hem_omp_yaml",
+    "setup_cli",
+    "serve_start",
+    "connection_manager",
+    "server_manager",
+    "remote_registry",
+    "state_store",
 )
 OBSOLETE_ENTRY_POINTS = {"loom-hem", "loom-serve-setup", "loom-serve-start"}
 REQUIRED_ENTRY_POINTS = {
@@ -187,12 +225,21 @@ def validate_pi_sdist(path: Path) -> None:
     with tarfile.open(path) as archive:
         for name in PI_ASSETS:
             suffix = "/binding/python/pi_extension/" + name
-            matches = [member for member in archive.getmembers() if member.name.endswith(suffix)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith(suffix)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
                 raise RuntimeError("sdist is missing or duplicates Pi asset: " + name)
             expected = (REPO_ROOT / "binding/python/pi_extension" / name).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError("sdist Pi asset differs from reviewed source: " + name)
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist Pi asset differs from reviewed source: " + name
+                )
 
 
 def validate_client_sdist(path: Path) -> None:
@@ -200,105 +247,197 @@ def validate_client_sdist(path: Path) -> None:
     with tarfile.open(path) as archive:
         for name in (*CLIENT_ASSETS, *TUI_MODULES, *CONTROL_PYTHON_PATHS):
             suffix = "/binding/python/" + name
-            matches = [member for member in archive.getmembers() if member.name.endswith(suffix)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith(suffix)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError("sdist is missing or duplicates client asset: " + name)
+                raise RuntimeError(
+                    "sdist is missing or duplicates client asset: " + name
+                )
             expected = (REPO_ROOT / "binding/python" / name).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError("sdist client asset differs from reviewed source: " + name)
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist client asset differs from reviewed source: " + name
+                )
 
 
 def validate_pi_python_sdist(path: Path) -> None:
     """The complete Pi Python package stays beside the unchanged root resources."""
     with tarfile.open(path) as archive:
         for name in PI_PYTHON_FILES:
-            matches = [member for member in archive.getmembers()
-                       if member.name.endswith('/binding/python/' + name)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith("/binding/python/" + name)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError('sdist is missing or duplicates Pi Python source: ' + name)
-            expected = (REPO_ROOT / 'binding/python' / name).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError('sdist Pi Python source differs from reviewed source: ' + name)
+                raise RuntimeError(
+                    "sdist is missing or duplicates Pi Python source: " + name
+                )
+            expected = (REPO_ROOT / "binding/python" / name).read_bytes()
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist Pi Python source differs from reviewed source: " + name
+                )
 
 
 def validate_models_sdist(path: Path) -> None:
     """The shared model and modality packages ship exact regular Python sources."""
     with tarfile.open(path) as archive:
-        stale = [member.name for member in archive.getmembers()
-                 if any(member.name.endswith('/binding/python/' + name)
-                        for name in RETIRED_MODEL_PYTHON_PATHS)]
+        stale = [
+            member.name
+            for member in archive.getmembers()
+            if any(
+                member.name.endswith("/binding/python/" + name)
+                for name in RETIRED_MODEL_PYTHON_PATHS
+            )
+        ]
         if stale:
-            raise RuntimeError('sdist contains retired model execution authorities: ' + repr(stale))
+            raise RuntimeError(
+                "sdist contains retired model execution authorities: " + repr(stale)
+            )
         for name in MODEL_PYTHON_PATHS:
-            suffix = '/binding/python/' + name
-            matches = [member for member in archive.getmembers() if member.name.endswith(suffix)]
+            suffix = "/binding/python/" + name
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith(suffix)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError('sdist is missing or duplicates model source: ' + name)
-            expected = (REPO_ROOT / 'binding/python' / name).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError('sdist model source differs from reviewed source: ' + name)
+                raise RuntimeError(
+                    "sdist is missing or duplicates model source: " + name
+                )
+            expected = (REPO_ROOT / "binding/python" / name).read_bytes()
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist model source differs from reviewed source: " + name
+                )
 
 
 def validate_cli_sdist(path: Path) -> None:
     """Require the complete regular CLI package with reviewed source bytes."""
     with tarfile.open(path) as archive:
         for name in CLI_FILES:
-            matches = [member for member in archive.getmembers()
-                       if member.name.endswith("/binding/python/" + name)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith("/binding/python/" + name)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
                 raise RuntimeError("sdist is missing or duplicates CLI module: " + name)
             expected = (REPO_ROOT / "binding/python" / name).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError("sdist CLI module differs from reviewed source: " + name)
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist CLI module differs from reviewed source: " + name
+                )
+
 
 def validate_omp_sdist(path: Path) -> None:
     """Require the exact regular Python sources for the complete OMP package."""
     with tarfile.open(path) as archive:
         for relative in OMP_PYTHON_PATHS:
-            matches = [member for member in archive.getmembers()
-                       if member.name.endswith('/binding/python/' + relative)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith("/binding/python/" + relative)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError('sdist is missing or duplicates OMP source: ' + relative)
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError('sdist OMP source differs from reviewed source: ' + relative)
+                raise RuntimeError(
+                    "sdist is missing or duplicates OMP source: " + relative
+                )
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist OMP source differs from reviewed source: " + relative
+                )
+
 
 def validate_opencode_sdist(path: Path) -> None:
     """Require the exact regular Python sources for the complete OpenCode package."""
     with tarfile.open(path) as archive:
         for relative in OPENCODE_PYTHON_PATHS:
-            matches = [member for member in archive.getmembers()
-                       if member.name.endswith('/binding/python/' + relative)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith("/binding/python/" + relative)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError('sdist is missing or duplicates OpenCode source: ' + relative)
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError('sdist OpenCode source differs from reviewed source: ' + relative)
+                raise RuntimeError(
+                    "sdist is missing or duplicates OpenCode source: " + relative
+                )
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist OpenCode source differs from reviewed source: " + relative
+                )
 
 
 def validate_openwebui_sdist(path: Path) -> None:
     """Require the exact regular Python sources for the complete OpenWebUI package."""
     with tarfile.open(path) as archive:
         for relative in OPENWEBUI_PYTHON_PATHS:
-            matches = [member for member in archive.getmembers()
-                       if member.name.endswith('/binding/python/' + relative)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith("/binding/python/" + relative)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError('sdist is missing or duplicates OpenWebUI source: ' + relative)
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError('sdist OpenWebUI source differs from reviewed source: ' + relative)
+                raise RuntimeError(
+                    "sdist is missing or duplicates OpenWebUI source: " + relative
+                )
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist OpenWebUI source differs from reviewed source: " + relative
+                )
+
 
 def validate_shared_integrations_sdist(path: Path) -> None:
     """Require the exact regular Python sources for the complete shared integration package."""
     with tarfile.open(path) as archive:
         for relative in SHARED_INTEGRATION_PYTHON_PATHS:
-            matches = [member for member in archive.getmembers()
-                       if member.name.endswith('/binding/python/' + relative)]
+            matches = [
+                member
+                for member in archive.getmembers()
+                if member.name.endswith("/binding/python/" + relative)
+            ]
             if len(matches) != 1 or not matches[0].isfile():
-                raise RuntimeError('sdist is missing or duplicates shared integration source: ' + relative)
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if matches[0].size != len(expected) or archive.extractfile(matches[0]).read() != expected:
-                raise RuntimeError('sdist shared integration source differs from reviewed source: ' + relative)
+                raise RuntimeError(
+                    "sdist is missing or duplicates shared integration source: "
+                    + relative
+                )
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                matches[0].size != len(expected)
+                or archive.extractfile(matches[0]).read() != expected
+            ):
+                raise RuntimeError(
+                    "sdist shared integration source differs from reviewed source: "
+                    + relative
+                )
 
 
 def validate_wheel(path: Path) -> tuple[int, int]:
@@ -313,9 +452,7 @@ def validate_wheel(path: Path) -> tuple[int, int]:
             raise RuntimeError(
                 f"wheel must contain one METADATA file, found {metadata_paths!r}"
             )
-        metadata = email.parser.BytesParser().parsebytes(
-            wheel.read(metadata_paths[0])
-        )
+        metadata = email.parser.BytesParser().parsebytes(wheel.read(metadata_paths[0]))
         if metadata["Name"] != "hrx-solutions":
             raise RuntimeError("wheel package name must be hrx-solutions")
         if metadata["Version"] != read_package_version():
@@ -329,9 +466,14 @@ def validate_wheel(path: Path) -> tuple[int, int]:
             raise RuntimeError("wheel long description does not match PYPI_README.md")
         if metadata.get("Requires-Python") != ">=3.9":
             raise RuntimeError("wheel must preserve the Python >=3.9 support floor")
-        requirements = [Requirement(value) for value in metadata.get_all("Requires-Dist", [])]
-        textual = [requirement for requirement in requirements
-                   if requirement.name.lower() == "textual"]
+        requirements = [
+            Requirement(value) for value in metadata.get_all("Requires-Dist", [])
+        ]
+        textual = [
+            requirement
+            for requirement in requirements
+            if requirement.name.lower() == "textual"
+        ]
         if len(textual) != 1 or str(textual[0].specifier) != "<2,>=0.47":
             raise RuntimeError("wheel must require Textual >=0.47,<2")
 
@@ -342,11 +484,14 @@ def validate_wheel(path: Path) -> tuple[int, int]:
             )
 
         obsolete_modules = sorted(
-            PACKAGE_PREFIX + name + ".py" for name in OBSOLETE_MODULES
+            PACKAGE_PREFIX + name + ".py"
+            for name in OBSOLETE_MODULES
             if PACKAGE_PREFIX + name + ".py" in names
         )
         if obsolete_modules:
-            raise RuntimeError("wheel contains retired manager modules: " + ", ".join(obsolete_modules))
+            raise RuntimeError(
+                "wheel contains retired manager modules: " + ", ".join(obsolete_modules)
+            )
 
         required_files = {
             PACKAGE_PREFIX + "_native/bin/loom-serve",
@@ -358,14 +503,23 @@ def validate_wheel(path: Path) -> tuple[int, int]:
         required_files.update(PACKAGE_PREFIX + name for name in OMP_PYTHON_PATHS)
         required_files.update(PACKAGE_PREFIX + name for name in OPENCODE_PYTHON_PATHS)
         required_files.update(PACKAGE_PREFIX + name for name in OPENWEBUI_PYTHON_PATHS)
-        required_files.update(PACKAGE_PREFIX + name for name in SHARED_INTEGRATION_PYTHON_PATHS)
+        required_files.update(
+            PACKAGE_PREFIX + name for name in SHARED_INTEGRATION_PYTHON_PATHS
+        )
         required_files.update(PACKAGE_PREFIX + name for name in MODEL_PYTHON_PATHS)
         required_files.update(PACKAGE_PREFIX + name for name in CLI_FILES)
-        required_files.update(PACKAGE_PREFIX + "pi_extension/" + name for name in PI_ASSETS)
-        required_files.update(PACKAGE_PREFIX + name for name in (*CLIENT_ASSETS, *TUI_MODULES, *CONTROL_PYTHON_PATHS))
+        required_files.update(
+            PACKAGE_PREFIX + "pi_extension/" + name for name in PI_ASSETS
+        )
+        required_files.update(
+            PACKAGE_PREFIX + name
+            for name in (*CLIENT_ASSETS, *TUI_MODULES, *CONTROL_PYTHON_PATHS)
+        )
         required_files.update(PACKAGE_PREFIX + name for name in PI_PYTHON_FILES)
-        required_files.update(target.split(":")[0].replace(".", "/") + ".py"
-                              for target in REQUIRED_ENTRY_POINTS.values())
+        required_files.update(
+            target.split(":")[0].replace(".", "/") + ".py"
+            for target in REQUIRED_ENTRY_POINTS.values()
+        )
         missing = sorted(required_files - names)
         if missing:
             raise RuntimeError("wheel is missing setup assets: " + ", ".join(missing))
@@ -373,85 +527,143 @@ def validate_wheel(path: Path) -> tuple[int, int]:
         for relative in MODEL_PYTHON_PATHS:
             member = PACKAGE_PREFIX + relative
             matches = [info for info in wheel.infolist() if info.filename == member]
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if (len(matches) != 1 or matches[0].is_dir()
-                    or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
-                    or wheel.read(matches[0]) != expected):
-                raise RuntimeError('wheel model source duplicates or differs from reviewed source: ' + member)
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                len(matches) != 1
+                or matches[0].is_dir()
+                or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
+                or wheel.read(matches[0]) != expected
+            ):
+                raise RuntimeError(
+                    "wheel model source duplicates or differs from reviewed source: "
+                    + member
+                )
 
         for name in CLI_FILES:
             member = PACKAGE_PREFIX + name
             expected = (REPO_ROOT / "binding/python" / name).read_bytes()
             if wheel.namelist().count(member) != 1 or wheel.read(member) != expected:
-                raise RuntimeError("wheel CLI module duplicates or differs from reviewed source: " + member)
+                raise RuntimeError(
+                    "wheel CLI module duplicates or differs from reviewed source: "
+                    + member
+                )
         for name in PI_PYTHON_FILES:
             member = PACKAGE_PREFIX + name
             matches = [info for info in wheel.infolist() if info.filename == member]
-            expected = (REPO_ROOT / 'binding/python' / name).read_bytes()
-            if (len(matches) != 1 or matches[0].is_dir()
-                    or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
-                    or wheel.read(matches[0]) != expected):
-                raise RuntimeError('wheel Pi Python source duplicates or differs from reviewed source: ' + member)
+            expected = (REPO_ROOT / "binding/python" / name).read_bytes()
+            if (
+                len(matches) != 1
+                or matches[0].is_dir()
+                or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
+                or wheel.read(matches[0]) != expected
+            ):
+                raise RuntimeError(
+                    "wheel Pi Python source duplicates or differs from reviewed source: "
+                    + member
+                )
 
         for relative in OMP_PYTHON_PATHS:
             member = PACKAGE_PREFIX + relative
             matches = [info for info in wheel.infolist() if info.filename == member]
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if (len(matches) != 1 or matches[0].is_dir()
-                    or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
-                    or wheel.read(matches[0]) != expected):
-                raise RuntimeError('wheel OMP source duplicates or differs from reviewed source: ' + member)
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                len(matches) != 1
+                or matches[0].is_dir()
+                or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
+                or wheel.read(matches[0]) != expected
+            ):
+                raise RuntimeError(
+                    "wheel OMP source duplicates or differs from reviewed source: "
+                    + member
+                )
 
         for relative in OPENCODE_PYTHON_PATHS:
             member = PACKAGE_PREFIX + relative
             matches = [info for info in wheel.infolist() if info.filename == member]
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if (len(matches) != 1 or matches[0].is_dir()
-                    or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
-                    or wheel.read(matches[0]) != expected):
-                raise RuntimeError('wheel OpenCode source duplicates or differs from reviewed source: ' + member)
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                len(matches) != 1
+                or matches[0].is_dir()
+                or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
+                or wheel.read(matches[0]) != expected
+            ):
+                raise RuntimeError(
+                    "wheel OpenCode source duplicates or differs from reviewed source: "
+                    + member
+                )
 
         for relative in OPENWEBUI_PYTHON_PATHS:
             member = PACKAGE_PREFIX + relative
             matches = [info for info in wheel.infolist() if info.filename == member]
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if (len(matches) != 1 or matches[0].is_dir()
-                    or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
-                    or wheel.read(matches[0]) != expected):
-                raise RuntimeError('wheel OpenWebUI source duplicates or differs from reviewed source: ' + member)
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                len(matches) != 1
+                or matches[0].is_dir()
+                or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
+                or wheel.read(matches[0]) != expected
+            ):
+                raise RuntimeError(
+                    "wheel OpenWebUI source duplicates or differs from reviewed source: "
+                    + member
+                )
 
         for relative in SHARED_INTEGRATION_PYTHON_PATHS:
             member = PACKAGE_PREFIX + relative
             matches = [info for info in wheel.infolist() if info.filename == member]
-            expected = (REPO_ROOT / 'binding/python' / relative).read_bytes()
-            if (len(matches) != 1 or matches[0].is_dir()
-                    or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
-                    or wheel.read(matches[0]) != expected):
-                raise RuntimeError('wheel shared integration source duplicates or differs from reviewed source: ' + member)
+            expected = (REPO_ROOT / "binding/python" / relative).read_bytes()
+            if (
+                len(matches) != 1
+                or matches[0].is_dir()
+                or stat.S_IFMT(matches[0].external_attr >> 16) not in (0, stat.S_IFREG)
+                or wheel.read(matches[0]) != expected
+            ):
+                raise RuntimeError(
+                    "wheel shared integration source duplicates or differs from reviewed source: "
+                    + member
+                )
 
         for name in PI_ASSETS:
             member = PACKAGE_PREFIX + "pi_extension/" + name
             expected = (REPO_ROOT / "binding/python/pi_extension" / name).read_bytes()
             if wheel.read(member) != expected:
-                raise RuntimeError("wheel Pi asset differs from reviewed source: " + member)
+                raise RuntimeError(
+                    "wheel Pi asset differs from reviewed source: " + member
+                )
 
         for name in (*CLIENT_ASSETS, *TUI_MODULES, *CONTROL_PYTHON_PATHS):
             member = PACKAGE_PREFIX + name
             expected = (REPO_ROOT / "binding/python" / name).read_bytes()
             if wheel.namelist().count(member) != 1 or wheel.read(member) != expected:
-                raise RuntimeError("wheel client asset duplicates or differs from reviewed source: " + member)
+                raise RuntimeError(
+                    "wheel client asset duplicates or differs from reviewed source: "
+                    + member
+                )
 
         stale = set(RETIRED_MODEL_PYTHON_PATHS) & {
-            name[len(PACKAGE_PREFIX):] for name in names if name.startswith(PACKAGE_PREFIX)}
-        if stale or any(name.endswith('/compatibility.json') and name.startswith(PIPELINE_PREFIX) for name in names):
-            raise RuntimeError('wheel contains retired model execution authorities: ' + repr(sorted(stale)))
+            name[len(PACKAGE_PREFIX) :]
+            for name in names
+            if name.startswith(PACKAGE_PREFIX)
+        }
+        if stale or any(
+            name.endswith("/compatibility.json") and name.startswith(PIPELINE_PREFIX)
+            for name in names
+        ):
+            raise RuntimeError(
+                "wheel contains retired model execution authorities: "
+                + repr(sorted(stale))
+            )
 
         obsolete_checkers = sorted(
-            name for name in names
-            if Path(name).name in {"loom-qwen-epoch-check", "qwen-epoch-check", "epoch_check"}
+            name
+            for name in names
+            if Path(name).name
+            in {"loom-qwen-epoch-check", "qwen-epoch-check", "epoch_check"}
         )
         if obsolete_checkers:
-            raise RuntimeError("wheel contains obsolete model execution checkers: " + ", ".join(obsolete_checkers))
+            raise RuntimeError(
+                "wheel contains obsolete model execution checkers: "
+                + ", ".join(obsolete_checkers)
+            )
 
         entry_points_paths = [
             name for name in names if name.endswith(".dist-info/entry_points.txt")
@@ -461,9 +673,15 @@ def validate_wheel(path: Path) -> tuple[int, int]:
         entry_points = wheel.read(entry_points_paths[0]).decode("utf-8")
         parser = configparser.ConfigParser()
         parser.read_string(entry_points)
-        retired_commands = sorted(OBSOLETE_ENTRY_POINTS & set(parser.options("console_scripts"))) if parser.has_section("console_scripts") else []
+        retired_commands = (
+            sorted(OBSOLETE_ENTRY_POINTS & set(parser.options("console_scripts")))
+            if parser.has_section("console_scripts")
+            else []
+        )
         if retired_commands:
-            raise RuntimeError("wheel exposes retired commands: " + ", ".join(retired_commands))
+            raise RuntimeError(
+                "wheel exposes retired commands: " + ", ".join(retired_commands)
+            )
         for command, target in REQUIRED_ENTRY_POINTS.items():
             if parser.get("console_scripts", command, fallback=None) != target:
                 raise RuntimeError(f"wheel does not expose the {command} command")
@@ -472,14 +690,19 @@ def validate_wheel(path: Path) -> tuple[int, int]:
             raise RuntimeError("wheel must not contain executable .loom sources")
         # Catalog acceptance uses independent reviewed release DATA.
         from binding.python.models import recipes, pipelines
-        recipe_inventory.validate_wheel_catalogs(wheel, REPO_ROOT, recipes.parse, pipelines.parse)
+
+        recipe_inventory.validate_wheel_catalogs(
+            wheel, REPO_ROOT, recipes.parse, pipelines.parse
+        )
 
         weight_suffixes = {".gguf", ".safetensors", ".pt", ".pth", ".ckpt"}
         bundled_weights = sorted(
             name for name in names if Path(name).suffix.lower() in weight_suffixes
         )
         if bundled_weights:
-            raise RuntimeError("wheel must not contain model weights: " + ", ".join(bundled_weights))
+            raise RuntimeError(
+                "wheel must not contain model weights: " + ", ".join(bundled_weights)
+            )
 
         for info in wheel.infolist():
             if info.is_dir():
@@ -518,7 +741,9 @@ def validate_wheel(path: Path) -> tuple[int, int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("wheel", type=Path)
-    parser.add_argument("--sdist", type=Path, help="also verify identical reviewed source assets")
+    parser.add_argument(
+        "--sdist", type=Path, help="also verify identical reviewed source assets"
+    )
     args = parser.parse_args()
     count, size = validate_wheel(args.wheel)
     if args.sdist:
@@ -534,7 +759,10 @@ def main() -> int:
         validate_shared_integrations_sdist(args.sdist)
         with tarfile.open(args.sdist) as source_archive:
             from binding.python.models import recipes, pipelines
-            recipe_inventory.validate_sdist_catalogs(source_archive, REPO_ROOT, recipes.parse, pipelines.parse)
+
+            recipe_inventory.validate_sdist_catalogs(
+                source_archive, REPO_ROOT, recipes.parse, pipelines.parse
+            )
     print(f"Validated {args.wheel}: {count} native libraries, {size} bytes")
     return 0
 

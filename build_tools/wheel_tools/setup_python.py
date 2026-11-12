@@ -113,7 +113,9 @@ def _same_path(left: Optional[str], right: str) -> bool:
 
 def bazelrc_is_compatible(path: Path, expected: dict[str, str]) -> bool:
     existing = read_bazel_repo_env(path)
-    return all(_same_path(existing.get(name), value) for name, value in expected.items())
+    return all(
+        _same_path(existing.get(name), value) for name, value in expected.items()
+    )
 
 
 def write_bazelrc(path: Path, contents: str) -> None:

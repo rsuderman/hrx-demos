@@ -115,7 +115,6 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   loomc_target_profile_release(profile);
 }
 
-
 // Synthetic descriptor metadata exercises both native provider closures. Actual
 // checkpoint bytes and active-row numerics are a separate bounded manual gate.
 model::ModelDescriptor Facts(bool llama) {
@@ -129,7 +128,7 @@ model::ModelDescriptor Facts(bool llama) {
   return facts;
 }
 class ConfiguredFfnTest : public ::testing::TestWithParam<bool> {
- protected:
+protected:
   void SetUp() override {
     ASSERT_TRUE(Ok(loomc_target_environment_create_amdgpu(
         loomc_allocator_system(), &environment)));
@@ -138,11 +137,14 @@ class ConfiguredFfnTest : public ::testing::TestWithParam<bool> {
     target.target_environment = environment;
     loomc_context_options_t options{};
     options.next = &target;
-    ASSERT_TRUE(Ok(loomc_context_create(&options, loomc_allocator_system(), &context)));
-    ASSERT_TRUE(Ok(loomc_workspace_create(nullptr, loomc_allocator_system(), &workspace)));
+    ASSERT_TRUE(
+        Ok(loomc_context_create(&options, loomc_allocator_system(), &context)));
+    ASSERT_TRUE(Ok(
+        loomc_workspace_create(nullptr, loomc_allocator_system(), &workspace)));
     ASSERT_NE(std::getenv("TEST_SRCDIR"), nullptr);
     ASSERT_NE(std::getenv("TEST_WORKSPACE"), nullptr);
-    root = std::string(std::getenv("TEST_SRCDIR")) + "/" + std::getenv("TEST_WORKSPACE");
+    root = std::string(std::getenv("TEST_SRCDIR")) + "/" +
+           std::getenv("TEST_WORKSPACE");
   }
   void TearDown() override {
     loomc_workspace_release(workspace);
@@ -156,12 +158,17 @@ class ConfiguredFfnTest : public ::testing::TestWithParam<bool> {
     auto facts = Facts(llama);
     ConfigurationFacts config;
     std::string error;
-    ASSERT_TRUE(DeriveConfiguration(facts, "synthetic-descriptor", {4,512}, &config, &error)) << error;
-    const auto product = root + "/lib/programs/ffn/testing/" + family +
+    ASSERT_TRUE(DeriveConfiguration(facts, "synthetic-descriptor", {4, 512},
+                                    &config, &error))
+        << error;
+    const auto product =
+        root + "/lib/programs/ffn/testing/" + family +
         (relocatable ? "_fixture.loombc" : "_fixture_text.loom");
     const auto symbol = "test." + family + ".ffn." + suffix;
-    ASSERT_TRUE(LinkConfiguredProducts(context, workspace, config.source, {product},
-        {symbol.c_str()}, true, module, &error)) << error;
+    ASSERT_TRUE(LinkConfiguredProducts(context, workspace, config.source,
+                                       {product}, {symbol.c_str()}, true,
+                                       module, &error))
+        << error;
     ASSERT_NE(*module, nullptr);
   }
   loomc_target_environment_t *environment = nullptr;
@@ -186,20 +193,21 @@ TEST_P(ConfiguredFfnTest, SourceAndRelocatableProfilesMaterializeAndCompile) {
 TEST_P(ConfiguredFfnTest, DecodeRejectsMoreThanOneRowDuringConstruction) {
   const std::string family = GetParam() ? "llama" : "qwen";
   const auto symbol = "test." + family + ".ffn.bad_decode_rows";
-  const auto product = root + "/lib/programs/ffn/testing/" + family +
-      "_fixture.loombc";
+  const auto product =
+      root + "/lib/programs/ffn/testing/" + family + "_fixture.loombc";
   ConfigurationFacts config;
   std::string error;
   ASSERT_TRUE(DeriveConfiguration(Facts(GetParam()), "synthetic-descriptor",
-      {4, 512}, &config, &error)) << error;
-  loomc_module_t* module = nullptr;
-  EXPECT_FALSE(LinkConfiguredProducts(context, workspace, config.source, {product},
-      {symbol.c_str()}, true, &module, &error));
+                                  {4, 512}, &config, &error))
+      << error;
+  loomc_module_t *module = nullptr;
+  EXPECT_FALSE(LinkConfiguredProducts(context, workspace, config.source,
+                                      {product}, {symbol.c_str()}, true,
+                                      &module, &error));
   EXPECT_EQ(module, nullptr);
   EXPECT_NE(error.find("loomify.ffn.decode_rows"), std::string::npos) << error;
   EXPECT_NE(error.find("all_rejected"), std::string::npos) << error;
 }
-
 
 INSTANTIATE_TEST_SUITE_P(Profiles, ConfiguredFfnTest, ::testing::Bool());
 } // namespace

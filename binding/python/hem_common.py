@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-
 DEFAULT_TIMEOUT = 10.0
 
 
@@ -16,8 +15,14 @@ class HemError(Exception):
 
     exit_code = 1
 
-    def __init__(self, message: str, *, accepted: Optional[bool] = None,
-                 status: Optional[int] = None, reason: Optional[str] = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        accepted: Optional[bool] = None,
+        status: Optional[int] = None,
+        reason: Optional[str] = None,
+    ):
         super().__init__(message)
         # True: acknowledged; False: known rejected; None: not established.
         self.accepted = accepted
@@ -54,8 +59,12 @@ class Deadline:
     clock: Callable[[], float] = time.monotonic
 
     @classmethod
-    def after(cls, seconds: float = DEFAULT_TIMEOUT, *,
-              clock: Callable[[], float] = time.monotonic) -> Deadline:
+    def after(
+        cls,
+        seconds: float = DEFAULT_TIMEOUT,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> Deadline:
         if not math.isfinite(seconds) or seconds <= 0:
             raise InvalidInput("timeout must be a finite positive number")
         return cls(clock() + seconds, clock)
@@ -63,7 +72,9 @@ class Deadline:
     def remaining(self) -> float:
         remaining = self.expires_at - self.clock()
         if remaining <= 0:
-            raise DeadlineExpired("deadline expired; no automatic cancellation was requested")
+            raise DeadlineExpired(
+                "deadline expired; no automatic cancellation was requested"
+            )
         return remaining
 
 

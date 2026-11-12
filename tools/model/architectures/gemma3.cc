@@ -5,7 +5,8 @@
 namespace hrx::model::internal {
 namespace {
 const char *Gemma3TensorSuffix(std::string_view role, bool is_layer) {
-  if (!is_layer) return nullptr;
+  if (!is_layer)
+    return nullptr;
 
   if (role == "attention_post_norm")
     return "post_attention_norm.weight";
@@ -39,6 +40,6 @@ void LoadGemma3(const Loader &l, ModelDescriptor &m) {
   }
 }
 } // namespace
-const ModelArchitecture kGemma3Architecture{
-    "gemma3", LoadGemma3, Gemma3TensorSuffix};
+const ModelArchitecture kGemma3Architecture{"gemma3", LoadGemma3,
+                                            Gemma3TensorSuffix};
 } // namespace hrx::model::internal

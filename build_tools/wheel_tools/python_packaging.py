@@ -25,7 +25,6 @@ from setuptools import Distribution
 from setuptools.command.bdist_wheel import bdist_wheel
 from setuptools.command.build_py import build_py
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BAZEL_TARGETS = {"loom-serve": "//:loom-serve"}
 BAZEL_BUILD_OPTIONS = ("--config=opt",)
@@ -162,33 +161,45 @@ class BazelBuildContext:
     names until family-specific artifact identity selection. No global cache or
     artifact interpretation belongs here.
     """
+
     executable: Path
     repository: Path
     options: tuple[str, ...]
     environment: Mapping[str, str]
 
     def __post_init__(self):
-        object.__setattr__(self, 'executable', Path(self.executable).absolute())
-        object.__setattr__(self, 'repository', Path(self.repository).absolute())
-        object.__setattr__(self, 'options', tuple(self.options))
-        object.__setattr__(self, 'environment', MappingProxyType(dict(self.environment)))
+        object.__setattr__(self, "executable", Path(self.executable).absolute())
+        object.__setattr__(self, "repository", Path(self.repository).absolute())
+        object.__setattr__(self, "options", tuple(self.options))
+        object.__setattr__(
+            self, "environment", MappingProxyType(dict(self.environment))
+        )
 
     def query(self, target: str) -> tuple[Path, ...]:
         result = subprocess.run(
             [str(self.executable), "cquery", *self.options, "--output=files", target],
-            cwd=self.repository, check=True, text=True, stdout=subprocess.PIPE,
+            cwd=self.repository,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
             env=dict(self.environment),
         )
         # Cardinality, file presence/content and model identities remain caller
         # decisions. In particular, do not resolve symlinks before Qwen parsing.
-        paths = (Path(line.strip()) for line in result.stdout.splitlines() if line.strip())
-        return tuple(path if path.is_absolute() else self.repository / path for path in paths)
+        paths = (
+            Path(line.strip()) for line in result.stdout.splitlines() if line.strip()
+        )
+        return tuple(
+            path if path.is_absolute() else self.repository / path for path in paths
+        )
 
 
 def _native_output(context: BazelBuildContext, target: str) -> Path:
     outputs = context.query(target)
     if len(outputs) != 1:
-        raise RuntimeError(f"Expected one Bazel output for {target}, got {list(map(str, outputs))!r}")
+        raise RuntimeError(
+            f"Expected one Bazel output for {target}, got {list(map(str, outputs))!r}"
+        )
     output = outputs[0]
     if not output.is_file():
         raise RuntimeError(f"Bazel output for {target} does not exist: {output}")
@@ -222,14 +233,20 @@ def build_native_executables(context: BazelBuildContext) -> dict[str, Path]:
             f"--build_event_json_file={metrics_path / 'native-build.events.json'}",
         ]
     subprocess.run(
-        [str(context.executable), "build", *context.options, *metrics_options, *BAZEL_TARGETS.values(), *package_families.build_targets()],
+        [
+            str(context.executable),
+            "build",
+            *context.options,
+            *metrics_options,
+            *BAZEL_TARGETS.values(),
+            *package_families.build_targets(),
+        ],
         cwd=context.repository,
         check=True,
         env=dict(context.environment),
     )
     return {
-        name: _native_output(context, target)
-        for name, target in BAZEL_TARGETS.items()
+        name: _native_output(context, target) for name, target in BAZEL_TARGETS.items()
     }
 
 
@@ -372,7 +389,9 @@ def validate_wheel_platform() -> None:
     if os.name != "posix" or platform.system() != "Linux":
         raise RuntimeError("HRX Solutions wheels currently require Linux")
     if machine not in ("x86_64", "amd64"):
-        raise RuntimeError(f"HRX Solutions wheels currently require x86-64, got {machine}")
+        raise RuntimeError(
+            f"HRX Solutions wheels currently require x86-64, got {machine}"
+        )
 
 
 class BinaryDistribution(Distribution):
@@ -401,18 +420,28 @@ class BazelBuildPy(build_py):
         validate_wheel_platform()
         bazel = discover_bazel()
         rocm_root = discover_rocm_root()
-        context = BazelBuildContext(bazel, REPO_ROOT, wheel_build_options(rocm_root), bazel_environment())
+        context = BazelBuildContext(
+            bazel, REPO_ROOT, wheel_build_options(rocm_root), bazel_environment()
+        )
         executables = build_native_executables(context)
         products = package_families.prepare(context.query, context.repository)
         package_root = Path(self.build_lib) / "hrx_solutions"
         if package_root.exists():
             shutil.rmtree(package_root)
         super().run()
-        self._catalog_outputs = package_families.stage(package_root, products, context.repository)
+        self._catalog_outputs = package_families.stage(
+            package_root, products, context.repository
+        )
         native_root = package_root / "_native"
         hrx_source = discover_hrx_source(context)
-        self._native_outputs = stage_native_payload(native_root, executables, rocm_root, hrx_source)
-        self._native_outputs.extend(package_families.stage_helpers(native_root, products, repository=context.repository))
+        self._native_outputs = stage_native_payload(
+            native_root, executables, rocm_root, hrx_source
+        )
+        self._native_outputs.extend(
+            package_families.stage_helpers(
+                native_root, products, repository=context.repository
+            )
+        )
 
     def get_outputs(self, include_bytecode: int = 1) -> list[str]:
         outputs = super().get_outputs(include_bytecode)

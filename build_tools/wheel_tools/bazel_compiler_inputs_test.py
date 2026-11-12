@@ -1,4 +1,5 @@
 """Tests for the unmanaged compiler-input cache contract."""
+
 import json
 import tempfile
 import unittest
@@ -13,9 +14,15 @@ class CompilerInputsTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        for name in ("lib/llvm/bin/clang", "lib/llvm/bin/clang++", "lib/llvm/bin/ld.lld",
-                     "lib/llvm/lib/libLLVM.so", "lib/llvm/lib/clang/24/include/stddef.h",
-                     "lib/llvm/include/c++/v1/cstddef", "lib/llvm/bin/clang.cfg"):
+        for name in (
+            "lib/llvm/bin/clang",
+            "lib/llvm/bin/clang++",
+            "lib/llvm/bin/ld.lld",
+            "lib/llvm/lib/libLLVM.so",
+            "lib/llvm/lib/clang/24/include/stddef.h",
+            "lib/llvm/include/c++/v1/cstddef",
+            "lib/llvm/bin/clang.cfg",
+        ):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
@@ -34,9 +41,14 @@ class CompilerInputsTest(unittest.TestCase):
         return compiler.fingerprint(self.root, "sha256:fixture")["fingerprint"]
 
     def test_actual_content_changes_invalidate(self):
-        for name in ("lib/llvm/bin/clang", "lib/llvm/bin/ld.lld", "lib/llvm/lib/libLLVM.so",
-                     "lib/llvm/lib/clang/24/include/stddef.h", "lib/llvm/include/c++/v1/cstddef",
-                     "lib/llvm/bin/clang.cfg"):
+        for name in (
+            "lib/llvm/bin/clang",
+            "lib/llvm/bin/ld.lld",
+            "lib/llvm/lib/libLLVM.so",
+            "lib/llvm/lib/clang/24/include/stddef.h",
+            "lib/llvm/include/c++/v1/cstddef",
+            "lib/llvm/bin/clang.cfg",
+        ):
             with self.subTest(name=name):
                 before = self.identity()
                 path = self.root / name
@@ -65,8 +77,10 @@ class CompilerInputsTest(unittest.TestCase):
             self.identity()
 
     def test_image_change_invalidates_system_inputs(self):
-        self.assertNotEqual(self.identity(),
-                            compiler.fingerprint(self.root, "sha256:new")["fingerprint"])
+        self.assertNotEqual(
+            self.identity(),
+            compiler.fingerprint(self.root, "sha256:new")["fingerprint"],
+        )
 
     def test_unresolved_library_fails_closed(self):
         with patch.object(compiler, "_run", return_value="libLLVM.so => not found"):
@@ -78,9 +92,12 @@ class CompilerInputsTest(unittest.TestCase):
         path.write_text("build --config=opt\n")
         compiler.configure(path, "old")
         compiler.configure(path, "new")
-        self.assertEqual(path.read_text(), "build --config=opt\n"
-                         "common --action_env=HRX_WHEEL_COMPILER_INPUTS=new\n"
-                         "common --host_action_env=HRX_WHEEL_COMPILER_INPUTS=new\n")
+        self.assertEqual(
+            path.read_text(),
+            "build --config=opt\n"
+            "common --action_env=HRX_WHEEL_COMPILER_INPUTS=new\n"
+            "common --host_action_env=HRX_WHEEL_COMPILER_INPUTS=new\n",
+        )
 
 
 if __name__ == "__main__":

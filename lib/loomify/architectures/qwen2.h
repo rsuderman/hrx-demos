@@ -5,6 +5,7 @@
 #include "lib/loomify/configuration.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitQwen2(const model::ModelDescriptor &, const std::string &,
-    const ConfigurationSettings &, ConfigurationFacts *, std::string *);
+               const ConfigurationSettings &, ConfigurationFacts *,
+               std::string *);
 } // namespace hrx::loomify_gguf::internal
 #endif

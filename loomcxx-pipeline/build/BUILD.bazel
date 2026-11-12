@@ -1,1 +1,4 @@
-exports_files(["loomcxx.bzl", "testing.bzl"])
+exports_files([
+    "loomcxx.bzl",
+    "testing.bzl",
+])

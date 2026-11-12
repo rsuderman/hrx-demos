@@ -9,10 +9,11 @@
 namespace hrx::model::internal {
 const ModelArchitecture *SelectModelArchitecture(std::string_view family) {
   static const ModelArchitecture *const entries[] = {
-    &kLlamaArchitecture, &kQwen2Architecture, &kQwen3Architecture, &kGemma3Architecture, &kQwen35Architecture
-  };
+      &kLlamaArchitecture, &kQwen2Architecture, &kQwen3Architecture,
+      &kGemma3Architecture, &kQwen35Architecture};
   for (const auto *entry : entries)
-    if (family == entry->family) return entry;
+    if (family == entry->family)
+      return entry;
   return nullptr;
 }
 } // namespace hrx::model::internal

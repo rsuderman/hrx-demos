@@ -25,9 +25,13 @@ class FormatRunnerTest(unittest.TestCase):
         source = Path(__file__).resolve().parents[1]
         (self.root / "build_tools").mkdir()
         for name in ("format.sh", "format-tools.env"):
-            shutil.copyfile(source / "build_tools" / name, self.root / "build_tools" / name)
+            shutil.copyfile(
+                source / "build_tools" / name, self.root / "build_tools" / name
+            )
         self.pins = {}
-        for line in (self.root / "build_tools/format-tools.env").read_text().splitlines():
+        for line in (
+            (self.root / "build_tools/format-tools.env").read_text().splitlines()
+        ):
             if line and not line.startswith("#"):
                 key, value = line.split("=", 1)
                 self.pins[key] = value
@@ -40,13 +44,18 @@ class FormatRunnerTest(unittest.TestCase):
 
     def git(self, *arguments):
         return subprocess.run(
-            [str(self.bin / "git"), *arguments], cwd=self.root, check=True,
-            capture_output=True, env=self.env,
+            [str(self.bin / "git"), *arguments],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            env=self.env,
         )
 
     def fake_tool(self, name):
         version = {
-            "buildifier": "buildifier version: " + self.pins["BUILDIFIER_VERSION"] + " ",
+            "buildifier": "buildifier version: "
+            + self.pins["BUILDIFIER_VERSION"]
+            + " ",
             "clang-format": "clang-format version " + self.pins["CLANG_FORMAT_VERSION"],
             "black": "black, " + self.pins["BLACK_VERSION"] + " (compiled: yes)",
         }[name]
@@ -74,11 +83,18 @@ class FormatRunnerTest(unittest.TestCase):
     def run_format(self, *arguments):
         return subprocess.run(
             ["/bin/bash", str(self.root / "build_tools/format.sh"), *arguments],
-            cwd=self.base, env=self.env, text=True, capture_output=True,
+            cwd=self.base,
+            env=self.env,
+            text=True,
+            capture_output=True,
         )
 
     def calls(self):
-        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+        return (
+            [json.loads(line) for line in self.log.read_text().splitlines()]
+            if self.log.exists()
+            else []
+        )
 
     def test_help_needs_no_tools_and_invalid_options_do_not_run_them(self):
         for name in ("black", "buildifier", "clang-format"):
@@ -117,7 +133,9 @@ class FormatRunnerTest(unittest.TestCase):
         self.assertEqual(calls["buildifier"][-1], "BUILD.bazel")
         self.assertIn("-buildifier_disable=listsort", calls["buildifier"])
         self.assertIn("-buildifier_disable=label", calls["buildifier"])
-        self.assertEqual(calls["clang-format"][-2:], ["kernel.cxx", "odd name\npart.cc"])
+        self.assertEqual(
+            calls["clang-format"][-2:], ["kernel.cxx", "odd name\npart.cc"]
+        )
         self.assertEqual(calls["black"][-1], "normal.py")
         self.assertIn("--check", calls["black"])
         self.assertIn("--dry-run", calls["clang-format"])

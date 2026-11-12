@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 """Local independent template inputs; never imports a production recognizer."""
+
 import copy
 import json
 
@@ -18,7 +19,6 @@ def render_kwargs(case, source_override: bool):
         kwargs.pop("add_generation_prompt", None)
     tools = request.get("tools")
     return (request["messages"], tools, kwargs)
-
 
 
 def error_record(error):

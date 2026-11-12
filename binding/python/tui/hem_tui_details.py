@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-
 UNAVAILABLE = "Unavailable"
 
 
@@ -59,9 +58,11 @@ def detail_fields(service) -> Tuple[Tuple[str, str], ...]:
         ("HTTP", display_value(service.http_state)),
     ]
     if service.kind == "model":
-        fields.extend((
-            ("Model identity", display_value(service.name)),
-            ("Incarnation", display_value(service.incarnation)),
-            ("Readiness", display_value(service.state)),
-        ))
+        fields.extend(
+            (
+                ("Model identity", display_value(service.name)),
+                ("Incarnation", display_value(service.incarnation)),
+                ("Readiness", display_value(service.state)),
+            )
+        )
     return tuple(fields)

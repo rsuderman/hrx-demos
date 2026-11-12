@@ -1,4 +1,5 @@
 """Non-creating state/cache paths for direct native catalog translation."""
+
 from __future__ import annotations
 
 import os

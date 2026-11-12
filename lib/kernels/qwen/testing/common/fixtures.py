@@ -8,85 +8,168 @@ closed-form K-block values. Projection Q8 values are exactly +/-127; FFN needs
 only four scalar SiLU values per row followed by one known quantized sum.
 Production math is never imported. Regenerate fixtures.loom with this script.
 """
+
 import math
 import struct
 from pathlib import Path
 
-from fixture_helpers import (f32, f16, out, kernel, reference, input_body,
-                             weight_body, prefix, store_pattern, ffn_anchors)
+from fixture_helpers import (
+    f32,
+    f16,
+    out,
+    kernel,
+    reference,
+    input_body,
+    weight_body,
+    prefix,
+    store_pattern,
+    ffn_anchors,
+)
+
 ROOT = Path(__file__).parent
 
-anchors={}
-for rows in (1,3):
-    for width in (256,512):
-        for tag in (12,13,14):
-            name=f'proj_{tag}_{rows}_{width}'
-            kernel('test.init.'+name,13,'%input: buffer, %weight: buffer',prefix()+input_body(rows,width)+'\n'+weight_body(tag,width,'proj','weight','w'))
-            packed=bytearray()
-            expected=[]
+anchors = {}
+for rows in (1, 3):
+    for width in (256, 512):
+        for tag in (12, 13, 14):
+            name = f"proj_{tag}_{rows}_{width}"
+            kernel(
+                "test.init." + name,
+                13,
+                "%input: buffer, %weight: buffer",
+                prefix()
+                + input_body(rows, width)
+                + "\n"
+                + weight_body(tag, width, "proj", "weight", "w"),
+            )
+            packed = bytearray()
+            expected = []
             for r in range(rows):
-                for group in range(width//128):
-                    ds=[];qs=[]
+                for group in range(width // 128):
+                    ds = []
+                    qs = []
                     for b in range(4):
-                        g=4*group+b
-                        sign=-1 if g%4==2 else 1
-                        d=(r+1)*(g%8+1)/128
-                        ds.extend([d,f16(sign*4064*d)])
-                        qs.extend([sign*127]*32)
-                    packed.extend(struct.pack('<8e',*ds)+struct.pack('<128b',*qs))
-                vals=[]
+                        g = 4 * group + b
+                        sign = -1 if g % 4 == 2 else 1
+                        d = (r + 1) * (g % 8 + 1) / 128
+                        ds.extend([d, f16(sign * 4064 * d)])
+                        qs.extend([sign * 127] * 32)
+                    packed.extend(struct.pack("<8e", *ds) + struct.pack("<128b", *qs))
+                vals = []
                 for channel in range(4):
-                    dot=0
-                    for g in range(width//32):
-                        sign=-1 if g%4==2 else 1
-                        d8=(r+1)*(g%8+1)/128
-                        d=(channel+1)*(g//8+1)/32
-                        if tag==12: dot+=32*sign*127*d8*d*(1 if g%2==0 else 2)-f16(sign*4064*d8)/64
-                        elif tag==13: dot+=32*sign*127*d8*d*(1 if g%2==0 else 18)-f16(sign*4064*d8)/64
-                        else: dot+=32*sign*127*d8*d*(-2)*(1 if g%4<2 else 2)
+                    dot = 0
+                    for g in range(width // 32):
+                        sign = -1 if g % 4 == 2 else 1
+                        d8 = (r + 1) * (g % 8 + 1) / 128
+                        d = (channel + 1) * (g // 8 + 1) / 32
+                        if tag == 12:
+                            dot += (
+                                32 * sign * 127 * d8 * d * (1 if g % 2 == 0 else 2)
+                                - f16(sign * 4064 * d8) / 64
+                            )
+                        elif tag == 13:
+                            dot += (
+                                32 * sign * 127 * d8 * d * (1 if g % 2 == 0 else 18)
+                                - f16(sign * 4064 * d8) / 64
+                            )
+                        else:
+                            dot += (
+                                32
+                                * sign
+                                * 127
+                                * d8
+                                * d
+                                * (-2)
+                                * (1 if g % 4 < 2 else 2)
+                            )
                     vals.append(f32(dot))
                 expected.append(vals)
             # Reference writes literal physical packed words, not a packer.
-            body=prefix()+store_pattern(rows,13,'output',expected,'y')+'  scf.if %is_zero {\n'
-            body+=f'    %packed_view = buffer.view %packed[%origin] : buffer -> view<{len(packed)//4}xi32>\n'
-            for i,(word,) in enumerate(struct.iter_unpack('<i',packed)):
-                body+=f'    %word{i} = scalar.constant {word} : i32\n    view.store %word{i}, %packed_view[{i}] : i32, view<{len(packed)//4}xi32>\n'
-            body+='  }\n'
-            kernel('test.expected.'+name,13,'%packed: buffer, %output: buffer',body)
-            reference(name,13,'%input: buffer, %weight: buffer, %packed: buffer, %output: buffer',
-                f'    func.call @test.init.{name}.body(%channel, %input, %weight) : (index, buffer, buffer) -> ()\n'
-                f'    func.call @test.expected.{name}.body(%channel, %packed, %output) : (index, buffer, buffer) -> ()')
-            anchors[name]={'output_mod4' :expected,'packed_sha256':__import__('hashlib').sha256(packed).hexdigest()}
+            body = (
+                prefix()
+                + store_pattern(rows, 13, "output", expected, "y")
+                + "  scf.if %is_zero {\n"
+            )
+            body += f"    %packed_view = buffer.view %packed[%origin] : buffer -> view<{len(packed)//4}xi32>\n"
+            for i, (word,) in enumerate(struct.iter_unpack("<i", packed)):
+                body += f"    %word{i} = scalar.constant {word} : i32\n    view.store %word{i}, %packed_view[{i}] : i32, view<{len(packed)//4}xi32>\n"
+            body += "  }\n"
+            kernel(
+                "test.expected." + name, 13, "%packed: buffer, %output: buffer", body
+            )
+            reference(
+                name,
+                13,
+                "%input: buffer, %weight: buffer, %packed: buffer, %output: buffer",
+                f"    func.call @test.init.{name}.body(%channel, %input, %weight) : (index, buffer, buffer) -> ()\n"
+                f"    func.call @test.expected.{name}.body(%channel, %packed, %output) : (index, buffer, buffer) -> ()",
+            )
+            anchors[name] = {
+                "output_mod4": expected,
+                "packed_sha256": __import__("hashlib").sha256(packed).hexdigest(),
+            }
 
-for rows in (1,3):
+for rows in (1, 3):
     for layer in range(6):
-        gate=12+layer%3;down=13+layer%2
-        name=f'ffn_{layer}_{rows}'
-        body=prefix()+input_body(rows,1024,True)+'\n'
-        body+=weight_body(gate,1024,'gate','gate','g')+weight_body(gate,1024,'up','up','u')
-        body+='  %hidden = index.constant 1024 : index\n  %small = index.cmp ult, %channel, %hidden : index\n  scf.if %small {\n'
-        body+=weight_body(down,3584,'down','down','d')
-        initial=[[f32(-.25+r/16+k/64) for k in range(4)] for r in range(rows)]
-        body+=store_pattern(rows,1024,'residual',initial,'res')+'  }\n'
-        kernel('test.init.'+name,3584,'%input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer',body)
-        _, activation, result = ffn_anchors(rows,1024,3584)
-        kernel('test.expected.'+name,3584,'%input: buffer, %activation: buffer, %residual: buffer',prefix()+input_body(rows,1024,True)+'\n'+store_pattern(rows,3584,'activation',activation,'act')+store_pattern(rows,1024,'residual',result,'final'))
-        reference(name,3584,'%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer',
-            f'    func.call @test.expected.{name}.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer) -> ()')
-        anchors[name]={'gate_tag' :gate,'down_tag':down,'activation_mod4':activation,'residual_mod4':result}
+        gate = 12 + layer % 3
+        down = 13 + layer % 2
+        name = f"ffn_{layer}_{rows}"
+        body = prefix() + input_body(rows, 1024, True) + "\n"
+        body += weight_body(gate, 1024, "gate", "gate", "g") + weight_body(
+            gate, 1024, "up", "up", "u"
+        )
+        body += "  %hidden = index.constant 1024 : index\n  %small = index.cmp ult, %channel, %hidden : index\n  scf.if %small {\n"
+        body += weight_body(down, 3584, "down", "down", "d")
+        initial = [
+            [f32(-0.25 + r / 16 + k / 64) for k in range(4)] for r in range(rows)
+        ]
+        body += store_pattern(rows, 1024, "residual", initial, "res") + "  }\n"
+        kernel(
+            "test.init." + name,
+            3584,
+            "%input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer",
+            body,
+        )
+        _, activation, result = ffn_anchors(rows, 1024, 3584)
+        kernel(
+            "test.expected." + name,
+            3584,
+            "%input: buffer, %activation: buffer, %residual: buffer",
+            prefix()
+            + input_body(rows, 1024, True)
+            + "\n"
+            + store_pattern(rows, 3584, "activation", activation, "act")
+            + store_pattern(rows, 1024, "residual", result, "final"),
+        )
+        reference(
+            name,
+            3584,
+            "%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer",
+            f"    func.call @test.expected.{name}.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer) -> ()",
+        )
+        anchors[name] = {
+            "gate_tag": gate,
+            "down_tag": down,
+            "activation_mod4": activation,
+            "residual_mod4": result,
+        }
 
-(ROOT/'fixtures.loom').write_text(''.join(out))
+(ROOT / "fixtures.loom").write_text("".join(out))
 import json
-(ROOT/'anchors.json').write_text(json.dumps(anchors,indent=2)+'\n')
 
-checks=['// Copyright 2026 AMD ROCm™ Software\n// SPDX-License-Identifier: MIT\n// Generated by fixtures.py. Exact guards; deterministic independent anchors.\n']
-for rows in (1,3):
-    for width in (256,512):
-        for tag in (12,13,14):
-            name=f'proj_{tag}_{rows}_{width}'
-            packed=rows*width//128*144; output=rows*13
-            weight=13*(width//256)*{12:144,13:176,14:210}[tag]
-            checks.append(f'''check.scenario @{name} {{
+(ROOT / "anchors.json").write_text(json.dumps(anchors, indent=2) + "\n")
+
+checks = [
+    "// Copyright 2026 AMD ROCm™ Software\n// SPDX-License-Identifier: MIT\n// Generated by fixtures.py. Exact guards; deterministic independent anchors.\n"
+]
+for rows in (1, 3):
+    for width in (256, 512):
+        for tag in (12, 13, 14):
+            name = f"proj_{tag}_{rows}_{width}"
+            packed = rows * width // 128 * 144
+            output = rows * 13
+            weight = 13 * (width // 256) * {12: 144, 13: 176, 14: 210}[tag]
+            checks.append(f"""check.scenario @{name} {{
   check.trial[1](%trial: index, %entropy: check.entropy) {{
     %input = check.generate.fill value(-7.0) : tensor<{rows*width}xf32>
     %weight = check.generate.fill value(43) : tensor<{weight}xi8>
@@ -111,10 +194,12 @@ for rows in (1,3):
   }}
   check.return
 }}
-''')
+""")
     for layer in range(6):
-        name=f'ffn_{layer}_{rows}'; residual=rows*1024; activation=rows*3584
-        checks.append(f'''check.scenario @{name} {{
+        name = f"ffn_{layer}_{rows}"
+        residual = rows * 1024
+        activation = rows * 3584
+        checks.append(f"""check.scenario @{name} {{
   check.trial[1](%trial: index, %entropy: check.entropy) {{
     %root_storage = check.generate.fill value(77) : tensor<10000512xi8>
     %root = check.tensor.view %root_storage offset(256) : tensor<10000512xi8> -> tensor<10000000xi8>
@@ -145,11 +230,14 @@ for rows in (1,3):
   }}
   check.return
 }}
-''')
-declarations=[]
+""")
+declarations = []
 for name in anchors:
-    args = '%a: buffer, %b: buffer, %c: buffer, %d: buffer'
-    if name.startswith('ffn_'): args += ', %e: buffer'
-    declarations.append(f'command.decl @actual.{name}() launch({args})\n')
-    declarations.append(f'func.decl @reference.{name}({args})\n')
-(ROOT/'checks.loom').write_text(checks[0]+''.join(declarations)+''.join(checks[1:]))
+    args = "%a: buffer, %b: buffer, %c: buffer, %d: buffer"
+    if name.startswith("ffn_"):
+        args += ", %e: buffer"
+    declarations.append(f"command.decl @actual.{name}() launch({args})\n")
+    declarations.append(f"func.decl @reference.{name}({args})\n")
+(ROOT / "checks.loom").write_text(
+    checks[0] + "".join(declarations) + "".join(checks[1:])
+)

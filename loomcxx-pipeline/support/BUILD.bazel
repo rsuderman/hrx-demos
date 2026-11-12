@@ -5,7 +5,10 @@ package(default_visibility = ["//visibility:public"])
 
 cc_binary(
     name = "assemble",
-    srcs = ["assemble.cc", "mapping.h"],
+    srcs = [
+        "assemble.cc",
+        "mapping.h",
+    ],
     cxxopts = ["-std=c++17"],
     deps = [
         "@hrx_system//loom/binding/c:interop",
@@ -21,7 +24,10 @@ cc_binary(
 cc_test(
     name = "mapping_test",
     size = "small",
-    srcs = ["mapping_test.cc", "mapping.h"],
+    srcs = [
+        "mapping_test.cc",
+        "mapping.h",
+    ],
     copts = ["-std=c++17"],
     deps = ["@googletest//:gtest_main"],
 )

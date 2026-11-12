@@ -1,8 +1,23 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+
 package(default_visibility = ["//visibility:public"])
+
 exports_files(glob(["*.loom"]))
-filegroup(name = "all_sources", srcs = glob(["*.loom"]))
-loom_library(name = "kv_position", srcs = ["kv_position.loom"])
-loom_library(name = "core", srcs = ["core.loom"], deps = [":kv_position"])
+
+filegroup(
+    name = "all_sources",
+    srcs = glob(["*.loom"]),
+)
+
+loom_library(
+    name = "kv_position",
+    srcs = ["kv_position.loom"],
+)
+
+loom_library(
+    name = "core",
+    srcs = ["core.loom"],
+    deps = [":kv_position"],
+)

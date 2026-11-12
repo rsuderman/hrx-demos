@@ -29,9 +29,9 @@ iree_c_embed_data(
         "@hrx_system//loom/src/loom/import/cxx:include/loomcxx/view.h",
     ],
     c_file_output = "facade_headers.c",
+    flatten = True,
     h_file_output = "facade_headers.h",
     identifier = "facade_headers",
-    flatten = True,
 )
 
 cc_binary(
@@ -62,9 +62,9 @@ iree_c_embed_data(
     testonly = True,
     srcs = [":authored_program"],
     c_file_output = "authored_program_data.c",
+    flatten = True,
     h_file_output = "authored_program_data.h",
     identifier = "authored_program_data",
-    flatten = True,
 )
 
 cc_test(
@@ -92,7 +92,10 @@ loom_test(
 )
 
 iree_c_embed_data(
-    name = "wrapper_source", srcs = ["affine.loom"],
-    c_file_output = "wrapper_source.c", h_file_output = "wrapper_source.h",
-    identifier = "wrapper_source", flatten = True,
+    name = "wrapper_source",
+    srcs = ["affine.loom"],
+    c_file_output = "wrapper_source.c",
+    flatten = True,
+    h_file_output = "wrapper_source.h",
+    identifier = "wrapper_source",
 )

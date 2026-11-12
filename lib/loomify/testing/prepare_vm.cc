@@ -29,9 +29,8 @@ constexpr Signature kParameter[] = {
     {IREE_VM_SCALAR_TYPE_I32, 0},
     {IREE_VM_SCALAR_TYPE_I32, 0},
     {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0}};
-constexpr Signature kSourceIn[] = {
-    {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
-    {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0}};
+constexpr Signature kSourceIn[] = {{IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
+                                   {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0}};
 constexpr Signature kStageIn[] = {{IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
                                   {IREE_VM_SCALAR_TYPE_I64, 0}};
 constexpr Signature kStageOut[] = {{IREE_VM_SCALAR_TYPE_I32, 0}};
@@ -65,7 +64,8 @@ const iree_vm_module_export_declaration_t kInputExports[] = {
 const iree_vm_module_export_declaration_t kJsonExports[] = {
     {IREE_SVL("members"), 0, 0, 0}};
 const iree_vm_module_export_declaration_t kPrepareExports[] = {
-    {IREE_SVL("parameter"), 2, 0, 0}, {IREE_SVL("source"), 1, 1, 0},
+    {IREE_SVL("parameter"), 2, 0, 0},
+    {IREE_SVL("source"), 1, 1, 0},
     {IREE_SVL("stage"), 0, 2, 0}};
 struct Native {
   iree_vm_module_t module{};

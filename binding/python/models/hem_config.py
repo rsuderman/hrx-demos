@@ -1,4 +1,5 @@
 """Pure recipe configuration and checked native documents for every modality."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -52,6 +53,7 @@ def load_config(path: Optional[Path]) -> dict:
     """Read strict JSON; selected modality admission happens for every layer."""
     if path is None:
         return {}
+
     def pairs(entries):
         result = {}
         for key, value in entries:
@@ -59,13 +61,20 @@ def load_config(path: Optional[Path]) -> dict:
                 raise InvalidInput(f"Duplicate configuration key: {key}")
             result[key] = value
         return result
+
     def constant(value):
         raise InvalidInput(f"Nonfinite JSON value is unsupported: {value}")
+
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"),
-                           object_pairs_hook=pairs, parse_constant=constant)
+        value = json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=pairs,
+            parse_constant=constant,
+        )
         if not isinstance(value, dict):
-            raise InvalidInput("configuration must be a flat object of serving settings")
+            raise InvalidInput(
+                "configuration must be a flat object of serving settings"
+            )
         freeze_json(value)
         return value
     except (OSError, UnicodeError, ValueError, RecursionError) as exc:
@@ -75,17 +84,20 @@ def load_config(path: Optional[Path]) -> dict:
 def effective_settings(recipe, serving, modality, file_settings=None, overrides=None):
     """Admit each layer with concrete policy, then validate final winners once."""
     values, sources, ranks = {}, {}, {}
-    layers = (('default', modality.defaults(serving)), ('recipe', recipe['configuration']),
-              ('file', {} if file_settings is None else file_settings),
-              ('override', {} if overrides is None else overrides))
+    layers = (
+        ("default", modality.defaults(serving)),
+        ("recipe", recipe["configuration"]),
+        ("file", {} if file_settings is None else file_settings),
+        ("override", {} if overrides is None else overrides),
+    )
     for rank, (label, layer) in enumerate(layers):
         if not isinstance(layer, Mapping):
-            raise InvalidInput(f'{label}: expected settings object')
+            raise InvalidInput(f"{label}: expected settings object")
         try:
             freeze_json(layer)
             modality.validate_layer(serving, layer)
         except (ValueError, RecursionError) as error:
-            raise InvalidInput(f'{label}: expected finite JSON settings') from error
+            raise InvalidInput(f"{label}: expected finite JSON settings") from error
         for key, value in layer.items():
             values[key], sources[key], ranks[key] = value, label, rank
     modality.finalize(serving, values, sources, ranks)
@@ -93,17 +105,29 @@ def effective_settings(recipe, serving, modality, file_settings=None, overrides=
 
 
 def _executable_info(reference, executable, catalog, identity, budget):
-    modality = modalities.get(executable['modality'])
+    modality = modalities.get(executable["modality"])
     programs = pipelines.programs(executable, catalog, budget)
-    if executable['modality'] == 'chat':
+    if executable["modality"] == "chat":
         programs = dict(programs)
-        programs['providers'] = programs.pop('sources')
-    return json_document(freeze_json(dict(
-        executable=reference, executable_id=executable['id'], executable_identity=identity,
-        modality=executable['modality'], native_contract=executable['native_contract'],
-        parameters=modality.parameters(executable['serving']), protocol=modality.PROTOCOL,
-        catalog=str(catalog), programs=programs, assets=executable['assets'],
-        preparation=executable['preparation'], telemetry={'raw_events':'unverified','metrics':[]})))
+        programs["providers"] = programs.pop("sources")
+    return json_document(
+        freeze_json(
+            dict(
+                executable=reference,
+                executable_id=executable["id"],
+                executable_identity=identity,
+                modality=executable["modality"],
+                native_contract=executable["native_contract"],
+                parameters=modality.parameters(executable["serving"]),
+                protocol=modality.PROTOCOL,
+                catalog=str(catalog),
+                programs=programs,
+                assets=executable["assets"],
+                preparation=executable["preparation"],
+                telemetry={"raw_events": "unverified", "metrics": []},
+            )
+        )
+    )
 
 
 def executable_info(reference, *, deadline=None):
@@ -116,16 +140,28 @@ def executable_info(reference, *, deadline=None):
 def executable_list(modality=None, *, deadline=None):
     budget = deadline or Deadline.after()
     budget.remaining()
-    return [_executable_info(reference, executable, catalog, identity, budget)
-            for reference, executable, catalog, identity in pipelines.list(modality=modality)]
+    return [
+        _executable_info(reference, executable, catalog, identity, budget)
+        for reference, executable, catalog, identity in pipelines.list(
+            modality=modality
+        )
+    ]
 
 
 def _modality_info(name, executables):
     modality = modalities.get(name)
-    return json_document(freeze_json(dict(modality=name,
-        native_contract=modality.NATIVE_CONTRACT, protocol=modality.PROTOCOL,
-        vocabulary=modality.vocabulary(), executables=executables,
-        telemetry={'raw_events':'unverified','metrics':[]})))
+    return json_document(
+        freeze_json(
+            dict(
+                modality=name,
+                native_contract=modality.NATIVE_CONTRACT,
+                protocol=modality.PROTOCOL,
+                vocabulary=modality.vocabulary(),
+                executables=executables,
+                telemetry={"raw_events": "unverified", "metrics": []},
+            )
+        )
+    )
 
 
 def modality_info(name, *, deadline=None):
@@ -135,14 +171,17 @@ def modality_info(name, *, deadline=None):
 
 def modality_list(*, deadline=None):
     rows = executable_list(deadline=deadline)
-    return [_modality_info(name, [row for row in rows if row['modality'] == name])
-            for name in modalities.NAMES]
+    return [
+        _modality_info(name, [row for row in rows if row["modality"] == name])
+        for name in modalities.NAMES
+    ]
 
 
 def _catalog_snapshots(deadline):
     # Reuse native retention's complete-root names+content identity. Models are
     # external inputs and never part of this digest.
     from ..control.hem_process import tree_identity
+
     snapshots = {}
     for candidate in pipelines.catalog_roots():
         deadline.remaining()
@@ -152,7 +191,7 @@ def _catalog_snapshots(deadline):
             root = candidate.resolve(strict=True)
             root.relative_to(candidate.parent.resolve(strict=True))
         except (OSError, ValueError) as error:
-            raise InvalidInput('Packaged catalog root escapes its package') from error
+            raise InvalidInput("Packaged catalog root escapes its package") from error
         if root not in snapshots:
             snapshots[root] = tree_identity(root, deadline)
     return snapshots
@@ -160,18 +199,24 @@ def _catalog_snapshots(deadline):
 
 def _checked_catalog(catalog, snapshots, deadline):
     from ..control.hem_process import tree_identity
+
     try:
         selected = Path(catalog).resolve(strict=True)
-        matches = [(root, selected.relative_to(root)) for root in snapshots
-                   if selected.is_relative_to(root)]
-        if len(matches) != 1 or not selected.is_dir() or matches[0][1] == Path('.'):
-            raise ValueError('selected catalog has no authoritative root')
+        matches = [
+            (root, selected.relative_to(root))
+            for root in snapshots
+            if selected.is_relative_to(root)
+        ]
+        if len(matches) != 1 or not selected.is_dir() or matches[0][1] == Path("."):
+            raise ValueError("selected catalog has no authoritative root")
         root, relative = matches[0]
         if tree_identity(root, deadline) != snapshots[root]:
-            raise InvalidInput('Executable catalog changed during serving resolution')
+            raise InvalidInput("Executable catalog changed during serving resolution")
         return relative, snapshots[root]
     except (OSError, ValueError) as error:
-        raise InvalidInput('Selected executable is outside or missing from the packaged catalog') from error
+        raise InvalidInput(
+            "Selected executable is outside or missing from the packaged catalog"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -192,9 +237,11 @@ class ResolvedConfiguration:
     executable_identity: str
 
     def __post_init__(self):
-        for name in ('settings', 'sources', 'definition', 'evidence'):
+        for name in ("settings", "sources", "definition", "evidence"):
             object.__setattr__(self, name, freeze_json(getattr(self, name)))
-        object.__setattr__(self, 'dependencies', tuple(dict.fromkeys(self.dependencies)))
+        object.__setattr__(
+            self, "dependencies", tuple(dict.fromkeys(self.dependencies))
+        )
 
     def settings_document(self):
         return json_document(self.settings)
@@ -208,75 +255,139 @@ class ResolvedConfiguration:
 
 def _unchanged_files(paths, dependencies, evidence, budget):
     """A stat race guard on inspected inputs, not another Registry qualification."""
-    if (not isinstance(paths, Mapping) or any(type(key) is not str for key in paths)
-            or any(not Path(path).is_absolute() for path in (*paths.values(), *dependencies))
-            or not set(map(Path, paths.values())) <= set(dependencies)):
-        raise InvalidInput('Inspected model paths/dependencies are inconsistent')
+    if (
+        not isinstance(paths, Mapping)
+        or any(type(key) is not str for key in paths)
+        or any(
+            not Path(path).is_absolute() for path in (*paths.values(), *dependencies)
+        )
+        or not set(map(Path, paths.values())) <= set(dependencies)
+    ):
+        raise InvalidInput("Inspected model paths/dependencies are inconsistent")
     try:
-        expected = {item['path']: item for item in evidence}
-        if len(expected) != len(evidence) or set(expected) != set(map(str, dependencies)):
-            raise InvalidInput('Inspected evidence does not cover all dependencies')
+        expected = {item["path"]: item for item in evidence}
+        if len(expected) != len(evidence) or set(expected) != set(
+            map(str, dependencies)
+        ):
+            raise InvalidInput("Inspected evidence does not cover all dependencies")
         for path in dependencies:
             budget.remaining()
             if not path.is_file() or not os.access(path, os.R_OK):
-                raise InvalidInput(f'Model asset is missing or unreadable: {path}')
+                raise InvalidInput(f"Model asset is missing or unreadable: {path}")
             st = path.stat()
-            current = dict(path=str(path), device=st.st_dev, inode=st.st_ino,
-                           size=st.st_size, mtime_ns=st.st_mtime_ns, ctime_ns=st.st_ctime_ns)
+            current = dict(
+                path=str(path),
+                device=st.st_dev,
+                inode=st.st_ino,
+                size=st.st_size,
+                mtime_ns=st.st_mtime_ns,
+                ctime_ns=st.st_ctime_ns,
+            )
             if current != expected[str(path)]:
-                raise InvalidInput('Model files changed after inspection; validate again')
+                raise InvalidInput(
+                    "Model files changed after inspection; validate again"
+                )
     except (OSError, KeyError, TypeError) as error:
-        raise InvalidInput('Cannot verify inspected model evidence') from error
+        raise InvalidInput("Cannot verify inspected model evidence") from error
 
 
-def resolve(record, paths, dependencies, evidence, overrides=None, config_path=None,
-            *, deadline=None) -> ResolvedConfiguration:
+def resolve(
+    record,
+    paths,
+    dependencies,
+    evidence,
+    overrides=None,
+    config_path=None,
+    *,
+    deadline=None,
+) -> ResolvedConfiguration:
     """Consume the already-inspected record; no qualification, writes or helpers."""
     budget = deadline or Deadline.after()
     budget.remaining()
-    provenance = record['provenance']
+    provenance = record["provenance"]
     snapshots = _catalog_snapshots(budget)
-    recipe, identity = recipes.load(provenance['recipe_id'])
-    reference = recipe['executable']
+    recipe, identity = recipes.load(provenance["recipe_id"])
+    reference = recipe["executable"]
     executable, catalog, executable_identity = pipelines.load(reference)
-    association = provenance.get('executable')
-    if (recipe['id'] != provenance['recipe_id'] or identity != provenance['recipe_identity']
-            or recipe != provenance['declaration'] or reference != provenance['pipeline']
-            or reference != record['pipeline'] or not isinstance(association, Mapping)
-            or association != {'reference':reference, 'id':executable['id'],
-                               'identity':executable_identity, 'declaration':executable}):
-        raise InvalidInput('Model recipe or executable association differs; reacquire under a new ID')
+    association = provenance.get("executable")
+    if (
+        recipe["id"] != provenance["recipe_id"]
+        or identity != provenance["recipe_identity"]
+        or recipe != provenance["declaration"]
+        or reference != provenance["pipeline"]
+        or reference != record["pipeline"]
+        or not isinstance(association, Mapping)
+        or association
+        != {
+            "reference": reference,
+            "id": executable["id"],
+            "identity": executable_identity,
+            "declaration": executable,
+        }
+    ):
+        raise InvalidInput(
+            "Model recipe or executable association differs; reacquire under a new ID"
+        )
     budget.remaining()
-    operation = pipelines.validate_files(executable, recipe['files'], recipe.get('preparation_inputs'))
-    preparation = ({'id':operation['id'], 'declaration':operation} if operation is not None else None)
-    if provenance.get('preparation') != preparation:
-        raise InvalidInput('Model preparation association differs; reacquire under a new ID')
-    if set(paths) != set(recipe['files']):
-        raise InvalidInput('Inspected model purposes differ from the selected recipe')
-    directory = Path(record['directory'])
+    operation = pipelines.validate_files(
+        executable, recipe["files"], recipe.get("preparation_inputs")
+    )
+    preparation = (
+        {"id": operation["id"], "declaration": operation}
+        if operation is not None
+        else None
+    )
+    if provenance.get("preparation") != preparation:
+        raise InvalidInput(
+            "Model preparation association differs; reacquire under a new ID"
+        )
+    if set(paths) != set(recipe["files"]):
+        raise InvalidInput("Inspected model purposes differ from the selected recipe")
+    directory = Path(record["directory"])
     if not directory.is_absolute():
-        raise InvalidInput('Inspected model directory must be absolute')
+        raise InvalidInput("Inspected model directory must be absolute")
     # Retained Registry assets determine actual imported paths, including the
     # existing split-GGUF index. Recipe destinations are not substituted for them.
     for purpose, path in paths.items():
-        assets = [asset for asset in record['assets'] if asset['role'] == purpose]
-        if len(assets) != 1 or Path(path) != directory / assets[0]['logical_path']:
-            raise InvalidInput(f'Inspected {purpose} differs from the recorded model mapping')
+        assets = [asset for asset in record["assets"] if asset["role"] == purpose]
+        if len(assets) != 1 or Path(path) != directory / assets[0]["logical_path"]:
+            raise InvalidInput(
+                f"Inspected {purpose} differs from the recorded model mapping"
+            )
     dependencies = tuple(dict.fromkeys(map(Path, dependencies)))
     _unchanged_files(paths, dependencies, evidence, budget)
-    modality = modalities.get(executable['modality'])
-    settings, sources = effective_settings(recipe, executable['serving'], modality,
-                                           load_config(config_path), overrides)
+    modality = modalities.get(executable["modality"])
+    settings, sources = effective_settings(
+        recipe, executable["serving"], modality, load_config(config_path), overrides
+    )
     programs = pipelines.programs(executable, catalog, budget)
     definition = modality.definition(settings, paths, directory, programs)
     _unchanged_files(paths, dependencies, evidence, budget)
     budget.remaining()
-    if pipelines.validate_files(executable, recipe['files'], recipe.get('preparation_inputs')) != operation:
-        raise InvalidInput('Preparation contract changed during serving resolution')
+    if (
+        pipelines.validate_files(
+            executable, recipe["files"], recipe.get("preparation_inputs")
+        )
+        != operation
+    ):
+        raise InvalidInput("Preparation contract changed during serving resolution")
     relative, digest = _checked_catalog(catalog, snapshots, budget)
-    resolved = ResolvedConfiguration(record['id'], reference, Path(catalog), settings, sources,
-                                     definition, relative, digest, dependencies, identity,
-                                     executable['modality'], evidence, executable['id'], executable_identity)
+    resolved = ResolvedConfiguration(
+        record["id"],
+        reference,
+        Path(catalog),
+        settings,
+        sources,
+        definition,
+        relative,
+        digest,
+        dependencies,
+        identity,
+        executable["modality"],
+        evidence,
+        executable["id"],
+        executable_identity,
+    )
     budget.remaining()
     return resolved
 
@@ -284,10 +395,10 @@ def resolve(record, paths, dependencies, evidence, overrides=None, config_path=N
 def _matching_catalog(resolved, catalog, deadline):
     """Verify the same checked root/relative program closure, without selecting."""
     from ..control.hem_process import tree_identity
+
     relative = resolved.catalog_relative_path
-    if (relative.is_absolute()
-            or not relative.parts or '..' in relative.parts):
-        raise InvalidInput('Checked executable catalog identity is inconsistent')
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise InvalidInput("Checked executable catalog identity is inconsistent")
     catalog = Path(catalog).absolute()
     root = catalog
     for _part in relative.parts:
@@ -296,16 +407,26 @@ def _matching_catalog(resolved, catalog, deadline):
         root = root.resolve(strict=True)
         selected = catalog.resolve(strict=True)
         if not selected.is_dir() or selected.relative_to(root) != relative:
-            raise ValueError('selected catalog location differs')
+            raise ValueError("selected catalog location differs")
         if tree_identity(root, deadline) != resolved.catalog_tree_sha256:
-            raise InvalidInput('Deployment catalog differs from the checked serving interpretation')
+            raise InvalidInput(
+                "Deployment catalog differs from the checked serving interpretation"
+            )
     except (OSError, ValueError) as error:
-        raise InvalidInput('Deployment catalog is outside or missing from the checked root') from error
+        raise InvalidInput(
+            "Deployment catalog is outside or missing from the checked root"
+        ) from error
     return catalog
 
 
-def deployment_document(resolved: ResolvedConfiguration, name: str, *,
-                        catalog: Path, device: Optional[str] = None, deadline: Optional[Deadline] = None) -> dict:
+def deployment_document(
+    resolved: ResolvedConfiguration,
+    name: str,
+    *,
+    catalog: Path,
+    device: Optional[str] = None,
+    deadline: Optional[Deadline] = None,
+) -> dict:
     """Create the native drained document using an immutable retained catalog.
 
     The caller supplies a catalog independent of the deployment name, retaining
@@ -314,35 +435,64 @@ def deployment_document(resolved: ResolvedConfiguration, name: str, *,
     Paths remain server-local, including an index's referenced GGUF fragments.
     """
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
-        raise InvalidInput("Instance name must contain letters, digits, '.', '_' or '-'")
-    if device is not None and (not isinstance(device, str) or not device
-                               or any(ord(c) < 0x21 or ord(c) > 0x7e for c in device)):
-        raise InvalidInput("Device must be a nonempty native device name using visible ASCII")
+        raise InvalidInput(
+            "Instance name must contain letters, digits, '.', '_' or '-'"
+        )
+    if device is not None and (
+        not isinstance(device, str)
+        or not device
+        or any(ord(c) < 0x21 or ord(c) > 0x7E for c in device)
+    ):
+        raise InvalidInput(
+            "Device must be a nonempty native device name using visible ASCII"
+        )
     budget = deadline or Deadline.after()
     budget.remaining()
     catalog = _matching_catalog(resolved, catalog, budget)
     definition = resolved.definition_document()
     budget.remaining()
-    document = {"name": name, "admission": "drained",
-                "base_directory": str(catalog), "definition": definition}
+    document = {
+        "name": name,
+        "admission": "drained",
+        "base_directory": str(catalog),
+        "definition": definition,
+    }
     # An omitted selector lets native resolve the sole configured device.
     if device is not None:
         document["device"] = device
     return document
 
 
-def export_deployment(record, paths, dependencies, evidence, output: Path, name: str, *,
-                      overrides: Optional[Mapping] = None, config_path: Optional[Path] = None,
-                      deadline: Optional[Deadline] = None) -> dict:
+def export_deployment(
+    record,
+    paths,
+    dependencies,
+    evidence,
+    output: Path,
+    name: str,
+    *,
+    overrides: Optional[Mapping] = None,
+    config_path: Optional[Path] = None,
+    deadline: Optional[Deadline] = None,
+) -> dict:
     """Validate and atomically export, without registry access or native calls."""
     budget = deadline or Deadline.after()
-    resolved = resolve(record, paths, dependencies, evidence, overrides, config_path, deadline=budget)
+    resolved = resolve(
+        record, paths, dependencies, evidence, overrides, config_path, deadline=budget
+    )
     try:
-        document = deployment_document(resolved, name, catalog=resolved.catalog, deadline=budget)
+        document = deployment_document(
+            resolved, name, catalog=resolved.catalog, deadline=budget
+        )
         output = Path(output).absolute()
         budget.remaining()
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
-                                         prefix=f".{output.name}.", delete=False) as stream:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            delete=False,
+        ) as stream:
             staging = Path(stream.name)
             try:
                 json.dump(document, stream, indent=2, allow_nan=False)
@@ -365,7 +515,14 @@ def export_deployment(record, paths, dependencies, evidence, output: Path, name:
     except (OSError, ValueError) as exc:
         raise HemError(f"Cannot export deployment: {exc}") from exc
     print(EXPORT_RESPONSIBILITY, file=sys.stderr)
-    return {"state": "exported", "completed": True, "instance": name,
-            "pipeline": resolved.pipeline, "executable": resolved.pipeline,
-            "executable_id": resolved.executable_id, "modality": resolved.modality,
-            "output": str(output), "settings": resolved.settings_document()}
+    return {
+        "state": "exported",
+        "completed": True,
+        "instance": name,
+        "pipeline": resolved.pipeline,
+        "executable": resolved.pipeline,
+        "executable_id": resolved.executable_id,
+        "modality": resolved.modality,
+        "output": str(output),
+        "settings": resolved.settings_document(),
+    }

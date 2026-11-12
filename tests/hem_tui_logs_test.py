@@ -21,33 +21,53 @@ from binding.python.control.hem_state import Registry
 def observation(kind="server"):
     return hem_tui.ServiceObservation(
         name="chat" if kind == "model" else "local",
-        endpoint="http://127.0.0.1:1", state="running", summary="fixture",
-        kind=kind, server="local", launch_token="launch-one",
+        endpoint="http://127.0.0.1:1",
+        state="running",
+        summary="fixture",
+        kind=kind,
+        server="local",
+        launch_token="launch-one",
         incarnation=17 if kind == "model" else None,
     )
 
 
 def native_status():
-    return json.dumps({
-        "object": "list", "server": {"worker_count": 1},
-        "data": [{
-            "id": "chat", "loom": {
-                "incarnation": 17, "registration": "ready",
-                "parameter_operation": "idle", "parameters": {"active": True},
-                "status": {"admission": "open", "phase": "idle"},
-            },
-        }],
-    }).encode()
+    return json.dumps(
+        {
+            "object": "list",
+            "server": {"worker_count": 1},
+            "data": [
+                {
+                    "id": "chat",
+                    "loom": {
+                        "incarnation": 17,
+                        "registration": "ready",
+                        "parameter_operation": "idle",
+                        "parameters": {"active": True},
+                        "status": {"admission": "open", "phase": "idle"},
+                    },
+                }
+            ],
+        }
+    ).encode()
 
 
 def native_batch(records=(), position=0, identity="100:1"):
-    header = {"event": "stream", "scope": "model", "model": "chat",
-              "identity": identity, "oldest": 0, "head": position,
-              "capacity": 128, "partial": False, "counters_available": False}
-    footer = {"event": "cursor", "next": position,
-              "value": f"{identity}:{position}"}
-    return b"".join(json.dumps(item).encode() + b"\n"
-                    for item in (header, *records, footer))
+    header = {
+        "event": "stream",
+        "scope": "model",
+        "model": "chat",
+        "identity": identity,
+        "oldest": 0,
+        "head": position,
+        "capacity": 128,
+        "partial": False,
+        "counters_available": False,
+    }
+    footer = {"event": "cursor", "next": position, "value": f"{identity}:{position}"}
+    return b"".join(
+        json.dumps(item).encode() + b"\n" for item in (header, *records, footer)
+    )
 
 
 @contextlib.contextmanager
@@ -71,8 +91,9 @@ def endpoint(log_replies):
             pass
 
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever,
-                              kwargs={"poll_interval": 0.01})
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}", requests
@@ -108,20 +129,29 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
     def running_server(self, endpoint="http://127.0.0.1:1"):
         self.registry.create_server("local", saved_settings={})
         record = self.registry.reserve_launch(
-            "local", launch_token="launch-one", current_settings={}, endpoint=endpoint)
+            "local", launch_token="launch-one", current_settings={}, endpoint=endpoint
+        )
         directory = self.root / "servers/local/launch-one"
         directory.mkdir(parents=True, exist_ok=True)
         return self.registry.update_server(
-            "local", {"build": {"directory": str(directory), "executable": {}},
-                      "process": {"fixture": True}, "phase": "running", "pending": None},
-            expected_token="launch-one", expected_revision=record["revision"])
+            "local",
+            {
+                "build": {"directory": str(directory), "executable": {}},
+                "process": {"fixture": True},
+                "phase": "running",
+                "pending": None,
+            },
+            expected_token="launch-one",
+            expected_revision=record["revision"],
+        )
 
     async def test_server_append_repeated_bytes_rotation_truncation_and_end(self):
         record = self.running_server()
         path = self.root / "servers/local/launch-one/process.log"
         path.write_bytes(b"same\n")
         source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1, batch_bytes=32).open_source(observation())
+            self.root, timeout=1, batch_bytes=32
+        ).open_source(observation())
         first = await source.poll()
         self.assertEqual(first.entries[-1].text, "same\n")
         with path.open("ab") as stream:
@@ -144,12 +174,14 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         path.with_name("process.log.1").unlink()
         self.assertEqual(
             [entry.kind for entry in (await source.poll()).entries],
-            ["gap", "unavailable"])
+            ["gap", "unavailable"],
+        )
         path.write_text("back\n")
         self.assertEqual((await source.poll()).entries[0].kind, "reset")
 
-        self.registry.clear_server("local", expected_token="launch-one",
-                                   expected_revision=record["revision"])
+        self.registry.clear_server(
+            "local", expected_token="launch-one", expected_revision=record["revision"]
+        )
         ended = await source.poll()
         self.assertTrue(ended.ended)
         self.assertEqual(ended.entries[0].kind, "end")
@@ -159,7 +191,8 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         path = self.root / "servers/local/launch-one/process.log"
         path.write_bytes(b"0123456789")
         source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1, batch_bytes=4).open_source(observation())
+            self.root, timeout=1, batch_bytes=4
+        ).open_source(observation())
         batch = await source.poll()
         self.assertEqual([item.kind for item in batch.entries], ["gap", "data"])
         self.assertEqual(batch.entries[-1].text, "6789")
@@ -170,59 +203,91 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         outside.mkdir()
         directory.rename(retained)
         directory.symlink_to(outside, target_is_directory=True)
-        symlinked = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1).open_source(observation())
+        symlinked = hem_tui_logs.LocalLogProvider(self.root, timeout=1).open_source(
+            observation()
+        )
         self.assertEqual((await symlinked.poll()).entries[0].kind, "unavailable")
         directory.unlink()
         retained.rename(directory)
 
         self.registry.update_server(
-            "local", {"build": {"directory": str(self.root.parent / "outside"),
-                                  "executable": {}}},
-            expected_token="launch-one", expected_revision=record["revision"])
-        rejected = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1).open_source(observation())
+            "local",
+            {
+                "build": {
+                    "directory": str(self.root.parent / "outside"),
+                    "executable": {},
+                }
+            },
+            expected_token="launch-one",
+            expected_revision=record["revision"],
+        )
+        rejected = hem_tui_logs.LocalLogProvider(self.root, timeout=1).open_source(
+            observation()
+        )
         self.assertEqual((await rejected.poll()).entries[0].kind, "unavailable")
         with self.assertRaisesRegex(Exception, "managed"):
             hem_tui_logs.LocalLogProvider(self.root).open_source(
-                hem_tui.ServiceObservation("x", "file:///tmp/private", "running", "x",
-                                           server="missing", launch_token=None))
+                hem_tui.ServiceObservation(
+                    "x",
+                    "file:///tmp/private",
+                    "running",
+                    "x",
+                    server="missing",
+                    launch_token=None,
+                )
+            )
         for server in ("../outside", "line\nbreak"):
             with self.subTest(server=server), self.assertRaisesRegex(Exception, "IDs"):
                 hem_tui_logs.LocalLogProvider(self.root).open_source(
-                    hem_tui.ServiceObservation("x", "http://127.0.0.1:1", "running", "x",
-                                               server=server, launch_token="launch-one"))
+                    hem_tui.ServiceObservation(
+                        "x",
+                        "http://127.0.0.1:1",
+                        "running",
+                        "x",
+                        server=server,
+                        launch_token="launch-one",
+                    )
+                )
 
     async def test_server_reports_confirmed_process_end_after_final_bytes(self):
         self.running_server()
         path = self.root / "servers/local/launch-one/process.log"
         path.write_text("final line\n")
-        source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1).open_source(observation())
+        source = hem_tui_logs.LocalLogProvider(self.root, timeout=1).open_source(
+            observation()
+        )
         with patch.object(hem_tui_logs, "_confirmed_exit", return_value=True):
             batch = await source.poll()
         self.assertTrue(batch.ended)
         self.assertEqual([entry.kind for entry in batch.entries], ["data", "end"])
         self.assertIn("final line", batch.entries[0].text)
 
-    async def test_server_waits_for_logger_and_reads_bytes_written_after_native_exit(self):
+    async def test_server_waits_for_logger_and_reads_bytes_written_after_native_exit(
+        self,
+    ):
         record = self.running_server()
         process = {"pid": "native", "logger": {"pid": "logger"}}
         self.registry.update_server(
-            "local", {"process": process}, expected_token="launch-one",
-            expected_revision=record["revision"])
+            "local",
+            {"process": process},
+            expected_token="launch-one",
+            expected_revision=record["revision"],
+        )
         path = self.root / "servers/local/launch-one/process.log"
         path.write_text("before exit\n")
         logger_done = [False]
         appended = [False]
+
         def exited(item):
             if item["pid"] == "logger" and logger_done[0] and not appended[0]:
                 with path.open("a") as stream:
                     stream.write("after native exit\n")
                 appended[0] = True
             return item["pid"] == "native" or logger_done[0]
-        source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1).open_source(observation())
+
+        source = hem_tui_logs.LocalLogProvider(self.root, timeout=1).open_source(
+            observation()
+        )
         with patch.object(hem_tui_logs, "_confirmed_exit", side_effect=exited):
             first = await source.poll()
             self.assertFalse(first.ended)
@@ -236,12 +301,16 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         record = self.running_server()
         process = {"pid": "native", "logger": {"pid": "logger"}}
         self.registry.update_server(
-            "local", {"process": process}, expected_token="launch-one",
-            expected_revision=record["revision"])
+            "local",
+            {"process": process},
+            expected_token="launch-one",
+            expected_revision=record["revision"],
+        )
         path = self.root / "servers/local/launch-one/process.log"
         path.write_bytes(b"seed")
         source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1, batch_bytes=8).open_source(observation())
+            self.root, timeout=1, batch_bytes=8
+        ).open_source(observation())
         with patch.object(hem_tui_logs, "_confirmed_exit", return_value=False):
             await source.poll()
 
@@ -256,17 +325,28 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
                     break
 
         data = b"".join(
-            entry.text.encode() for batch in batches for entry in batch.entries
-            if entry.kind == "data")
+            entry.text.encode()
+            for batch in batches
+            for entry in batch.entries
+            if entry.kind == "data"
+        )
         self.assertEqual(data, appended)
-        self.assertTrue(all(
-            sum(len(entry.text.encode()) for entry in batch.entries
-                if entry.kind == "data") <= 8
-            for batch in batches))
+        self.assertTrue(
+            all(
+                sum(
+                    len(entry.text.encode())
+                    for entry in batch.entries
+                    if entry.kind == "data"
+                )
+                <= 8
+                for batch in batches
+            )
+        )
         self.assertTrue(batches[-1].ended)
         self.assertTrue(all(not batch.ended for batch in batches[:-1]))
         self.assertEqual(
-            sum(entry.kind == "end" for batch in batches for entry in batch.entries), 1)
+            sum(entry.kind == "end" for batch in batches for entry in batch.entries), 1
+        )
         self.assertEqual((await source.poll()).entries, ())
 
     async def test_server_marks_gap_if_file_disappears_before_exit_drain(self):
@@ -274,7 +354,8 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         path = self.root / "servers/local/launch-one/process.log"
         path.write_bytes(b"observed")
         source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1, batch_bytes=4).open_source(observation())
+            self.root, timeout=1, batch_bytes=4
+        ).open_source(observation())
         with patch.object(hem_tui_logs, "_confirmed_exit", return_value=False):
             await source.poll()
         path.unlink()
@@ -283,14 +364,16 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
             final = await source.poll()
         self.assertTrue(final.ended)
         self.assertEqual(
-            [entry.kind for entry in final.entries], ["gap", "unavailable", "end"])
+            [entry.kind for entry in final.entries], ["gap", "unavailable", "end"]
+        )
 
     async def test_server_keeps_bounded_bytes_when_launch_vanishes_mid_poll(self):
         record = self.running_server()
         path = self.root / "servers/local/launch-one/process.log"
         path.write_bytes(b"seed")
         source = hem_tui_logs.LocalLogProvider(
-            self.root, timeout=1, batch_bytes=4).open_source(observation())
+            self.root, timeout=1, batch_bytes=4
+        ).open_source(observation())
         with patch.object(hem_tui_logs, "_confirmed_exit", return_value=False):
             await source.poll()
         with path.open("ab") as stream:
@@ -298,35 +381,45 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
 
         read_records = hem_tui_logs._records
         snapshots = [0]
+
         def clear_after_first_snapshot(*args):
             result = read_records(*args)
             snapshots[0] += 1
             if snapshots[0] == 1:
                 self.registry.clear_server(
-                    "local", expected_token="launch-one",
-                    expected_revision=record["revision"])
+                    "local",
+                    expected_token="launch-one",
+                    expected_revision=record["revision"],
+                )
             return result
-        with patch.object(hem_tui_logs, "_records",
-                          side_effect=clear_after_first_snapshot):
+
+        with patch.object(
+            hem_tui_logs, "_records", side_effect=clear_after_first_snapshot
+        ):
             final = await source.poll()
 
         self.assertEqual(snapshots[0], 2)
         self.assertTrue(final.ended)
         self.assertEqual(
             [(entry.kind, entry.text) for entry in final.entries],
-            [("data", "abcd"),
-             ("gap", "server launch ended before retained log was drained"),
-             ("end", "server launch ended")])
+            [
+                ("data", "abcd"),
+                ("gap", "server launch ended before retained log was drained"),
+                ("end", "server launch ended"),
+            ],
+        )
         self.assertEqual((await source.poll()).entries, ())
 
     async def test_tracked_source_serializes_polls_and_waits_for_blocking_thread(self):
         selection = hem_tui_logs.LogSelection.from_observation(observation())
         source = hem_tui_logs.ServerLogSource(
-            self.root, selection, timeout=.5, batch_bytes=32)
+            self.root, selection, timeout=0.5, batch_bytes=32
+        )
         started = threading.Event()
         release = threading.Event()
         counts = {"active": 0, "maximum": 0}
         lock = threading.Lock()
+
         def blocking_poll():
             with lock:
                 counts["active"] += 1
@@ -338,13 +431,14 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
             finally:
                 with lock:
                     counts["active"] -= 1
+
         with patch.object(source, "_poll", side_effect=blocking_poll):
             first = asyncio.create_task(source.poll())
             second = asyncio.create_task(source.poll())
             self.assertTrue(await asyncio.to_thread(started.wait, 1))
             source.close()
             closing = asyncio.create_task(source.wait_closed())
-            await asyncio.sleep(.05)
+            await asyncio.sleep(0.05)
             self.assertFalse(closing.done())
             self.assertEqual(counts["active"], 1)
             release.set()
@@ -355,19 +449,23 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_native_cursor_gap_reset_loss_and_incarnation_boundary(self):
         records = ({"event": "stream_begin", "sequence": 0},)
-        gap_records = ({"event": "gap", "from": 1, "to": 4},
-                       {"event": "request_end", "sequence": 4})
-        replies = [(200, native_batch(records, 1)),
-                   (200, native_batch(gap_records, 5)),
-                   (409, b"changed"),
-                   (200, native_batch((), 0, identity="200:2")),
-                   (404, b"gone")]
+        gap_records = (
+            {"event": "gap", "from": 1, "to": 4},
+            {"event": "request_end", "sequence": 4},
+        )
+        replies = [
+            (200, native_batch(records, 1)),
+            (200, native_batch(gap_records, 5)),
+            (409, b"changed"),
+            (200, native_batch((), 0, identity="200:2")),
+            (404, b"gone"),
+        ]
         with endpoint(replies) as (url, requests):
             self.running_server(url)
-            self.registry.create_instance(
-                "local", "launch-one", "chat", incarnation=17)
-            source = hem_tui_logs.LocalLogProvider(
-                self.root, timeout=2).open_source(observation("model"))
+            self.registry.create_instance("local", "launch-one", "chat", incarnation=17)
+            source = hem_tui_logs.LocalLogProvider(self.root, timeout=2).open_source(
+                observation("model")
+            )
             with patch.object(hem_tui_logs, "PinnedProcess", return_value=FakePinned()):
                 first = await source.poll()
                 second = await source.poll()
@@ -384,17 +482,21 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(log_requests[1]["X-Loom-Cursor"], "100:1:1")
         self.assertNotIn("X-Loom-Cursor", log_requests[3])
 
-    async def test_native_malformed_oversized_and_changed_without_409_do_not_advance(self):
-        replies = [(200, native_batch((), 0)),
-                   (200, b"not-json\n"),
-                   (409, b"x" * (hem_tui_logs.MAX_NATIVE_LOG_BYTES + 1)),
-                   (200, native_batch((), 0, identity="200:1"))]
+    async def test_native_malformed_oversized_and_changed_without_409_do_not_advance(
+        self,
+    ):
+        replies = [
+            (200, native_batch((), 0)),
+            (200, b"not-json\n"),
+            (409, b"x" * (hem_tui_logs.MAX_NATIVE_LOG_BYTES + 1)),
+            (200, native_batch((), 0, identity="200:1")),
+        ]
         with endpoint(replies) as (url, _requests):
             self.running_server(url)
-            self.registry.create_instance(
-                "local", "launch-one", "chat", incarnation=17)
-            source = hem_tui_logs.LocalLogProvider(
-                self.root, timeout=2).open_source(observation("model"))
+            self.registry.create_instance("local", "launch-one", "chat", incarnation=17)
+            source = hem_tui_logs.LocalLogProvider(self.root, timeout=2).open_source(
+                observation("model")
+            )
             with patch.object(hem_tui_logs, "PinnedProcess", return_value=FakePinned()):
                 await source.poll()
                 self.assertEqual((await source.poll()).entries[0].kind, "unavailable")
@@ -403,18 +505,23 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(changed.entries[0].kind, "reset")
 
     async def test_native_http_400_marks_cursor_reset_without_same_poll_retry(self):
-        replies = [(200, native_batch((), 0)), (400, b"bad cursor"),
-                   (200, native_batch((), 0, identity="200:1"))]
+        replies = [
+            (200, native_batch((), 0)),
+            (400, b"bad cursor"),
+            (200, native_batch((), 0, identity="200:1")),
+        ]
         with endpoint(replies) as (url, requests):
             self.running_server(url)
-            self.registry.create_instance(
-                "local", "launch-one", "chat", incarnation=17)
-            source = hem_tui_logs.LocalLogProvider(
-                self.root, timeout=2).open_source(observation("model"))
+            self.registry.create_instance("local", "launch-one", "chat", incarnation=17)
+            source = hem_tui_logs.LocalLogProvider(self.root, timeout=2).open_source(
+                observation("model")
+            )
             with patch.object(hem_tui_logs, "PinnedProcess", return_value=FakePinned()):
                 await source.poll()
                 reset = await source.poll()
-                self.assertEqual(len([path for path, _ in requests if path == "/logz"]), 2)
+                self.assertEqual(
+                    len([path for path, _ in requests if path == "/logz"]), 2
+                )
                 restarted = await source.poll()
         self.assertEqual(reset.entries[0].kind, "reset")
         self.assertEqual(restarted.entries[0].kind, "reset")
@@ -428,12 +535,15 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
                 if self.checks == 2:
                     raise UncertainOutcome("response ownership is unknown")
 
-        with endpoint([(200, native_batch((), 0)), (409, b"cursor changed")]) as (url, requests):
+        with endpoint([(200, native_batch((), 0)), (409, b"cursor changed")]) as (
+            url,
+            requests,
+        ):
             self.running_server(url)
-            self.registry.create_instance(
-                "local", "launch-one", "chat", incarnation=17)
-            source = hem_tui_logs.LocalLogProvider(
-                self.root, timeout=2).open_source(observation("model"))
+            self.registry.create_instance("local", "launch-one", "chat", incarnation=17)
+            source = hem_tui_logs.LocalLogProvider(self.root, timeout=2).open_source(
+                observation("model")
+            )
             with patch.object(hem_tui_logs, "PinnedProcess", return_value=FakePinned()):
                 await source.poll()
             cursor = source._cursor
@@ -450,19 +560,30 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         replies = [(200, native_batch((), 0))]
         with endpoint(replies) as (url, requests):
             self.running_server(url)
-            self.registry.create_instance(
-                "local", "launch-one", "chat", incarnation=17)
-            source = hem_tui_logs.LocalLogProvider(
-                self.root, timeout=2).open_source(observation("model"))
+            self.registry.create_instance("local", "launch-one", "chat", incarnation=17)
+            source = hem_tui_logs.LocalLogProvider(self.root, timeout=2).open_source(
+                observation("model")
+            )
             with patch.object(hem_tui_logs, "PinnedProcess", return_value=FakePinned()):
                 await source.poll()
-                with patch.object(hem_tui_logs.NativeClient, "logs", side_effect=HemError(
-                        "cursor no longer usable", status=409, reason="http_status")):
+                with patch.object(
+                    hem_tui_logs.NativeClient,
+                    "logs",
+                    side_effect=HemError(
+                        "cursor no longer usable", status=409, reason="http_status"
+                    ),
+                ):
                     reset = await source.poll()
                 self.assertEqual(reset.entries[0].kind, "reset")
                 source._cursor = "100:1:0"
-                with patch.object(hem_tui_logs.NativeClient, "logs", side_effect=HemError(
-                        "native HTTP 409: misleading diagnostic", reason="connection_failed")):
+                with patch.object(
+                    hem_tui_logs.NativeClient,
+                    "logs",
+                    side_effect=HemError(
+                        "native HTTP 409: misleading diagnostic",
+                        reason="connection_failed",
+                    ),
+                ):
                     unavailable = await source.poll()
                 self.assertEqual(unavailable.entries[0].kind, "unavailable")
                 self.assertEqual(source._cursor, "100:1:0")
@@ -470,25 +591,40 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_native_fresh_400_and_409_are_unavailable_not_cursor_resets(self):
         for status in (400, 409):
-            with (self.subTest(status=status), tempfile.TemporaryDirectory() as temporary,
-                  endpoint([(status, b"fresh rejected")]) as (url, requests)):
+            with (
+                self.subTest(status=status),
+                tempfile.TemporaryDirectory() as temporary,
+                endpoint([(status, b"fresh rejected")]) as (url, requests),
+            ):
                 root = Path(temporary) / "state"
                 registry = Registry(root)
                 registry.create_server("local", saved_settings={})
                 record = registry.reserve_launch(
-                    "local", launch_token="launch-one", current_settings={}, endpoint=url)
+                    "local",
+                    launch_token="launch-one",
+                    current_settings={},
+                    endpoint=url,
+                )
                 directory = root / "servers/local/launch-one"
                 directory.mkdir(parents=True)
                 registry.update_server(
-                    "local", {"build": {"directory": str(directory), "executable": {}},
-                              "process": {"fixture": True}, "phase": "running",
-                              "pending": None}, expected_token="launch-one",
-                    expected_revision=record["revision"])
-                registry.create_instance(
-                    "local", "launch-one", "chat", incarnation=17)
-                source = hem_tui_logs.LocalLogProvider(
-                    root, timeout=2).open_source(observation("model"))
-                with patch.object(hem_tui_logs, "PinnedProcess", return_value=FakePinned()):
+                    "local",
+                    {
+                        "build": {"directory": str(directory), "executable": {}},
+                        "process": {"fixture": True},
+                        "phase": "running",
+                        "pending": None,
+                    },
+                    expected_token="launch-one",
+                    expected_revision=record["revision"],
+                )
+                registry.create_instance("local", "launch-one", "chat", incarnation=17)
+                source = hem_tui_logs.LocalLogProvider(root, timeout=2).open_source(
+                    observation("model")
+                )
+                with patch.object(
+                    hem_tui_logs, "PinnedProcess", return_value=FakePinned()
+                ):
                     result = await source.poll()
                 self.assertEqual(result.entries[0].kind, "unavailable")
                 headers = next(headers for path, headers in requests if path == "/logz")
@@ -498,10 +634,11 @@ class SourceTest(unittest.IsolatedAsyncioTestCase):
         selection = hem_tui_logs.LogSelection.from_observation(observation("model"))
         with self.assertRaisesRegex(HemError, "unmarked"):
             hem_tui_logs._parse_native_batch(
-                native_batch(({"event": "request", "sequence": 3},), 4),
-                selection, None)
+                native_batch(({"event": "request", "sequence": 3},), 4), selection, None
+            )
         malformed = native_batch((), 0).replace(
-            b'"value": "100:1:0"', b'"value": "100:1:9"')
+            b'"value": "100:1:0"', b'"value": "100:1:9"'
+        )
         with self.assertRaises(HemError):
             hem_tui_logs._parse_native_batch(malformed, selection, None)
 
@@ -511,25 +648,57 @@ if __name__ == "__main__":
 
 
 class ModalityInterpretationTest(unittest.TestCase):
-    def test_only_validated_events_reach_selected_modality_and_raw_unknown_survives(self):
+    def test_only_validated_events_reach_selected_modality_and_raw_unknown_survives(
+        self,
+    ):
         from binding.python.models import modalities
-        selection = hem_tui_logs.LogSelection('model', 'server', 'launch', 'chat', 1)
-        event = {'event': 'unknown', 'sequence': 0, 'payload': '<raw>'}
-        interpreter = unittest.mock.Mock(return_value='raw fallback')
-        with patch.object(modalities, 'get', return_value=type('Modality', (), {'interpret': interpreter})()), \
-                patch.object(hem_tui_logs.pipelines, 'load', return_value=({'modality':'chat'},None,'b'*64), create=True):
-            _, _, entries = hem_tui_logs._parse_native_batch(native_batch([event], position=1), selection, None, executable='examples/chat/executable.json')
-            self.assertEqual(entries[0].text, 'raw fallback')
+
+        selection = hem_tui_logs.LogSelection("model", "server", "launch", "chat", 1)
+        event = {"event": "unknown", "sequence": 0, "payload": "<raw>"}
+        interpreter = unittest.mock.Mock(return_value="raw fallback")
+        with (
+            patch.object(
+                modalities,
+                "get",
+                return_value=type("Modality", (), {"interpret": interpreter})(),
+            ),
+            patch.object(
+                hem_tui_logs.pipelines,
+                "load",
+                return_value=({"modality": "chat"}, None, "b" * 64),
+                create=True,
+            ),
+        ):
+            _, _, entries = hem_tui_logs._parse_native_batch(
+                native_batch([event], position=1),
+                selection,
+                None,
+                executable="examples/chat/executable.json",
+            )
+            self.assertEqual(entries[0].text, "raw fallback")
             self.assertEqual(interpreter.call_args.args[0], event)
             self.assertEqual(len(interpreter.call_args.args), 1)
-            with self.assertRaises(TypeError): interpreter.call_args.args[0]['sequence'] = 99
+            with self.assertRaises(TypeError):
+                interpreter.call_args.args[0]["sequence"] = 99
             interpreter.reset_mock()
             with self.assertRaises(HemError):
-                hem_tui_logs._parse_native_batch(native_batch([event], position=5), selection, None, executable='examples/chat/executable.json')
+                hem_tui_logs._parse_native_batch(
+                    native_batch([event], position=5),
+                    selection,
+                    None,
+                    executable="examples/chat/executable.json",
+                )
             interpreter.assert_not_called()
 
     def test_nonfinite_event_is_a_controlled_error_before_interpretation(self):
-        selection = hem_tui_logs.LogSelection('model', 'server', 'launch', 'chat', 1)
+        selection = hem_tui_logs.LogSelection("model", "server", "launch", "chat", 1)
         with self.assertRaises(HemError):
-            hem_tui_logs._parse_native_batch(native_batch([{'event':'unknown','sequence':0,'value':float('nan')}], position=1),
-                                            selection, None, executable='examples/chat/executable.json')
+            hem_tui_logs._parse_native_batch(
+                native_batch(
+                    [{"event": "unknown", "sequence": 0, "value": float("nan")}],
+                    position=1,
+                ),
+                selection,
+                None,
+                executable="examples/chat/executable.json",
+            )

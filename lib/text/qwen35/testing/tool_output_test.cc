@@ -125,9 +125,10 @@ public:
         module.reset();
       return module;
     };
-    auto common = parse(read("TEXT_STRINGS_SOURCE_PATH", "common/strings.loom"));
-    auto adapter =
-        parse(read("TEXT_TOOL_OUTPUT_SOURCE_PATH", "protocols/chatml_thinking/tool_output.loom"));
+    auto common =
+        parse(read("TEXT_STRINGS_SOURCE_PATH", "common/strings.loom"));
+    auto adapter = parse(read("TEXT_TOOL_OUTPUT_SOURCE_PATH",
+                              "protocols/chatml_thinking/tool_output.loom"));
     auto fixture = parse(R"(
       func.decl @chatml.normalize_tool_output(%schemas: buffer, %response: buffer) -> (buffer)
       func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer)

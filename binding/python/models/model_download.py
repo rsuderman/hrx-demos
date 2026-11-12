@@ -2,6 +2,7 @@
 
 Hem owns model publication and inventory; these helpers never import old state.
 """
+
 from __future__ import annotations
 
 import os
@@ -24,18 +25,37 @@ def cache_root() -> Path:
     home = os.environ.get("HF_HOME")
     if home:
         return Path(home).expanduser().absolute() / "hub"
-    return Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))).expanduser().absolute() / "huggingface" / "hub"
+    return (
+        Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+        .expanduser()
+        .absolute()
+        / "huggingface"
+        / "hub"
+    )
 
 
 def _cache_path(source: dict) -> Path:
     """Name the immutable snapshot locator; never resolve it to a mutable copy."""
-    return (cache_root() / ("models--" + source['repo_id'].replace("/", "--")) /
-            "snapshots" / source['revision'] / source['filename'])
+    return (
+        cache_root()
+        / ("models--" + source["repo_id"].replace("/", "--"))
+        / "snapshots"
+        / source["revision"]
+        / source["filename"]
+    )
 
 
 def command(source: dict) -> list[str]:
-    return ['hf', 'download', source['repo_id'], source['filename'], '--revision',
-            source['revision'], '--cache-dir', str(cache_root())]
+    return [
+        "hf",
+        "download",
+        source["repo_id"],
+        source["filename"],
+        "--revision",
+        source["revision"],
+        "--cache-dir",
+        str(cache_root()),
+    ]
 
 
 def _redact(value: str) -> str:
@@ -48,24 +68,38 @@ def _redact(value: str) -> str:
 
 def _run_hf(command: list[str]) -> None:
     """Stream and drain both CLI channels to stderr without retaining output."""
-    hem_display.emit(hem_display.command(command, secrets=[
-        argument for argument in command if _redact(argument) != argument]))
+    hem_display.emit(
+        hem_display.command(
+            command,
+            secrets=[argument for argument in command if _redact(argument) != argument],
+        )
+    )
     environment = os.environ.copy()
     environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
     environment["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
     # HF otherwise hides byte progress when its stderr is piped to our streamer.
     environment["TQDM_POSITION"] = "-1"
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   text=True, env=environment, errors="replace")
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+            errors="replace",
+        )
     except FileNotFoundError as exc:
-        raise model_store.ModelImportError("Hugging Face CLI 'hf' is required for downloads; install huggingface_hub with its CLI, then run 'hf auth login' for gated repositories. See the setup documentation for Python 3.9.") from exc
+        raise model_store.ModelImportError(
+            "Hugging Face CLI 'hf' is required for downloads; install huggingface_hub with its CLI, then run 'hf auth login' for gated repositories. See the setup documentation for Python 3.9."
+        ) from exc
     last_update = time.monotonic()
     finished = threading.Event()
+
     def heartbeat():
         while not finished.wait(5):
             if time.monotonic() - last_update >= 5:
                 _progress("Waiting for Hugging Face CLI…")
+
     def pump(stream):
         nonlocal last_update
         pending = []
@@ -85,8 +119,11 @@ def _run_hf(command: list[str]) -> None:
             sys.stderr.write(line)
             sys.stderr.flush()
         stream.close()
-    workers = [threading.Thread(target=pump, args=(process.stdout,), daemon=True),
-               threading.Thread(target=pump, args=(process.stderr,), daemon=True)]
+
+    workers = [
+        threading.Thread(target=pump, args=(process.stdout,), daemon=True),
+        threading.Thread(target=pump, args=(process.stderr,), daemon=True),
+    ]
     monitor = threading.Thread(target=heartbeat, daemon=True)
     monitor.start()
     for worker in workers:
@@ -103,7 +140,9 @@ def _run_hf(command: list[str]) -> None:
         for worker in workers:
             worker.join()
     if returncode:
-        raise model_store.ModelImportError(f"hf download failed (exit {returncode}); see the streamed error above. Check repository access with 'hf auth login', pinned filenames, cache permissions, and connectivity.")
+        raise model_store.ModelImportError(
+            f"hf download failed (exit {returncode}); see the streamed error above. Check repository access with 'hf auth login', pinned filenames, cache permissions, and connectivity."
+        )
 
 
 def _progress(message: str) -> None:

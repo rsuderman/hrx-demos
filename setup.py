@@ -15,7 +15,6 @@ from build_tools.wheel_tools.python_packaging import (
     package_version,
 )
 
-
 setup(
     version=package_version(),
     distclass=BinaryDistribution,

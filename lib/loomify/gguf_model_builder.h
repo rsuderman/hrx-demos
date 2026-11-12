@@ -35,9 +35,11 @@ public:
   const std::string &platform() const;
   const loomc_module_t *module() const;
   // Only a new file is accepted. Failure removes this call's partial output;
-  // existing files and input assets remain untouched, and this result is usable.
+  // existing files and input assets remain untouched, and this result is
+  // usable.
   bool WriteModule(const std::string &new_path, loomc_source_format_t format,
                    std::string *error) const;
+
 private:
   friend class GgufConfiguration;
   struct Impl;
@@ -60,12 +62,16 @@ public:
   bool has_package_configuration() const;
   // Native inputs are borrowed synchronously; workspace use is externally
   // synchronized. Failure preserves *out. The result owns its native reference
-  // and may outlive this configuration and caller's context/workspace references.
+  // and may outlive this configuration and caller's context/workspace
+  // references.
   bool BuildModule(loomc_context_t *, loomc_workspace_t *,
-                   std::unique_ptr<BuiltGgufModule> *out, std::string *error) const;
+                   std::unique_ptr<BuiltGgufModule> *out,
+                   std::string *error) const;
   // Uses the package options copied by Configure. Numerical and companion LINK
   // consume the prepared sources, without deriving configuration again.
-  bool WritePackage(loomc_context_t *, loomc_workspace_t *, std::string *error) const;
+  bool WritePackage(loomc_context_t *, loomc_workspace_t *,
+                    std::string *error) const;
+
 private:
   friend class GgufModelBuilder;
   struct Impl;
@@ -89,7 +95,9 @@ public:
   // Empty resource/output roots are allowed for inspection. All inputs are
   // copied; failure preserves *out, success clears error.
   bool Configure(const GgufBuildOptions &, const GgufPackageOptions *package,
-                 std::unique_ptr<GgufConfiguration> *out, std::string *error) const;
+                 std::unique_ptr<GgufConfiguration> *out,
+                 std::string *error) const;
+
 private:
   struct Impl;
   explicit GgufModelBuilder(std::unique_ptr<Impl>);

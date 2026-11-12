@@ -2,5 +2,23 @@
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
-genrule(name = "control_test_source", testonly = True, srcs = ["//lib/serving:request_check.loom"], outs = ["control_test.loom"], cmd = "sed 's/func.decl import(\"input\") @require/func.decl @require/' $(location //lib/serving:request_check.loom) > $@")
-loom_test(name = "packet_execution_test", srcs = ["//lib/architectures/qwen35:control_core.loom", ":control_test.loom", "imports.loom", "packet_checks.loom"], benchmark_smoke = False, execution_profiles = [VM_REFERENCE_PROFILE])
+
+genrule(
+    name = "control_test_source",
+    testonly = True,
+    srcs = ["//lib/serving:request_check.loom"],
+    outs = ["control_test.loom"],
+    cmd = "sed 's/func.decl import(\"input\") @require/func.decl @require/' $(location //lib/serving:request_check.loom) > $@",
+)
+
+loom_test(
+    name = "packet_execution_test",
+    srcs = [
+        "//lib/architectures/qwen35:control_core.loom",
+        ":control_test.loom",
+        "imports.loom",
+        "packet_checks.loom",
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [VM_REFERENCE_PROFILE],
+)

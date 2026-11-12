@@ -1,13 +1,22 @@
 # Test-only source sets for the explicitly isolated SDK consumer.
 package(default_visibility = ["//internal_consumer:__pkg__"])
+
 filegroup(
     name = "render_harness_sources",
     testonly = True,
-    srcs = ["render_harness.h", "render_harness.cc"],
+    srcs = [
+        "render_harness.h",
+        "render_harness.cc",
+    ],
 )
+
 filegroup(
     name = "reference_tools",
     testonly = True,
-    srcs = ["render_reference.py", "check_reference.py", "reference-requirements.txt"],
+    srcs = [
+        "render_reference.py",
+        "check_reference.py",
+        "reference-requirements.txt",
+    ],
     visibility = ["//visibility:public"],
 )

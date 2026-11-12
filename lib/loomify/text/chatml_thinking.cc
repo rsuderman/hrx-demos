@@ -128,21 +128,25 @@ struct Revision {
 bool ConfigurePlain(std::string_view expected, std::string_view actual,
                     ChatPolicySelection *candidate) {
   Captures values;
-  if (!Capture(expected, actual, {}, &values)) return false;
+  if (!Capture(expected, actual, {}, &values))
+    return false;
   // Shared input declarations have no prose/default content in this protocol.
-  for (const char *name : {"loomify.text.tools_prefix", "loomify.text.tools_suffix",
-                          "loomify.text.effort_xhigh", "loomify.text.effort_low",
-                          "loomify.text.default_effort",
-                          "loomify.text.default_effort_instruction"})
+  for (const char *name :
+       {"loomify.text.tools_prefix", "loomify.text.tools_suffix",
+        "loomify.text.effort_xhigh", "loomify.text.effort_low",
+        "loomify.text.default_effort",
+        "loomify.text.default_effort_instruction"})
     Datum(candidate, name, "");
   return true;
 }
 const Revision kRevisions[] = {
-    {"58c1a1f0.jinja", ChatRevision::ChatmlPlain,
+    {"58c1a1f0.jinja",
+     ChatRevision::ChatmlPlain,
      "58c1a1f04baa7adaeaba1f90267c3d57d9396f0c1f0129bdde9e76d3c6784af7",
      {"gpt2", "dbrx", false, "", "<|im_end|>", false},
      resources::kChatmlPlain,
-     {{"<|im_start|>", true}, {"<|im_end|>", true}}, ConfigurePlain},
+     {{"<|im_start|>", true}, {"<|im_end|>", true}},
+     ConfigurePlain},
     {"7f0e5290.jinja",
      ChatRevision::ChatmlInlineHistory,
      "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",

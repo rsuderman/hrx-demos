@@ -1,26 +1,39 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
-load("//build_tools:loom_merge.bzl", "loom_merge")
-load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load("//build_tools:loom_merge.bzl", "loom_merge")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["llama_roots.loom", "qwen_roots.loom"])
+
+exports_files([
+    "llama_roots.loom",
+    "qwen_roots.loom",
+])
+
 cc_test(
     name = "ffn_test",
     size = "medium",
     srcs = ["ffn_test.cc"],
     copts = ["-std=c++17"],
+    data = [
+        ":llama_fixture",
+        ":llama_fixture_text",
+        ":qwen_fixture",
+        ":qwen_fixture_text",
+    ],
     linkstatic = True,
-    data = [":llama_fixture", ":llama_fixture_text", ":qwen_fixture", ":qwen_fixture_text"],
     deps = [
         "//lib/loomify:configuration",
         "//lib/loomify:native_linking",
         "//lib/loomify:configuration_fixture",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "@hrx_system//loom/binding/c/target/cmd",
-        "@googletest//:gtest", "@googletest//:gtest_main",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -28,8 +41,11 @@ cc_binary(
     name = "emit_real_ffn",
     testonly = True,
     srcs = ["emit_real_ffn.cc"],
-    data = [":llama_fixture", ":qwen_fixture"],
     cxxopts = ["-std=c++17"],
+    data = [
+        ":llama_fixture",
+        ":qwen_fixture",
+    ],
     deps = [
         "//lib/loomify:configuration",
         "//lib/loomify:native_linking",
@@ -38,16 +54,78 @@ cc_binary(
     ],
 )
 
-_LLAMA_FIXTURE = ["//lib/platforms/amdgpu/gfx11:targets.loom", "llama_roots.loom", "real_llama_roots.loom", "//lib/architectures/llama:implementation"]
-_QWEN_FIXTURE = ["//lib/platforms/amdgpu/gfx11:targets.loom", "qwen_roots.loom", "real_qwen_roots.loom", "//lib/programs/qwen35:ffn_adapter.loom", "//lib/programs/ffn:interface.loom", "//lib/architectures/qwen35:implementation"]
-loom_merge(name = "llama_fixture", srcs = _LLAMA_FIXTURE, testonly = True)
-loom_merge(name = "llama_fixture_text", srcs = _LLAMA_FIXTURE, output_format = "text", testonly = True)
-loom_merge(name = "qwen_fixture", srcs = _QWEN_FIXTURE, testonly = True)
-loom_merge(name = "qwen_fixture_text", srcs = _QWEN_FIXTURE, output_format = "text", testonly = True)
+_LLAMA_FIXTURE = [
+    "//lib/platforms/amdgpu/gfx11:targets.loom",
+    "llama_roots.loom",
+    "real_llama_roots.loom",
+    "//lib/architectures/llama:implementation",
+]
 
-_FFN27_SOURCES = ["//lib/platforms/amdgpu/gfx11:targets.loom", "ffn27_config.loom", "ffn27_programs.loom", "//lib/programs/qwen35:ffn.loom", "//lib/kernels/qwen:configured_provider_sources"]
-[loom_merge(name = "ffn27_" + format, srcs = _FFN27_SOURCES, output_format = format, testonly = True) for format in ["text", "bc"]]
-[loom_test(name = "ffn27_" + format + "_test", srcs = ["ffn27_checks.loom", ":ffn27_" + format], benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE]) for format in ["text", "bc"]]
+_QWEN_FIXTURE = [
+    "//lib/platforms/amdgpu/gfx11:targets.loom",
+    "qwen_roots.loom",
+    "real_qwen_roots.loom",
+    "//lib/programs/qwen35:ffn_adapter.loom",
+    "//lib/programs/ffn:interface.loom",
+    "//lib/architectures/qwen35:implementation",
+]
+
+loom_merge(
+    name = "llama_fixture",
+    testonly = True,
+    srcs = _LLAMA_FIXTURE,
+)
+
+loom_merge(
+    name = "llama_fixture_text",
+    testonly = True,
+    srcs = _LLAMA_FIXTURE,
+    output_format = "text",
+)
+
+loom_merge(
+    name = "qwen_fixture",
+    testonly = True,
+    srcs = _QWEN_FIXTURE,
+)
+
+loom_merge(
+    name = "qwen_fixture_text",
+    testonly = True,
+    srcs = _QWEN_FIXTURE,
+    output_format = "text",
+)
+
+_FFN27_SOURCES = [
+    "//lib/platforms/amdgpu/gfx11:targets.loom",
+    "ffn27_config.loom",
+    "ffn27_programs.loom",
+    "//lib/programs/qwen35:ffn.loom",
+    "//lib/kernels/qwen:configured_provider_sources",
+]
+
+[loom_merge(
+    name = "ffn27_" + format,
+    testonly = True,
+    srcs = _FFN27_SOURCES,
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "ffn27_" + format + "_test",
+    srcs = [
+        "ffn27_checks.loom",
+        ":ffn27_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]
 
 # Add to lib/programs/ffn/testing/BUILD.bazel; shared BUILD owned by I.
 _CAPABILITY_COMMON = [
@@ -60,54 +138,86 @@ _CAPABILITY_COMMON = [
     "//lib/kernels/elementwise:swiglu_row.loom",
     "//lib/kernels/elementwise:ffn_launches.loom",
 ]
+
 _CAPABILITY_COMPATIBLE = [
     "//lib/kernels/llama:ffn/ffn.loom",
     "//lib/kernels/llama:norm/norm.loom",
     "//lib/programs/llama:ffn_adapter.loom",
 ]
+
 _CAPABILITY_CANONICAL = [
     "//lib/kernels/qwen:ffn/children.loom",
     "//lib/kernels/qwen:common/layer_decode.loom",
     "//lib/kernels/qwen:common/layer_prefill.loom",
     "//lib/programs/qwen35:ffn_adapter.loom",
 ]
+
 [loom_merge(
     name = "capability_" + name + "_" + format,
+    testonly = True,
     srcs = ["capability_" + name + "_programs.loom"] + _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if name == "compatible" else _CAPABILITY_CANONICAL),
     output_format = format,
-    testonly = True,
-) for name in ["canonical", "compatible", "same_hidden"] for format in ["text", "bc"]]
+) for name in [
+    "canonical",
+    "compatible",
+    "same_hidden",
+] for format in [
+    "text",
+    "bc",
+]]
+
 [loom_test(
     name = "capability_" + name + "_" + format + "_test",
-    srcs = ["capability_" + name + "_checks.loom", ":capability_" + name + "_" + format],
+    srcs = [
+        "capability_" + name + "_checks.loom",
+        ":capability_" + name + "_" + format,
+    ],
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
-) for name in ["canonical", "compatible", "same_hidden"] for format in ["text", "bc"]]
+) for name in [
+    "canonical",
+    "compatible",
+    "same_hidden",
+] for format in [
+    "text",
+    "bc",
+]]
+
 exports_files(["capability_fixtures.py"])
 
 # Actual complete-FFN operation constructor checks.
 
 [loom_merge(
     name = "capability_" + name + "_provider_" + format,
+    testonly = True,
     srcs = _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if name == "compatible" else _CAPABILITY_CANONICAL),
     output_format = format,
-    testonly = True,
-) for name in ["canonical", "compatible"] for format in ["text", "bc"]]
+) for name in [
+    "canonical",
+    "compatible",
+] for format in [
+    "text",
+    "bc",
+]]
+
 cc_test(
     name = "capability_test",
     size = "medium",
     srcs = ["capability_test.cc"],
     copts = ["-std=c++17"],
-    linkstatic = True,
     data = [
         "//lib/programs/ffn:interface.loom",
-        ":capability_canonical_provider_text", ":capability_canonical_provider_bc",
-        ":capability_compatible_provider_text", ":capability_compatible_provider_bc",
+        ":capability_canonical_provider_text",
+        ":capability_canonical_provider_bc",
+        ":capability_compatible_provider_text",
+        ":capability_compatible_provider_bc",
     ],
+    linkstatic = True,
     deps = [
         "//lib/loomify:native_linking",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/amdgpu",
-        "@googletest//:gtest", "@googletest//:gtest_main",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
     ],
 )

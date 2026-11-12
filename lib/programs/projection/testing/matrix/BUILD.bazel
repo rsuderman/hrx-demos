@@ -1,48 +1,95 @@
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
+
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
-load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
-load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
-load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
+
 package(default_visibility = ["//visibility:private"])
+
 genrule(
-    name = "fixtures", srcs = [], outs = ["checks.loom"], tools = ["fixtures.py"],
+    name = "fixtures",
+    srcs = [],
+    outs = ["checks.loom"],
     cmd = "python3 $(location fixtures.py) $@",
+    tools = ["fixtures.py"],
 )
+
 loom_library(
     name = "provider",
-    srcs = ["//lib/programs/projection:matrix_sources", "//lib/platforms/amdgpu/gfx11:targets.loom", "//lib/platforms/amdgpu/gfx11/projection:sources"],
+    srcs = [
+        "//lib/programs/projection:matrix_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+    ],
 )
+
 loom_test(
-    name = "execution_test", srcs = [":fixtures"], deps = [":provider"],
-    benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    name = "execution_test",
+    srcs = [":fixtures"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [":provider"],
 )
-loom_merge(name = "fixture_module", srcs = [":fixtures", "//lib/programs/projection:matrix_sources", "//lib/platforms/amdgpu/gfx11:targets.loom", "//lib/platforms/amdgpu/gfx11/projection:sources"], testonly = True)
+
+loom_merge(
+    name = "fixture_module",
+    testonly = True,
+    srcs = [
+        ":fixtures",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+    ],
+)
+
 genrule(
-    name = "preparation_fixtures", srcs = [], outs = ["preparation_checks.loom"], tools = ["preparation_fixtures.py"],
+    name = "preparation_fixtures",
+    srcs = [],
+    outs = ["preparation_checks.loom"],
     cmd = "python3 $(location preparation_fixtures.py) $@",
+    tools = ["preparation_fixtures.py"],
 )
-loom_library(name = "preparation_provider", srcs = ["//lib/kernels/projection:scaled_f16.loom"])
+
+loom_library(
+    name = "preparation_provider",
+    srcs = ["//lib/kernels/projection:scaled_f16.loom"],
+)
+
 loom_test(
-    name = "preparation_execution_test", srcs = [":preparation_fixtures"], deps = [":preparation_provider"],
-    benchmark_smoke = False, execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    name = "preparation_execution_test",
+    srcs = [":preparation_fixtures"],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    deps = [":preparation_provider"],
 )
 
 # Host execution of the same linked operation-owned allocation policy in both formats.
 [loom_merge(
     name = "output_rows_provider_" + format,
+    testonly = True,
     srcs = [
         "//lib/programs/projection:matrix_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/platforms/amdgpu/gfx11/projection:sources",
     ],
     output_format = format,
-    testonly = True,
-) for format in ["text", "bc"]]
+) for format in [
+    "text",
+    "bc",
+]]
+
 [loom_test(
     name = "output_rows_" + format + "_test",
-    srcs = ["output_rows_checks.loom", ":output_rows_provider_" + format],
+    srcs = [
+        "output_rows_checks.loom",
+        ":output_rows_provider_" + format,
+    ],
     benchmark_smoke = False,
     execution_profiles = [VM_REFERENCE_PROFILE],
-) for format in ["text", "bc"]]
+) for format in [
+    "text",
+    "bc",
+]]

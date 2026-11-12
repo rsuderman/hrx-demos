@@ -1,4 +1,5 @@
 """Discoverable guidance and parser contracts without assets or services."""
+
 import argparse
 from contextlib import redirect_stderr, redirect_stdout
 import io
@@ -26,27 +27,33 @@ class HelpTest(unittest.TestCase):
 
     def test_guidance_is_identical_and_side_effect_free(self):
         with tempfile.TemporaryDirectory() as temporary:
-            state = Path(temporary) / 'must-not-exist'
-            with patch.dict('os.environ', {'LOOM_SERVE_DIR': str(state)}):
+            state = Path(temporary) / "must-not-exist"
+            with patch.dict("os.environ", {"LOOM_SERVE_DIR": str(state)}):
                 # The dispatcher is the boundary before all registry, model,
                 # download, network and native operations.
-                with patch.multiple(hem_cli.hem_model_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_modality_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_executable_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_server_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_instance_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_pi_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_opencode_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_omp_cli, run=unittest.mock.DEFAULT), \
-                     patch.multiple(hem_cli.hem_openwebui_cli, run=unittest.mock.DEFAULT):
+                with (
+                    patch.multiple(hem_cli.hem_model_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(hem_cli.hem_modality_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(
+                        hem_cli.hem_executable_cli, run=unittest.mock.DEFAULT
+                    ),
+                    patch.multiple(hem_cli.hem_server_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(hem_cli.hem_instance_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(hem_cli.hem_pi_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(hem_cli.hem_opencode_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(hem_cli.hem_omp_cli, run=unittest.mock.DEFAULT),
+                    patch.multiple(
+                        hem_cli.hem_openwebui_cli, run=unittest.mock.DEFAULT
+                    ),
+                ):
                     for resource in (None, *hem_cli.DOMAINS):
                         argv = [resource] if resource else []
-                        expected = self.invoke(argv + ['--help'])
+                        expected = self.invoke(argv + ["--help"])
                         self.assertEqual(expected[0], 0)
-                        self.assertEqual(expected[2], '')
-                        self.assertIn('usage: loom-control', expected[1])
-                        self.assertNotIn('loom-hem', expected[1])
-                        for invocation in (argv, ['--json'] + argv, argv + ['--json']):
+                        self.assertEqual(expected[2], "")
+                        self.assertIn("usage: loom-control", expected[1])
+                        self.assertNotIn("loom-hem", expected[1])
+                        for invocation in (argv, ["--json"] + argv, argv + ["--json"]):
                             self.assertEqual(self.invoke(invocation), expected)
                     for module in hem_cli.DOMAINS.values():
                         module.run.assert_not_called()
@@ -54,12 +61,16 @@ class HelpTest(unittest.TestCase):
 
     def test_every_action_and_argument_has_help_and_valid_example(self):
         root = hem_cli.parser()
-        domains = next(a for a in root._actions if isinstance(a, argparse._SubParsersAction)).choices
+        domains = next(
+            a for a in root._actions if isinstance(a, argparse._SubParsersAction)
+        ).choices
         count = 0
         for resource, domain in domains.items():
-            if resource == 'tui':
+            if resource == "tui":
                 continue
-            commands = next(a for a in domain._actions if isinstance(a, argparse._SubParsersAction)).choices
+            commands = next(
+                a for a in domain._actions if isinstance(a, argparse._SubParsersAction)
+            ).choices
             for command, child in commands.items():
                 count += 1
                 with self.subTest(resource=resource, command=command):
@@ -69,98 +80,160 @@ class HelpTest(unittest.TestCase):
                         self.assertNotEqual(action.help, argparse.SUPPRESS)
                     for example in hem_help.ACTIONS[resource][command][1].splitlines():
                         words = shlex.split(example)
-                        if words[0] == 'loom-control':
+                        if words[0] == "loom-control":
                             words = words[1:]
                         args = hem_cli.parse_args(words)
-                        self.assertEqual((args.resource, args.command), (resource, command))
-                    code, output, errors = self.invoke([resource, command, '--help'])
+                        self.assertEqual(
+                            (args.resource, args.command), (resource, command)
+                        )
+                    code, output, errors = self.invoke([resource, command, "--help"])
                     self.assertEqual(code, 0)
-                    self.assertIn('Examples:', output)
-                    self.assertIn(f'usage: loom-control {resource} {command}', output)
-                    self.assertNotIn('loom-hem', output)
-                    self.assertEqual(errors, '')
+                    self.assertIn("Examples:", output)
+                    self.assertIn(f"usage: loom-control {resource} {command}", output)
+                    self.assertNotIn("loom-hem", output)
+                    self.assertEqual(errors, "")
         self.assertEqual(count, 28)
 
     def test_resource_and_action_lists_have_no_redundant_choice_heading(self):
         _, output, _ = self.invoke([])
-        self.assertIn('Resources:', output)
-        self.assertIn('RESOURCE ...', output)
-        self.assertNotIn('{model,pipeline,server,instance}', output)
-        self.assertNotIn('\n  RESOURCE', output)
+        self.assertIn("Resources:", output)
+        self.assertIn("RESOURCE ...", output)
+        self.assertNotIn("{model,pipeline,server,instance}", output)
+        self.assertNotIn("\n  RESOURCE", output)
         for resource, description in hem_help.RESOURCES.items():
             self.assertIn(resource, output)
-            self.assertIn(description, ' '.join(output.split()))
-            if resource == 'tui':
-                _, guidance, _ = self.invoke([resource, '--help'])
-                self.assertIn('usage: loom-control tui', guidance)
-                self.assertIn('Interactive', guidance)
+            self.assertIn(description, " ".join(output.split()))
+            if resource == "tui":
+                _, guidance, _ = self.invoke([resource, "--help"])
+                self.assertIn("usage: loom-control tui", guidance)
+                self.assertIn("Interactive", guidance)
                 continue
             _, guidance, _ = self.invoke([resource])
-            self.assertIn('Actions:', guidance)
-            self.assertIn('ACTION ...', guidance)
-            self.assertNotIn('{', guidance)
-            self.assertNotIn('\n  ACTION', guidance)
-            normalized = ' '.join(guidance.split())
+            self.assertIn("Actions:", guidance)
+            self.assertIn("ACTION ...", guidance)
+            self.assertNotIn("{", guidance)
+            self.assertNotIn("\n  ACTION", guidance)
+            normalized = " ".join(guidance.split())
             for action, (description, _) in hem_help.ACTIONS[resource].items():
                 self.assertIn(action, guidance)
                 self.assertIn(description, normalized)
 
     def test_contextual_errors_and_unchanged_json_error_contract(self):
-        for argv, context in ((['model', 'import'], 'loom-control model import'),
-                              (['server', 'start'], 'loom-control server start'),
-                              (['instance', 'list', '--server', 'a', '--url', 'http://localhost:8080'], 'loom-control instance list'),
-                              (['modality', 'unknown'], 'loom-control modality')):
+        for argv, context in (
+            (["model", "import"], "loom-control model import"),
+            (["server", "start"], "loom-control server start"),
+            (
+                ["instance", "list", "--server", "a", "--url", "http://localhost:8080"],
+                "loom-control instance list",
+            ),
+            (["modality", "unknown"], "loom-control modality"),
+        ):
             with self.subTest(argv=argv):
                 code, output, errors = self.invoke(argv)
                 self.assertEqual(code, 2)
-                self.assertEqual(output, '')
-                self.assertIn(f'For details: {context} --help', errors)
-                self.assertIn('usage:', errors)
-                self.assertNotIn('Get started:', errors)
+                self.assertEqual(output, "")
+                self.assertIn(f"For details: {context} --help", errors)
+                self.assertIn("usage:", errors)
+                self.assertNotIn("Get started:", errors)
                 for position in (0, 1, len(argv)):
-                    code, output, errors = self.invoke(argv[:position] + ['--json'] + argv[position:])
+                    code, output, errors = self.invoke(
+                        argv[:position] + ["--json"] + argv[position:]
+                    )
                     self.assertEqual(code, 2)
                     response = json.loads(output)
-                    self.assertEqual(response['state'], 'failed')
-                    self.assertFalse(response['completed'])
-                    self.assertNotIn('For details:', errors)
+                    self.assertEqual(response["state"], "failed")
+                    self.assertFalse(response["completed"])
+                    self.assertNotIn("For details:", errors)
 
     def test_argument_parsing_does_not_read_pipeline_or_recipe_files(self):
-        with patch.object(hem_config.pipelines, 'load', side_effect=AssertionError('parser selected pipeline')), \
-             patch.object(hem_config.recipes, 'load', side_effect=AssertionError('parser loaded recipe')):
-            hem_cli.parse_args(['model', 'import', 'example', '--gguf', 'weights.gguf',
-                                '--tokenizer', 'tokenizer.json', '--recipe', 'example-recipe', '--executable', 'new/catalog/executable.json', '--modality', 'chat'])
-            hem_cli.parse_args(['model', 'download', 'example', '--id', 'local', '--executable', 'new/catalog/executable.json', '--modality', 'chat'])
+        with (
+            patch.object(
+                hem_config.pipelines,
+                "load",
+                side_effect=AssertionError("parser selected pipeline"),
+            ),
+            patch.object(
+                hem_config.recipes,
+                "load",
+                side_effect=AssertionError("parser loaded recipe"),
+            ),
+        ):
+            hem_cli.parse_args(
+                [
+                    "model",
+                    "import",
+                    "example",
+                    "--gguf",
+                    "weights.gguf",
+                    "--tokenizer",
+                    "tokenizer.json",
+                    "--recipe",
+                    "example-recipe",
+                    "--executable",
+                    "new/catalog/executable.json",
+                    "--modality",
+                    "chat",
+                ]
+            )
+            hem_cli.parse_args(
+                [
+                    "model",
+                    "download",
+                    "example",
+                    "--id",
+                    "local",
+                    "--executable",
+                    "new/catalog/executable.json",
+                    "--modality",
+                    "chat",
+                ]
+            )
 
     def test_reference_uses_selected_modality_and_four_layer_precedence(self):
-        for command in ('start', 'export'):
-            _, output, _ = self.invoke(['instance', command, '--help'])
-            for term in ('flat JSON', 'flags override file', 'recipe configuration',
-                         'selected executable defaults', 'Duplicate/unknown keys', 'null',
-                         'nonfinite', 'memory fit', 'final effective configuration'):
+        for command in ("start", "export"):
+            _, output, _ = self.invoke(["instance", command, "--help"])
+            for term in (
+                "flat JSON",
+                "flags override file",
+                "recipe configuration",
+                "selected executable defaults",
+                "Duplicate/unknown keys",
+                "null",
+                "nonfinite",
+                "memory fit",
+                "final effective configuration",
+            ):
                 self.assertIn(term, output)
-            self.assertNotIn('Qwen only', output)
-            self.assertNotIn('curated entries reject', output)
+            self.assertNotIn("Qwen only", output)
+            self.assertNotIn("curated entries reject", output)
         for info in hem_config.executable_list():
-            self.assertIn('parameters', info)
-            self.assertIn('protocol', info)
-            self.assertNotIn('compatibility', info)
-            self.assertTrue(all('state' in parameter and 'type' in parameter
-                                for parameter in info['parameters'].values()))
+            self.assertIn("parameters", info)
+            self.assertIn("protocol", info)
+            self.assertNotIn("compatibility", info)
+            self.assertTrue(
+                all(
+                    "state" in parameter and "type" in parameter
+                    for parameter in info["parameters"].values()
+                )
+            )
 
     def test_selection_help_distinguishes_recipe_modality_and_executable(self):
-        for resource, command in (('model', 'download'), ('model', 'import'),
-                                  ('instance', 'start'), ('instance', 'export')):
-            _, output, _ = self.invoke([resource, command, '--help'])
-            output = ' '.join(output.split())
-            self.assertIn('--executable', output)
-            self.assertIn('--modality', output)
-            self.assertIn('no automatic recipe selection', output)
-            self.assertNotIn('--pipeline', output)
-        _, output, _ = self.invoke(['model', 'import', '--help'])
-        self.assertIn('--recipe', output)
-        self.assertIn('required to select an executable', ' '.join(output.split()))
+        for resource, command in (
+            ("model", "download"),
+            ("model", "import"),
+            ("instance", "start"),
+            ("instance", "export"),
+        ):
+            _, output, _ = self.invoke([resource, command, "--help"])
+            output = " ".join(output.split())
+            self.assertIn("--executable", output)
+            self.assertIn("--modality", output)
+            self.assertIn("no automatic recipe selection", output)
+            self.assertNotIn("--pipeline", output)
+        _, output, _ = self.invoke(["model", "import", "--help"])
+        self.assertIn("--recipe", output)
+        self.assertIn("required to select an executable", " ".join(output.split()))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

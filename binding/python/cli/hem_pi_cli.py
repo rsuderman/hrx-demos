@@ -1,4 +1,5 @@
 """Pi command grammar and integration dispatch."""
+
 from pathlib import Path
 
 from . import hem_arguments as arguments
@@ -12,7 +13,9 @@ def configure(parser):
     arguments.lifecycle(child)
     mode = child.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="inspect without writing")
-    mode.add_argument("--disable", action="store_true", help="remove unchanged owned files")
+    mode.add_argument(
+        "--disable", action="store_true", help="remove unchanged owned files"
+    )
     child.add_argument("--pi-dir", type=Path, help="alternate Pi agent directory")
 
 

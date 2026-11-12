@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 # SPDX-License-Identifier: MIT
 """Best-effort publication verification and bounded rolling-cache maintenance."""
+
 import argparse
 from datetime import datetime
 import json
@@ -33,11 +34,15 @@ class CacheAPI:
         self.ref = scope(pilot)[1]
 
     def request(self, suffix="", method="GET"):
-        request = urllib.request.Request(self.base + suffix, method=method, headers={
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
+        request = urllib.request.Request(
+            self.base + suffix,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return json.load(response) if method == "GET" else None
@@ -51,8 +56,16 @@ class CacheAPI:
         expected = None
         # Bound both API work and diagnostics. Incomplete listings never authorize deletes.
         for page in range(1, 101):
-            query = urllib.parse.urlencode(dict(key=key, ref=self.ref, per_page=100,
-                                                page=page, sort="created_at", direction="asc"))
+            query = urllib.parse.urlencode(
+                dict(
+                    key=key,
+                    ref=self.ref,
+                    per_page=100,
+                    page=page,
+                    sort="created_at",
+                    direction="asc",
+                )
+            )
             result = self.request("?" + query)
             total = result["total_count"]
             if expected is not None and total != expected:
@@ -73,15 +86,23 @@ class CacheAPI:
 
 def eligible(entry, version=None, *, pilot=False):
     _, ref, key_pattern = scope(pilot)
-    return (isinstance(entry.get("id"), int) and entry["id"] > 0
-            and key_pattern.fullmatch(entry.get("key", "")) is not None
-            and entry.get("ref") == ref and bool(entry.get("version"))
-            and (version is None or entry["version"] == version)
-            and isinstance(entry.get("size_in_bytes"), int) and entry["size_in_bytes"] > 0)
+    return (
+        isinstance(entry.get("id"), int)
+        and entry["id"] > 0
+        and key_pattern.fullmatch(entry.get("key", "")) is not None
+        and entry.get("ref") == ref
+        and bool(entry.get("version"))
+        and (version is None or entry["version"] == version)
+        and isinstance(entry.get("size_in_bytes"), int)
+        and entry["size_in_bytes"] > 0
+    )
 
 
 def rank(entry):
-    return datetime.fromisoformat(entry["created_at"].replace("Z", "+00:00")), entry["id"]
+    return (
+        datetime.fromisoformat(entry["created_at"].replace("Z", "+00:00")),
+        entry["id"],
+    )
 
 
 def maintain(api, attempted_key, sleep=time.sleep, *, pilot=False):
@@ -90,8 +111,11 @@ def maintain(api, attempted_key, sleep=time.sleep, *, pilot=False):
         raise ValueError("Unexpected attempted cache key")
     publication = None
     for attempt in range(3):
-        matches = [entry for entry in api.entries(attempted_key)
-                   if eligible(entry, pilot=pilot) and entry["key"] == attempted_key]
+        matches = [
+            entry
+            for entry in api.entries(attempted_key)
+            if eligible(entry, pilot=pilot) and entry["key"] == attempted_key
+        ]
         if len(matches) == 1:
             publication = matches[0]
             break
@@ -100,11 +124,18 @@ def maintain(api, attempted_key, sleep=time.sleep, *, pilot=False):
         if attempt < 2:
             sleep(2)
     if publication is None:
-        return dict(verified=False, deleted=0, reason="Publication not visible; nothing deleted")
-    entries = [entry for entry in api.entries(family)
-               if eligible(entry, publication["version"], pilot=pilot)]
+        return dict(
+            verified=False, deleted=0, reason="Publication not visible; nothing deleted"
+        )
+    entries = [
+        entry
+        for entry in api.entries(family)
+        if eligible(entry, publication["version"], pilot=pilot)
+    ]
     if not any(entry["id"] == publication["id"] for entry in entries):
-        return dict(verified=True, deleted=0, reason="Publication missing from complete listing")
+        return dict(
+            verified=True, deleted=0, reason="Publication missing from complete listing"
+        )
     # Parse every timestamp before deleting anything, so malformed data fails closed.
     ordered = sorted(entries, key=rank)
     newest = ordered[-1]
@@ -112,32 +143,55 @@ def maintain(api, attempted_key, sleep=time.sleep, *, pilot=False):
     for entry in ordered[:-1]:
         api.delete(entry["id"])
         deleted += 1
-    return dict(verified=True, deleted=deleted, preserved_id=newest["id"],
-                stored_bytes=publication["size_in_bytes"], reason="Maintenance completed")
+    return dict(
+        verified=True,
+        deleted=deleted,
+        preserved_id=newest["id"],
+        stored_bytes=publication["size_in_bytes"],
+        reason="Maintenance completed",
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--attempted-key", required=True)
-    parser.add_argument("--pilot", action="store_true", help="Use only the fixed pilot branch/cache family")
+    parser.add_argument(
+        "--pilot",
+        action="store_true",
+        help="Use only the fixed pilot branch/cache family",
+    )
     args = parser.parse_args()
     try:
-        result = maintain(CacheAPI(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], pilot=args.pilot),
-                          args.attempted_key, pilot=args.pilot)
+        result = maintain(
+            CacheAPI(
+                os.environ["GITHUB_REPOSITORY"],
+                os.environ["GH_TOKEN"],
+                pilot=args.pilot,
+            ),
+            args.attempted_key,
+            pilot=args.pilot,
+        )
     except Exception as error:
         # Cache maintenance must never turn a valid wheel into a failed build.
         detail = str(error)
         if token := os.environ.get("GH_TOKEN"):
             detail = detail.replace(token, "[redacted]")
-        reason = (f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError)
-                  else f"{type(error).__name__}: {detail[:160]}")
+        reason = (
+            f"HTTP {error.code}"
+            if isinstance(error, urllib.error.HTTPError)
+            else f"{type(error).__name__}: {detail[:160]}"
+        )
         result = dict(verified=False, reason=f"Maintenance skipped ({reason})")
     print(json.dumps(result, sort_keys=True))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         try:
             with open(summary, "a", encoding="utf-8") as stream:
-                stream.write("\nWheel cache maintenance: `" + json.dumps(result, sort_keys=True) + "`\n")
+                stream.write(
+                    "\nWheel cache maintenance: `"
+                    + json.dumps(result, sort_keys=True)
+                    + "`\n"
+                )
         except OSError:
             pass
 

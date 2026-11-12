@@ -19,9 +19,9 @@ void RejectHeadNorms(const Loader &l, std::string_view architecture) {
       ++end;
     if (end > 4 && (name.substr(end) == ".attn_q_norm.weight" ||
                     name.substr(end) == ".attn_k_norm.weight"))
-      l.Fail("unsupported " + std::string(architecture) + " Q/K normalization tensor: " + name);
+      l.Fail("unsupported " + std::string(architecture) +
+             " Q/K normalization tensor: " + name);
   }
-
 }
 void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m) {
   for (const char *key :
@@ -143,7 +143,8 @@ namespace hrx::model {
 bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
                         std::optional<uint32_t> layer, std::string *name) {
   const auto *architecture = internal::SelectModelArchitecture(m.family);
-  if (!name || !architecture) return false;
+  if (!name || !architecture)
+    return false;
   const char *suffix = nullptr;
   if (!layer) {
     if (role == "token_embedding")
@@ -188,7 +189,8 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     m.family = catalog.architecture;
     m.name = catalog.name;
     const auto *architecture = internal::SelectModelArchitecture(m.family);
-    if (!architecture) l.Fail("unsupported architecture: " + m.family);
+    if (!architecture)
+      l.Fail("unsupported architecture: " + m.family);
     architecture->load(l, m);
     // Optional tensors with graph effects must not silently become unbound
     // extras.
@@ -201,12 +203,14 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
         // Biases are admitted only when the selected architecture explicitly
         // binds them. Unknown extras must not silently change the model graph.
         const auto bound = [&](const auto &bindings) {
-          return std::any_of(bindings.begin(), bindings.end(),
-                             [&](const auto &b) { return b.tensor.name == t.name; });
+          return std::any_of(
+              bindings.begin(), bindings.end(),
+              [&](const auto &b) { return b.tensor.name == t.name; });
         };
-        if (!bound(m.globals) &&
-            !std::any_of(m.layers.begin(), m.layers.end(),
-                         [&](const auto &layer) { return bound(layer.tensors); }))
+        if (!bound(m.globals) && !std::any_of(m.layers.begin(), m.layers.end(),
+                                              [&](const auto &layer) {
+                                                return bound(layer.tensors);
+                                              }))
           l.Fail("unsupported optional bias tensor: " + t.name);
       }
       if (t.name.find("rope_") != std::string::npos) {

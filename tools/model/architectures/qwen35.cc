@@ -33,7 +33,8 @@ std::vector<bool> Recurrent(const Loader &l, size_t count) {
   return out;
 }
 const char *Qwen35TensorSuffix(std::string_view role, bool is_layer) {
-  if (!is_layer) return nullptr;
+  if (!is_layer)
+    return nullptr;
 
   if (role == "post_norm")
     return "post_attention_norm.weight";
@@ -127,6 +128,6 @@ void LoadQwen35(const Loader &l, ModelDescriptor &m) {
   }
 }
 } // namespace
-const ModelArchitecture kQwen35Architecture{
-    "qwen35", LoadQwen35, Qwen35TensorSuffix};
+const ModelArchitecture kQwen35Architecture{"qwen35", LoadQwen35,
+                                            Qwen35TensorSuffix};
 } // namespace hrx::model::internal

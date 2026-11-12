@@ -6,11 +6,14 @@ package(default_visibility = ["//visibility:public"])
 iree_c_embed_data(
     name = "consumer_modules",
     testonly = True,
-    srcs = ["//loomcxx-pipeline/llm:normalization", "//loomcxx-pipeline/llm:normalization_providers"],
+    srcs = [
+        "//loomcxx-pipeline/llm:normalization",
+        "//loomcxx-pipeline/llm:normalization_providers",
+    ],
     c_file_output = "consumer_modules.c",
+    flatten = True,
     h_file_output = "consumer_modules.h",
     identifier = "consumer_modules",
-    flatten = True,
 )
 
 cc_test(
@@ -43,8 +46,14 @@ cc_test(
 )
 
 iree_c_embed_data(
-    name = "consumer_wrappers", testonly = True,
-    srcs = ["consumer_commands.loom", "consumer_model_norm.loom"],
-    c_file_output = "consumer_wrappers.c", h_file_output = "consumer_wrappers.h",
-    identifier = "consumer_wrappers", flatten = True,
+    name = "consumer_wrappers",
+    testonly = True,
+    srcs = [
+        "consumer_commands.loom",
+        "consumer_model_norm.loom",
+    ],
+    c_file_output = "consumer_wrappers.c",
+    flatten = True,
+    h_file_output = "consumer_wrappers.h",
+    identifier = "consumer_wrappers",
 )

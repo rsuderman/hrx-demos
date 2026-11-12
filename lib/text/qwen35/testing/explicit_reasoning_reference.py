@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 """Local independent template inputs; never imports a production recognizer."""
+
 import copy
 import json
 
@@ -26,7 +27,6 @@ def render_kwargs(case, source_override: bool):
     return (request["messages"], tools, kwargs)
 
 
-
 def error_record(error):
     return {"error_type": type(error).__name__, "error": str(error)}
 
@@ -36,9 +36,16 @@ def check_reference(rows, source_override: bool):
     assert sum("error" in row for row in rows) == 7
     assert sum("token_ids" in row for row in rows) == 34
     r = {row["case"]: row for row in rows}
-    assert r["tool-arguments-float-exponent"]["text"] == r["tool-arguments-float-decimal"]["text"]
-    assert "<parameter=n>\n1.0\n</parameter>" in r["tool-arguments-float-exponent"]["text"]
-    assert "<parameter=n>\n-0.0\n</parameter>" in r["tool-arguments-negative-zero"]["text"]
+    assert (
+        r["tool-arguments-float-exponent"]["text"]
+        == r["tool-arguments-float-decimal"]["text"]
+    )
+    assert (
+        "<parameter=n>\n1.0\n</parameter>" in r["tool-arguments-float-exponent"]["text"]
+    )
+    assert (
+        "<parameter=n>\n-0.0\n</parameter>" in r["tool-arguments-negative-zero"]["text"]
+    )
     assert "café <>&\n" in r["tool-arguments-types"]["text"]
     assert "<parameter=n>\n1\n</parameter>" in r["tool-arguments-types-integer"]["text"]
     assert r["one-user"]["text"].endswith("<|im_start|>assistant\n<think>\n")

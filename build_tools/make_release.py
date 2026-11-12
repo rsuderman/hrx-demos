@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build_tools.release import make_release as _implementation
 
-
 if __name__ == "__main__":
     raise SystemExit(_implementation.main())
 

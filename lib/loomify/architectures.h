@@ -9,7 +9,9 @@
 #include <vector>
 namespace hrx::loomify_gguf {
 using ConfigurationEmitter = bool (*)(const model::ModelDescriptor &,
-    const std::string &, const ConfigurationSettings &, ConfigurationFacts *, std::string *);
+                                      const std::string &,
+                                      const ConfigurationSettings &,
+                                      ConfigurationFacts *, std::string *);
 // Private, finite BUILD-owned products and data-only architecture policy.
 struct ArchitectureFiles {
   const char *family;

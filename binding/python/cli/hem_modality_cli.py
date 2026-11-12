@@ -15,7 +15,13 @@ def configure(parser):
 
 def run(args, deadline):
     if args.command == "list":
-        return {"state": "available", "completed": True,
-                "items": hem_config.modality_list(deadline=deadline)}
-    return {"state": "available", "completed": True,
-            **hem_config.modality_info(args.modality, deadline=deadline)}
+        return {
+            "state": "available",
+            "completed": True,
+            "items": hem_config.modality_list(deadline=deadline),
+        }
+    return {
+        "state": "available",
+        "completed": True,
+        **hem_config.modality_info(args.modality, deadline=deadline),
+    }

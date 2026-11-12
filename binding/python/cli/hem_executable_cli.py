@@ -1,4 +1,5 @@
 """Concrete executable inventory selected by safe declaration reference."""
+
 from . import hem_arguments as arguments
 from ..models import hem_config
 
@@ -15,7 +16,13 @@ def configure(parser):
 
 def run(args, deadline):
     if args.command == "list":
-        return {"state": "available", "completed": True,
-                "items": hem_config.executable_list(args.modality, deadline=deadline)}
-    return {"state": "available", "completed": True,
-            **hem_config.executable_info(args.executable, deadline=deadline)}
+        return {
+            "state": "available",
+            "completed": True,
+            "items": hem_config.executable_list(args.modality, deadline=deadline),
+        }
+    return {
+        "state": "available",
+        "completed": True,
+        **hem_config.executable_info(args.executable, deadline=deadline),
+    }

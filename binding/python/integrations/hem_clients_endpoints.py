@@ -4,6 +4,7 @@ Writers acquire the existing integration lock themselves. Callers may hold a
 model/server lock, but MUST NOT hold integration or target locks. This shares
 serialization with Pi without nesting its publisher or changing its wire format.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -36,13 +37,22 @@ def _origin(value):
         parsed = urlsplit(value)
         host = ipaddress.ip_address(parsed.hostname)
         port = parsed.port
-        if (parsed.scheme != "http" or not host.is_loopback or port is None or
-                not 0 < port < 65536 or parsed.username is not None or
-                parsed.password is not None or parsed.path not in ("", "/") or
-                parsed.query or parsed.fragment):
+        if (
+            parsed.scheme != "http"
+            or not host.is_loopback
+            or port is None
+            or not 0 < port < 65536
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+        ):
             raise ValueError()
     except (ValueError, TypeError, AttributeError):
-        raise InvalidInput("client endpoint requires numeric loopback HTTP origin and nonzero port") from None
+        raise InvalidInput(
+            "client endpoint requires numeric loopback HTTP origin and nonzero port"
+        ) from None
     return f"http://[{host}]:{port}" if host.version == 6 else f"http://{host}:{port}"
 
 
@@ -60,10 +70,17 @@ def project_endpoints(root, servers):
         origin = _origin("http://" + server["saved_settings"]["listen"])
         if server.get("launch_token") and server.get("endpoint"):
             origin = _origin(server["endpoint"])
-        rows.append(dict(server=server["id"], provider=provider_id(server["id"]),
-                         base_url=origin + "/v1", native_profile=NATIVE_PROFILE))
-    document = dict(schema_version=SCHEMA_VERSION, owner=OWNER,
-                    hem_root=_root(root), servers=rows)
+        rows.append(
+            dict(
+                server=server["id"],
+                provider=provider_id(server["id"]),
+                base_url=origin + "/v1",
+                native_profile=NATIVE_PROFILE,
+            )
+        )
+    document = dict(
+        schema_version=SCHEMA_VERSION, owner=OWNER, hem_root=_root(root), servers=rows
+    )
     validate_endpoints(document, root)
     return document
 
@@ -71,18 +88,26 @@ def project_endpoints(root, servers):
 def validate_endpoints(document, root):
     """Validate complete owned envelope; never accept/adopt unknown fields."""
     try:
-        if (not isinstance(document, dict) or
-                set(document) != {"schema_version", "owner", "hem_root", "servers"} or
-                type(document["schema_version"]) is not int or document["schema_version"] != SCHEMA_VERSION or
-                document["owner"] != OWNER or document["hem_root"] != _root(root) or
-                not isinstance(document["servers"], list)):
+        if (
+            not isinstance(document, dict)
+            or set(document) != {"schema_version", "owner", "hem_root", "servers"}
+            or type(document["schema_version"]) is not int
+            or document["schema_version"] != SCHEMA_VERSION
+            or document["owner"] != OWNER
+            or document["hem_root"] != _root(root)
+            or not isinstance(document["servers"], list)
+        ):
             raise ValueError()
         names, profiles = [], set()
         for row in document["servers"]:
-            if (not isinstance(row, dict) or set(row) != {"server", "provider", "base_url", "native_profile"} or
-                    row["provider"] != provider_id(row["server"]) or row["native_profile"] not in READABLE_NATIVE_PROFILES or
-                    not row["base_url"].endswith("/v1") or
-                    _origin(row["base_url"][:-3]) + "/v1" != row["base_url"]):
+            if (
+                not isinstance(row, dict)
+                or set(row) != {"server", "provider", "base_url", "native_profile"}
+                or row["provider"] != provider_id(row["server"])
+                or row["native_profile"] not in READABLE_NATIVE_PROFILES
+                or not row["base_url"].endswith("/v1")
+                or _origin(row["base_url"][:-3]) + "/v1" != row["base_url"]
+            ):
                 raise ValueError()
             names.append(row["server"])
             profiles.add(row["native_profile"])
@@ -90,7 +115,9 @@ def validate_endpoints(document, root):
             raise ValueError()
         _encoded(document)
     except (ValueError, TypeError, KeyError, AttributeError, InvalidInput) as error:
-        raise InvalidInput(f"client endpoint projection ownership/schema invalid; {REPAIR}") from error
+        raise InvalidInput(
+            f"client endpoint projection ownership/schema invalid; {REPAIR}"
+        ) from error
     return document
 
 
@@ -129,13 +156,20 @@ def _publish(registry, deadline, *, create):
             return dict(changed=False, clients_update="unchanged")
         if previous is not None:
             prior = read_endpoints(registry.root)
-            if not create and any(row["native_profile"] != NATIVE_PROFILE for row in prior["servers"]):
-                raise InvalidInput("client endpoint projection needs explicit native-profile refresh; " + REPAIR)
+            if not create and any(
+                row["native_profile"] != NATIVE_PROFILE for row in prior["servers"]
+            ):
+                raise InvalidInput(
+                    "client endpoint projection needs explicit native-profile refresh; "
+                    + REPAIR
+                )
         data = _encoded(project_endpoints(registry.root, registry.list_servers()))
         changed = data != previous
         if changed:
             atomic_replace(path, data, expected=previous, deadline=deadline)
-        return dict(changed=changed, clients_update="updated" if changed else "unchanged")
+        return dict(
+            changed=changed, clients_update="updated" if changed else "unchanged"
+        )
 
 
 def ensure_endpoints(registry, deadline):
@@ -160,6 +194,10 @@ def update_result(registry, deadline, payload):
         if update["changed"] or (registry.root / ENDPOINT_PATH).exists():
             payload["clients_update"] = update["clients_update"]
     except (HemError, OSError) as error:
-        payload.update(clients_update="failed", clients_error=str(error), clients_repair=REPAIR)
-        hem_display.emit(f"Client endpoint update failed: {error}; native result unchanged. Repair: {REPAIR}")
+        payload.update(
+            clients_update="failed", clients_error=str(error), clients_repair=REPAIR
+        )
+        hem_display.emit(
+            f"Client endpoint update failed: {error}; native result unchanged. Repair: {REPAIR}"
+        )
     return payload

@@ -1,4 +1,5 @@
 """Optional cache policy and Docker-wrapper failure contract."""
+
 import json
 import os
 from pathlib import Path
@@ -21,8 +22,21 @@ class WheelCacheTest(unittest.TestCase):
     def complete(self):
         self.root.mkdir(exist_ok=True)
         (self.root / "bazel-actions").mkdir(exist_ok=True)
-        data = dict(schema=cache.SCHEMA, compiler_contract=cache.CONTRACT, complete=True)
-        for name in ("source_commit", "hrx_pin", "bazel_version", "container_digest", "artifact_set", "sdk_identity", "compiler_fingerprint", "native_configuration", "build_run", "build_attempt"):
+        data = dict(
+            schema=cache.SCHEMA, compiler_contract=cache.CONTRACT, complete=True
+        )
+        for name in (
+            "source_commit",
+            "hrx_pin",
+            "bazel_version",
+            "container_digest",
+            "artifact_set",
+            "sdk_identity",
+            "compiler_fingerprint",
+            "native_configuration",
+            "build_run",
+            "build_attempt",
+        ):
             data[name] = "fixture"
         cache.write_manifest(self.root, data)
 
@@ -60,7 +74,9 @@ class WheelCacheTest(unittest.TestCase):
 
     def test_previous_build_is_not_admitted_for_publication(self):
         self.complete()
-        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "new-run", "GITHUB_RUN_ATTEMPT": "2"}):
+        with mock.patch.dict(
+            os.environ, {"GITHUB_RUN_ID": "new-run", "GITHUB_RUN_ATTEMPT": "2"}
+        ):
             self.assertFalse(cache.admit(str(self.root))["ready"])
 
     def test_paths_and_symlinks_rejected(self):
@@ -90,7 +106,20 @@ class WheelCacheTest(unittest.TestCase):
     def test_failed_configuration_reports_failure_without_claiming_enabled(self):
         rc = Path(self.temp.name) / "rc-directory"
         rc.mkdir()
-        result = subprocess.run([os.sys.executable, "-m", "build_tools.ci_tools.wheel_cache", "configure", "--bazelrc", str(rc)], cwd=REPO, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                os.sys.executable,
+                "-m",
+                "build_tools.ci_tools.wheel_cache",
+                "configure",
+                "--bazelrc",
+                str(rc),
+            ],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         data = json.loads(result.stdout)
         self.assertFalse(data["enabled"])
         self.assertFalse(data.get("configured", False))
@@ -100,32 +129,73 @@ class WheelCacheTest(unittest.TestCase):
         bindir.mkdir()
         docker = bindir / "docker"
         from build_tools.validation.cancellation_test import DOCKER
-        docker.write_text(DOCKER.replace('PYTHON', os.sys.executable, 1).replace(
-            'while state.exists(): time.sleep(.02)', 'pass').replace(
-            "(root/'creating').touch()", "(root/'creating').touch(); Path(os.environ['CAPTURE']).write_text('\\n'.join(a))"))
+
+        docker.write_text(
+            DOCKER.replace("PYTHON", os.sys.executable, 1)
+            .replace("while state.exists(): time.sleep(.02)", "pass")
+            .replace(
+                "(root/'creating').touch()",
+                "(root/'creating').touch(); Path(os.environ['CAPTURE']).write_text('\\n'.join(a))",
+            )
+        )
         docker.chmod(0o755)
         capture = Path(self.temp.name) / "args"
-        environment = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", CAPTURE=str(capture), FAKE_DOCKER=str(Path(self.temp.name)))
+        environment = dict(
+            os.environ,
+            PATH=f"{bindir}:{os.environ['PATH']}",
+            CAPTURE=str(capture),
+            FAKE_DOCKER=str(Path(self.temp.name)),
+        )
         for directory, enabled in (("relative", "0"), (str(self.root), "1")):
             environment["HRX_BAZEL_CACHE_DIR"] = directory
-            subprocess.run(["bash", str(REPO / "build_tools/build-wheel.sh")], env=environment, check=True, capture_output=True)
+            subprocess.run(
+                ["bash", str(REPO / "build_tools/build-wheel.sh")],
+                env=environment,
+                check=True,
+                capture_output=True,
+            )
             args = capture.read_text()
             self.assertIn(f"HRX_BAZEL_CACHE_ENABLED={enabled}", args)
             self.assertEqual(":/ci-cache" in args, enabled == "1")
         environment["HRX_BAZEL_CACHE_ENABLED"] = "0"
-        subprocess.run(["bash", str(REPO / "build_tools/build-wheel.sh")], env=environment, check=True, capture_output=True)
+        subprocess.run(
+            ["bash", str(REPO / "build_tools/build-wheel.sh")],
+            env=environment,
+            check=True,
+            capture_output=True,
+        )
         self.assertIn("HRX_BAZEL_CACHE_ENABLED=0", capture.read_text())
         environment.pop("HRX_BAZEL_CACHE_ENABLED")
         (self.root / "unexpected").touch()
-        subprocess.run(["bash", str(REPO / "build_tools/build-wheel.sh")], env=environment, check=True, capture_output=True)
+        subprocess.run(
+            ["bash", str(REPO / "build_tools/build-wheel.sh")],
+            env=environment,
+            check=True,
+            capture_output=True,
+        )
         self.assertIn("HRX_BAZEL_CACHE_ENABLED=0", capture.read_text())
 
     def test_unwritable_and_malformed_cli_is_optional(self):
         self.complete()
         (self.root / "manifest.json").write_text("{partial")
-        result = subprocess.run([os.sys.executable, "-m", "build_tools.ci_tools.wheel_cache", "prepare", "--directory", str(self.root)], cwd=REPO, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                os.sys.executable,
+                "-m",
+                "build_tools.ci_tools.wheel_cache",
+                "prepare",
+                "--directory",
+                str(self.root),
+            ],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         self.assertFalse(json.loads(result.stdout)["enabled"])
-        with mock.patch.object(cache.tempfile, "TemporaryFile", side_effect=PermissionError("read-only")):
+        with mock.patch.object(
+            cache.tempfile, "TemporaryFile", side_effect=PermissionError("read-only")
+        ):
             empty = Path(self.temp.name) / "unwritable"
             with self.assertRaises(PermissionError):
                 cache.prepare(str(empty))

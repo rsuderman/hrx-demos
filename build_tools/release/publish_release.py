@@ -34,24 +34,34 @@ def sha256(path: Path) -> str:
 def release_wheel(directory: Path, version: str) -> Path:
     wheels = list(directory.glob("*.whl"))
     if len(wheels) != 1:
-        raise ValueError(f"Expected exactly one wheel in {directory}, found {len(wheels)}")
+        raise ValueError(
+            f"Expected exactly one wheel in {directory}, found {len(wheels)}"
+        )
     wheel = wheels[0]
     name, actual_version, build, tags = parse_wheel_filename(wheel.name)
     if name != "hrx-solutions" or str(actual_version) != version or build:
-        raise ValueError(f"Wheel filename does not match hrx-solutions {version}: {wheel.name}")
+        raise ValueError(
+            f"Wheel filename does not match hrx-solutions {version}: {wheel.name}"
+        )
     if not tags or any(
-        tag.interpreter != "py3" or tag.abi != "none"
+        tag.interpreter != "py3"
+        or tag.abi != "none"
         or not tag.platform.startswith("manylinux")
-        or not tag.platform.endswith("_x86_64") for tag in tags
+        or not tag.platform.endswith("_x86_64")
+        for tag in tags
     ):
         raise ValueError(f"Expected a py3-none manylinux x86-64 wheel: {wheel.name}")
     with zipfile.ZipFile(wheel) as archive:
-        members = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+        members = [
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        ]
         if len(members) != 1:
             raise ValueError("Wheel must contain exactly one METADATA file")
         metadata = email.parser.BytesParser().parsebytes(archive.read(members[0]))
         if metadata["Name"] != "hrx-solutions" or metadata["Version"] != version:
-            raise ValueError("Wheel metadata does not match the release package and version")
+            raise ValueError(
+                "Wheel metadata does not match the release package and version"
+            )
     return wheel
 
 
@@ -64,7 +74,8 @@ def gh(*args: str) -> str:
 def github_release(repository: str, tag: str) -> dict | None:
     result = subprocess.run(
         ["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
-        text=True, capture_output=True,
+        text=True,
+        capture_output=True,
     )
     if result.returncode == 0:
         return json.loads(result.stdout)
@@ -80,23 +91,49 @@ def publish_github(wheel: Path, version: str, repository: str, tag: str) -> None
     existing = github_release(repository, tag)
     if existing is None:
         options = ["--prerelease", "--latest=false"] if is_prerelease(version) else []
-        gh("release", "create", tag, str(wheel), str(checksum),
-           "--repo", repository, "--verify-tag", "--title", f"HRX Solutions {tag}",
-           "--generate-notes", *options)
+        gh(
+            "release",
+            "create",
+            tag,
+            str(wheel),
+            str(checksum),
+            "--repo",
+            repository,
+            "--verify-tag",
+            "--title",
+            f"HRX Solutions {tag}",
+            "--generate-notes",
+            *options,
+        )
         return
     if existing["draft"] or existing["prerelease"] != is_prerelease(version):
-        raise ValueError("Existing GitHub release has conflicting draft/prerelease status")
+        raise ValueError(
+            "Existing GitHub release has conflicting draft/prerelease status"
+        )
     names = {asset["name"] for asset in existing["assets"]}
     unexpected = {name for name in names if name.endswith(".whl")} - expected.keys()
     if unexpected:
-        raise ValueError(f"Existing release has unexpected wheels: {sorted(unexpected)}")
+        raise ValueError(
+            f"Existing release has unexpected wheels: {sorted(unexpected)}"
+        )
     # Check every overlapping asset before uploading any missing assets. Never clobber.
     with tempfile.TemporaryDirectory(prefix="hrx-release-") as temporary:
         for name in sorted(names & expected.keys()):
-            gh("release", "download", tag, "--repo", repository,
-               "--pattern", name, "--dir", temporary)
+            gh(
+                "release",
+                "download",
+                tag,
+                "--repo",
+                repository,
+                "--pattern",
+                name,
+                "--dir",
+                temporary,
+            )
             if sha256(Path(temporary) / name) != sha256(expected[name]):
-                raise ValueError(f"Existing GitHub asset differs: {name}; use a new version")
+                raise ValueError(
+                    f"Existing GitHub asset differs: {name}; use a new version"
+                )
     missing = [str(path) for name, path in expected.items() if name not in names]
     if missing:
         gh("release", "upload", tag, *missing, "--repo", repository)
@@ -118,7 +155,9 @@ def pypi_has_wheel(wheel: Path, version: str) -> bool:
         raise
     matches = [entry for entry in release["urls"] if entry["filename"] == wheel.name]
     if len(matches) != 1 or matches[0]["digests"]["sha256"] != sha256(wheel):
-        raise ValueError("PyPI version exists with different artifacts; use a new version")
+        raise ValueError(
+            "PyPI version exists with different artifacts; use a new version"
+        )
     if matches[0].get("yanked"):
         raise ValueError("Existing PyPI wheel is yanked; review it before retrying")
     return True
@@ -133,7 +172,9 @@ def output(name: str, value: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("validate-tag", "validate-wheel", "github", "pypi-status"))
+    parser.add_argument(
+        "operation", choices=("validate-tag", "validate-wheel", "github", "pypi-status")
+    )
     parser.add_argument("--tag", required=True)
     parser.add_argument("--wheel-dir", type=Path, default=Path("dist"))
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))

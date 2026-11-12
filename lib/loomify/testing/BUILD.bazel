@@ -1,10 +1,9 @@
-load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 
 package(default_visibility = ["//visibility:private"])
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
-
 
 _CXXOPTS = select({
     "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
@@ -12,14 +11,30 @@ _CXXOPTS = select({
     "//conditions:default": ["-std=c++17"],
 })
 
-exports_files(["gemma3_configuration_test.cc", "configuration_test.cc", "configuration_fixture.h", "alternating_qwen_fixture.h", "qwen3_configuration_test.cc", "qwen3_fixture.h", "gemma3_fixture.h", "qwen2_fixture.h", "qwen2_configuration_test.cc"], visibility = ["//lib/loomify:__pkg__"])
+exports_files(
+    [
+        "gemma3_configuration_test.cc",
+        "configuration_test.cc",
+        "configuration_fixture.h",
+        "alternating_qwen_fixture.h",
+        "qwen3_configuration_test.cc",
+        "qwen3_fixture.h",
+        "gemma3_fixture.h",
+        "qwen2_fixture.h",
+        "qwen2_configuration_test.cc",
+    ],
+    visibility = ["//lib/loomify:__pkg__"],
+)
 
 iree_cc_library(
     name = "configuration_fixture",
     testonly = True,
     hdrs = ["configuration_fixture.h"],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/llama:__pkg__"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/llama:__pkg__",
+    ],
     deps = ["//tools/model:model_descriptor"],
 )
 
@@ -28,7 +43,10 @@ iree_cc_library(
     testonly = True,
     hdrs = ["qwen2_fixture.h"],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/qwen2:__pkg__"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/qwen2:__pkg__",
+    ],
     deps = ["//tools/model:model_descriptor"],
 )
 
@@ -37,7 +55,10 @@ iree_cc_library(
     testonly = True,
     hdrs = ["qwen3_fixture.h"],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/qwen3:__pkg__"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/qwen3:__pkg__",
+    ],
     deps = ["//tools/model:model_descriptor"],
 )
 
@@ -46,7 +67,10 @@ iree_cc_library(
     testonly = True,
     hdrs = ["gemma3_fixture.h"],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/loomify:__pkg__", "//lib/architectures/gemma3:__pkg__"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/gemma3:__pkg__",
+    ],
     deps = ["//tools/model:model_descriptor"],
 )
 
@@ -56,7 +80,11 @@ iree_cc_library(
     srcs = ["prepare_vm.cc"],
     hdrs = ["prepare_vm.h"],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/architectures/llama:__pkg__", "//lib/architectures/qwen35:__pkg__", "//lib/serving/testing:__pkg__"],
+    visibility = [
+        "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/qwen35:__pkg__",
+        "//lib/serving/testing:__pkg__",
+    ],
     deps = [
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/vm",
@@ -66,14 +94,29 @@ iree_cc_library(
 )
 
 cc_test(
-    name = "public_builder_test", size = "small", srcs = ["public_builder_test.cc"],
-    copts = _CXXOPTS, linkstatic = True,
-    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation", "//lib/architectures/gemma3:implementation", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation"],
-    deps = ["//lib/loomify:gguf_model_builder", "@googletest//:gtest_main",
-            "@hrx_system//loom/binding/c/target/amdgpu"],
+    name = "public_builder_test",
+    size = "small",
+    srcs = ["public_builder_test.cc"],
+    copts = _CXXOPTS,
+    data = [
+        "//lib/architectures/llama:implementation",
+        "//lib/architectures/qwen35:implementation",
+        "//lib/architectures/gemma3:implementation",
+        "//lib/platforms/amdgpu/gfx11:targets",
+        "//lib/platforms/amdgpu/gfx11:attention_h256_implementation",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:gguf_model_builder",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
 )
 
-exports_files(["package_test.cc"], visibility = ["//lib/loomify:__pkg__"])
+exports_files(
+    ["package_test.cc"],
+    visibility = ["//lib/loomify:__pkg__"],
+)
 
 cc_test(
     name = "token_policy_test",
@@ -99,17 +142,24 @@ cc_test(
     copts = _CXXOPTS,
     linkstatic = True,
     tags = ["manual"],
-    deps = ["//lib/loomify:token_policy", "//tools/model:text_metadata", "@googletest//:gtest_main"],
+    deps = [
+        "//lib/loomify:token_policy",
+        "//tools/model:text_metadata",
+        "@googletest//:gtest_main",
+    ],
 )
 
-exports_files(["chat_policy_test.cc"], visibility = ["//lib/loomify:__pkg__"])
+exports_files(
+    ["chat_policy_test.cc"],
+    visibility = ["//lib/loomify:__pkg__"],
+)
 
 cc_binary(
     name = "emit_token_marker",
-    visibility = ["//lib/kernels/llama/testing:__pkg__"],
-    srcs = ["emit_token_marker.cc"],
     testonly = True,
+    srcs = ["emit_token_marker.cc"],
     cxxopts = _CXXOPTS,
+    visibility = ["//lib/kernels/llama/testing:__pkg__"],
     deps = ["//lib/loomify:token_policy"],
 )
 
@@ -128,7 +178,13 @@ iree_cc_library(
     ],
 )
 
-cc_binary(name = "mutate_text_gguf", testonly = True, srcs = ["mutate_text_gguf.cc"], copts = _CXXOPTS, deps = ["//tools/model:gguf_catalog"])
+cc_binary(
+    name = "mutate_text_gguf",
+    testonly = True,
+    srcs = ["mutate_text_gguf.cc"],
+    copts = _CXXOPTS,
+    deps = ["//tools/model:gguf_catalog"],
+)
 
 # Manual actual-GGUF direct epoch contract gate; GPU scheduling is external.
 cc_binary(
@@ -136,6 +192,15 @@ cc_binary(
     testonly = True,
     srcs = ["emit_epoch_validation.cc"],
     copts = _CXXOPTS,
-    data = ["//lib/architectures/llama:implementation", "//lib/architectures/qwen35:implementation", "//lib/architectures/gemma3:implementation", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation"],
-    deps = ["//lib/loomify:gguf_model_builder", "@hrx_system//loom/binding/c/target/amdgpu"],
+    data = [
+        "//lib/architectures/llama:implementation",
+        "//lib/architectures/qwen35:implementation",
+        "//lib/architectures/gemma3:implementation",
+        "//lib/platforms/amdgpu/gfx11:targets",
+        "//lib/platforms/amdgpu/gfx11:attention_h256_implementation",
+    ],
+    deps = [
+        "//lib/loomify:gguf_model_builder",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
 )

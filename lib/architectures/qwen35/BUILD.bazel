@@ -1,49 +1,85 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
-load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
-load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+
 package(default_visibility = ["//visibility:public"])
-exports_files(["model.loom", "epoch.loom", "prepare.loom"])
+
+exports_files([
+    "model.loom",
+    "epoch.loom",
+    "prepare.loom",
+])
 
 # One complete numerical closure. Common/FFN members are owned by their BUILD
 # filegroup; complete layers retain their internal FFNs and numerical policy.
 _NUMERICAL_SOURCES = [
-        "//lib/kernels/qwen:configured_provider_sources",
-        "//lib/programs/qwen35:implementation_sources",
-        "//lib/kernels/qwen/gdn:common.loom",
-        "//lib/kernels/qwen/gdn:prefill.loom",
-        "//lib/kernels/qwen/gdn:spans.loom",
-        "//lib/kernels/qwen/gdn:clear.loom",
-        "//lib/kernels/qwen/attention:clear.loom",
-        "//lib/kernels/qwen/attention:attention_common.loom",
-        "//lib/kernels/attention:rotary.loom",
-        "//lib/kernels/attention:normalization.loom",
-        "//lib/kernels/qwen/attention:attention_prefill.loom",
-        "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
-        "//lib/kernels/qwen/attention:attention_spans.loom",
-        "//lib/kernels/attention:core.loom",
-        "//lib/kernels/qwen:output/interface.loom",
-        "//lib/kernels/qwen:output/embedding.loom",
-        "//lib/kernels/qwen:output/head.loom",
-        "//lib/kernels/qwen:output/publication.loom",
-        "//lib/kernels/embedding:q6k_rows.loom",
-        "//lib/kernels/embedding:q4k_rows.loom",
-        "//lib/kernels/selection:greedy_argmax.loom",
-    ]
-filegroup(name = "numerical_sources", srcs = _NUMERICAL_SOURCES)
+    "//lib/kernels/qwen:configured_provider_sources",
+    "//lib/programs/qwen35:implementation_sources",
+    "//lib/kernels/qwen/gdn:common.loom",
+    "//lib/kernels/qwen/gdn:prefill.loom",
+    "//lib/kernels/qwen/gdn:spans.loom",
+    "//lib/kernels/qwen/gdn:clear.loom",
+    "//lib/kernels/qwen/attention:clear.loom",
+    "//lib/kernels/qwen/attention:attention_common.loom",
+    "//lib/kernels/attention:rotary.loom",
+    "//lib/kernels/attention:normalization.loom",
+    "//lib/kernels/qwen/attention:attention_prefill.loom",
+    "//lib/kernels/qwen/attention:attention_prefill_wmma.loom",
+    "//lib/kernels/qwen/attention:attention_spans.loom",
+    "//lib/kernels/attention:core.loom",
+    "//lib/kernels/qwen:output/interface.loom",
+    "//lib/kernels/qwen:output/embedding.loom",
+    "//lib/kernels/qwen:output/head.loom",
+    "//lib/kernels/qwen:output/publication.loom",
+    "//lib/kernels/embedding:q6k_rows.loom",
+    "//lib/kernels/embedding:q4k_rows.loom",
+    "//lib/kernels/selection:greedy_argmax.loom",
+]
 
-filegroup(name = "implementation_sources", srcs = ["model.loom", "epoch.loom", ":numerical_sources"])
-loom_merge(name = "implementation", srcs = [":implementation_sources"])
-loom_merge(name = "implementation_text", srcs = [":implementation_sources"], output_format = "text", testonly = True)
-loom_merge(name = "prepare_library", srcs = ["prepare.loom"])
+filegroup(
+    name = "numerical_sources",
+    srcs = _NUMERICAL_SOURCES,
+)
+
+filegroup(
+    name = "implementation_sources",
+    srcs = [
+        "model.loom",
+        "epoch.loom",
+        ":numerical_sources",
+    ],
+)
+
+loom_merge(
+    name = "implementation",
+    srcs = [":implementation_sources"],
+)
+
+loom_merge(
+    name = "implementation_text",
+    testonly = True,
+    srcs = [":implementation_sources"],
+    output_format = "text",
+)
+
+loom_merge(
+    name = "prepare_library",
+    srcs = ["prepare.loom"],
+)
+
 cc_test(
     name = "prepare_test",
     size = "small",
     srcs = ["//lib/architectures/qwen35/testing:prepare_test.cc"],
     copts = ["-std=c++17"],
+    data = [
+        "prepare.loom",
+        ":prepare_library",
+    ],
     linkstatic = True,
-    data = ["prepare.loom", ":prepare_library"],
     deps = [
         "//lib/loomify:configuration",
         "//lib/loomify:configuration_fixture",
@@ -59,12 +95,37 @@ cc_test(
 # Numerical execution hooks are independent of text protocol selection.
 exports_files(["control_core.loom"])
 
-loom_merge(name = "block_fixture", srcs = [":implementation", "//lib/architectures/qwen35/testing:configured_block_roots.loom"], testonly = True)
-cc_binary(
-    name = "emit_block_validation", testonly = True,
-    srcs = ["//lib/architectures/qwen35/testing:emit_block_validation.cc"], copts = ["-std=c++17"],
-    data = [":block_fixture", "//lib/platforms/amdgpu/gfx11:targets", "//lib/platforms/amdgpu/gfx11:attention_h256_implementation"],
-    deps = ["//lib/loomify:configuration", "//lib/loomify:native_linking", "//tools/model:model_descriptor", "@hrx_system//loom/binding/c/target/amdgpu"],
+loom_merge(
+    name = "block_fixture",
+    testonly = True,
+    srcs = [
+        ":implementation",
+        "//lib/architectures/qwen35/testing:configured_block_roots.loom",
+    ],
 )
 
-loom_merge(name = "execution", srcs = ["control_core.loom", "//loom-pipeline:llm/common/fixed_epoch_abi.loom"])
+cc_binary(
+    name = "emit_block_validation",
+    testonly = True,
+    srcs = ["//lib/architectures/qwen35/testing:emit_block_validation.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        ":block_fixture",
+        "//lib/platforms/amdgpu/gfx11:targets",
+        "//lib/platforms/amdgpu/gfx11:attention_h256_implementation",
+    ],
+    deps = [
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)
+
+loom_merge(
+    name = "execution",
+    srcs = [
+        "control_core.loom",
+        "//loom-pipeline:llm/common/fixed_epoch_abi.loom",
+    ],
+)

@@ -27,10 +27,11 @@ inline bool ReadMappings(std::istream &input, std::vector<Mapping> *mappings,
   while (std::getline(input, line)) {
     ++number;
     line.erase(line.find('#') == std::string::npos ? line.size()
-                                                 : line.find('#'));
+                                                   : line.find('#'));
     std::istringstream fields(line);
     Mapping m;
-    if (!(fields >> m.family)) continue;
+    if (!(fields >> m.family))
+      continue;
     std::string mode, types, extra;
     auto fail = [&](const char *reason) {
       *error = "mapping line " + std::to_string(number) + ": " + reason;
@@ -45,8 +46,8 @@ inline bool ReadMappings(std::istream &input, std::vector<Mapping> *mappings,
     for (const auto *symbol : {&m.family, &m.provider, &m.imported_family}) {
       if (symbol->empty() ||
           symbol->find_first_not_of(
-              "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._")
-              != std::string::npos)
+              "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._") !=
+              std::string::npos)
         return fail("unsupported symbol spelling");
       if (!symbols.insert(*symbol).second)
         return fail("duplicate mapping symbol");

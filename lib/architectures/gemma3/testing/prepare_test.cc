@@ -7,14 +7,19 @@
 namespace hrx::loomify_gguf::testing {
 namespace {
 const OrdinaryPreparationCase kCase{
-    "gemma3", +[]() { return gemma3::ModelFacts(); },
+    "gemma3",
+    +[]() { return gemma3::ModelFacts(); },
     "lib/architectures/gemma3/prepare.loom",
     "lib/architectures/gemma3/prepare_library.loombc",
-    1152, 6, 256, "generated.gemma3_epoch", "<end_of_turn>"};
+    1152,
+    6,
+    256,
+    "generated.gemma3_epoch",
+    "<end_of_turn>"};
 
 TEST(Gemma3PreparationTest, CompleteRecordsRegistrationsAndNativeImports) {
-  CheckPreparationRecords(kCase, {
-      {1, 63}, {8, 256}, {128, 129}, {129, 129}, {512, 513}});
+  CheckPreparationRecords(
+      kCase, {{1, 63}, {8, 256}, {128, 129}, {129, 129}, {512, 513}});
 }
 
 TEST(Gemma3PreparationTest, UnsupportedRequestsReachRealRequireImport) {
@@ -24,5 +29,5 @@ TEST(Gemma3PreparationTest, UnsupportedRequestsReachRealRequireImport) {
 TEST(Gemma3PreparationTest, MissingLiveConfigCannotLink) {
   CheckMissingPreparationConfig(kCase);
 }
-}  // namespace
-}  // namespace hrx::loomify_gguf::testing
+} // namespace
+} // namespace hrx::loomify_gguf::testing

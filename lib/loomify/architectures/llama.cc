@@ -12,27 +12,32 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   if (!s.token_capacity || s.token_capacity > 512)
     return Fail(error, "token capacity must be between 1 and 512");
   if (m.family != "llama" || m.layers.empty() || m.layers.size() > 64)
-    return Fail(error, "Llama configuration requires supported layer identities");
+    return Fail(error,
+                "Llama configuration requires supported layer identities");
   const uint64_t E = m.embedding_width, V = m.vocabulary_size;
-  const uint64_t QH = m.layers.front().query_heads, KH = m.layers.front().kv_heads;
+  const uint64_t QH = m.layers.front().query_heads,
+                 KH = m.layers.front().kv_heads;
   const uint64_t H = m.key_head_width;
   uint64_t Q, KV;
   if (!E || !V || !QH || !KH || QH % KH || !H || H != m.value_head_width ||
       !Product(QH, H, &Q) || Q != E || !Product(KH, H, &KV) ||
-      !PositiveF32(m.rms_epsilon) || !PositiveF32(m.rope.base) || m.rope.base < 1 ||
-      m.ssm || m.rope.width != H || m.rope.scaling_factor != 1 ||
+      !PositiveF32(m.rms_epsilon) || !PositiveF32(m.rope.base) ||
+      m.rope.base < 1 || m.ssm || m.rope.width != H ||
+      m.rope.scaling_factor != 1 ||
       (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear"))
-    return Fail(error, "inconsistent Llama geometry or unsupported rotary/output binding");
+    return Fail(
+        error,
+        "inconsistent Llama geometry or unsupported rotary/output binding");
   Producer p;
   p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", E, V,
-                {12, 14}) ||
+  if (!p.Tensor(m.globals, "token_embedding", E, V, {12, 14}) ||
       !p.Tensor(m.globals, "output", E, V, {14}) ||
       !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
-  const auto factors = std::count_if(m.globals.begin(), m.globals.end(),
+  const auto factors = std::count_if(
+      m.globals.begin(), m.globals.end(),
       [](const auto &binding) { return binding.role == "rope_frequencies"; });
   if (factors > 1)
     return Fail(error, "requires at most one tensor role: rope_frequencies");
@@ -50,14 +55,10 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
         l.query_heads != QH || l.kv_heads != KH)
       return Fail(error, "unsupported layer identity or geometry at layer " +
                              std::to_string(i));
-    if (!p.Tensor(l.tensors, "post_norm", E, 1, {0},
-                  l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", E, F, {},
-                  l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", E, F, {},
-                  l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", F, E,
-                  {}, l.index))
+    if (!p.Tensor(l.tensors, "post_norm", E, 1, {0}, l.index) ||
+        !p.Tensor(l.tensors, "ffn_gate", E, F, {}, l.index) ||
+        !p.Tensor(l.tensors, "ffn_up", E, F, {}, l.index) ||
+        !p.Tensor(l.tensors, "ffn_down", F, E, {}, l.index))
       return false;
     const auto &gate = *Role(l.tensors, "ffn_gate"),
                &up = *Role(l.tensors, "ffn_up"),
@@ -71,16 +72,11 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
     p.Projection(gate, E, F);
     p.Projection(up, E, F);
     p.Projection(down, F, E);
-    if (!p.Tensor(l.tensors, "input_norm", E, 1,
-                  {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", E, E, {},
-                  l.index) ||
-        !p.Tensor(l.tensors, "key", E, KV, {},
-                  l.index) ||
-        !p.Tensor(l.tensors, "value", E, KV,
-                  {}, l.index) ||
-        !p.Tensor(l.tensors, "attention_output",
-                  E, E, {}, l.index))
+    if (!p.Tensor(l.tensors, "input_norm", E, 1, {0}, l.index) ||
+        !p.Tensor(l.tensors, "query", E, E, {}, l.index) ||
+        !p.Tensor(l.tensors, "key", E, KV, {}, l.index) ||
+        !p.Tensor(l.tensors, "value", E, KV, {}, l.index) ||
+        !p.Tensor(l.tensors, "attention_output", E, E, {}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
                &v = *Role(l.tensors, "value"),

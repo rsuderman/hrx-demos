@@ -1,7 +1,26 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 package(default_visibility = ["//visibility:public"])
+
 exports_files(glob(["*.loom"]))
-filegroup(name = "all_sources", srcs = glob(["*.loom"]))
-filegroup(name = "llama_sources", srcs = ["q8_1_x4.loom", "q8_1_x4_mmvq_compat.loom"])
-filegroup(name = "qwen_sources", srcs = ["q8_1_x4.loom", "q8_1_x4_canonical.loom"])
+
+filegroup(
+    name = "all_sources",
+    srcs = glob(["*.loom"]),
+)
+
+filegroup(
+    name = "llama_sources",
+    srcs = [
+        "q8_1_x4.loom",
+        "q8_1_x4_mmvq_compat.loom",
+    ],
+)
+
+filegroup(
+    name = "qwen_sources",
+    srcs = [
+        "q8_1_x4.loom",
+        "q8_1_x4_canonical.loom",
+    ],
+)
