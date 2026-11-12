@@ -42,7 +42,7 @@ iree_cc_library(
         "//lib/programs/ffn/testing:__pkg__",
     ],
     testonly = True,
-    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h", "//lib/loomify/testing:qwen3_fixture.h"],
+    hdrs = ["//lib/loomify/testing:configuration_fixture.h", "//lib/loomify/testing:alternating_qwen_fixture.h", "//lib/loomify/testing:qwen3_fixture.h", "//lib/loomify/testing:gemma3_fixture.h"],
     cxxopts = _CXXOPTS,
     deps = ["//tools/model:gguf_catalog", "//tools/model:model_descriptor"],
 )
@@ -136,7 +136,9 @@ iree_c_embed_data(
 iree_cc_library(
     name = "chat_policy",
     visibility = ["//lib/loomify:__subpackages__", "//lib/serving/testing:__pkg__"],
-    srcs = ["chat_policy.cc"], hdrs = ["chat_policy.h"],
+    srcs = ["chat_policy.cc", "text/matching.h", "text/matching.cc",
+            "text/llama_headers.cc", "text/chatml_thinking.cc", "text/gemma_turns.cc"],
+    hdrs = ["chat_policy.h"],
     cxxopts = _CXXOPTS,
     deps = ["//lib/serving:library_resources", ":chat_templates", ":token_policy", "//tools/model:text_metadata"],
 )
@@ -162,7 +164,7 @@ cc_test(
     name = "gemma3_configuration_test",
     srcs = ["//lib/loomify/testing:gemma3_configuration_test.cc"],
     copts = _CXXOPTS,
-    deps = [":configuration", "//tools/model:gguf_catalog", "//tools/model:model_descriptor",
+    deps = [":configuration", ":configuration_fixture", "//tools/model:gguf_catalog", "//tools/model:model_descriptor",
             "@googletest//:gtest", "@googletest//:gtest_main"],
 )
 

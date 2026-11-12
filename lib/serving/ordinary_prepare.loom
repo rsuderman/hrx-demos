@@ -1,12 +1,12 @@
-func.decl @ordinary.hidden_size() -> (index)
-func.decl @ordinary.layer_count() -> (index)
-func.decl @ordinary.kv_size() -> (index)
-func.decl @ordinary.history_capacity() -> (index)
-func.decl @ordinary.token_capacity() -> (index)
-func.decl @ordinary.cache_capacity() -> (index)
-func.decl @ordinary.pool_capacity() -> (index)
-func.decl @ordinary.cache_base() -> (offset)
-func.decl @ordinary.map_origin() -> (offset)
+config.decl @loomify.serving.hidden_size : index
+config.decl @loomify.serving.layer_count : index
+config.decl @loomify.serving.kv_size : index
+config.decl @loomify.serving.history_capacity : index
+config.decl @loomify.serving.token_capacity : index
+config.decl @loomify.serving.cache_capacity : index
+config.decl @loomify.serving.pool_capacity : index
+config.decl @loomify.serving.cache_base : offset
+config.decl @loomify.serving.map_origin : offset
 func.decl @loomify.tokens.terminal_marker() -> (buffer)
 // Shared ordinary single-request preparation; architecture adapters supply facts.
 // Copyright 2026 The IREE Authors
@@ -67,15 +67,15 @@ func.def @ordinary_storage() -> (buffer, buffer, buffer, buffer, buffer) {
   %zero64 = scalar.constant 0 : i64
   %four64 = scalar.constant 4 : i64
   %two64 = scalar.constant 2 : i64
-  %hidden_i = func.call @ordinary.hidden_size() : () -> (index)
-  %layers_i = func.call @ordinary.layer_count() : () -> (index)
-  %kv_i = func.call @ordinary.kv_size() : () -> (index)
-  %history_i = func.call @ordinary.history_capacity() : () -> (index)
-  %tokens_i = func.call @ordinary.token_capacity() : () -> (index)
-  %context_i = func.call @ordinary.cache_capacity() : () -> (index)
-  %pool_i = func.call @ordinary.pool_capacity() : () -> (index)
-  %base_i = func.call @ordinary.cache_base() : () -> (offset)
-  %map_i = func.call @ordinary.map_origin() : () -> (offset)
+  %hidden_i = config.get @loomify.serving.hidden_size : index
+  %layers_i = config.get @loomify.serving.layer_count : index
+  %kv_i = config.get @loomify.serving.kv_size : index
+  %history_i = config.get @loomify.serving.history_capacity : index
+  %tokens_i = config.get @loomify.serving.token_capacity : index
+  %context_i = config.get @loomify.serving.cache_capacity : index
+  %pool_i = config.get @loomify.serving.pool_capacity : index
+  %base_i = config.get @loomify.serving.cache_base : offset
+  %map_i = config.get @loomify.serving.map_origin : offset
   %hidden = index.cast %hidden_i : index to i64
   %layers = index.cast %layers_i : index to i64
   %kv = index.cast %kv_i : index to i64
@@ -177,9 +177,9 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %zero32 = scalar.constant 0 : i32
   %zero64 = scalar.constant 0 : i64
   %one64 = scalar.constant 1 : i64
-  %capacity_fact = func.call @ordinary.token_capacity() : () -> (index)
+  %capacity_fact = config.get @loomify.serving.token_capacity : index
   %capacity = index.cast %capacity_fact : index to i64
-  %maximum_context_fact = func.call @ordinary.cache_capacity() : () -> (index)
+  %maximum_context_fact = config.get @loomify.serving.cache_capacity : index
   %maximum_context = index.cast %maximum_context_fact : index to i64
   %maximum_pool = scalar.constant 4194304 : i64
   %maximum_rows = scalar.constant 16 : i64
@@ -225,14 +225,14 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %supported32 = scalar.extui %supported : i1 to i32
   %diagnostic = func.call @ordinary.unsupported() : () -> (buffer)
   func.call @require(%supported32, %diagnostic) : (i32, buffer) -> ()
-  %expected_context_fact = func.call @ordinary.cache_capacity() : () -> (index)
+  %expected_context_fact = config.get @loomify.serving.cache_capacity : index
   %expected_context = index.cast %expected_context_fact : index to i64
-  %expected_prefill_fact = func.call @ordinary.token_capacity() : () -> (index)
+  %expected_prefill_fact = config.get @loomify.serving.token_capacity : index
   %expected_prefill = index.cast %expected_prefill_fact : index to i64
   %context_matches = scalar.cmpi eq, %context, %expected_context : i64
   %prefill_matches = scalar.cmpi eq, %prefill, %expected_prefill : i64
   %single_row = scalar.cmpi eq, %rows, %one64 : i64
-  %expected_pool_fact = func.call @ordinary.pool_capacity() : () -> (index)
+  %expected_pool_fact = config.get @loomify.serving.pool_capacity : index
   %expected_pool = index.cast %expected_pool_fact : index to i64
   %pool_matches = scalar.cmpi eq, %pool, %expected_pool : i64
   %bounded_profile0 = scalar.andi %context_matches, %prefill_matches : i1

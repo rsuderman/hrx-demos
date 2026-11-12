@@ -189,5 +189,72 @@ TEST(ChatPolicy, RejectsUnknownAndMalformedWithoutReplacingPriorResult) {
   changed.templates.resize(1);changed.templates[0].listed=false;reject(changed,std::string("x"));
   EXPECT_FALSE(SelectChatPolicy(metadata,{},nullptr,&error));
 }
+TEST(ChatPolicy, EveryKnownProtocolKeepsOrderedDataRootsAndAtomicMarkers) {
+  struct Case {
+    const char* file;
+    std::vector<std::string> roots;
+    std::vector<std::string> atomic_markers;
+  };
+  const std::vector<std::string> chatml_roots = {
+      "loomify.text.tools_prefix", "loomify.text.tools_suffix",
+      "loomify.text.effort_xhigh", "loomify.text.effort_low",
+      "loomify.text.default_effort", "loomify.text.default_effort_instruction"};
+  const Case cases[] = {
+      {"lib/text/llama/templates/5816fce1.jinja",
+       {"loomify.text.fallback_date"},
+       {"<|begin_of_text|>", "<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>"}},
+      {"lib/text/qwen35/templates/7f0e5290.jinja", chatml_roots,
+       {"<|im_start|>", "<|im_end|>"}},
+      {"lib/text/qwen35/templates/c3cf9e34.jinja", chatml_roots,
+       {"<|im_start|>", "<|im_end|>"}},
+      {"lib/text/qwen3/templates/5da44855.jinja", chatml_roots,
+       {"<|im_start|>", "<|im_end|>"}},
+      {"lib/text/gemma/templates/7de1c58e.jinja", {},
+       {"<start_of_turn>", "<end_of_turn>"}},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.file);
+    model::TextMetadata metadata;
+    metadata.templates = {Candidate(Source(test.file))};
+    ChatPolicySelection policy;
+    std::string error;
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+    const std::vector<std::string> roots(policy.data_roots.begin(), policy.data_roots.end());
+    EXPECT_EQ(roots, test.roots);
+    std::vector<std::string> atomic;
+    for (const auto& marker : policy.markers)
+      if (marker.require_single_token) atomic.push_back(marker.text);
+    EXPECT_EQ(atomic, test.atomic_markers);
+    // Every retained data root must name a public definition, in the same order.
+    size_t cursor = 0;
+    for (const auto& root : roots) {
+      const auto declaration = "global.rodata.def public @" + root + " = bytes(\"";
+      const auto found = policy.configuration_source.find(declaration, cursor);
+      ASSERT_NE(found, std::string::npos);
+      cursor = found + declaration.size();
+    }
+  }
+}
+TEST(ChatPolicy, QuotedDataKeepsDecodedBytesAndExactSizeBoundary) {
+  const auto original = Source("lib/text/llama/templates/5816fce1.jinja");
+  const std::pair<std::string, std::string> cases[] = {
+      {R"(a\nb\rc\td\\e\'f\"g café)", "a\nb\rc\td\\e'f\"g café"},
+      {std::string(65536, 'x'), std::string(65536, 'x')},
+  };
+  for (const auto& test : cases) {
+    model::TextMetadata metadata;
+    metadata.templates = {Candidate(Replace(original, "26 Jul 2024", test.first))};
+    ChatPolicySelection policy;
+    std::string error;
+    ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+    EXPECT_EQ(policy.configuration_source,
+              "global.rodata.def public @loomify.text.fallback_date = bytes(\"" +
+                  Hex(test.second) + "\")\n");
+    metadata.templates = {Candidate(Replace(original, "26 Jul 2024", std::string(65537, 'x')))};
+    const auto prior = policy.configuration_source;
+    EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+    EXPECT_EQ(policy.configuration_source, prior);
+  }
+}
 } // namespace
 } // namespace hrx::loomify_gguf

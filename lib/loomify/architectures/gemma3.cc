@@ -17,11 +17,12 @@ bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
       !PositiveF32(m.rms_epsilon))
     return Fail(error, "unsupported Gemma3 geometry, rotary or output binding");
   Producer p;
+  p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", "token_embd.weight", E, V, {8}) ||
-      !p.Tensor(m.globals, "output", "token_embd.weight", E, V, {8}) ||
-      !p.Tensor(m.globals, "output_norm", "output_norm.weight", E, 1, {0}))
+  if (!p.Tensor(m.globals, "token_embedding", E, V, {8}) ||
+      !p.Tensor(m.globals, "output", E, V, {8}) ||
+      !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
   p.Projection(*Role(m.globals, "output"), E, V);
   std::vector<std::vector<uint64_t>> ffn, attention, window;
@@ -39,31 +40,26 @@ bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
       localbase = l.rope_base;
     } else if (l.rope_base != globalbase)
       return Fail(error, "inconsistent Gemma global rotary base");
-    const auto prefix = "blk." + std::to_string(i) + ".";
-    for (const auto &r : std::vector<std::pair<const char *, const char *>>{
-             {"input_norm", "attn_norm.weight"},
-             {"attention_post_norm", "post_attention_norm.weight"},
-             {"ffn_norm", "ffn_norm.weight"},
-             {"ffn_post_norm", "post_ffw_norm.weight"}})
-      if (!p.Tensor(l.tensors, r.first, prefix + r.second, E, 1, {0}, l.index))
+    for (const char *role : {"input_norm", "attention_post_norm", "ffn_norm", "ffn_post_norm"})
+      if (!p.Tensor(l.tensors, role, E, 1, {0}, l.index))
         return false;
-    if (!p.Tensor(l.tensors, "query_norm", prefix + "attn_q_norm.weight", H, 1,
+    if (!p.Tensor(l.tensors, "query_norm", H, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "key_norm", prefix + "attn_k_norm.weight", H, 1,
+        !p.Tensor(l.tensors, "key_norm", H, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", prefix + "attn_q.weight", E, 4 * H, {6},
+        !p.Tensor(l.tensors, "query", E, 4 * H, {6},
                   l.index) ||
-        !p.Tensor(l.tensors, "key", prefix + "attn_k.weight", E, H, {6},
+        !p.Tensor(l.tensors, "key", E, H, {6},
                   l.index) ||
-        !p.Tensor(l.tensors, "value", prefix + "attn_v.weight", E, H, {6, 8},
+        !p.Tensor(l.tensors, "value", E, H, {6, 8},
                   l.index) ||
-        !p.Tensor(l.tensors, "attention_output", prefix + "attn_output.weight",
+        !p.Tensor(l.tensors, "attention_output",
                   4 * H, E, {12}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", prefix + "ffn_gate.weight", E, F, {6},
+        !p.Tensor(l.tensors, "ffn_gate", E, F, {6},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", prefix + "ffn_up.weight", E, F, {6},
+        !p.Tensor(l.tensors, "ffn_up", E, F, {6},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", prefix + "ffn_down.weight", F, E,
+        !p.Tensor(l.tensors, "ffn_down", F, E,
                   {12, 14}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
@@ -118,6 +114,9 @@ bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("gemma3.attention.cache_base", 768 + 4 * history, "offset");
   p.Index("gemma3.attention.map_origin", 2048, "offset");
   p.Index("qwen38.greedy_argmax.output_capacity", V);
+  p.OrdinaryPreparation(E, m.layers.size(), H, history, s.token_capacity,
+                        s.context_capacity, (s.context_capacity + 63) / 64 * 64,
+                        768 + 4 * history, 2048);
   p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_attention", attention);
   p.Lookup("loomify.config.layer_ffn", ffn);

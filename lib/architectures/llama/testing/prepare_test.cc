@@ -3,6 +3,8 @@
 #include "lib/loomify/configuration.h"
 #include "lib/loomify/token_policy.h"
 #include "lib/loomify/testing/configuration_fixture.h"
+#include "lib/loomify/testing/qwen3_fixture.h"
+#include "lib/loomify/testing/gemma3_fixture.h"
 #include "lib/loomify/testing/prepare_vm.h"
 #include "loomc/link.h"
 #include "loomc/source.h"
@@ -96,18 +98,22 @@ class LlamaPreparationTest : public ::testing::Test {
     return {module, loomc_module_release};
   }
   Module Build(int64_t tokens, int64_t context, bool bytecode,
-               bool missing_history = false) {
+               bool missing_history = false, const std::string &family = "llama") {
     ConfigurationFacts facts;
     std::string error;
-    EXPECT_TRUE(DeriveConfiguration(testing::LlamaModelFacts(), "fixture.gguf",
+    auto model = family == "qwen3" ? testing::Qwen3ModelFacts()
+                 : family == "gemma3" ? testing::gemma3::ModelFacts()
+                 : testing::LlamaModelFacts();
+    EXPECT_TRUE(DeriveConfiguration(model, "fixture.gguf",
         {uint64_t(tokens), uint64_t(context)}, &facts, &error)) << error;
     if (missing_history) {
-      const auto begin = facts.source.find("config.def @llama.model.history_capacity");
+      const auto begin = facts.source.find("config.def @loomify.serving.history_capacity");
       EXPECT_NE(begin, std::string::npos);
       if (begin != std::string::npos) facts.source.erase(begin, facts.source.find('\n', begin) - begin + 1);
     }
-    auto config = Parse(facts.source + EmitTerminalMarkerSource("<|eot_id|>"));
-    auto prepare = Load(root_ / (bytecode ? "prepare_library.loombc" : "prepare.loom"));
+    const std::string marker = family == "gemma3" ? "<end_of_turn>" : family == "qwen3" ? "<|im_end|>" : "<|eot_id|>";
+    auto config = Parse(facts.source + EmitTerminalMarkerSource(marker));
+    auto prepare = Load(root_.parent_path() / family / (bytecode ? "prepare_library.loombc" : "prepare.loom"));
     if (!config || !prepare) return {nullptr, loomc_module_release};
     auto common = Load(root_.parent_path().parent_path() / "serving/ordinary_prepare.loom");
     std::vector<loomc_link_module_provider_t> providers = {
@@ -165,13 +171,16 @@ class LlamaPreparationTest : public ::testing::Test {
     loomc_source_release(source);
     return {reloaded, loomc_module_release};
   }
-  void CheckRecords(const PreparationRequest& request, const PreparationObservation& observed) {
+  void CheckRecords(const PreparationRequest& request, const PreparationObservation& observed,
+                    int64_t hidden = 3072, int64_t layers = 28, int64_t kv = 1024,
+                    const std::string &epoch = "generated.llama_epoch",
+                    const std::string &marker = "<|eot_id|>") {
     // Independently stated native record contract. Never read production config
     // values or call a production geometry builder to compute expected records.
     const int64_t t = request.prefill, c = request.context;
     const int64_t p = ((c + 63) / 64) * 64;
     const int64_t h = std::max<int64_t>(t, 129), b = 768 + 4*h;
-    const int64_t residual = 4*t*3072, arena = b + 4*28*p*1024;
+    const int64_t residual = 4*t*hidden, arena = b + 4*layers*p*kv;
     const int64_t sizes[] = {residual, arena, 2064, 2048+4*((c+63)/64), 4*h, 64, 0, 0, 0, 0, 0};
     std::vector<int64_t> allocations;
     for (size_t i = 0; i < 11; ++i) {
@@ -184,19 +193,19 @@ class LlamaPreparationTest : public ::testing::Test {
     origins[0] = origins[1] = 256; origins[2] = b;
     EXPECT_EQ(Words<int64_t>(observed.buffers[4]), origins);
     EXPECT_TRUE(observed.buffers[5].empty());
-    EXPECT_EQ(Words<int64_t>(observed.buffers[6]), (std::vector<int64_t>{64,2048,0,64,256,b,4,1,1,b,56,2*p*1024,128*1024}));
-    EXPECT_EQ(std::string(observed.buffers[1].begin(), observed.buffers[1].end()), "<|eot_id|>");
+    EXPECT_EQ(Words<int64_t>(observed.buffers[6]), (std::vector<int64_t>{64,2048,0,64,256,b,4,1,1,b,2*layers,2*p*kv,128*kv}));
+    EXPECT_EQ(std::string(observed.buffers[1].begin(), observed.buffers[1].end()), marker);
     int64_t maximum = 0;
     for (const auto& shape : request.shapes) maximum = std::max(maximum, shape[0]);
     EXPECT_EQ(observed.effective_prefill, std::min(t, maximum));
     EXPECT_EQ(observed.shared, int32_t(2 + request.shapes.size()));
     ASSERT_EQ(observed.stages.size(), 2 + request.shapes.size());
-    EXPECT_EQ(observed.stages[0].root, "generated.llama_epoch");
+    EXPECT_EQ(observed.stages[0].root, epoch);
     EXPECT_EQ(observed.stages[0].tag, t);
-    EXPECT_EQ(observed.stages[1].root, "generated.llama_epoch");
+    EXPECT_EQ(observed.stages[1].root, epoch);
     EXPECT_EQ(observed.stages[1].tag, 1);
     for (size_t i = 0; i < request.shapes.size(); ++i) {
-      EXPECT_EQ(observed.stages[2+i].root, "generated.llama_epoch");
+      EXPECT_EQ(observed.stages[2+i].root, epoch);
       EXPECT_EQ(observed.stages[2+i].tag, request.shapes[i][0]);
     }
     EXPECT_NE(observed.stages[0].id, observed.stages[1].id);
@@ -266,10 +275,36 @@ TEST_F(LlamaPreparationTest, NativeSingleRowShapeInventoryPreservesStageOrdinals
     CheckRecords(request, observed);
   }
 }
+TEST_F(LlamaPreparationTest, SharedPreparationRecordsForGemmaAndQwen3) {
+  for (const std::string family : {"gemma3", "qwen3"})
+    for (const auto &capacity : std::vector<std::array<int64_t, 2>>{
+             {1, 63}, {8, 256}, {128, 129}, {129, 129}, {512, 513}})
+      for (bool bytecode : {false, true}) {
+        SCOPED_TRACE(::testing::Message() << family << " T=" << capacity[0]
+                     << " C=" << capacity[1] << " BC=" << bytecode);
+        auto linked = Build(capacity[0], capacity[1], bytecode, false, family);
+        ASSERT_TRUE(linked);
+        auto reloaded = RoundTrip(linked.get(), bytecode ? LOOMC_SOURCE_FORMAT_BYTECODE : LOOMC_SOURCE_FORMAT_TEXT);
+        ASSERT_TRUE(reloaded);
+        PreparationRequest request;
+        request.prefill = capacity[0];
+        request.context = capacity[1];
+        request.pool = (capacity[1] + 63) / 64 * 64;
+        request.shapes = {{1, 1}, {capacity[0], 1}};
+        PreparationObservation observed;
+        std::string error;
+        ASSERT_TRUE(testing::RunPreparation(environment_, context_, workspace_, reloaded.get(), request, &observed, &error)) << error;
+        if (family == "gemma3")
+          CheckRecords(request, observed, 1152, 6, 256, "generated.gemma3_epoch", "<end_of_turn>");
+        else
+          CheckRecords(request, observed, 1024, 2, 1024, "generated.qwen3_epoch", "<|im_end|>");
+      }
+}
 TEST_F(LlamaPreparationTest, UnsupportedRequestsReachRealRequireImport) {
+  for (const std::string family : {"llama", "gemma3", "qwen3"})
   for (int variant = 0; variant < 12; ++variant) {
     SCOPED_TRACE(variant);
-    auto linked = Build(128,512,variant % 2 != 0);
+    auto linked = Build(128,512,variant % 2 != 0,false,family);
     ASSERT_TRUE(linked);
     PreparationRequest request;
     switch (variant) {
@@ -295,7 +330,8 @@ TEST_F(LlamaPreparationTest, UnsupportedRequestsReachRealRequireImport) {
   }
 }
 TEST_F(LlamaPreparationTest, MissingLiveConfigCannotLink) {
-  for (bool bytecode : {false,true}) EXPECT_FALSE(Build(128,512,bytecode,true));
+  for (const std::string family : {"llama", "gemma3", "qwen3"})
+    for (bool bytecode : {false,true}) EXPECT_FALSE(Build(128,512,bytecode,true,family));
 }
 } // namespace
 } // namespace hrx::loomify_gguf

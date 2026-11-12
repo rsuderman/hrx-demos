@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor.h"
+#include "tools/model/tensor_names.h"
 #include "tools/model/testing/f32_gguf_fixture.h"
 #include <algorithm>
 #include <cstring>
@@ -497,16 +498,19 @@ TEST(ModelDescriptor, F32PayloadRangesAgreeWithNativeNamedIndex) {
     ModelDescriptor descriptor;
     std::string error;
     const auto bytes = testing::EmbeddingGguf(width, 3);
-    ASSERT_TRUE(testing::ReadFixture(bytes, &catalog, &descriptor, &error)) << error;
+    ASSERT_TRUE(testing::ReadFixture(bytes, &catalog, &descriptor, &error))
+        << error;
     ASSERT_EQ(descriptor.family, "llama");
     EXPECT_EQ(descriptor.embedding_width, width);
     EXPECT_EQ(descriptor.vocabulary_size, 3u);
-    const auto* tensor = FindTensor(catalog, "token_embd.weight");
+    const auto *tensor = FindTensor(catalog, "token_embd.weight");
     ASSERT_NE(tensor, nullptr);
     EXPECT_GT(tensor->absolute_offset, catalog.data_offset);
     EXPECT_EQ(tensor->byte_size, width * 3 * sizeof(float));
     std::vector<float> payload;
-    ASSERT_TRUE(testing::ReadNamedF32(bytes, "token_embd.weight", &payload, &error)) << error;
+    ASSERT_TRUE(
+        testing::ReadNamedF32(bytes, "token_embd.weight", &payload, &error))
+        << error;
     ASSERT_EQ(payload.size(), width * 3);
     EXPECT_EQ(payload[width], 110);
     EXPECT_EQ(payload[2 * width + width - 1], 210 + width - 1);
@@ -544,18 +548,64 @@ TEST(ModelDescriptorQwen3, OrdinaryLayerHasIndependentQueryWidthAndHeadNorms) {
   EXPECT_TRUE(m.output_tied_to_embedding);
   EXPECT_FALSE(m.ssm);
   EXPECT_EQ(m.layers[0].tensors.size(), 11u);
-  const auto norm = std::find_if(m.layers[0].tensors.begin(), m.layers[0].tensors.end(),
+  const auto norm = std::find_if(
+      m.layers[0].tensors.begin(), m.layers[0].tensors.end(),
       [](const auto &binding) { return binding.role == "post_norm"; });
   ASSERT_NE(norm, m.layers[0].tensors.end());
   EXPECT_EQ(norm->tensor.name, "blk.0.ffn_norm.weight");
   auto missing = c;
-  missing.tensors.erase(std::remove_if(missing.tensors.begin(), missing.tensors.end(),
-      [](const auto &t) { return t.name == "blk.1.attn_k_norm.weight"; }), missing.tensors.end());
+  missing.tensors.erase(
+      std::remove_if(
+          missing.tensors.begin(), missing.tensors.end(),
+          [](const auto &t) { return t.name == "blk.1.attn_k_norm.weight"; }),
+      missing.tensors.end());
   EXPECT_FALSE(LoadModelDescriptor(missing, &m, &error));
   EXPECT_NE(error.find("attn_k_norm.weight"), std::string::npos);
   EXPECT_EQ(m.layers.size(), 2u);
   Scalar(c, "qwen3.rope.dimension_count", uint64_t{2});
   EXPECT_FALSE(LoadModelDescriptor(c, &m, &error));
   EXPECT_NE(error.find("RoPE width"), std::string::npos);
+}
+} // namespace hrx::model
+
+namespace hrx::model {
+TEST(ModelTensorNames, SharedSpellingFamilyExceptionsAndRoleScope) {
+  for (const std::string family : {"llama", "qwen3", "gemma3", "qwen35"}) {
+    ModelDescriptor m;
+    m.family = family;
+    std::string name;
+    ASSERT_TRUE(ExpectedTensorName(m, "query", 7, &name));
+    EXPECT_EQ(name, "blk.7.attn_q.weight");
+    ASSERT_TRUE(ExpectedTensorName(m, "ffn_down", 0, &name));
+    EXPECT_EQ(name, "blk.0.ffn_down.weight");
+    ASSERT_TRUE(ExpectedTensorName(m, "output", std::nullopt, &name));
+    EXPECT_EQ(name, "output.weight");
+    m.output_tied_to_embedding = true;
+    ASSERT_TRUE(ExpectedTensorName(m, "output", std::nullopt, &name));
+    EXPECT_EQ(name, "token_embd.weight");
+    for (const auto &invalid :
+         std::vector<std::pair<std::string, std::optional<uint32_t>>>{
+             {"query", std::nullopt}, {"output", 0}, {"unknown", 0}}) {
+      name = "unchanged";
+      EXPECT_FALSE(ExpectedTensorName(m, invalid.first, invalid.second, &name));
+      EXPECT_EQ(name, "unchanged");
+    }
+    EXPECT_EQ(ExpectedTensorName(m, "post_norm", 2, &name), family != "gemma3");
+    if (family != "gemma3")
+      EXPECT_EQ(name, family == "qwen35" ? "blk.2.post_attention_norm.weight"
+                                         : "blk.2.ffn_norm.weight");
+    EXPECT_EQ(ExpectedTensorName(m, "query_norm", 2, &name), family != "llama");
+    EXPECT_EQ(ExpectedTensorName(m, "convolution", 2, &name),
+              family == "qwen35");
+    EXPECT_EQ(ExpectedTensorName(m, "rope_frequencies", std::nullopt, &name),
+              family == "llama");
+    EXPECT_EQ(ExpectedTensorName(m, "ffn_post_norm", 2, &name),
+              family == "gemma3");
+  }
+  ModelDescriptor unknown;
+  unknown.family = "unimplemented";
+  std::string name = "unchanged";
+  EXPECT_FALSE(ExpectedTensorName(unknown, "query", 0, &name));
+  EXPECT_EQ(name, "unchanged");
 }
 } // namespace hrx::model

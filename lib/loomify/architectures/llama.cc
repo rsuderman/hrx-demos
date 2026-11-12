@@ -24,13 +24,14 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
       !m.output_tied_to_embedding)
     return Fail(error, "inconsistent Llama geometry or unsupported rotary/output binding");
   Producer p;
+  p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", "token_embd.weight", E, V,
+  if (!p.Tensor(m.globals, "token_embedding", E, V,
                 {14}) ||
-      !p.Tensor(m.globals, "output", "token_embd.weight", E, V, {14}) ||
-      !p.Tensor(m.globals, "output_norm", "output_norm.weight", E, 1, {0}) ||
-      !p.Tensor(m.globals, "rope_frequencies", "rope_freqs.weight", m.rope.width / 2, 1, {0}))
+      !p.Tensor(m.globals, "output", E, V, {14}) ||
+      !p.Tensor(m.globals, "output_norm", E, 1, {0}) ||
+      !p.Tensor(m.globals, "rope_frequencies", m.rope.width / 2, 1, {0}))
     return false;
 
   p.Projection(*Role(m.globals, "output"), E, V);
@@ -43,14 +44,13 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
         l.query_heads != QH || l.kv_heads != KH)
       return Fail(error, "unsupported layer identity or geometry at layer " +
                              std::to_string(i));
-    const auto prefix = "blk." + std::to_string(i) + ".";
-    if (!p.Tensor(l.tensors, "post_norm", prefix + "ffn_norm.weight", E, 1, {0},
+    if (!p.Tensor(l.tensors, "post_norm", E, 1, {0},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", prefix + "ffn_gate.weight", E, F, {},
+        !p.Tensor(l.tensors, "ffn_gate", E, F, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", prefix + "ffn_up.weight", E, F, {},
+        !p.Tensor(l.tensors, "ffn_up", E, F, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", prefix + "ffn_down.weight", F, E,
+        !p.Tensor(l.tensors, "ffn_down", F, E,
                   {}, l.index))
       return false;
     const auto &gate = *Role(l.tensors, "ffn_gate"),
@@ -65,15 +65,15 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
     p.Projection(gate, E, F);
     p.Projection(up, E, F);
     p.Projection(down, F, E);
-    if (!p.Tensor(l.tensors, "input_norm", prefix + "attn_norm.weight", E, 1,
+    if (!p.Tensor(l.tensors, "input_norm", E, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", prefix + "attn_q.weight", E, E, {},
+        !p.Tensor(l.tensors, "query", E, E, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "key", prefix + "attn_k.weight", E, KV, {},
+        !p.Tensor(l.tensors, "key", E, KV, {},
                   l.index) ||
-        !p.Tensor(l.tensors, "value", prefix + "attn_v.weight", E, KV,
+        !p.Tensor(l.tensors, "value", E, KV,
                   {}, l.index) ||
-        !p.Tensor(l.tensors, "attention_output", prefix + "attn_output.weight",
+        !p.Tensor(l.tensors, "attention_output",
                   E, E, {}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
@@ -114,6 +114,9 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
           Role(m.globals, "output")->byte_size);
   p.Index("qwen38.greedy_argmax.output_capacity", m.vocabulary_size);
 
+  p.OrdinaryPreparation(E, m.layers.size(), KV, history, s.token_capacity,
+                        s.context_capacity, (s.context_capacity + 63) / 64 * 64,
+                        768 + 4 * history, 2048);
   p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_ffn", ffn);
   p.Lookup("loomify.config.layer_attention", attention);

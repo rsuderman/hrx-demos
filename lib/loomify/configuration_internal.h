@@ -3,6 +3,7 @@
 #ifndef HRX_SOLUTIONS_LIB_LOOMIFY_CONFIGURATION_INTERNAL_H_
 #define HRX_SOLUTIONS_LIB_LOOMIFY_CONFIGURATION_INTERNAL_H_
 #include "lib/loomify/configuration.h"
+#include "tools/model/tensor_names.h"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -16,8 +17,8 @@ inline bool Fail(std::string *error, const std::string &message) {
     *error = message;
   return false;
 }
-inline const model::TensorRecord *Role(const std::vector<model::TensorBinding> &items,
-                                const std::string &role) {
+inline const model::TensorRecord *
+Role(const std::vector<model::TensorBinding> &items, const std::string &role) {
   const model::TensorRecord *found = nullptr;
   for (const auto &item : items)
     if (item.role == role) {
@@ -27,7 +28,8 @@ inline const model::TensorRecord *Role(const std::vector<model::TensorBinding> &
     }
   return found;
 }
-inline bool SameTensor(const model::TensorRecord &a, const model::TensorRecord &b) {
+inline bool SameTensor(const model::TensorRecord &a,
+                       const model::TensorRecord &b) {
   return a.name == b.name && a.rank == b.rank &&
          a.normalized_extents == b.normalized_extents &&
          a.storage_type == b.storage_type &&
@@ -48,12 +50,14 @@ inline bool Sum(uint64_t a, uint64_t b, uint64_t *out) {
   return true;
 }
 inline bool PositiveF32(double value) {
-  return std::isfinite(value) && std::isfinite(float(value)) && float(value) > 0;
+  return std::isfinite(value) && std::isfinite(float(value)) &&
+         float(value) > 0;
 }
 struct Producer {
   ConfigurationFacts facts;
   std::map<std::string, model::TensorRecord> identities;
   std::ostringstream text;
+  const model::ModelDescriptor *model = nullptr;
   std::string asset;
   std::string *error;
   std::map<uint32_t, uint64_t> projection_widths;
@@ -72,7 +76,8 @@ struct Producer {
              {14, "ggml.linear_q6k_q8_1_x4."},
              {8, "ggml.linear_q8_0_q8_1_x4."}}) {
       // The operation owns format support. This only sizes the reused product
-      // from its actual tensor consumers; unused products receive a minimal bound.
+      // from its actual tensor consumers; unused products receive a minimal
+      // bound.
       Index(std::string(entry.second) + "token_capacity", 512);
       Index(std::string(entry.second) + "output_capacity",
             std::max<uint64_t>(1, projection_widths[entry.first]));
@@ -84,26 +89,46 @@ struct Producer {
              const char *type = "index") {
     text << "config.def @" << name << " = " << value << " : " << type << '\n';
   }
+  void OrdinaryPreparation(uint64_t hidden, uint64_t layers, uint64_t kv,
+                           uint64_t history, uint64_t tokens, uint64_t context,
+                           uint64_t pool, uint64_t cache_base,
+                           uint64_t map_origin) {
+    Index("loomify.serving.hidden_size", hidden);
+    Index("loomify.serving.layer_count", layers);
+    Index("loomify.serving.kv_size", kv);
+    Index("loomify.serving.history_capacity", history);
+    Index("loomify.serving.token_capacity", tokens);
+    Index("loomify.serving.cache_capacity", context);
+    Index("loomify.serving.pool_capacity", pool);
+    Index("loomify.serving.cache_base", cache_base, "offset");
+    Index("loomify.serving.map_origin", map_origin, "offset");
+  }
   void Real(const std::string &name, float value) {
     text << "config.def @" << name << " = " << std::scientific
          << std::setprecision(std::numeric_limits<float>::max_digits10) << value
          << " : f32\n";
   }
   bool Tensor(const std::vector<model::TensorBinding> &bindings,
-              const std::string &role, const std::string &key, uint64_t in,
-              uint64_t out, std::initializer_list<uint32_t> tags,
+              const std::string &role, uint64_t in, uint64_t out,
+              std::initializer_list<uint32_t> tags,
               std::optional<uint32_t> layer = std::nullopt) {
+    std::string key;
+    if (!model || !model::ExpectedTensorName(*model, role, layer, &key))
+      return Fail(error, "unsupported tensor role/scope: " + role);
     const auto *t = Role(bindings, role);
     if (!t)
       return Fail(error, "requires exactly one tensor role: " + role);
     if (t->name != key || t->rank != (out == 1 ? 1u : 2u) ||
         t->normalized_extents !=
             std::array<int64_t, 4>{int64_t(in), int64_t(out), 1, 1} ||
-        (tags.size() && std::find(tags.begin(), tags.end(), t->storage_type) == tags.end()))
+        (tags.size() &&
+         std::find(tags.begin(), tags.end(), t->storage_type) == tags.end()))
       return Fail(error, "unsupported tensor name, shape or encoding: " + key);
     uint64_t bytes;
-    if (!model::EncodedTensorByteSize(t->storage_type, in, out, &bytes) || bytes > uint64_t(INT64_MAX))
-      return Fail(error, "unsupported or overflowing encoded tensor extent: " + key);
+    if (!model::EncodedTensorByteSize(t->storage_type, in, out, &bytes) ||
+        bytes > uint64_t(INT64_MAX))
+      return Fail(error,
+                  "unsupported or overflowing encoded tensor extent: " + key);
     uint64_t end;
     if (bytes != t->byte_size || !Sum(t->absolute_offset, bytes, &end))
       return Fail(error, "invalid encoded tensor byte range: " + key);
@@ -153,13 +178,17 @@ struct Producer {
     text << " : " << types << "\n}\n";
   }
 };
-bool EmitLlama(const model::ModelDescriptor&, const std::string&,
-               const ConfigurationSettings&, ConfigurationFacts*, std::string*);
-bool EmitGemma(const model::ModelDescriptor&, const std::string&,
-               const ConfigurationSettings&, ConfigurationFacts*, std::string*);
-bool EmitQwen3(const model::ModelDescriptor&, const std::string&,
-               const ConfigurationSettings&, ConfigurationFacts*, std::string*);
-bool EmitQwen(const model::ModelDescriptor&, const std::string&,
-              const ConfigurationSettings&, ConfigurationFacts*, std::string*);
+bool EmitLlama(const model::ModelDescriptor &, const std::string &,
+               const ConfigurationSettings &, ConfigurationFacts *,
+               std::string *);
+bool EmitGemma(const model::ModelDescriptor &, const std::string &,
+               const ConfigurationSettings &, ConfigurationFacts *,
+               std::string *);
+bool EmitQwen3(const model::ModelDescriptor &, const std::string &,
+               const ConfigurationSettings &, ConfigurationFacts *,
+               std::string *);
+bool EmitQwen(const model::ModelDescriptor &, const std::string &,
+              const ConfigurationSettings &, ConfigurationFacts *,
+              std::string *);
 } // namespace hrx::loomify_gguf::internal
 #endif

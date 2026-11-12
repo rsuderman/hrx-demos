@@ -5,6 +5,8 @@
 #include "loomc/source.h"
 #include "lib/loomify/configuration.h"
 #include "lib/loomify/testing/configuration_fixture.h"
+#include "lib/loomify/testing/gemma3_fixture.h"
+#include "lib/loomify/testing/qwen3_fixture.h"
 #include "lib/loomify/testing/alternating_qwen_fixture.h"
 #include "tools/model/gguf_catalog.h"
 #include "tools/model/model_descriptor.h"
@@ -112,6 +114,55 @@ TEST(ConfigurationFactsTest, SharedGeometryAtHistoryAndPoolBoundaries) {
           EXPECT_EQ(s.count("qwen.model.ffn_gate_q4_layers"), 0u);
         }
       }
+}
+TEST(ConfigurationFactsTest, OrdinaryPreparationUsesSharedTypedFacts) {
+  const std::vector<model::ModelDescriptor> models = {
+      testing::LlamaModelFacts(), testing::gemma3::ModelFacts(), testing::Qwen3ModelFacts()};
+  const uint64_t hidden[] = {3072, 1152, 1024};
+  const uint64_t layers[] = {28, 6, 2};
+  const uint64_t kv[] = {1024, 256, 1024};
+  for (size_t family = 0; family < models.size(); ++family)
+    for (uint64_t tokens : {1, 8, 128, 129, 512}) {
+      ConfigurationFacts facts;
+      std::string error;
+      ASSERT_TRUE(DeriveConfiguration(models[family], "fixture", {tokens, 513}, &facts, &error)) << error;
+      const auto values = Scalars(facts.source);
+      const auto history = std::max<uint64_t>(tokens, 129);
+      const std::vector<std::pair<const char *, uint64_t>> expected = {
+          {"hidden_size", hidden[family]}, {"layer_count", layers[family]},
+          {"kv_size", kv[family]}, {"history_capacity", history},
+          {"token_capacity", tokens}, {"cache_capacity", 513}, {"pool_capacity", 576},
+          {"cache_base", 768 + 4 * history}, {"map_origin", 2048}};
+      for (const auto &[field, value] : expected) {
+        const auto &actual = values.at(std::string("loomify.serving.") + field);
+        EXPECT_EQ(std::stoull(actual.first), value) << models[family].family << field;
+        EXPECT_EQ(actual.second, (std::string(field) == "cache_base" || std::string(field) == "map_origin") ? "offset" : "index");
+      }
+    }
+  ConfigurationFacts hybrid;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(), "fixture", {}, &hybrid, &error)) << error;
+  EXPECT_EQ(hybrid.source.find("@loomify.serving."), std::string::npos);
+}
+TEST(ConfigurationFactsTest, SharedNamesStillRejectMalformedConstructedBindings) {
+  for (const auto &original : {testing::LlamaModelFacts(), testing::gemma3::ModelFacts(), testing::Qwen3ModelFacts(), testing::QwenModelFacts()})
+    for (int mutation = 0; mutation < 4; ++mutation) {
+      auto model = original;
+      if (mutation == 0) model.layers[0].tensors[0].tensor.name = "blk.99.attn_norm.weight";
+      if (mutation == 1) model.layers[0].tensors.push_back(model.layers[0].tensors[0]);
+      if (mutation == 2) {
+        auto output = std::find_if(model.globals.begin(), model.globals.end(), [](const auto &b) { return b.role == "output"; });
+        ASSERT_NE(output, model.globals.end());
+        output->tensor.name = model.output_tied_to_embedding ? "output.weight" : "token_embd.weight";
+      }
+      if (mutation == 3) model.layers[0].tensors[0].tensor.absolute_offset = uint64_t(INT64_MAX);
+      ConfigurationFacts facts;
+      facts.source = "unchanged";
+      std::string error;
+      EXPECT_FALSE(DeriveConfiguration(model, "fixture", {}, &facts, &error)) << original.family << mutation;
+      EXPECT_EQ(facts.source, "unchanged");
+      EXPECT_FALSE(error.empty());
+    }
 }
 TEST(ConfigurationFactsTest, LlamaScalarFactsPreserveQualifiedF32Bits) {
   ConfigurationFacts facts;

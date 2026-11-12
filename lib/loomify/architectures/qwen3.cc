@@ -22,11 +22,12 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
       !Product(QH, H, &Q) || Q > 32768 || !Product(KH, H, &KV))
     return Fail(error, "unsupported Qwen3 attention head geometry");
   Producer p;
+  p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", "token_embd.weight", E, V, {14}) ||
-      !p.Tensor(m.globals, "output", "token_embd.weight", E, V, {14}) ||
-      !p.Tensor(m.globals, "output_norm", "output_norm.weight", E, 1, {0}))
+  if (!p.Tensor(m.globals, "token_embedding", E, V, {14}) ||
+      !p.Tensor(m.globals, "output", E, V, {14}) ||
+      !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
   p.Projection(*Role(m.globals, "output"), E, V);
   std::vector<std::vector<uint64_t>> ffn, attention;
@@ -37,28 +38,27 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
         l.query_heads != QH || l.kv_heads != KH || !F || F > 32768 || F % 256 ||
         l.attention_window || l.rope_base != m.rope.base)
       return Fail(error, "unsupported Qwen3 layer identity or geometry");
-    const auto prefix = "blk." + std::to_string(i) + ".";
-    if (!p.Tensor(l.tensors, "input_norm", prefix + "attn_norm.weight", E, 1,
+    if (!p.Tensor(l.tensors, "input_norm", E, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "post_norm", prefix + "ffn_norm.weight", E, 1,
+        !p.Tensor(l.tensors, "post_norm", E, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "query_norm", prefix + "attn_q_norm.weight", H, 1,
+        !p.Tensor(l.tensors, "query_norm", H, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "key_norm", prefix + "attn_k_norm.weight", H, 1,
+        !p.Tensor(l.tensors, "key_norm", H, 1,
                   {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", prefix + "attn_q.weight", E, Q,
+        !p.Tensor(l.tensors, "query", E, Q,
                   {12, 14}, l.index) ||
-        !p.Tensor(l.tensors, "key", prefix + "attn_k.weight", E, KV,
+        !p.Tensor(l.tensors, "key", E, KV,
                   {12, 14}, l.index) ||
-        !p.Tensor(l.tensors, "value", prefix + "attn_v.weight", E, KV,
+        !p.Tensor(l.tensors, "value", E, KV,
                   {12, 14}, l.index) ||
-        !p.Tensor(l.tensors, "attention_output", prefix + "attn_output.weight",
+        !p.Tensor(l.tensors, "attention_output",
                   Q, E, {12, 14}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", prefix + "ffn_gate.weight", E, F,
+        !p.Tensor(l.tensors, "ffn_gate", E, F,
                   {12}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", prefix + "ffn_up.weight", E, F,
+        !p.Tensor(l.tensors, "ffn_up", E, F,
                   {12}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", prefix + "ffn_down.weight", F, E,
+        !p.Tensor(l.tensors, "ffn_down", F, E,
                   {12, 14}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
@@ -104,6 +104,9 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("qwen3.attention.cache_base", 768 + 4 * history, "offset");
   p.Index("qwen3.attention.map_origin", 2048, "offset");
   p.Index("qwen38.greedy_argmax.output_capacity", V);
+  p.OrdinaryPreparation(E, m.layers.size(), KV, history, s.token_capacity,
+                        s.context_capacity, (s.context_capacity + 63) / 64 * 64,
+                        768 + 4 * history, 2048);
   p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_attention", attention);
   p.Lookup("loomify.config.layer_ffn", ffn);

@@ -24,7 +24,9 @@ cc_test(
     srcs = ["testing/prepare_test.cc"],
     copts = ["-std=c++17"],
     linkstatic = True,
-    data = ["prepare.loom", ":prepare_library", "//lib/serving:ordinary_prepare.loom"],
+    data = ["prepare.loom", ":prepare_library", "//lib/serving:ordinary_prepare.loom",
+            "//lib/architectures/gemma3:prepare.loom", "//lib/architectures/gemma3:prepare_library",
+            "//lib/architectures/qwen3:prepare.loom", "//lib/architectures/qwen3:prepare_library"],
     deps = [
         "//lib/loomify:configuration",
         "//lib/loomify:configuration_fixture",

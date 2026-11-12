@@ -6,13 +6,14 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
               const ConfigurationSettings &o, ConfigurationFacts *out,
               std::string *error) {
   Producer p;
+  p.model = &m;
   p.asset = asset;
   p.error = error;
   std::optional<uint32_t> layer;
   auto tensor = [&](const auto &bindings, const std::string &role,
-                    const std::string &name, uint64_t in, uint64_t out,
+                    uint64_t in, uint64_t out,
                     std::initializer_list<uint32_t> tags) {
-    return p.Tensor(bindings, role, name, in, out, tags, layer);
+    return p.Tensor(bindings, role, in, out, tags, layer);
   };
   if (m.family != "qwen35" || !m.ssm || m.layers.empty() || m.layers.size() > 64)
     return Fail(error, "Qwen configuration requires supported layer identities and SSM facts");
@@ -49,10 +50,9 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
       expected_history != m.ssm->convolution_history_elements ||
       expected_state != m.ssm->recurrent_state_elements)
     return Fail(error, "inconsistent or overflowing Qwen recurrent geometry");
-  const std::string output_name = m.output_tied_to_embedding ? "token_embd.weight" : "output.weight";
-  if (!tensor(m.globals, "token_embedding", "token_embd.weight", E, V, {}) ||
-      !tensor(m.globals, "output", output_name, E, V, {}) ||
-      !tensor(m.globals, "output_norm", "output_norm.weight", E, 1, {0}))
+  if (!tensor(m.globals, "token_embedding", E, V, {}) ||
+      !tensor(m.globals, "output", E, V, {}) ||
+      !tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
   p.Projection(*Role(m.globals, "output"), E, V);
   uint64_t gdn_count = 0, attention_count = 0;
@@ -63,16 +63,15 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
     if (l.index != slot || l.feed_forward_width != F || l.query_heads != QH ||
         l.kv_heads != KH)
       return Fail(error, "unsupported Qwen layer identity or geometry");
-    const auto prefix = "blk." + std::to_string(l.index) + ".";
     const auto &t = l.tensors;
-    if (!tensor(t, "input_norm", prefix + "attn_norm.weight", E, 1, {0}) ||
-        !tensor(t, "post_norm", prefix + "post_attention_norm.weight", E, 1,
+    if (!tensor(t, "input_norm", E, 1, {0}) ||
+        !tensor(t, "post_norm", E, 1,
                 {0}) ||
-        !tensor(t, "ffn_gate", prefix + "ffn_gate.weight", E, F,
+        !tensor(t, "ffn_gate", E, F,
                 {}) ||
-        !tensor(t, "ffn_up", prefix + "ffn_up.weight", E, F,
+        !tensor(t, "ffn_up", E, F,
                 {}) ||
-        !tensor(t, "ffn_down", prefix + "ffn_down.weight", F, E,
+        !tensor(t, "ffn_down", F, E,
                 {}))
       return false;
     const auto gate = Role(t, "ffn_gate")->storage_type;
@@ -93,17 +92,17 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
         return Fail(error,
                     "Qwen recurrent ordinal disagrees with descriptor order");
       routes.push_back({1, l.index, gdn_count++});
-      if (!tensor(t, "recurrent_qkv", prefix + "attn_qkv.weight", E, QKV, {}) ||
-          !tensor(t, "recurrent_gate", prefix + "attn_gate.weight", E, W, {}) ||
-          !tensor(t, "convolution", prefix + "ssm_conv1d.weight", m.ssm->convolution_kernel, QKV,
+      if (!tensor(t, "recurrent_qkv", E, QKV, {}) ||
+          !tensor(t, "recurrent_gate", E, W, {}) ||
+          !tensor(t, "convolution", m.ssm->convolution_kernel, QKV,
                   {0}) ||
-          !tensor(t, "dt_bias", prefix + "ssm_dt.bias", G, 1, {0}) ||
-          !tensor(t, "decay", prefix + "ssm_a", G, 1, {0}) ||
-          !tensor(t, "alpha", prefix + "ssm_alpha.weight", E, G, {}) ||
-          !tensor(t, "beta", prefix + "ssm_beta.weight", E, G, {}) ||
-          !tensor(t, "recurrent_norm", prefix + "ssm_norm.weight", D, 1,
+          !tensor(t, "dt_bias", G, 1, {0}) ||
+          !tensor(t, "decay", G, 1, {0}) ||
+          !tensor(t, "alpha", E, G, {}) ||
+          !tensor(t, "beta", E, G, {}) ||
+          !tensor(t, "recurrent_norm", D, 1,
                   {0}) ||
-          !tensor(t, "recurrent_output", prefix + "ssm_out.weight", W, E, {}))
+          !tensor(t, "recurrent_output", W, E, {}))
         return false;
       for (const auto &use : std::vector<std::tuple<const char *, uint64_t, uint64_t>>{
                {"recurrent_qkv", E, QKV}, {"recurrent_gate", E, W},
@@ -119,13 +118,13 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
         return Fail(error,
                     "Qwen attention ordinal disagrees with descriptor order");
       routes.push_back({0, l.index, attention_count++});
-      if (!tensor(t, "query", prefix + "attn_q.weight", E, query_gate_width, {}) ||
-          !tensor(t, "key", prefix + "attn_k.weight", E, kv_width, {}) ||
-          !tensor(t, "value", prefix + "attn_v.weight", E, kv_width, {}) ||
-          !tensor(t, "attention_output", prefix + "attn_output.weight", attention_width, E, {}) ||
-          !tensor(t, "query_norm", prefix + "attn_q_norm.weight", H, 1,
+      if (!tensor(t, "query", E, query_gate_width, {}) ||
+          !tensor(t, "key", E, kv_width, {}) ||
+          !tensor(t, "value", E, kv_width, {}) ||
+          !tensor(t, "attention_output", attention_width, E, {}) ||
+          !tensor(t, "query_norm", H, 1,
                   {0}) ||
-          !tensor(t, "key_norm", prefix + "attn_k_norm.weight", H, 1, {0}))
+          !tensor(t, "key_norm", H, 1, {0}))
         return false;
       for (const auto &use : std::vector<std::tuple<const char *, uint64_t, uint64_t>>{
                {"query", E, query_gate_width}, {"key", E, kv_width},

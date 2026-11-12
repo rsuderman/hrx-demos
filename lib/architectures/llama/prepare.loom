@@ -3,51 +3,6 @@
 // Architecture facts for shared ordinary preparation.
 global.rodata.def @epoch_root = bytes("67656e6572617465642e6c6c616d615f65706f6368")
 global.rodata.def @unsupported = bytes("4c6c616d61203342207265717569726573207461726765742d6f6e6c7920677265656479207374616765732c20656d707479206d6f64656c206f7074696f6e7320616e642076616c696420626f756e6465642063617061636974696573")
-config.decl @llama.model.hidden_size : index
-func.def @ordinary.hidden_size() -> (index) {
-  %value = config.get @llama.model.hidden_size : index
-  func.return %value : index
-}
-config.decl @llama.model.layer_count : index
-func.def @ordinary.layer_count() -> (index) {
-  %value = config.get @llama.model.layer_count : index
-  func.return %value : index
-}
-config.decl @llama.model.kv_size : index
-func.def @ordinary.kv_size() -> (index) {
-  %value = config.get @llama.model.kv_size : index
-  func.return %value : index
-}
-config.decl @llama.model.history_capacity : index
-func.def @ordinary.history_capacity() -> (index) {
-  %value = config.get @llama.model.history_capacity : index
-  func.return %value : index
-}
-config.decl @runner.llama32.prefill_token_count : index
-func.def @ordinary.token_capacity() -> (index) {
-  %value = config.get @runner.llama32.prefill_token_count : index
-  func.return %value : index
-}
-config.decl @llama.attention.cache_capacity : index
-func.def @ordinary.cache_capacity() -> (index) {
-  %value = config.get @llama.attention.cache_capacity : index
-  func.return %value : index
-}
-config.decl @llama.attention.pool_capacity : index
-func.def @ordinary.pool_capacity() -> (index) {
-  %value = config.get @llama.attention.pool_capacity : index
-  func.return %value : index
-}
-config.decl @llama.attention.cache_base : offset
-func.def @ordinary.cache_base() -> (offset) {
-  %value = config.get @llama.attention.cache_base : offset
-  func.return %value : offset
-}
-config.decl @llama.attention.map_origin : offset
-func.def @ordinary.map_origin() -> (offset) {
-  %value = config.get @llama.attention.map_origin : offset
-  func.return %value : offset
-}
 func.def public inline @ordinary.epoch_root() -> (buffer) {
   %value = global.load @epoch_root : buffer
   func.return %value : buffer
