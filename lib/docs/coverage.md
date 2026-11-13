@@ -344,6 +344,54 @@ full-model accuracy oracle. Standalone numerical checks retain independent
 expected values and fixed budgets. Live model semantic qualification remains a
 separate gate from linking, bitwise ownership and prompt plausibility.
 
+### Jinja input compiler proof
+
+The standalone [chat-template compiler](../loomify/text/jinja/compiler.h) parses
+supported source into a transient AST and emits ordinary Loom control flow.
+Its generated `jinja.evaluate(environment)` accepts an explicit JSON object;
+missing names remain distinct from null. [Shared value helpers](../text/common/jinja.loom)
+operate on strings, JSON values and sequences rather than interpreting templates.
+The compiler has no template-revision lookup or model-family dependency.
+Supported operations include checked signed integer addition/remainder, dynamic
+item lookup, namespace fields carried through branches and loops, defaults,
+Unicode string operations, ordered key/items iteration and reverse slices.
+Items views are supported as immediate loop iterables, rather than general Python
+view values. Owning list concatenation, list conversion and join support text
+accumulation without mutating inputs. Scoped generation blocks produce text,
+preserving namespace effects while keeping ordinary assignments local.
+Statically named nonrecursive macros become Loom functions with explicit lexical
+captures and namespace field results. Namespace identities are resolved by the
+compiler; they are not runtime JSON objects. Container equality, unsafe mixed
+integer/float comparisons and compound mapping keys have explicit capability
+boundaries. Tuple data cannot cross macro or namespace-storage boundaries or
+participate in addition; supported constant tuple arguments remain available.
+Exact floating-point JSON spelling remains separate from the
+lexical-preserving serializer.
+
+The [native proof consumer](../loomify/text/jinja/testing/consumer.BUILD.bazel)
+executes generated SOURCE and bytecode against the independent
+[Jinja reference](../loomify/text/jinja/testing/reference.py) and
+[cases](../loomify/text/jinja/testing/cases.json). Complete-template coverage includes
+Llama, plain ChatML, Qwen2.5, Qwen3, Qwen3.5, Gemma, Spark and LFM3, together with focused
+[arithmetic/item](../loomify/text/jinja/testing/c1_cases.json) and
+[namespace/string](../loomify/text/jinja/testing/c2_cases.json) witnesses, plus
+[macro/traversal](../loomify/text/jinja/testing/c3_cases.json) and
+[full-template mutation](../loomify/text/jinja/testing/c3_profile_mutations.json)
+cases. Deferred float comparisons preserve numeric value, signed zero and exact
+surrounding bytes; the independent reference also checks native token IDs against
+HF tokenization of the actual output. Original Jinja bytes and IDs remain distinct.
+Compiler tests include branches beyond existing Serve admission. A finite supplied
+date keeps evaluation independent of the system clock.
+Focused [list/generation cases](../loomify/text/jinja/testing/c4_cases.json) cover
+ownership, macro-local state and generation scope. LFM3's richer tool inputs are
+compiler-language witnesses; they do not enable richer serving request behavior.
+
+This is a compiler-only entry point. GGUF package selection still uses maintained
+input policies; production renderer replacement is separate work. It does not
+expand tool or media serving admission. Future
+structured-chat integration must preserve selected output/token policies and
+RAW/USER convenience framing independently.
+
 Arbitrary Jinja compilation, tokenizer reconstruction from GGUF alone, media,
 sampling and general reasoning/tool support are not implied. A reusable operation
 still needs its own actual geometry, precision and device qualification. Keep

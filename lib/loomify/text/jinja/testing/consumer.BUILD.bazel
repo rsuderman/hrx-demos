@@ -1,0 +1,34 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+# Instantiate at an external package path's internal_consumer/BUILD.bazel.
+# Only this SDK-private integration consumer needs --check_visibility=false.
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+cc_test(
+    name = "jinja_compiler_test",
+    size = "large",
+    testonly = True,
+    srcs = ["//lib/loomify/text/jinja/testing:native_test_sources"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify:native_linking",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
+        "@hrx_system//loom/src/loom/runtime/program:json",
+        "@hrx_system//loom/src/loom/runtime/program:input",
+        "@hrx_system//loom/src/loom/runtime/program:program",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/base/internal:json",
+        "@hrx_system//runtime/src/iree/tokenizer:tokenizer",
+        "@hrx_system//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+        "@hrx_system//runtime/src/iree/vm",
+        "@googletest//:gtest_main",
+    ],
+)

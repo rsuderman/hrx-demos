@@ -1,0 +1,235 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+"""Independent original-Jinja compiler oracle; not a converter dependency."""
+
+import argparse
+import copy
+import hashlib
+import importlib.metadata
+import importlib.util
+import json
+import os
+from pathlib import Path
+import site
+import sys
+
+PINNED = {
+    "transformers": "4.57.1",
+    "Jinja2": "3.1.6",
+    "tokenizers": "0.22.2",
+    "MarkupSafe": "3.0.4",
+}
+
+
+def identity(path):
+    data = path.read_bytes()
+    return {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+
+def load_adapter(path):
+    spec = importlib.util.spec_from_file_location("local_reference_adapter", path)
+    assert spec is not None and spec.loader is not None, path
+    adapter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(adapter)
+    return adapter
+
+
+def typed_json(value):
+    """Preserve mapping order, numeric types, and signed zero in raw fixtures."""
+    if isinstance(value, dict):
+        return ("object", [(key, typed_json(item)) for key, item in value.items()])
+    if isinstance(value, list):
+        return ("array", [typed_json(item) for item in value])
+    if isinstance(value, float):
+        return ("float", value.hex())
+    return (type(value).__name__, value)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    for name in ("cases", "template", "tokenizer", "output"):
+        parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--adapter", type=Path)
+    parser.add_argument("--check-native", type=Path)
+    args = parser.parse_args()
+    assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
+    assert not os.environ.get("PYTHONPATH") and not os.environ.get("PYTHONHOME")
+    versions = {key: importlib.metadata.version(key) for key in PINNED}
+    assert versions == PINNED, versions
+    from transformers.utils.chat_template_utils import _compile_jinja_template
+    import transformers
+    import jinja2
+    import tokenizers
+
+    for module in (transformers, jinja2, tokenizers):
+        assert (
+            Path(module.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+        )
+    tokenizer = tokenizers.Tokenizer.from_file(str(args.tokenizer))
+    if args.check_native:
+        references = json.loads((args.output / "reference.json").read_text())
+        expected = {row["id"] for row in references if "deferred_float" in row}
+        actual = [
+            json.loads(line) for line in args.check_native.read_text().splitlines()
+        ]
+        assert len(actual) == 2 * len(expected)
+        assert {(row["id"], row["form"]) for row in actual} == {
+            (key, form) for key in expected for form in ("source", "bytecode")
+        }
+        for row in actual:
+            text = bytes.fromhex(row["actual_text_hex"]).decode("utf-8")
+            assert (
+                tokenizer.encode(text, add_special_tokens=False).ids == row["token_ids"]
+            ), row
+        print(
+            json.dumps(
+                {"native_deferred_rows": len(actual), "independent_token_ids": "PASS"}
+            )
+        )
+        return
+    original = args.template.read_text()
+    adapter = load_adapter(args.adapter) if args.adapter else None
+    if adapter:
+        assert hashlib.sha256(original.encode()).hexdigest() == adapter.TEMPLATE_SHA256
+    cases = json.loads(args.cases.read_text())
+    assert cases
+    if not adapter:
+        assert len({case["id"] for case in cases}) == len(cases)
+    rows = []
+    for case_index, case in enumerate(cases):
+        if adapter and adapter.REVISION not in case.get("revisions", []):
+            continue
+        source = case.get("source", original)
+        if "template_sha256" in case:
+            assert (
+                hashlib.sha256(original.encode()).hexdigest() == case["template_sha256"]
+            )
+        for mutation in case.get("mutations", []):
+            count = mutation.get("occurrences", 1)
+            assert source.count(mutation["find"]) == count, case["id"]
+            source = source.replace(mutation["find"], mutation["replace"], count)
+        if adapter:
+            request = copy.deepcopy(case["request"])
+            messages, tools, kwargs = adapter.render_kwargs(case, False)
+            assert case["request"] == request, "adapter changed source request"
+            recorded_kwargs = {
+                key: value
+                for key, value in kwargs.items()
+                if not isinstance(value, jinja2.Undefined)
+            }
+            explicit_environment = dict(recorded_kwargs, messages=messages, tools=tools)
+        else:
+            explicit_environment = copy.deepcopy(case["environment"])
+        environment = copy.deepcopy(explicit_environment)
+        # HF installs a wall-clock default global. Explicit absence in the
+        # compiler contract overrides it, just as existing local oracle adapters
+        # do; otherwise fallback-date cases would depend on the machine clock.
+        environment["strftime_now"] = jinja2.Undefined(name="strftime_now")
+        # The compiler environment carries data, never Python callables. The
+        # independent oracle supplies exactly the finite deterministic intrinsic.
+        capability = environment.pop("__loomify_strftime_now", None)
+        if capability is not None:
+            assert capability["format"] == "%d %b %Y"
+
+            def supplied_date(format_string, binding=capability):
+                assert format_string == binding["format"]
+                return binding["result"]
+
+            environment["strftime_now"] = supplied_date
+        row = {
+            "id": (
+                f"{adapter.REVISION}:{case_index}:{case['id']}"
+                if adapter
+                else case["id"]
+            ),
+            "case": case["id"],
+            "source": source,
+            "environment": explicit_environment,
+            "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+        }
+        if "environment_source" in case:
+            assert not adapter
+            assert typed_json(json.loads(case["environment_source"])) == typed_json(
+                explicit_environment
+            )
+            row["environment_source"] = case["environment_source"]
+        if "deferred_float" in case:
+            assert not case.get("native_unsupported")
+            row["deferred_float"] = copy.deepcopy(case["deferred_float"])
+        if adapter:
+            row.update(
+                revision=adapter.REVISION,
+                request=request,
+                kwargs=recorded_kwargs,
+                tools=tools,
+            )
+        for key in ("native_admission_error", "native_counterpart", "template_case"):
+            if key in case:
+                row[key] = copy.deepcopy(case[key])
+        if case.get("native_unsupported"):
+            # Keep the independent Jinja result, while explicitly recording a
+            # reviewed native capability limit. This is not a template error.
+            row["native_unsupported"] = case["native_unsupported"]
+        template = _compile_jinja_template(source)
+        try:
+            rendered = template.render(**environment)
+        except Exception as error:
+            assert case.get("error") or case.get("error_contains"), (
+                case["id"],
+                str(error),
+            )
+            if case.get("error_contains"):
+                assert case["error_contains"] in str(error), (case["id"], str(error))
+            row.update(
+                error_contains=case.get("error_contains", ""), oracle_error=str(error)
+            )
+            if adapter:
+                row.update(adapter.error_record(error))
+            # A source raise_exception message must survive native execution.
+            # Undefined/type diagnostics may legitimately have a native wrapper.
+            if type(error) is jinja2.exceptions.TemplateError:
+                row["native_error_contains"] = str(error)
+        else:
+            assert not case.get("error") and not case.get("error_contains"), case["id"]
+            row.update(
+                text=rendered,
+                token_ids=tokenizer.encode(rendered, add_special_tokens=False).ids,
+            )
+        if "native_error_contains" in case:
+            row["native_error_contains"] = case["native_error_contains"]
+        rows.append(row)
+    assert rows, "no selected cases"
+    if adapter:
+        adapter.check_reference(rows, False)
+    assert not args.output.exists(), "output must be a fresh directory"
+    args.output.mkdir(parents=True)
+    (args.output / "reference.json").write_text(
+        json.dumps(rows, ensure_ascii=False, indent=2) + "\n"
+    )
+    manifest = {
+        "versions": versions,
+        "interpreter": sys.executable,
+        "cases": identity(args.cases),
+        "template": identity(args.template),
+        "tokenizer": identity(args.tokenizer),
+        "script": identity(Path(__file__)),
+        "adapter": identity(args.adapter) if adapter else None,
+        "rows": len(rows),
+        "oracle_success_rows": sum("text" in row for row in rows),
+        "exact_rows": sum(
+            "text" in row
+            and "native_unsupported" not in row
+            and "deferred_float" not in row
+            for row in rows
+        ),
+        "deferred_float_rows": sum("deferred_float" in row for row in rows),
+        "error_rows": sum("error_contains" in row for row in rows),
+        "native_unsupported_rows": sum("native_unsupported" in row for row in rows),
+        "scope": "independent Jinja reference; no native execution claimed",
+    }
+    (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(json.dumps(manifest, indent=2))
+
+
+if __name__ == "__main__":
+    main()

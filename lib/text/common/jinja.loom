@@ -1,0 +1,1571 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Data operations for generated template control flow. No template interpretation.
+// Native JSON kinds 0..6; kind 7 is Undefined. Strings are decoded UTF-8;
+// numbers/objects/arrays retain their JSON bytes. Buffers are invocation-local.
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+func.decl import("json") @parse_i64(%source: buffer, %begin: i64, %length: i64) -> (i64)
+func.decl import("json") @parse_f64(%source: buffer, %begin: i64, %length: i64) -> (f64)
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+func.decl @text.range(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+func.decl @text.trim(%source: buffer) -> (buffer)
+func.decl @text.whitespace_width(%source: buffer, %position: offset, %end: offset) -> (offset)
+func.decl @text.at(%source: buffer, %position: offset, %marker: buffer) -> (i1)
+func.decl @text.find(%source: buffer, %start: offset, %marker: buffer) -> (offset, i1)
+func.decl @text.json_quote(%source: buffer) -> (buffer)
+func.decl @text.json_dump(%source: buffer) -> (buffer)
+func.decl @text.json_dump_compact(%source: buffer) -> (buffer)
+
+global.rodata.def @jinja.empty = bytes("")
+global.rodata.def @jinja.invalid = bytes("696e76616c69642074656d706c6174652076616c7565206f72206f7065726174696f6e")
+global.rodata.def @jinja.true = bytes("54727565")
+global.rodata.def @jinja.false = bytes("46616c7365")
+global.rodata.def @jinja.none = bytes("4e6f6e65")
+global.rodata.def @jinja.json_true = bytes("74727565")
+global.rodata.def @jinja.json_false = bytes("66616c7365")
+global.rodata.def @jinja.json_null = bytes("6e756c6c")
+global.rodata.def @jinja.open_array = bytes("5b")
+global.rodata.def @jinja.close_array = bytes("5d")
+global.rodata.def @jinja.comma = bytes("2c")
+global.rodata.def @jinja.space = bytes("20")
+global.rodata.def @jinja.exact_integer_limit = bytes("39303037313939323534373430393932")
+
+func.def @jinja.check(%valid: i1) {
+  %message = global.load @jinja.invalid : buffer
+  %flag = scalar.extui %valid : i1 to i32
+  func.call @require(%flag, %message) : (i32, buffer)
+  func.return
+}
+
+func.def public @jinja.join(%a: buffer, %b: buffer) -> (buffer) {
+  %al = buffer.length %a
+  %bl = buffer.length %b
+  %a64 = index.cast %al : offset to i64
+  %b64 = index.cast %bl : offset to i64
+  %max = scalar.constant 9223372036854775807 : i64
+  %room = scalar.subi %max, %a64 : i64
+  %valid = scalar.cmpi ule, %b64, %room : i64
+  func.call @jinja.check(%valid) : (i1)
+  %length = index.add %al, %bl : offset
+  %zero = index.constant 0 : offset
+  %output = buffer.alloca<private> align(1) %length : buffer
+  buffer.copy %a[%zero], %output[%zero], %al
+  buffer.copy %b[%zero], %output[%al], %bl
+  func.return %output : buffer
+}
+
+func.def @jinja.decode_member(%source: buffer, %begin: i64, %length: i64, %kind: i64) -> (buffer) {
+  %zero = scalar.constant 0 : i64
+  %string = scalar.cmpi eq, %kind, %zero : i64
+  %value = scf.if %string -> (buffer) {
+    %decoded = func.call @text.decode(%source, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    scf.yield %decoded : buffer
+  } else {
+    %raw = func.call @text.range(%source, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    scf.yield %raw : buffer
+  }
+  func.return %value : buffer
+}
+
+func.def public @jinja.get(%source: buffer, %kind: i64, %key: buffer) -> (buffer, i64) {
+  %undefined = scalar.constant 7 : i64
+  %defined = scalar.cmpi ne, %kind, %undefined : i64
+  func.call @jinja.check(%defined) : (i1)
+  %object_kind = scalar.constant 2 : i64
+  %object = scalar.cmpi eq, %kind, %object_kind : i64
+  %value, %result_kind = scf.if %object -> (buffer, i64) {
+    %raw, %type, %present = func.call @text.lookup(%source, %key) : (buffer, buffer) -> (buffer, i64, i1)
+    %zero = scalar.constant 0 : i64
+    %string = scalar.cmpi eq, %type, %zero : i64
+    %decode = scalar.andi %present, %string : i1
+    %value = scf.if %decode -> (buffer) {
+      %bytes = buffer.length %raw
+      %length = index.cast %bytes : offset to i64
+      %decoded = func.call @text.decode(%raw, %zero, %length) : (buffer, i64, i64) -> (buffer)
+      scf.yield %decoded : buffer
+    } else {
+      scf.yield %raw : buffer
+    }
+    %result_kind = scf.select %present, %type, %undefined : i64
+    scf.yield %value, %result_kind : buffer, i64
+  } else {
+    %empty = global.load @jinja.empty : buffer
+    scf.yield %empty, %undefined : buffer, i64
+  }
+  func.return %value, %result_kind : buffer, i64
+}
+
+func.def @jinja.utf8_width(%text: buffer, %position: offset) -> (offset) {
+  %b = buffer.load.i8.u %text[%position]
+  %c128 = scalar.constant 128 : i32
+  %c224 = scalar.constant 224 : i32
+  %c240 = scalar.constant 240 : i32
+  %ascii = scalar.cmpi ult, %b, %c128 : i32
+  %two_byte = scalar.cmpi ult, %b, %c224 : i32
+  %three_byte = scalar.cmpi ult, %b, %c240 : i32
+  %one = index.constant 1 : offset
+  %two = index.constant 2 : offset
+  %three = index.constant 3 : offset
+  %four = index.constant 4 : offset
+  %tail = scf.select %three_byte, %three, %four : offset
+  %wide = scf.select %two_byte, %two, %tail : offset
+  %width = scf.select %ascii, %one, %wide : offset
+  func.return %width : offset
+}
+
+func.def @jinja.utf8_offset(%text: buffer, %ordinal: i64) -> (offset) {
+  %zero = index.constant 0 : offset
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %length = buffer.length %text
+  %position, %remaining = scf.while(%position = %zero : offset, %remaining = %ordinal : i64) -> (offset, i64) {
+    %more = scalar.cmpi sgt, %remaining, %zero64 : i64
+    %fits = index.cmp ult, %position, %length : offset
+    %active = scalar.andi %more, %fits : i1
+    scf.condition %active, %position, %remaining : i1, offset, i64
+  } do(%position: offset, %remaining: i64) {
+    %width = func.call @jinja.utf8_width(%text, %position) : (buffer, offset) -> (offset)
+    %next = index.add %position, %width : offset
+    %rest = scalar.subi %remaining, %one64 : i64
+    scf.yield %next, %rest : offset, i64
+  }
+  func.return %position : offset
+}
+
+func.def public @jinja.length(%value: buffer, %kind: i64) -> (i64) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %two64 = scalar.constant 2 : i64
+  %three64 = scalar.constant 3 : i64
+  %seven64 = scalar.constant 7 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %result = scf.if %string -> (i64) {
+    %zero = index.constant 0 : offset
+    %length = buffer.length %value
+    %position, %count = scf.while(%position = %zero : offset, %count = %zero64 : i64) -> (offset, i64) {
+      %active = index.cmp ult, %position, %length : offset
+      scf.condition %active, %position, %count : i1, offset, i64
+    } do(%position: offset, %count: i64) {
+      %width = func.call @jinja.utf8_width(%value, %position) : (buffer, offset) -> (offset)
+      %next = index.add %position, %width : offset
+      %next_count = scalar.addi %count, %one64 : i64
+      scf.yield %next, %next_count : offset, i64
+    }
+    scf.yield %count : i64
+  } else {
+    %object = scalar.cmpi eq, %kind, %two64 : i64
+    %array = scalar.cmpi eq, %kind, %three64 : i64
+    %container = scalar.ori %object, %array : i1
+    %count = scf.if %container -> (i64) {
+      %members, %type, %count = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+      scf.yield %count : i64
+    } else {
+      %undefined = scalar.cmpi eq, %kind, %seven64 : i64
+      func.call @jinja.check(%undefined) : (i1)
+      scf.yield %zero64 : i64
+    }
+    scf.yield %count : i64
+  }
+  func.return %result : i64
+}
+
+func.def @jinja.member(%source: buffer, %members: buffer, %count_value: i64, %ordinal: i64) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %nonnegative = scalar.cmpi sge, %ordinal, %zero64 : i64
+  %within = scalar.cmpi slt, %ordinal, %count_value : i64
+  %valid = scalar.andi %nonnegative, %within : i1
+  func.call @jinja.check(%valid) : (i1)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %index_bounded = scalar.assume %ordinal [range(%ordinal, 0, 2147483647)] : i64
+  %i_value = index.cast %index_bounded : i64 to index
+  // The checked relation must remain explicit across the helper call boundary.
+  %i = index.assume %i_value [range(%i_value, 0, 2147483647), lt(%i_value, %count)] : index
+  %zero = index.constant 0 : offset
+  %records = buffer.view %members[%zero] : buffer -> view<[%count]x5xi64>
+  %begin = view.load %records[%i, 2] : view<[%count]x5xi64> -> i64
+  %length = view.load %records[%i, 3] : view<[%count]x5xi64> -> i64
+  %kind = view.load %records[%i, 4] : view<[%count]x5xi64> -> i64
+  %value = func.call @jinja.decode_member(%source, %begin, %length, %kind) : (buffer, i64, i64, i64) -> (buffer)
+  func.return %value, %kind : buffer, i64
+}
+
+func.def @jinja.index_sequence(%value: buffer, %kind: i64, %ordinal: i64) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %three64 = scalar.constant 3 : i64
+  %seven64 = scalar.constant 7 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %supported = scalar.ori %string, %array : i1
+  func.call @jinja.check(%supported) : (i1)
+  %count = func.call @jinja.length(%value, %kind) : (buffer, i64) -> (i64)
+  %negative = scalar.cmpi slt, %ordinal, %zero64 : i64
+  %adjusted = scalar.addi %ordinal, %count : i64
+  %i = scf.select %negative, %adjusted, %ordinal : i64
+  %low = scalar.cmpi sge, %i, %zero64 : i64
+  %high = scalar.cmpi slt, %i, %count : i64
+  %valid = scalar.andi %low, %high : i1
+  %result, %result_kind = scf.if %valid -> (buffer, i64) {
+    %result, %result_kind = scf.if %string -> (buffer, i64) {
+      %begin = func.call @jinja.utf8_offset(%value, %i) : (buffer, i64) -> (offset)
+      %next_i = scalar.addi %i, %one64 : i64
+      %end = func.call @jinja.utf8_offset(%value, %next_i) : (buffer, i64) -> (offset)
+      %length = index.sub %end, %begin : offset
+      %begin64 = index.cast %begin : offset to i64
+      %length64 = index.cast %length : offset to i64
+      %text = func.call @text.range(%value, %begin64, %length64) : (buffer, i64, i64) -> (buffer)
+      scf.yield %text, %zero64 : buffer, i64
+    } else {
+      %members, %type, %n = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+      %text, %type64 = func.call @jinja.member(%value, %members, %n, %i) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      scf.yield %text, %type64 : buffer, i64
+    }
+    scf.yield %result, %result_kind : buffer, i64
+  } else {
+    %empty = global.load @jinja.empty : buffer
+    scf.yield %empty, %seven64 : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
+func.def public @jinja.index(%value: buffer, %kind: i64, %ordinal: i64) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %three = scalar.constant 3 : i64
+  %seven = scalar.constant 7 : i64
+  %defined = scalar.cmpi ne, %kind, %seven : i64
+  func.call @jinja.check(%defined) : (i1)
+  %string = scalar.cmpi eq, %kind, %zero : i64
+  %array = scalar.cmpi eq, %kind, %three : i64
+  %sequence = scalar.ori %string, %array : i1
+  %result, %result_kind = scf.if %sequence -> (buffer, i64) {
+    %item, %item_kind = func.call @jinja.index_sequence(%value, %kind, %ordinal) : (buffer, i64, i64) -> (buffer, i64)
+    scf.yield %item, %item_kind : buffer, i64
+  } else {
+    %empty = global.load @jinja.empty : buffer
+    scf.yield %empty, %seven : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
+global.rodata.def @jinja.index_positive_limit = bytes("39323233333732303336383534373735383037")
+global.rodata.def @jinja.index_negative_limit = bytes("39323233333732303336383534373735383038")
+
+// JSON numbers are valid lexemes; callers separately reject floating spellings.
+// An integer too large for an ordinal cannot identify an element in a VM buffer.
+func.def @jinja.index_integer_fits(%text: buffer) -> (i1) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %nineteen = index.constant 19 : offset
+  %length = buffer.length %text
+  %has_bytes = index.cmp ugt, %length, %zero : offset
+  %result = scf.if %has_bytes -> (i1) {
+    %first = buffer.load.i8.u %text[%zero]
+    %minus = scalar.constant 45 : i32
+    %negative = scalar.cmpi eq, %first, %minus : i32
+    %begin = scf.select %negative, %one, %zero : offset
+    %digits = index.sub %length, %begin : offset
+    %has_digits = index.cmp ugt, %digits, %zero : offset
+    %shorter = index.cmp ult, %digits, %nineteen : offset
+    %same_length = index.cmp eq, %digits, %nineteen : offset
+    %fits = scf.if %same_length -> (i1) {
+      %positive_limit = global.load @jinja.index_positive_limit : buffer
+      %negative_limit = global.load @jinja.index_negative_limit : buffer
+      %limit = scf.select %negative, %negative_limit, %positive_limit : buffer
+      %compared = buffer.compare %text[%begin], %limit[%zero], %nineteen
+      %zero32 = scalar.constant 0 : i32
+      %within = scalar.cmpi sle, %compared, %zero32 : i32
+      scf.yield %within : i1
+    } else {
+      scf.yield %shorter : i1
+    }
+    %valid = scalar.andi %has_digits, %fits : i1
+    scf.yield %valid : i1
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
+  func.return %result : i1
+}
+
+// Finite JSON getitem semantics: invalid ordinary keys produce Undefined, while
+// indexing Undefined itself raises. Arbitrary Python attribute objects are not
+// represented by this data-helper interface.
+func.def public @jinja.item(%value: buffer, %kind: i64, %key: buffer, %key_kind: i64) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %three = scalar.constant 3 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %seven = scalar.constant 7 : i64
+  %defined = scalar.cmpi ne, %kind, %seven : i64
+  func.call @jinja.check(%defined) : (i1)
+  %key_string = scalar.cmpi eq, %key_kind, %zero : i64
+  %result, %result_kind = scf.if %key_string -> (buffer, i64) {
+    %item, %item_kind = func.call @jinja.get(%value, %kind, %key) : (buffer, i64, buffer) -> (buffer, i64)
+    scf.yield %item, %item_kind : buffer, i64
+  } else {
+    %value_string = scalar.cmpi eq, %kind, %zero : i64
+    %value_array = scalar.cmpi eq, %kind, %three : i64
+    %sequence = scalar.ori %value_string, %value_array : i1
+    %key_number = scalar.cmpi eq, %key_kind, %one : i64
+    %key_true = scalar.cmpi eq, %key_kind, %four : i64
+    %key_false = scalar.cmpi eq, %key_kind, %five : i64
+    %key_boolean = scalar.ori %key_true, %key_false : i1
+    %numeric = scalar.ori %key_number, %key_boolean : i1
+    %candidate = scalar.andi %sequence, %numeric : i1
+    %item, %item_kind = scf.if %candidate -> (buffer, i64) {
+      %text = func.call @jinja.numeric_text(%key, %key_kind) : (buffer, i64) -> (buffer)
+      %integer = func.call @jinja.is_integer(%text) : (buffer) -> (i1)
+      %fits = func.call @jinja.index_integer_fits(%text) : (buffer) -> (i1)
+      %valid = scalar.andi %integer, %fits : i1
+      %item, %item_kind = scf.if %valid -> (buffer, i64) {
+        %ordinal = func.call @jinja.tointeger(%text, %one) : (buffer, i64) -> (i64)
+        %item, %item_kind = func.call @jinja.index(%value, %kind, %ordinal) : (buffer, i64, i64) -> (buffer, i64)
+        scf.yield %item, %item_kind : buffer, i64
+      } else {
+        %empty = global.load @jinja.empty : buffer
+        scf.yield %empty, %seven : buffer, i64
+      }
+      scf.yield %item, %item_kind : buffer, i64
+    } else {
+      %empty = global.load @jinja.empty : buffer
+      scf.yield %empty, %seven : buffer, i64
+    }
+    scf.yield %item, %item_kind : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
+func.def @jinja.clip(%value: i64, %count: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %negative = scalar.cmpi slt, %value, %zero : i64
+  %shifted = scalar.addi %value, %count : i64
+  %adjusted = scf.select %negative, %shifted, %value : i64
+  %below = scalar.cmpi slt, %adjusted, %zero : i64
+  %nonnegative = scf.select %below, %zero, %adjusted : i64
+  %above = scalar.cmpi sgt, %nonnegative, %count : i64
+  %clipped = scf.select %above, %count, %nonnegative : i64
+  func.return %clipped : i64
+}
+
+func.def public @jinja.slice(%value: buffer, %kind: i64, %begin_value: i64, %end_value: i64) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %three64 = scalar.constant 3 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %supported = scalar.ori %string, %array : i1
+  func.call @jinja.check(%supported) : (i1)
+  %count = func.call @jinja.length(%value, %kind) : (buffer, i64) -> (i64)
+  %begin = func.call @jinja.clip(%begin_value, %count) : (i64, i64) -> (i64)
+  %clipped_end = func.call @jinja.clip(%end_value, %count) : (i64, i64) -> (i64)
+  %reversed = scalar.cmpi slt, %clipped_end, %begin : i64
+  %end = scf.select %reversed, %begin, %clipped_end : i64
+  %output = scf.if %string -> (buffer) {
+    %first = func.call @jinja.utf8_offset(%value, %begin) : (buffer, i64) -> (offset)
+    %last = func.call @jinja.utf8_offset(%value, %end) : (buffer, i64) -> (offset)
+    %size = index.sub %last, %first : offset
+    %first64 = index.cast %first : offset to i64
+    %size64 = index.cast %size : offset to i64
+    %text = func.call @text.range(%value, %first64, %size64) : (buffer, i64, i64) -> (buffer)
+    scf.yield %text : buffer
+  } else {
+    %open = global.load @jinja.open_array : buffer
+    %comma = global.load @jinja.comma : buffer
+    %close = global.load @jinja.close_array : buffer
+    %default_indent = scalar.constant -1 : i64
+    %members, %type, %n = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+    %span = scalar.subi %end, %begin : i64
+    %bounded = scalar.assume %span [range(%span, 0, 2147483647)] : i64
+    %extent = index.cast %bounded : i64 to index
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %body = scf.for %offset = [%zero to %extent step %one](%prior = %open : buffer) -> (buffer) {
+      %delta = index.cast %offset : index to i64
+      %i = scalar.addi %begin, %delta : i64
+      %item, %item_kind = func.call @jinja.member(%value, %members, %n, %i) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      %serialized = func.call @jinja.tojson(%item, %item_kind, %default_indent) : (buffer, i64, i64) -> (buffer)
+      %first = scalar.cmpi eq, %i, %begin : i64
+      %prefix = scf.if %first -> (buffer) {
+        scf.yield %prior : buffer
+      } else {
+        %joined = func.call @jinja.join(%prior, %comma) : (buffer, buffer) -> (buffer)
+        scf.yield %joined : buffer
+      }
+      %next = func.call @jinja.join(%prefix, %serialized) : (buffer, buffer) -> (buffer)
+      scf.yield %next : buffer
+    }
+    %text = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+    scf.yield %text : buffer
+  }
+  func.return %output, %kind : buffer, i64
+}
+
+func.def public @jinja.truth(%value: buffer, %kind: i64) -> (i1) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %two64 = scalar.constant 2 : i64
+  %three64 = scalar.constant 3 : i64
+  %four64 = scalar.constant 4 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %object = scalar.cmpi eq, %kind, %two64 : i64
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %container = scalar.ori %object, %array : i1
+  %sized = scalar.ori %string, %container : i1
+  %truth = scf.if %sized -> (i1) {
+    %count = func.call @jinja.length(%value, %kind) : (buffer, i64) -> (i64)
+    %nonempty = scalar.cmpi ne, %count, %zero64 : i64
+    scf.yield %nonempty : i1
+  } else {
+    %number = scalar.cmpi eq, %kind, %one64 : i64
+    %result = scf.if %number -> (i1) {
+      %bytes = buffer.length %value
+      %length = index.cast %bytes : offset to i64
+      %number = func.call @parse_f64(%value, %zero64, %length) : (buffer, i64, i64) -> (f64)
+      %zero = scalar.constant 0.0 : f64
+      %nonzero = scalar.cmpf une, %number, %zero : f64
+      scf.yield %nonzero : i1
+    } else {
+      %yes = scalar.cmpi eq, %kind, %four64 : i64
+      scf.yield %yes : i1
+    }
+    scf.yield %result : i1
+  }
+  func.return %truth : i1
+}
+
+func.def public @jinja.integer(%value: i64) -> (buffer) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %ten = scalar.constant 10 : i64
+  %ascii_zero = scalar.constant 48 : i64
+  %negative = scalar.cmpi slt, %value, %zero64 : i64
+  // Unsigned magnitude keeps INT64_MIN representable without signed negation.
+  %negated = scalar.subi %zero64, %value : i64
+  %magnitude = scf.select %negative, %negated, %value : i64
+  %capacity = index.constant 21 : offset
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %storage = buffer.alloca<private> align(1) %capacity : buffer
+  %true = scalar.constant true : i1
+  %number, %start, %again = scf.while(%number = %magnitude : i64, %position = %capacity : offset, %again = %true : i1) -> (i64, offset, i1) {
+    scf.condition %again, %number, %position, %again : i1, i64, offset, i1
+  } do(%number: i64, %position: offset, %again: i1) {
+    %digit = scalar.remui %number, %ten : i64
+    %quotient = scalar.divui %number, %ten : i64
+    %ascii = scalar.addi %digit, %ascii_zero : i64
+    %byte = scalar.trunci %ascii : i64 to i32
+    %prior = index.sub %position, %one : offset
+    buffer.store.i8 %byte, %storage[%prior]
+    %more = scalar.cmpi ne, %quotient, %zero64 : i64
+    scf.yield %quotient, %prior, %more : i64, offset, i1
+  }
+  %first = scf.if %negative -> (offset) {
+    %minus = scalar.constant 45 : i32
+    %first = index.sub %start, %one : offset
+    buffer.store.i8 %minus, %storage[%first]
+    scf.yield %first : offset
+  } else {
+    scf.yield %start : offset
+  }
+  %length = index.sub %capacity, %first : offset
+  %first64 = index.cast %first : offset to i64
+  %length64 = index.cast %length : offset to i64
+  %output = func.call @text.range(%storage, %first64, %length64) : (buffer, i64, i64) -> (buffer)
+  func.return %output : buffer
+}
+
+func.def public @jinja.tointeger(%value: buffer, %kind: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %numeric = scalar.cmpi eq, %kind, %one : i64
+  %number = scf.if %numeric -> (i64) {
+    %bytes = buffer.length %value
+    %length = index.cast %bytes : offset to i64
+    %parsed = func.call @parse_i64(%value, %zero, %length) : (buffer, i64, i64) -> (i64)
+    scf.yield %parsed : i64
+  } else {
+    %true = scalar.cmpi eq, %kind, %four : i64
+    %false = scalar.cmpi eq, %kind, %five : i64
+    %boolean = scalar.ori %true, %false : i1
+    func.call @jinja.check(%boolean) : (i1)
+    %integer = scf.select %true, %one, %zero : i64
+    scf.yield %integer : i64
+  }
+  func.return %number : i64
+}
+
+func.def public @jinja.string(%value: buffer, %kind: i64) -> (buffer) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %six = scalar.constant 6 : i64
+  %seven = scalar.constant 7 : i64
+  %string = scalar.cmpi eq, %kind, %zero : i64
+  %number = scalar.cmpi eq, %kind, %one : i64
+  %result = scf.if %string -> (buffer) {
+    scf.yield %value : buffer
+  } else {
+    %result = scf.if %number -> (buffer) {
+      // Match Python's integer -0 -> 0; floating lexemes retain their deferred
+      // spelling, independently of JSON's integer normalization.
+      %canonical = func.call @text.json_dump(%value) : (buffer) -> (buffer)
+      scf.yield %canonical : buffer
+    } else {
+      %is_true = scalar.cmpi eq, %kind, %four : i64
+      %is_false = scalar.cmpi eq, %kind, %five : i64
+      %is_none = scalar.cmpi eq, %kind, %six : i64
+      %is_missing = scalar.cmpi eq, %kind, %seven : i64
+      %boolean = scalar.ori %is_true, %is_false : i1
+      %emptyish = scalar.ori %is_none, %is_missing : i1
+      %supported = scalar.ori %boolean, %emptyish : i1
+      func.call @jinja.check(%supported) : (i1)
+      %yes = global.load @jinja.true : buffer
+      %no = global.load @jinja.false : buffer
+      %none = global.load @jinja.none : buffer
+      %empty = global.load @jinja.empty : buffer
+      %base = scf.select %is_none, %none, %empty : buffer
+      %without_true = scf.select %is_false, %no, %base : buffer
+      %text = scf.select %is_true, %yes, %without_true : buffer
+      scf.yield %text : buffer
+    }
+    scf.yield %result : buffer
+  }
+  func.return %result : buffer
+}
+
+func.def public @jinja.trim(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %string = func.call @jinja.string(%value, %kind) : (buffer, i64) -> (buffer)
+  %trimmed = func.call @text.trim(%string) : (buffer) -> (buffer)
+  %string_kind = scalar.constant 0 : i64
+  func.return %trimmed, %string_kind : buffer, i64
+}
+
+func.def public @jinja.add_integer(%a: i64, %b: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %false = scalar.constant false : i1
+  %result = scalar.addi %a, %b : i64
+  %a_negative = scalar.cmpi slt, %a, %zero : i64
+  %b_negative = scalar.cmpi slt, %b, %zero : i64
+  %result_negative = scalar.cmpi slt, %result, %zero : i64
+  %same_sign = scalar.cmpi eq, %a_negative, %b_negative : i1
+  %changed_sign = scalar.cmpi ne, %a_negative, %result_negative : i1
+  %overflow = scalar.andi %same_sign, %changed_sign : i1
+  %valid = scalar.cmpi eq, %overflow, %false : i1
+  func.call @jinja.check(%valid) : (i1)
+  func.return %result : i64
+}
+
+func.def public @jinja.remainder(%a: i64, %b: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %minus_one = scalar.constant -1 : i64
+  %minimum = scalar.constant -9223372036854775808 : i64
+  %nonzero = scalar.cmpi ne, %b, %zero : i64
+  func.call @jinja.check(%nonzero) : (i1)
+  // Keep remsi itself defined even during constant specialization of a rejected
+  // zero divisor or the valid INT64_MIN % -1 edge case.
+  %a_minimum = scalar.cmpi eq, %a, %minimum : i64
+  %b_minus_one = scalar.cmpi eq, %b, %minus_one : i64
+  %overflow_pair = scalar.andi %a_minimum, %b_minus_one : i1
+  %nonzero_divisor = scf.select %nonzero, %b, %one : i64
+  %safe_divisor = scf.select %overflow_pair, %one, %nonzero_divisor : i64
+  %remainder = scalar.remsi %a, %safe_divisor : i64
+  %has_remainder = scalar.cmpi ne, %remainder, %zero : i64
+  %remainder_negative = scalar.cmpi slt, %remainder, %zero : i64
+  %divisor_negative = scalar.cmpi slt, %b, %zero : i64
+  %different_sign = scalar.cmpi ne, %remainder_negative, %divisor_negative : i1
+  %adjust = scalar.andi %has_remainder, %different_sign : i1
+  %result = scf.if %adjust -> (i64) {
+    %python_remainder = scalar.addi %remainder, %b : i64
+    scf.yield %python_remainder : i64
+  } else {
+    scf.yield %remainder : i64
+  }
+  func.return %result : i64
+}
+
+func.def public @jinja.add(%a: buffer, %ak: i64, %b: buffer, %bk: i64) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %three = scalar.constant 3 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %a_string = scalar.cmpi eq, %ak, %zero : i64
+  %b_string = scalar.cmpi eq, %bk, %zero : i64
+  %strings = scalar.andi %a_string, %b_string : i1
+  %result, %kind = scf.if %strings -> (buffer, i64) {
+    %joined = func.call @jinja.join(%a, %b) : (buffer, buffer) -> (buffer)
+    scf.yield %joined, %zero : buffer, i64
+  } else {
+    %a_array = scalar.cmpi eq, %ak, %three : i64
+    %b_array = scalar.cmpi eq, %bk, %three : i64
+    %arrays = scalar.andi %a_array, %b_array : i1
+    %result, %result_kind = scf.if %arrays -> (buffer, i64) {
+      %joined = func.call @jinja.concat_arrays(%a, %b) : (buffer, buffer) -> (buffer)
+      scf.yield %joined, %three : buffer, i64
+    } else {
+      %a_number = scalar.cmpi eq, %ak, %one : i64
+      %a_true = scalar.cmpi eq, %ak, %four : i64
+      %a_false = scalar.cmpi eq, %ak, %five : i64
+      %a_boolean = scalar.ori %a_true, %a_false : i1
+      %a_numeric = scalar.ori %a_number, %a_boolean : i1
+      %b_number = scalar.cmpi eq, %bk, %one : i64
+      %b_true = scalar.cmpi eq, %bk, %four : i64
+      %b_false = scalar.cmpi eq, %bk, %five : i64
+      %b_boolean = scalar.ori %b_true, %b_false : i1
+      %b_numeric = scalar.ori %b_number, %b_boolean : i1
+      %numeric = scalar.andi %a_numeric, %b_numeric : i1
+      func.call @jinja.check(%numeric) : (i1)
+      %a_text = func.call @jinja.numeric_text(%a, %ak) : (buffer, i64) -> (buffer)
+      %b_text = func.call @jinja.numeric_text(%b, %bk) : (buffer, i64) -> (buffer)
+      %a_integer = func.call @jinja.is_integer(%a_text) : (buffer) -> (i1)
+      %b_integer = func.call @jinja.is_integer(%b_text) : (buffer) -> (i1)
+      %integers = scalar.andi %a_integer, %b_integer : i1
+      func.call @jinja.check(%integers) : (i1)
+      %a_value = func.call @jinja.tointeger(%a_text, %one) : (buffer, i64) -> (i64)
+      %b_value = func.call @jinja.tointeger(%b_text, %one) : (buffer, i64) -> (i64)
+      %sum = func.call @jinja.add_integer(%a_value, %b_value) : (i64, i64) -> (i64)
+      %text = func.call @jinja.integer(%sum) : (i64) -> (buffer)
+      scf.yield %text, %one : buffer, i64
+    }
+    scf.yield %result, %result_kind : buffer, i64
+  }
+  func.return %result, %kind : buffer, i64
+}
+
+func.def @jinja.numeric_text(%value: buffer, %kind: i64) -> (buffer) {
+  %one = scalar.constant 1 : i64
+  %four = scalar.constant 4 : i64
+  %true = scalar.cmpi eq, %kind, %four : i64
+  %number = scalar.cmpi eq, %kind, %one : i64
+  %result = scf.if %number -> (buffer) {
+    scf.yield %value : buffer
+  } else {
+    %zero = scalar.constant 0 : i64
+    %boolean = scf.select %true, %one, %zero : i64
+    %text = func.call @jinja.integer(%boolean) : (i64) -> (buffer)
+    scf.yield %text : buffer
+  }
+  func.return %result : buffer
+}
+
+func.def @jinja.is_integer(%text: buffer) -> (i1) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %length = buffer.length %text
+  %true = scalar.constant true : i1
+  %dot = scalar.constant 46 : i32
+  %upper = scalar.constant 69 : i32
+  %lower = scalar.constant 101 : i32
+  %integer = scf.for %p = [%zero to %length step %one](%prior = %true : i1) -> (i1) {
+    %c = buffer.load.i8.u %text[%p]
+    %is_dot = scalar.cmpi eq, %c, %dot : i32
+    %is_upper = scalar.cmpi eq, %c, %upper : i32
+    %is_lower = scalar.cmpi eq, %c, %lower : i32
+    %exp = scalar.ori %is_upper, %is_lower : i1
+    %floating = scalar.ori %is_dot, %exp : i1
+    %not_float = scalar.cmpi eq, %floating, %true : i1
+    %false = scalar.constant false : i1
+    %next = scf.select %not_float, %false, %prior : i1
+    scf.yield %next : i1
+  }
+  func.return %integer : i1
+}
+
+// Comparing a large integer through f64 could turn unequal values into equal
+// values. B supports mixed numeric equality only in the exact integer range;
+// reject the unsupported case instead of silently rounding either operand.
+func.def @jinja.check_exact_float_integer(%text: buffer) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %sixteen = index.constant 16 : offset
+  %length = buffer.length %text
+  %first = buffer.load.i8.u %text[%zero]
+  %minus = scalar.constant 45 : i32
+  %negative = scalar.cmpi eq, %first, %minus : i32
+  %begin = scf.select %negative, %one, %zero : offset
+  %digits = index.sub %length, %begin : offset
+  %shorter = index.cmp ult, %digits, %sixteen : offset
+  %same_length = index.cmp eq, %digits, %sixteen : offset
+  %valid = scf.if %same_length -> (i1) {
+    %limit = global.load @jinja.exact_integer_limit : buffer
+    %compared = buffer.compare %text[%begin], %limit[%zero], %sixteen
+    %zero32 = scalar.constant 0 : i32
+    %fits = scalar.cmpi sle, %compared, %zero32 : i32
+    scf.yield %fits : i1
+  } else {
+    scf.yield %shorter : i1
+  }
+  func.call @jinja.check(%valid) : (i1)
+  func.return
+}
+
+func.def public @jinja.equal(%a: buffer, %ak: i64, %b: buffer, %bk: i64) -> (i1) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %three = scalar.constant 3 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %a_number = scalar.cmpi eq, %ak, %one : i64
+  %a_true = scalar.cmpi eq, %ak, %four : i64
+  %a_false = scalar.cmpi eq, %ak, %five : i64
+  %a_bool = scalar.ori %a_true, %a_false : i1
+  %a_numeric = scalar.ori %a_number, %a_bool : i1
+  %b_number = scalar.cmpi eq, %bk, %one : i64
+  %b_true = scalar.cmpi eq, %bk, %four : i64
+  %b_false = scalar.cmpi eq, %bk, %five : i64
+  %b_bool = scalar.ori %b_true, %b_false : i1
+  %b_numeric = scalar.ori %b_number, %b_bool : i1
+  %both_numeric = scalar.andi %a_numeric, %b_numeric : i1
+  %result = scf.if %both_numeric -> (i1) {
+    %at = func.call @jinja.numeric_text(%a, %ak) : (buffer, i64) -> (buffer)
+    %bt = func.call @jinja.numeric_text(%b, %bk) : (buffer, i64) -> (buffer)
+    %ai = func.call @jinja.is_integer(%at) : (buffer) -> (i1)
+    %bi = func.call @jinja.is_integer(%bt) : (buffer) -> (i1)
+    %integers = scalar.andi %ai, %bi : i1
+    %equal = scf.if %integers -> (i1) {
+      // Keep large integer lexemes exact; dump also canonicalizes integer -0.
+      %ac = func.call @text.json_dump(%at) : (buffer) -> (buffer)
+      %bc = func.call @text.json_dump(%bt) : (buffer) -> (buffer)
+      %same = func.call @text.equal(%ac, %bc) : (buffer, buffer) -> (i1)
+      scf.yield %same : i1
+    } else {
+      %mixed = scalar.xori %ai, %bi : i1
+      scf.if %mixed {
+        %integer = scf.select %ai, %at, %bt : buffer
+        func.call @jinja.check_exact_float_integer(%integer) : (buffer)
+      }
+      %al = buffer.length %at
+      %bl = buffer.length %bt
+      %al64 = index.cast %al : offset to i64
+      %bl64 = index.cast %bl : offset to i64
+      %av = func.call @parse_f64(%at, %zero, %al64) : (buffer, i64, i64) -> (f64)
+      %bv = func.call @parse_f64(%bt, %zero, %bl64) : (buffer, i64, i64) -> (f64)
+      %same = scalar.cmpf oeq, %av, %bv : f64
+      scf.yield %same : i1
+    }
+    scf.yield %equal : i1
+  } else {
+    %same_kind = scalar.cmpi eq, %ak, %bk : i64
+    %same = scf.if %same_kind -> (i1) {
+      %a_string = scalar.cmpi eq, %ak, %zero : i64
+      %a_object = scalar.cmpi eq, %ak, %two : i64
+      %a_array = scalar.cmpi eq, %ak, %three : i64
+      %container = scalar.ori %a_object, %a_array : i1
+      %ordinary = scalar.ori %a_string, %container : i1
+      %value = scf.if %ordinary -> (i1) {
+        %equal = scf.if %container -> (i1) {
+          // The first complete-template witness compares scalar values only.
+          // Object-order and nested numeric equality need structural semantics;
+          // do not pretend canonical JSON byte equality implements them.
+          %false = scalar.constant false : i1
+          func.call @jinja.check(%false) : (i1)
+          scf.yield %false : i1
+        } else {
+          %equal = func.call @text.equal(%a, %b) : (buffer, buffer) -> (i1)
+          scf.yield %equal : i1
+        }
+        scf.yield %equal : i1
+      } else {
+        %true = scalar.constant true : i1
+        scf.yield %true : i1
+      }
+      scf.yield %value : i1
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
+    scf.yield %same : i1
+  }
+  func.return %result : i1
+}
+
+func.def public @jinja.contains(%container: buffer, %kind: i64, %item: buffer, %item_kind: i64) -> (i1) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %two64 = scalar.constant 2 : i64
+  %three64 = scalar.constant 3 : i64
+  %seven64 = scalar.constant 7 : i64
+  %object = scalar.cmpi eq, %kind, %two64 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %undefined = scalar.cmpi eq, %kind, %seven64 : i64
+  %container_ok = scalar.ori %object, %array : i1
+  %stringish = scalar.ori %string, %undefined : i1
+  %supported = scalar.ori %container_ok, %stringish : i1
+  func.call @jinja.check(%supported) : (i1)
+  %found = scf.if %object -> (i1) {
+    %key_valid = scalar.cmpi eq, %item_kind, %zero64 : i64
+    %yes = scf.if %key_valid -> (i1) {
+      %value, %type, %found = func.call @text.lookup(%container, %item) : (buffer, buffer) -> (buffer, i64, i1)
+      scf.yield %found : i1
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
+    scf.yield %yes : i1
+  } else {
+    %found = scf.if %string -> (i1) {
+      %key_valid = scalar.cmpi eq, %item_kind, %zero64 : i64
+      func.call @jinja.check(%key_valid) : (i1)
+      %length = buffer.length %container
+      %needle = buffer.length %item
+      %fits = index.cmp ule, %needle, %length : offset
+      %found = scf.if %fits -> (i1) {
+        %zero = index.constant 0 : offset
+        %one = index.constant 1 : offset
+        %last = index.sub %length, %needle : offset
+        %end = index.add %last, %one : offset
+        %false = scalar.constant false : i1
+        %found = scf.for %p = [%zero to %end step %one](%prior = %false : i1) -> (i1) {
+          %comparison = buffer.compare %container[%p], %item[%zero], %needle
+          %zero32 = scalar.constant 0 : i32
+          %same = scalar.cmpi eq, %comparison, %zero32 : i32
+          %next = scalar.ori %prior, %same : i1
+          scf.yield %next : i1
+        }
+        scf.yield %found : i1
+      } else {
+        %false = scalar.constant false : i1
+        scf.yield %false : i1
+      }
+      scf.yield %found : i1
+    } else {
+      %found = scf.if %array -> (i1) {
+        %members, %type, %count = func.call @members(%container) : (buffer) -> (buffer, i32, i64)
+        %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+        %extent = index.cast %bounded : i64 to index
+        %zero = index.constant 0 : index
+        %one = index.constant 1 : index
+        %false = scalar.constant false : i1
+        %found = scf.for %p = [%zero to %extent step %one](%prior = %false : i1) -> (i1) {
+          %i = index.cast %p : index to i64
+          %value, %value_kind = func.call @jinja.member(%container, %members, %count, %i) : (buffer, buffer, i64, i64) -> (buffer, i64)
+          %same = func.call @jinja.equal(%value, %value_kind, %item, %item_kind) : (buffer, i64, buffer, i64) -> (i1)
+          %next = scalar.ori %prior, %same : i1
+          scf.yield %next : i1
+        }
+        scf.yield %found : i1
+      } else {
+        %false = scalar.constant false : i1
+        scf.yield %false : i1
+      }
+      scf.yield %found : i1
+    }
+    scf.yield %found : i1
+  }
+  func.return %found : i1
+}
+
+func.def @jinja.indent(%depth: i64) -> (buffer) {
+  %zero64 = scalar.constant 0 : i64
+  %four64 = scalar.constant 4 : i64
+  %one64 = scalar.constant 1 : i64
+  %limit = scalar.constant 2305843009213693951 : i64
+  %positive = scalar.cmpi sge, %depth, %zero64 : i64
+  %bounded = scalar.cmpi sle, %depth, %limit : i64
+  %valid = scalar.andi %positive, %bounded : i1
+  func.call @jinja.check(%valid) : (i1)
+  %spaces = scalar.muli %depth, %four64 : i64
+  %length64 = scalar.addi %spaces, %one64 : i64
+  %length_bounded = scalar.assume %length64 [range(%length64, 1, 9223372036854775807)] : i64
+  %length = index.cast %length_bounded : i64 to offset
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %newline = scalar.constant 10 : i32
+  %space = scalar.constant 32 : i32
+  %output = buffer.alloca<private> align(1) %length : buffer
+  buffer.store.i8 %newline, %output[%zero]
+  %unused = scf.for %p = [%one to %length step %one](%unused = %zero64 : i64) -> (i64) {
+    buffer.store.i8 %space, %output[%p]
+    scf.yield %unused : i64
+  }
+  func.return %output : buffer
+}
+
+// Reformat canonical JSON punctuation outside strings. Existing quote/dump owns
+// escaping and numeric spelling; this helper only adds indent=4 layout.
+func.def @jinja.pretty(%source: buffer) -> (buffer) {
+  %text = func.call @text.json_dump_compact(%source) : (buffer) -> (buffer)
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %false = scalar.constant false : i1
+  %length = buffer.length %text
+  %empty = global.load @jinja.empty : buffer
+  %space = global.load @jinja.space : buffer
+  %quote = scalar.constant 34 : i32
+  %slash = scalar.constant 92 : i32
+  %open_array = scalar.constant 91 : i32
+  %close_array = scalar.constant 93 : i32
+  %open_object = scalar.constant 123 : i32
+  %close_object = scalar.constant 125 : i32
+  %comma = scalar.constant 44 : i32
+  %colon = scalar.constant 58 : i32
+  %output, %depth, %string_state, %escape_state = scf.for %p = [%zero to %length step %one](%output = %empty : buffer, %depth = %zero64 : i64, %inside = %false : i1, %escaped = %false : i1) -> (buffer, i64, i1, i1) {
+    %byte = buffer.load.i8.u %text[%p]
+    %p64 = index.cast %p : offset to i64
+    %character = func.call @text.range(%text, %p64, %one64) : (buffer, i64, i64) -> (buffer)
+    %is_quote = scalar.cmpi eq, %byte, %quote : i32
+    %is_slash = scalar.cmpi eq, %byte, %slash : i32
+    %next_output, %next_depth, %next_inside, %next_escaped = scf.if %inside -> (buffer, i64, i1, i1) {
+      %not_escaped = scalar.cmpi eq, %escaped, %false : i1
+      %ending = scalar.andi %is_quote, %not_escaped : i1
+      %still_inside = scalar.cmpi eq, %ending, %false : i1
+      %escape_next = scalar.andi %is_slash, %not_escaped : i1
+      %joined = func.call @jinja.join(%output, %character) : (buffer, buffer) -> (buffer)
+      scf.yield %joined, %depth, %still_inside, %escape_next : buffer, i64, i1, i1
+    } else {
+      %is_open_array = scalar.cmpi eq, %byte, %open_array : i32
+      %is_open_object = scalar.cmpi eq, %byte, %open_object : i32
+      %opening = scalar.ori %is_open_array, %is_open_object : i1
+      %is_close_array = scalar.cmpi eq, %byte, %close_array : i32
+      %is_close_object = scalar.cmpi eq, %byte, %close_object : i32
+      %closing = scalar.ori %is_close_array, %is_close_object : i1
+      %joined, %updated_depth = scf.if %opening -> (buffer, i64) {
+        %next_depth = scalar.addi %depth, %one64 : i64
+        %prefix = func.call @jinja.join(%output, %character) : (buffer, buffer) -> (buffer)
+        %next_position = index.add %p, %one : offset
+        // A valid nonempty JSON document cannot end with an opening bracket.
+        %next_byte = buffer.load.i8.u %text[%next_position]
+        %array_end = scalar.cmpi eq, %next_byte, %close_array : i32
+        %object_end = scalar.cmpi eq, %next_byte, %close_object : i32
+        %empty_container = scalar.ori %array_end, %object_end : i1
+        %result = scf.if %empty_container -> (buffer) {
+          scf.yield %prefix : buffer
+        } else {
+          %whitespace = func.call @jinja.indent(%next_depth) : (i64) -> (buffer)
+          %result = func.call @jinja.join(%prefix, %whitespace) : (buffer, buffer) -> (buffer)
+          scf.yield %result : buffer
+        }
+        scf.yield %result, %next_depth : buffer, i64
+      } else {
+        %result, %next_depth = scf.if %closing -> (buffer, i64) {
+          %next_depth = scalar.subi %depth, %one64 : i64
+          %prior_position = index.sub %p, %one : offset
+          // Native compaction has already validated nesting and punctuation.
+          %prior_byte = buffer.load.i8.u %text[%prior_position]
+          %array_start = scalar.cmpi eq, %prior_byte, %open_array : i32
+          %object_start = scalar.cmpi eq, %prior_byte, %open_object : i32
+          %empty_container = scalar.ori %array_start, %object_start : i1
+          %prefix = scf.if %empty_container -> (buffer) {
+            scf.yield %output : buffer
+          } else {
+            %whitespace = func.call @jinja.indent(%next_depth) : (i64) -> (buffer)
+            %result = func.call @jinja.join(%output, %whitespace) : (buffer, buffer) -> (buffer)
+            scf.yield %result : buffer
+          }
+          %result = func.call @jinja.join(%prefix, %character) : (buffer, buffer) -> (buffer)
+          scf.yield %result, %next_depth : buffer, i64
+        } else {
+          %is_comma = scalar.cmpi eq, %byte, %comma : i32
+          %is_colon = scalar.cmpi eq, %byte, %colon : i32
+          %prefix = func.call @jinja.join(%output, %character) : (buffer, buffer) -> (buffer)
+          %result = scf.if %is_comma -> (buffer) {
+            %whitespace = func.call @jinja.indent(%depth) : (i64) -> (buffer)
+            %result = func.call @jinja.join(%prefix, %whitespace) : (buffer, buffer) -> (buffer)
+            scf.yield %result : buffer
+          } else {
+            %result = scf.if %is_colon -> (buffer) {
+              %result = func.call @jinja.join(%prefix, %space) : (buffer, buffer) -> (buffer)
+              scf.yield %result : buffer
+            } else {
+              scf.yield %prefix : buffer
+            }
+            scf.yield %result : buffer
+          }
+          scf.yield %result, %depth : buffer, i64
+        }
+        scf.yield %result, %next_depth : buffer, i64
+      }
+      scf.yield %joined, %updated_depth, %is_quote, %false : buffer, i64, i1, i1
+    }
+    scf.yield %next_output, %next_depth, %next_inside, %next_escaped : buffer, i64, i1, i1
+  }
+  func.return %output : buffer
+}
+
+func.def public @jinja.tojson(%value: buffer, %kind: i64, %indent: i64) -> (buffer) {
+  %zero64 = scalar.constant 0 : i64
+  %four64 = scalar.constant 4 : i64
+  %five64 = scalar.constant 5 : i64
+  %six64 = scalar.constant 6 : i64
+  %default = scalar.constant -1 : i64
+  %compact = scalar.constant -2 : i64
+  %is_default = scalar.cmpi eq, %indent, %default : i64
+  %is_compact = scalar.cmpi eq, %indent, %compact : i64
+  %is_pretty = scalar.cmpi eq, %indent, %four64 : i64
+  %ordinary = scalar.ori %is_default, %is_compact : i1
+  %valid_indent = scalar.ori %ordinary, %is_pretty : i1
+  func.call @jinja.check(%valid_indent) : (i1)
+  %valid_kind = scalar.cmpi ule, %kind, %six64 : i64
+  func.call @jinja.check(%valid_kind) : (i1)
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  // Keep type conversion branchless when a kind becomes exact after macro
+  // field effects. Only actual strings need quoting storage.
+  %empty = global.load @jinja.empty : buffer
+  %quote_input = scf.select %string, %value, %empty : buffer
+  %quoted = func.call @text.json_quote(%quote_input) : (buffer) -> (buffer)
+  %base = scf.select %string, %quoted, %value : buffer
+  %is_true = scalar.cmpi eq, %kind, %four64 : i64
+  %is_false = scalar.cmpi eq, %kind, %five64 : i64
+  %is_none = scalar.cmpi eq, %kind, %six64 : i64
+  %yes = global.load @jinja.json_true : buffer
+  %no = global.load @jinja.json_false : buffer
+  %null = global.load @jinja.json_null : buffer
+  %with_true = scf.select %is_true, %yes, %base : buffer
+  %with_false = scf.select %is_false, %no, %with_true : buffer
+  %raw = scf.select %is_none, %null, %with_false : buffer
+  %output = scf.if %is_pretty -> (buffer) {
+    %pretty = func.call @jinja.pretty(%raw) : (buffer) -> (buffer)
+    scf.yield %pretty : buffer
+  } else {
+    %ordinary = scf.if %is_compact -> (buffer) {
+      %compact = func.call @text.json_dump_compact(%raw) : (buffer) -> (buffer)
+      scf.yield %compact : buffer
+    } else {
+      %spaced = func.call @text.json_dump(%raw) : (buffer) -> (buffer)
+      scf.yield %spaced : buffer
+    }
+    scf.yield %ordinary : buffer
+  }
+  func.return %output : buffer
+}
+
+// Template defaults are based on definition, not truthiness.
+func.def public @jinja.default(%value: buffer, %kind: i64, %fallback: buffer, %fallback_kind: i64) -> (buffer, i64) {
+  %seven = scalar.constant 7 : i64
+  %undefined = scalar.cmpi eq, %kind, %seven : i64
+  %result = scf.select %undefined, %fallback, %value : buffer
+  %result_kind = scf.select %undefined, %fallback_kind, %kind : i64
+  func.return %result, %result_kind : buffer, i64
+}
+
+func.def @jinja.member_key(%source: buffer, %members: buffer, %count_value: i64, %ordinal: i64) -> (buffer) {
+  %zero64 = scalar.constant 0 : i64
+  %nonnegative = scalar.cmpi sge, %ordinal, %zero64 : i64
+  %within = scalar.cmpi slt, %ordinal, %count_value : i64
+  %valid = scalar.andi %nonnegative, %within : i1
+  func.call @jinja.check(%valid) : (i1)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %index_bounded = scalar.assume %ordinal [range(%ordinal, 0, 2147483647)] : i64
+  %i_value = index.cast %index_bounded : i64 to index
+  %i = index.assume %i_value [range(%i_value, 0, 2147483647), lt(%i_value, %count)] : index
+  %zero = index.constant 0 : offset
+  %records = buffer.view %members[%zero] : buffer -> view<[%count]x5xi64>
+  %begin = view.load %records[%i, 0] : view<[%count]x5xi64> -> i64
+  %length = view.load %records[%i, 1] : view<[%count]x5xi64> -> i64
+  %key = func.call @text.decode(%source, %begin, %length) : (buffer, i64, i64) -> (buffer)
+  func.return %key : buffer
+}
+
+func.def @jinja.edge(%value: buffer, %kind: i64, %last: i1) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %seven = scalar.constant 7 : i64
+  %count = func.call @jinja.length(%value, %kind) : (buffer, i64) -> (i64)
+  %nonempty = scalar.cmpi sgt, %count, %zero : i64
+  %result, %result_kind = scf.if %nonempty -> (buffer, i64) {
+    %final = scalar.subi %count, %one : i64
+    %ordinal = scf.select %last, %final, %zero : i64
+    %object = scalar.cmpi eq, %kind, %two : i64
+    %item, %item_kind = scf.if %object -> (buffer, i64) {
+      %members, %type, %n = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+      %key = func.call @jinja.member_key(%value, %members, %n, %ordinal) : (buffer, buffer, i64, i64) -> (buffer)
+      scf.yield %key, %zero : buffer, i64
+    } else {
+      %item, %item_kind = func.call @jinja.index(%value, %kind, %ordinal) : (buffer, i64, i64) -> (buffer, i64)
+      scf.yield %item, %item_kind : buffer, i64
+    }
+    scf.yield %item, %item_kind : buffer, i64
+  } else {
+    %empty = global.load @jinja.empty : buffer
+    scf.yield %empty, %seven : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
+func.def public @jinja.first(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %false = scalar.constant false : i1
+  %item, %item_kind = func.call @jinja.edge(%value, %kind, %false) : (buffer, i64, i1) -> (buffer, i64)
+  func.return %item, %item_kind : buffer, i64
+}
+
+func.def public @jinja.last(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %true = scalar.constant true : i1
+  %item, %item_kind = func.call @jinja.edge(%value, %kind, %true) : (buffer, i64, i1) -> (buffer, i64)
+  func.return %item, %item_kind : buffer, i64
+}
+
+func.def @jinja.check_strings(%a_kind: i64, %b_kind: i64) {
+  %zero = scalar.constant 0 : i64
+  %a = scalar.cmpi eq, %a_kind, %zero : i64
+  %b = scalar.cmpi eq, %b_kind, %zero : i64
+  %valid = scalar.andi %a, %b : i1
+  func.call @jinja.check(%valid) : (i1)
+  func.return
+}
+
+func.def public @jinja.startswith(%value: buffer, %kind: i64, %prefix: buffer, %prefix_kind: i64) -> (i1) {
+  func.call @jinja.check_strings(%kind, %prefix_kind) : (i64, i64)
+  %zero = index.constant 0 : offset
+  %match = func.call @text.at(%value, %zero, %prefix) : (buffer, offset, buffer) -> (i1)
+  func.return %match : i1
+}
+
+func.def public @jinja.endswith(%value: buffer, %kind: i64, %suffix: buffer, %suffix_kind: i64) -> (i1) {
+  func.call @jinja.check_strings(%kind, %suffix_kind) : (i64, i64)
+  %length = buffer.length %value
+  %size = buffer.length %suffix
+  %fits = index.cmp ule, %size, %length : offset
+  %match = scf.if %fits -> (i1) {
+    %position = index.sub %length, %size : offset
+    %matched = func.call @text.at(%value, %position, %suffix) : (buffer, offset, buffer) -> (i1)
+    scf.yield %matched : i1
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
+  func.return %match : i1
+}
+
+func.def public @jinja.split(%value: buffer, %kind: i64, %separator: buffer, %separator_kind: i64) -> (buffer, i64) {
+  func.call @jinja.check_strings(%kind, %separator_kind) : (i64, i64)
+  %zero = index.constant 0 : offset
+  %separator_length = buffer.length %separator
+  %nonempty = index.cmp ugt, %separator_length, %zero : offset
+  func.call @jinja.check(%nonempty) : (i1)
+  %length = buffer.length %value
+  %open = global.load @jinja.open_array : buffer
+  %comma = global.load @jinja.comma : buffer
+  %close = global.load @jinja.close_array : buffer
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %position, %body, %first, %active = scf.while(%position = %zero : offset, %body = %open : buffer, %first = %true : i1, %active = %nonempty : i1) -> (offset, buffer, i1, i1) {
+    scf.condition %active, %position, %body, %first, %active : i1, offset, buffer, i1, i1
+  } do(%position: offset, %body: buffer, %first: i1, %active: i1) {
+    %found_position, %found = func.call @text.find(%value, %position, %separator) : (buffer, offset, buffer) -> (offset, i1)
+    %end = scf.select %found, %found_position, %length : offset
+    %size = index.sub %end, %position : offset
+    %begin64 = index.cast %position : offset to i64
+    %size64 = index.cast %size : offset to i64
+    %piece = func.call @text.range(%value, %begin64, %size64) : (buffer, i64, i64) -> (buffer)
+    %quoted = func.call @text.json_quote(%piece) : (buffer) -> (buffer)
+    %prefix = scf.if %first -> (buffer) {
+      scf.yield %body : buffer
+    } else {
+      %joined = func.call @jinja.join(%body, %comma) : (buffer, buffer) -> (buffer)
+      scf.yield %joined : buffer
+    }
+    %next_body = func.call @jinja.join(%prefix, %quoted) : (buffer, buffer) -> (buffer)
+    %advance = scf.select %found, %separator_length, %zero : offset
+    %next_position = index.add %end, %advance : offset
+    scf.yield %next_position, %next_body, %false, %found : offset, buffer, i1, i1
+  }
+  %result = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+  %three = scalar.constant 3 : i64
+  func.return %result, %three : buffer, i64
+}
+
+func.def @jinja.charset_contains(%characters: buffer, %text: buffer, %position: offset, %width: offset) -> (i1) {
+  %zero = index.constant 0 : offset
+  %false = scalar.constant false : i1
+  %length = buffer.length %characters
+  %cursor, %found = scf.while(%cursor = %zero : offset, %found = %false : i1) -> (offset, i1) {
+    %within = index.cmp ult, %cursor, %length : offset
+    %not_found = scalar.cmpi eq, %found, %false : i1
+    %active = scalar.andi %within, %not_found : i1
+    scf.condition %active, %cursor, %found : i1, offset, i1
+  } do(%cursor: offset, %found: i1) {
+    %character_width = func.call @jinja.utf8_width(%characters, %cursor) : (buffer, offset) -> (offset)
+    %same_width = index.cmp eq, %character_width, %width : offset
+    %match = scf.if %same_width -> (i1) {
+      %compared = buffer.compare %characters[%cursor], %text[%position], %width
+      %zero32 = scalar.constant 0 : i32
+      %equal = scalar.cmpi eq, %compared, %zero32 : i32
+      scf.yield %equal : i1
+    } else {
+      scf.yield %false : i1
+    }
+    %next = index.add %cursor, %character_width : offset
+    scf.yield %next, %match : offset, i1
+  }
+  func.return %found : i1
+}
+
+// None denotes omitted/default chars. Explicit Undefined is an invalid argument.
+func.def public @jinja.strip(%value: buffer, %kind: i64, %characters: buffer, %characters_kind: i64, %left: i1, %right: i1) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %six64 = scalar.constant 6 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %charset = scalar.cmpi eq, %characters_kind, %zero64 : i64
+  %whitespace = scalar.cmpi eq, %characters_kind, %six64 : i64
+  %valid_chars = scalar.ori %charset, %whitespace : i1
+  %valid = scalar.andi %string, %valid_chars : i1
+  func.call @jinja.check(%valid) : (i1)
+  %zero = index.constant 0 : offset
+  %length = buffer.length %value
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %position, %first, %last, %seen = scf.while(%position = %zero : offset, %first = %length : offset, %last = %zero : offset, %seen = %false : i1) -> (offset, offset, offset, i1) {
+    %active = index.cmp ult, %position, %length : offset
+    scf.condition %active, %position, %first, %last, %seen : i1, offset, offset, offset, i1
+  } do(%position: offset, %first: offset, %last: offset, %seen: i1) {
+    %width = func.call @jinja.utf8_width(%value, %position) : (buffer, offset) -> (offset)
+    %strip = scf.if %whitespace -> (i1) {
+      %space_width = func.call @text.whitespace_width(%value, %position, %length) : (buffer, offset, offset) -> (offset)
+      %space = index.cmp ne, %space_width, %zero : offset
+      scf.yield %space : i1
+    } else {
+      %contains = func.call @jinja.charset_contains(%characters, %value, %position, %width) : (buffer, buffer, offset, offset) -> (i1)
+      scf.yield %contains : i1
+    }
+    %keep = scalar.cmpi eq, %strip, %false : i1
+    %unseen = scalar.cmpi eq, %seen, %false : i1
+    %first_keep = scalar.andi %keep, %unseen : i1
+    %next = index.add %position, %width : offset
+    %next_first = scf.select %first_keep, %position, %first : offset
+    %next_last = scf.select %keep, %next, %last : offset
+    %next_seen = scalar.ori %seen, %keep : i1
+    scf.yield %next, %next_first, %next_last, %next_seen : offset, offset, offset, i1
+  }
+  %begin = scf.select %left, %first, %zero : offset
+  %right_end = scf.select %right, %last, %length : offset
+  %inverted = index.cmp ult, %right_end, %begin : offset
+  %end = scf.select %inverted, %begin, %right_end : offset
+  %size = index.sub %end, %begin : offset
+  %begin64 = index.cast %begin : offset to i64
+  %size64 = index.cast %size : offset to i64
+  %result = func.call @text.range(%value, %begin64, %size64) : (buffer, i64, i64) -> (buffer)
+  func.return %result, %zero64 : buffer, i64
+}
+
+func.def public @jinja.mapping_get(%value: buffer, %kind: i64, %key: buffer, %key_kind: i64, %fallback: buffer, %fallback_kind: i64) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %two = scalar.constant 2 : i64
+  %three = scalar.constant 3 : i64
+  %seven = scalar.constant 7 : i64
+  %false = scalar.constant false : i1
+  %mapping = scalar.cmpi eq, %kind, %two : i64
+  func.call @jinja.check(%mapping) : (i1)
+  %key_object = scalar.cmpi eq, %key_kind, %two : i64
+  %key_array = scalar.cmpi eq, %key_kind, %three : i64
+  %unhashable = scalar.ori %key_object, %key_array : i1
+  %hashable = scalar.cmpi eq, %unhashable, %false : i1
+  func.call @jinja.check(%hashable) : (i1)
+  %key_string = scalar.cmpi eq, %key_kind, %zero : i64
+  %result, %result_kind = scf.if %key_string -> (buffer, i64) {
+    %item, %item_kind = func.call @jinja.get(%value, %kind, %key) : (buffer, i64, buffer) -> (buffer, i64)
+    %missing = scalar.cmpi eq, %item_kind, %seven : i64
+    %result = scf.select %missing, %fallback, %item : buffer
+    %result_kind = scf.select %missing, %fallback_kind, %item_kind : i64
+    scf.yield %result, %result_kind : buffer, i64
+  } else {
+    scf.yield %fallback, %fallback_kind : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
+// Loop materialization only: mapping iteration yields keys in insertion order.
+func.def public @jinja.iteration(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %two = scalar.constant 2 : i64
+  %three = scalar.constant 3 : i64
+  %seven = scalar.constant 7 : i64
+  %mapping = scalar.cmpi eq, %kind, %two : i64
+  %result, %result_kind = scf.if %mapping -> (buffer, i64) {
+    %members, %type, %count_value = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+    %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+    %count = index.cast %bounded : i64 to index
+    %origin = index.constant 0 : index
+    %one = index.constant 1 : index
+    %open = global.load @jinja.open_array : buffer
+    %close = global.load @jinja.close_array : buffer
+    %comma = global.load @jinja.comma : buffer
+    %body = scf.for %i = [%origin to %count step %one](%prior = %open : buffer) -> (buffer) {
+      %ordinal = index.cast %i : index to i64
+      %key = func.call @jinja.member_key(%value, %members, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer)
+      %quoted = func.call @text.json_quote(%key) : (buffer) -> (buffer)
+      %first = index.cmp eq, %i, %origin : index
+      %prefix = scf.if %first -> (buffer) {
+        scf.yield %prior : buffer
+      } else {
+        %delimited = func.call @jinja.join(%prior, %comma) : (buffer, buffer) -> (buffer)
+        scf.yield %delimited : buffer
+      }
+      %next = func.call @jinja.join(%prefix, %quoted) : (buffer, buffer) -> (buffer)
+      scf.yield %next : buffer
+    }
+    %keys = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+    scf.yield %keys, %three : buffer, i64
+  } else {
+    %string = scalar.cmpi eq, %kind, %zero : i64
+    %array = scalar.cmpi eq, %kind, %three : i64
+    %undefined = scalar.cmpi eq, %kind, %seven : i64
+    %ordinary = scalar.ori %string, %array : i1
+    %supported = scalar.ori %ordinary, %undefined : i1
+    func.call @jinja.check(%supported) : (i1)
+    scf.yield %value, %kind : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
+// Internal loop rows, not an exposed Python generator or dict_items object.
+func.def public @jinja.items(%value: buffer, %kind: i64, %allow_undefined: i1) -> (buffer, i64) {
+  %two = scalar.constant 2 : i64
+  %three = scalar.constant 3 : i64
+  %seven = scalar.constant 7 : i64
+  %mapping = scalar.cmpi eq, %kind, %two : i64
+  %undefined = scalar.cmpi eq, %kind, %seven : i64
+  %empty_allowed = scalar.andi %undefined, %allow_undefined : i1
+  %supported = scalar.ori %mapping, %empty_allowed : i1
+  func.call @jinja.check(%supported) : (i1)
+  %open = global.load @jinja.open_array : buffer
+  %close = global.load @jinja.close_array : buffer
+  %comma = global.load @jinja.comma : buffer
+  %body = scf.if %mapping -> (buffer) {
+    %members, %type, %count_value = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+    %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+    %count = index.cast %bounded : i64 to index
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %default_indent = scalar.constant -1 : i64
+    %body = scf.for %i = [%zero to %count step %one](%prior = %open : buffer) -> (buffer) {
+      %ordinal = index.cast %i : index to i64
+      %key = func.call @jinja.member_key(%value, %members, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer)
+      %key_json = func.call @text.json_quote(%key) : (buffer) -> (buffer)
+      %item, %item_kind = func.call @jinja.member(%value, %members, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      %item_json = func.call @jinja.tojson(%item, %item_kind, %default_indent) : (buffer, i64, i64) -> (buffer)
+      %row_key = func.call @jinja.join(%open, %key_json) : (buffer, buffer) -> (buffer)
+      %row_separator = func.call @jinja.join(%row_key, %comma) : (buffer, buffer) -> (buffer)
+      %row_value = func.call @jinja.join(%row_separator, %item_json) : (buffer, buffer) -> (buffer)
+      %row = func.call @jinja.join(%row_value, %close) : (buffer, buffer) -> (buffer)
+      %first = index.cmp eq, %i, %zero : index
+      %prefix = scf.if %first -> (buffer) {
+        scf.yield %prior : buffer
+      } else {
+        %delimited = func.call @jinja.join(%prior, %comma) : (buffer, buffer) -> (buffer)
+        scf.yield %delimited : buffer
+      }
+      %next = func.call @jinja.join(%prefix, %row) : (buffer, buffer) -> (buffer)
+      scf.yield %next : buffer
+    }
+    scf.yield %body : buffer
+  } else {
+    scf.yield %open : buffer
+  }
+  %result = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+  func.return %result, %three : buffer, i64
+}
+
+func.def @jinja.reverse_bound(%value: i64, %count: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %minus_one = scalar.constant -1 : i64
+  %negative = scalar.cmpi slt, %value, %zero : i64
+  %shifted = scalar.addi %value, %count : i64
+  %adjusted = scf.select %negative, %shifted, %value : i64
+  %below = scalar.cmpi slt, %adjusted, %minus_one : i64
+  %nonnegative = scf.select %below, %minus_one, %adjusted : i64
+  %maximum = scalar.addi %count, %minus_one : i64
+  %above = scalar.cmpi sgt, %nonnegative, %maximum : i64
+  %clipped = scf.select %above, %maximum, %nonnegative : i64
+  func.return %clipped : i64
+}
+
+// Omitted negative-step stop is -1 BEFORE the first element; explicit -1 is
+// normalized relative to count. Keep these separate instead of a value sentinel.
+func.def public @jinja.reverse_slice(%value: buffer, %kind: i64, %start_value: i64, %stop_value: i64, %step: i64, %start_omitted: i1, %stop_omitted: i1) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %minus_one64 = scalar.constant -1 : i64
+  %three64 = scalar.constant 3 : i64
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %supported = scalar.ori %string, %array : i1
+  func.call @jinja.check(%supported) : (i1)
+  %forward = scalar.cmpi eq, %step, %one64 : i64
+  %reverse = scalar.cmpi eq, %step, %minus_one64 : i64
+  %valid_step = scalar.ori %forward, %reverse : i1
+  func.call @jinja.check(%valid_step) : (i1)
+  %count = func.call @jinja.length(%value, %kind) : (buffer, i64) -> (i64)
+  %start, %stop = scf.if %forward -> (i64, i64) {
+    %begin_bound = func.call @jinja.clip(%start_value, %count) : (i64, i64) -> (i64)
+    %end_bound = func.call @jinja.clip(%stop_value, %count) : (i64, i64) -> (i64)
+    %begin = scf.select %start_omitted, %zero64, %begin_bound : i64
+    %end = scf.select %stop_omitted, %count, %end_bound : i64
+    scf.yield %begin, %end : i64, i64
+  } else {
+    %begin_bound = func.call @jinja.reverse_bound(%start_value, %count) : (i64, i64) -> (i64)
+    %end_bound = func.call @jinja.reverse_bound(%stop_value, %count) : (i64, i64) -> (i64)
+    %last = scalar.subi %count, %one64 : i64
+    %begin = scf.select %start_omitted, %last, %begin_bound : i64
+    %end = scf.select %stop_omitted, %minus_one64, %end_bound : i64
+    scf.yield %begin, %end : i64, i64
+  }
+  %forward_span = scalar.subi %stop, %start : i64
+  %reverse_span = scalar.subi %start, %stop : i64
+  %span_value = scf.select %forward, %forward_span, %reverse_span : i64
+  %nonempty = scalar.cmpi sgt, %span_value, %zero64 : i64
+  %span = scf.select %nonempty, %span_value, %zero64 : i64
+  %bounded = scalar.assume %span [range(%span, 0, 2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %open = global.load @jinja.open_array : buffer
+  %close = global.load @jinja.close_array : buffer
+  %comma = global.load @jinja.comma : buffer
+  %empty = global.load @jinja.empty : buffer
+  %initial = scf.select %string, %empty, %open : buffer
+  %default_indent = scalar.constant -1 : i64
+  %body = scf.for %offset = [%zero to %extent step %one](%prior = %initial : buffer) -> (buffer) {
+    %delta = index.cast %offset : index to i64
+    %ascending = scalar.addi %start, %delta : i64
+    %descending = scalar.subi %start, %delta : i64
+    %ordinal = scf.select %forward, %ascending, %descending : i64
+    %item, %item_kind = func.call @jinja.index_sequence(%value, %kind, %ordinal) : (buffer, i64, i64) -> (buffer, i64)
+    %next = scf.if %string -> (buffer) {
+      %joined = func.call @jinja.join(%prior, %item) : (buffer, buffer) -> (buffer)
+      scf.yield %joined : buffer
+    } else {
+      %serialized = func.call @jinja.tojson(%item, %item_kind, %default_indent) : (buffer, i64, i64) -> (buffer)
+      %first = index.cmp eq, %offset, %zero : index
+      %prefix = scf.if %first -> (buffer) {
+        scf.yield %prior : buffer
+      } else {
+        %delimited = func.call @jinja.join(%prior, %comma) : (buffer, buffer) -> (buffer)
+        scf.yield %delimited : buffer
+      }
+      %joined = func.call @jinja.join(%prefix, %serialized) : (buffer, buffer) -> (buffer)
+      scf.yield %joined : buffer
+    }
+    scf.yield %next : buffer
+  }
+  %result = scf.if %string -> (buffer) {
+    scf.yield %body : buffer
+  } else {
+    %array = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+    scf.yield %array : buffer
+  }
+  func.return %result, %kind : buffer, i64
+}
+
+// JSON arrays are immutable values. Copy their interiors into a fresh result;
+// retain member bytes so concatenation introduces no numeric spelling changes.
+func.def @jinja.concat_arrays(%a: buffer, %b: buffer) -> (buffer) {
+  %a_trimmed = func.call @text.trim(%a) : (buffer) -> (buffer)
+  %b_trimmed = func.call @text.trim(%b) : (buffer) -> (buffer)
+  %a_length = buffer.length %a_trimmed
+  %b_length = buffer.length %b_trimmed
+  %a_length64 = index.cast %a_length : offset to i64
+  %b_length64 = index.cast %b_length : offset to i64
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %a_size = scalar.subi %a_length64, %two : i64
+  %b_size = scalar.subi %b_length64, %two : i64
+  %a_body = func.call @text.range(%a_trimmed, %one, %a_size) : (buffer, i64, i64) -> (buffer)
+  %b_body = func.call @text.range(%b_trimmed, %one, %b_size) : (buffer, i64, i64) -> (buffer)
+  %a_members, %a_type, %a_count = func.call @members(%a) : (buffer) -> (buffer, i32, i64)
+  %b_members, %b_type, %b_count = func.call @members(%b) : (buffer) -> (buffer, i32, i64)
+  %a_nonempty = scalar.cmpi ne, %a_count, %zero : i64
+  %b_nonempty = scalar.cmpi ne, %b_count, %zero : i64
+  %both = scalar.andi %a_nonempty, %b_nonempty : i1
+  %open = global.load @jinja.open_array : buffer
+  %close = global.load @jinja.close_array : buffer
+  %comma = global.load @jinja.comma : buffer
+  %begin = func.call @jinja.join(%open, %a_body) : (buffer, buffer) -> (buffer)
+  %prefix = scf.if %both -> (buffer) {
+    %delimited = func.call @jinja.join(%begin, %comma) : (buffer, buffer) -> (buffer)
+    scf.yield %delimited : buffer
+  } else {
+    scf.yield %begin : buffer
+  }
+  %body = func.call @jinja.join(%prefix, %b_body) : (buffer, buffer) -> (buffer)
+  %result = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+func.def public @jinja.list(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %three = scalar.constant 3 : i64
+  %seven = scalar.constant 7 : i64
+  %sequence, %sequence_kind = func.call @jinja.iteration(%value, %kind) : (buffer, i64) -> (buffer, i64)
+  %undefined = scalar.cmpi eq, %sequence_kind, %seven : i64
+  %open = global.load @jinja.open_array : buffer
+  %close = global.load @jinja.close_array : buffer
+  %result = scf.if %undefined -> (buffer) {
+    %empty = func.call @jinja.join(%open, %close) : (buffer, buffer) -> (buffer)
+    scf.yield %empty : buffer
+  } else {
+    %array = scalar.cmpi eq, %sequence_kind, %three : i64
+    %result = scf.if %array -> (buffer) {
+      // Even an existing array conversion owns a fresh result.
+      %empty = global.load @jinja.empty : buffer
+      %copy = func.call @jinja.join(%sequence, %empty) : (buffer, buffer) -> (buffer)
+      scf.yield %copy : buffer
+    } else {
+      %count_value = func.call @jinja.length(%sequence, %sequence_kind) : (buffer, i64) -> (i64)
+      %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+      %count = index.cast %bounded : i64 to index
+      %zero = index.constant 0 : index
+      %one = index.constant 1 : index
+      %comma = global.load @jinja.comma : buffer
+      %body = scf.for %i = [%zero to %count step %one](%prior = %open : buffer) -> (buffer) {
+        %ordinal = index.cast %i : index to i64
+        %item, %item_kind = func.call @jinja.index_sequence(%sequence, %sequence_kind, %ordinal) : (buffer, i64, i64) -> (buffer, i64)
+        %quoted = func.call @text.json_quote(%item) : (buffer) -> (buffer)
+        %first = index.cmp eq, %i, %zero : index
+        %prefix = scf.if %first -> (buffer) {
+          scf.yield %prior : buffer
+        } else {
+          %delimited = func.call @jinja.join(%prior, %comma) : (buffer, buffer) -> (buffer)
+          scf.yield %delimited : buffer
+        }
+        %next = func.call @jinja.join(%prefix, %quoted) : (buffer, buffer) -> (buffer)
+        scf.yield %next : buffer
+      }
+      %array_value = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+      scf.yield %array_value : buffer
+    }
+    scf.yield %result : buffer
+  }
+  func.return %result, %three : buffer, i64
+}
+
+func.def public @jinja.join_values(%value: buffer, %kind: i64, %separator: buffer, %separator_kind: i64) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %delimiter = func.call @jinja.string(%separator, %separator_kind) : (buffer, i64) -> (buffer)
+  %sequence, %sequence_kind = func.call @jinja.iteration(%value, %kind) : (buffer, i64) -> (buffer, i64)
+  %count_value = func.call @jinja.length(%sequence, %sequence_kind) : (buffer, i64) -> (i64)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %empty = global.load @jinja.empty : buffer
+  %result = scf.for %i = [%zero to %count step %one](%prior = %empty : buffer) -> (buffer) {
+    %ordinal = index.cast %i : index to i64
+    %item, %item_kind = func.call @jinja.index_sequence(%sequence, %sequence_kind, %ordinal) : (buffer, i64, i64) -> (buffer, i64)
+    %text = func.call @jinja.string(%item, %item_kind) : (buffer, i64) -> (buffer)
+    %first = index.cmp eq, %i, %zero : index
+    %prefix = scf.if %first -> (buffer) {
+      scf.yield %prior : buffer
+    } else {
+      %delimited = func.call @jinja.join(%prior, %delimiter) : (buffer, buffer) -> (buffer)
+      scf.yield %delimited : buffer
+    }
+    %next = func.call @jinja.join(%prefix, %text) : (buffer, buffer) -> (buffer)
+    scf.yield %next : buffer
+  }
+  func.return %result, %zero64 : buffer, i64
+}

@@ -6,6 +6,7 @@ exports_files([
     "strings.loom",
     "json.loom",
     "identity.loom",
+    "jinja.loom",
 ])
 
 filegroup(

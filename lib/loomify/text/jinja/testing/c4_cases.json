@@ -1,0 +1,269 @@
+[
+  {
+    "id": "list-concatenation-unknown-left-known-list-errors",
+    "source": "{{ (value+[])|tojson }}",
+    "environment": {"value": "x"},
+    "error_contains": "concatenate"
+  },
+  {
+    "id": "join-container-element-capability",
+    "source": "{{ values|join('|') }}",
+    "environment": {"values": [[1]]},
+    "native_unsupported": "Python container repr for join elements is outside the bounded stringifier",
+    "native_error_contains": "invalid template value or operation"
+  },
+  {
+    "id": "join-container-delimiter-capability",
+    "source": "{{ values|join(delimiter) }}",
+    "environment": {"values": ["a", "b"], "delimiter": [1]},
+    "native_unsupported": "Python container repr for join delimiters is outside the bounded stringifier",
+    "native_error_contains": "invalid template value or operation"
+  },
+  {
+    "id": "list-concatenation-empty",
+    "source": "{{ ([]+[])|tojson }}|{{ ([]+values)|tojson }}|{{ (values+[])|tojson }}",
+    "environment": {
+      "values": [
+        "é",
+        2
+      ]
+    }
+  },
+  {
+    "id": "list-concatenation-input-alias-immutable",
+    "source": "{% set alias=left %}{% set result=left+right %}{{ result|tojson }}|{{ left|tojson }}|{{ alias|tojson }}|{{ right|tojson }}",
+    "environment": {
+      "left": [
+        "界",
+        {
+          "x": 1
+        }
+      ],
+      "right": [
+        false,
+        null,
+        2
+      ]
+    }
+  },
+  {
+    "id": "list-concatenation-repeated-rebind",
+    "source": "{% set ns=namespace(values=values) %}{% for item in extra %}{% set ns.values=ns.values+[item] %}{% endfor %}{{ ns.values|tojson }}|{{ values|tojson }}",
+    "environment": {
+      "values": [
+        1
+      ],
+      "extra": [
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "id": "list-conversion-string-codepoints",
+    "source": "{{ value|list|tojson }}",
+    "environment": {
+      "value": "aé界🌍"
+    }
+  },
+  {
+    "id": "list-conversion-mapping-key-order",
+    "source": "{{ value|list|tojson }}",
+    "environment": {
+      "value": {
+        "z\"é": 1,
+        "界🌍": 2
+      }
+    }
+  },
+  {
+    "id": "list-conversion-array-preserved",
+    "source": "{{ value|list|tojson }}|{{ value|tojson }}",
+    "environment": {
+      "value": [
+        1,
+        {
+          "x": "é"
+        },
+        [
+          false,
+          null
+        ]
+      ]
+    }
+  },
+  {
+    "id": "list-conversion-undefined-empty",
+    "source": "{{ missing|list|tojson }}",
+    "environment": {}
+  },
+  {
+    "id": "list-conversion-none-errors",
+    "source": "{{ value|list|tojson }}",
+    "environment": {
+      "value": null
+    },
+    "error_contains": "iterable"
+  },
+  {
+    "id": "list-conversion-number-errors",
+    "source": "{{ value|list|tojson }}",
+    "environment": {
+      "value": 2
+    },
+    "error_contains": "iterable"
+  },
+  {
+    "id": "list-concatenation-type-error",
+    "source": "{{ (left+right)|tojson }}",
+    "environment": {
+      "left": [],
+      "right": "x"
+    },
+    "error_contains": "concatenate"
+  },
+  {
+    "id": "join-empty-single",
+    "source": "[{{ []|join(',') }}]|[{{ ['é']|join(',') }}]",
+    "environment": {}
+  },
+  {
+    "id": "join-unicode-delimiter",
+    "source": "{{ values|join('界🌍') }}",
+    "environment": {
+      "values": [
+        "a",
+        "é",
+        ""
+      ]
+    }
+  },
+  {
+    "id": "join-empty-delimiter",
+    "source": "{{ values|join('') }}",
+    "environment": {
+      "values": [
+        "a",
+        "é",
+        "界"
+      ]
+    }
+  },
+  {
+    "id": "join-default-delimiter",
+    "source": "{{ values|join }}",
+    "environment": {
+      "values": [
+        "a",
+        "é",
+        "界"
+      ]
+    }
+  },
+  {
+    "id": "join-string-codepoints",
+    "source": "{{ value|join('|') }}",
+    "environment": {
+      "value": "aé界🌍"
+    }
+  },
+  {
+    "id": "join-mapping-key-order",
+    "source": "{{ value|join('|') }}",
+    "environment": {
+      "value": {
+        "z\"é": 1,
+        "界🌍": 2
+      }
+    }
+  },
+  {
+    "id": "join-undefined-empty",
+    "source": "[{{ missing|join('|') }}]",
+    "environment": {}
+  },
+  {
+    "id": "join-scalar-elements",
+    "source": "{{ values|join('|') }}",
+    "environment": {
+      "values": [
+        true,
+        false,
+        null,
+        7
+      ]
+    }
+  },
+  {
+    "id": "join-nonstring-delimiter",
+    "source": "{{ values|join(7) }}",
+    "environment": {
+      "values": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "id": "join-noniterable-errors",
+    "source": "{{ value|join('|') }}",
+    "environment": {
+      "value": 2
+    },
+    "error_contains": "iterable"
+  },
+  {
+    "id": "macro-local-list-reset",
+    "source": "{% macro collect(values) %}{% set ns=namespace(parts=[]) %}{% for item in values %}{% set ns.parts=ns.parts+[item] %}{% endfor %}{{ ns.parts|join('|') }}{% endmacro %}{{ collect(['a','b']) }};{{ collect(['c']) }};{{ collect([]) }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-nested-local-list-reset",
+    "source": "{% macro inner(value) %}{% set ns=namespace(parts=[]) %}{% set ns.parts=ns.parts+[value] %}{{ ns.parts|join('|') }}{% endmacro %}{% macro outer(values) %}{% set ns=namespace(parts=[]) %}{% for value in values %}{% set ns.parts=ns.parts+[inner(value)] %}{% endfor %}{{ ns.parts|join(',') }}{% endmacro %}{{ outer(['a','b']) }};{{ outer(['c']) }}",
+    "environment": {}
+  },
+  {
+    "id": "list-state-selected-only-effects",
+    "source": "{% set ns=namespace(parts=[]) %}{% macro push(value) %}{% set ns.parts=ns.parts+[value] %}{{ value }}{% endmacro %}{{ push('A') if flag else push('B') }}|{{ ns.parts|tojson }}",
+    "environment": {
+      "flag": false
+    }
+  },
+  {
+    "id": "generation-bytes-and-local-assignment",
+    "source": "{% set value='outer' %}A{% generation %}é{{ value }}{% set value='inner' %}{{ value }}界{% endgeneration %}B{{ value }}",
+    "environment": {}
+  },
+  {
+    "id": "generation-local-does-not-escape",
+    "source": "{% generation %}{% set local='inside' %}{{ local }}{% endgeneration %}|{{ local is undefined }}",
+    "environment": {}
+  },
+  {
+    "id": "generation-namespace-effects-persist",
+    "source": "{% set ns=namespace(n=0,parts=[]) %}{% generation %}{% set ns.n=ns.n+1 %}{% set ns.parts=ns.parts+['é'] %}{{ ns.n }}{% endgeneration %}|{{ ns.n }}|{{ ns.parts|join(',') }}",
+    "environment": {}
+  },
+  {
+    "id": "generation-caller-loop-metadata",
+    "source": "{% for item in ['a','b'] %}{% generation %}{{ loop.index }}:{{ item }}{% endgeneration %};{% endfor %}",
+    "environment": {}
+  },
+  {
+    "id": "generation-conditional-untaken-effects",
+    "source": "{% set ns=namespace(n=0) %}{% if flag %}{% generation %}{% set ns.n=ns.n+1 %}A{% endgeneration %}{% endif %}{{ ns.n }}",
+    "environment": {
+      "flag": false
+    }
+  },
+  {
+    "id": "generation-macro-local-namespace-reset",
+    "source": "{% macro render(value) %}{% set ns=namespace(parts=[]) %}{% generation %}{% set ns.parts=ns.parts+[value] %}{{ ns.parts|join(',') }}{% endgeneration %}|{{ ns.parts|join(',') }}{% endmacro %}{{ render('a') }};{{ render('b') }}",
+    "environment": {}
+  },
+  {
+    "id": "generation-inner-ordinary-write-preserves-outer-local",
+    "source": "{% macro render() %}{% set value='macro' %}{% generation %}{% set value='generation' %}{{ value }}{% endgeneration %}|{{ value }}{% endmacro %}{{ render() }}",
+    "environment": {}
+  }
+]

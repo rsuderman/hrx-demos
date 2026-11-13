@@ -257,6 +257,13 @@ func.def @text.space_width(%text: buffer, %position: offset, %end: offset) -> (o
   func.return %width : offset
 }
 
+// Caller supplies an existing UTF8 character position before end. Share the
+// Unicode whitespace table with finite string operations without copying it.
+func.def public @text.whitespace_width(%text: buffer, %position: offset, %end: offset) -> (offset) {
+  %width = func.call @text.space_width(%text, %position, %end) : (buffer, offset, offset) -> (offset)
+  func.return %width : offset
+}
+
 func.def public @text.trim(%text: buffer) -> (buffer) {
   %zero = index.constant 0 : offset
   %one = index.constant 1 : offset

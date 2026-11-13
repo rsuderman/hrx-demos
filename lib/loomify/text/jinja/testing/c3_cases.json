@@ -1,0 +1,288 @@
+[
+  {
+    "id": "macro-parameter-rebound-captured-namespace-effect",
+    "source": "{% set ns=namespace(n=0) %}{% macro bump(alias) %}{% set alias=ns %}{% set alias.n=alias.n+1 %}{% endmacro %}{{ bump('ordinary') }}{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-captured-namespace-alias-write",
+    "source": "{% set ns=namespace(n=0) %}{% macro bump() %}{% set alias=ns %}{% set alias.n=alias.n+1 %}{% endmacro %}{{ bump() }}{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-transitive-namespace-alias-write",
+    "source": "{% set ns=namespace(n=0) %}{% macro bump() %}{% set alias=ns %}{% set alias.n=alias.n+1 %}{% endmacro %}{% macro outer(x=bump()) %}{{ x }}{% endmacro %}{{ outer() }}|{{ ns.n }}|{{ outer('explicit') }}|{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-alias-branches-same-target-true",
+    "source": "{% set first=namespace(n=0) %}{% set second=namespace(n=10) %}{% macro bump() %}{% set alias=first %}{% if flag %}{% set alias=second %}{% else %}{% set alias=second %}{% endif %}{% set alias.n=alias.n+1 %}{% endmacro %}{{ bump() }}{{ first.n }}|{{ second.n }}",
+    "environment": {
+      "flag": true
+    }
+  },
+  {
+    "id": "macro-alias-branches-same-target-false",
+    "source": "{% set first=namespace(n=0) %}{% set second=namespace(n=10) %}{% macro bump() %}{% set alias=first %}{% if flag %}{% set alias=second %}{% else %}{% set alias=second %}{% endif %}{% set alias.n=alias.n+1 %}{% endmacro %}{{ bump() }}{{ first.n }}|{{ second.n }}",
+    "environment": {
+      "flag": false
+    }
+  },
+  {
+    "id": "macro-simple",
+    "source": "{% macro show() %}ok{% endmacro %}{{ show() }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-required-undefined-print",
+    "source": "{% macro show(value) %}[{{ value }}]{% endmacro %}{{ show() }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-required-undefined-operation",
+    "source": "{% macro show(value) %}{{ value.x }}{% endmacro %}{{ show() }}",
+    "environment": {},
+    "error_contains": "was not provided"
+  },
+  {
+    "id": "macro-default-explicit-keyword",
+    "source": "{% macro show(a, b='B') %}{{ a }}:{{ b }}{% endmacro %}{{ show('A') }}|{{ show(b='Y', a='X') }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-default-invocation-capture",
+    "source": "{% set value='first' %}{% macro show(x=value) %}{{ x }}{% endmacro %}{{ show() }}{% set value='second' %}{{ show() }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-lexical-not-loop-shadow",
+    "source": "{% set value='module' %}{% macro show() %}{{ value }}{% endmacro %}{% for value in ['caller'] %}{{ show() }}{% endfor %}",
+    "environment": {}
+  },
+  {
+    "id": "macro-nested-not-parameter-shadow",
+    "source": "{% set value='module' %}{% macro inner() %}{{ value }}{% endmacro %}{% macro outer(value) %}{{ inner() }}{% endmacro %}{{ outer('caller') }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-lexical-loop-unavailable",
+    "source": "{% macro show() %}{{ loop is undefined }}{% endmacro %}{% for item in [1,2] %}{{ show() }}{% endfor %}",
+    "environment": {}
+  },
+  {
+    "id": "macro-lexical-loop-attribute-error",
+    "source": "{% macro show() %}{{ loop.index }}{% endmacro %}{% for item in [1] %}{{ show() }}{% endfor %}",
+    "environment": {},
+    "error_contains": "undefined"
+  },
+  {
+    "id": "macro-captured-counter",
+    "source": "{% set ns=namespace(n=0) %}{% macro bump() %}{% set ns.n=ns.n+1 %}{{ ns.n }}{% endmacro %}{{ bump() }}|{{ bump() }}|{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-local-namespace-fresh",
+    "source": "{% macro local() %}{% set ns=namespace(n=0) %}{% set ns.n=ns.n+1 %}{{ ns.n }}{% endmacro %}{{ local() }}{{ local() }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-local-ordinary-isolation",
+    "source": "{% set x='module' %}{% macro local() %}{% set x='local' %}{{ x }}{% endmacro %}{{ local() }}|{{ x }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-lazy-and-or",
+    "source": "{% set ns=namespace(n=0) %}{% macro bump() %}{% set ns.n=ns.n+1 %}X{% endmacro %}{{ false and bump() }}|{{ true or bump() }}|{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-lazy-conditional-effects",
+    "source": "{% set ns=namespace(n=0) %}{% macro a() %}{% set ns.n=ns.n+1 %}A{% endmacro %}{% macro b() %}{% set ns.n=ns.n+10 %}B{% endmacro %}{{ a() if flag else b() }}|{{ ns.n }}",
+    "environment": {
+      "flag": true
+    }
+  },
+  {
+    "id": "macro-lazy-conditional-other-effects",
+    "source": "{% set ns=namespace(n=0) %}{% macro a() %}{% set ns.n=ns.n+1 %}A{% endmacro %}{% macro b() %}{% set ns.n=ns.n+10 %}B{% endmacro %}{{ a() if flag else b() }}|{{ ns.n }}",
+    "environment": {
+      "flag": false
+    }
+  },
+  {
+    "id": "macro-default-effect-at-invocation",
+    "source": "{% set ns=namespace(n=0) %}{% macro bump() %}{% set ns.n=ns.n+1 %}X{% endmacro %}{% macro show(x=bump()) %}{{ x }}{% endmacro %}{{ show('explicit') }}|{{ ns.n }}|{{ show() }}|{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "macro-captured-namespace-and-nested-call",
+    "source": "{% set ns=namespace(n=0) %}{% macro inner() %}{% set ns.n=ns.n+1 %}{{ ns.n }}{% endmacro %}{% macro outer() %}{{ inner() }}{{ inner() }}{% endmacro %}{{ outer() }}|{{ ns.n }}",
+    "environment": {}
+  },
+  {
+    "id": "mapping-keys-order-unicode",
+    "source": "{% for key in value %}[{{ key }}]{% endfor %}",
+    "environment": {
+      "value": {
+        "z\"é": 1,
+        "middle": 2,
+        "界🌍": 3
+      }
+    }
+  },
+  {
+    "id": "mapping-items-pair-order",
+    "source": "{% for key, item in value.items() %}{{ key }}={{ item }};{% endfor %}",
+    "environment": {
+      "value": {
+        "z\"é": 1,
+        "界🌍": 2
+      }
+    }
+  },
+  {
+    "id": "mapping-items-filter",
+    "source": "{% for key, item in value|items %}{{ key }}={{ item }};{% endfor %}",
+    "environment": {
+      "value": {
+        "z": 1,
+        "a": 2
+      }
+    }
+  },
+  {
+    "id": "mapping-items-collision",
+    "source": "{{ value['items'] }}|{% for key, item in value.items() %}{{ key }}={{ item }};{% endfor %}",
+    "environment": {
+      "value": {
+        "items": "field",
+        "z": 2
+      }
+    }
+  },
+  {
+    "id": "mapping-items-undefined-filter-empty",
+    "source": "A{% for key, item in missing|items %}BAD{% endfor %}B",
+    "environment": {}
+  },
+  {
+    "id": "mapping-items-undefined-method-error",
+    "source": "{% for key, item in missing.items() %}BAD{% endfor %}",
+    "environment": {},
+    "error_contains": "undefined"
+  },
+  {
+    "id": "pair-target-too-few",
+    "source": "{% for a,b in values %}{{ a }}{{ b }}{% endfor %}",
+    "environment": {
+      "values": [
+        [
+          1
+        ]
+      ]
+    },
+    "error_contains": "unpack"
+  },
+  {
+    "id": "pair-target-too-many",
+    "source": "{% for a,b in values %}{{ a }}{{ b }}{% endfor %}",
+    "environment": {
+      "values": [
+        [
+          1,
+          2,
+          3
+        ]
+      ]
+    },
+    "error_contains": "unpack"
+  },
+  {
+    "id": "reverse-list-neighbors",
+    "source": "{% for value in values[::-1] %}{{ loop.index }}:{{ value }}:{{ loop.previtem|default('P') }}:{{ loop.nextitem|default('N') }};{% endfor %}",
+    "environment": {
+      "values": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  },
+  {
+    "id": "reverse-unicode",
+    "source": "{{ value[::-1] }}|{{ value[1::-1] }}|{{ value[:-1:-1] }}|{{ value[-1:0:-1] }}",
+    "environment": {
+      "value": "aé界🌍"
+    }
+  },
+  {
+    "id": "reverse-empty",
+    "source": "[{{ values[::-1]|tojson }}]|{{ value[::-1] }}",
+    "environment": {
+      "values": [],
+      "value": ""
+    }
+  },
+  {
+    "id": "reverse-explicit-negative-bound",
+    "source": "{{ values[::-1]|tojson }}|{{ values[:-1:-1]|tojson }}|{{ values[-1::-1]|tojson }}",
+    "environment": {
+      "values": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "id": "sequence-finite-kinds",
+    "source": "{{ text is sequence }}|{{ values is sequence }}|{{ mapping is sequence }}|{{ missing is sequence }}|{{ number is sequence }}|{{ none is sequence }}",
+    "environment": {
+      "text": "x",
+      "values": [],
+      "mapping": {},
+      "number": 1
+    }
+  },
+  {
+    "id": "json-separator-modes",
+    "source": "{{ value|tojson(separators=(',', ':')) }}|{{ value|tojson(separators=(', ', ': ')) }}|{{ value|tojson(indent=4) }}",
+    "environment": {
+      "value": {
+        "é": [
+          1,
+          true,
+          null
+        ]
+      }
+    }
+  },
+  {
+    "id": "template-mutation-original",
+    "source": "{% macro title(x='old') %}{{ x }}{% endmacro %}{{ title() }}",
+    "environment": {}
+  },
+  {
+    "id": "template-mutation-changed",
+    "source": "{% macro title(x='old') %}{{ x }}{% endmacro %}{{ title() }}",
+    "environment": {},
+    "mutations": [
+      {
+        "find": "'old'",
+        "replace": "'new'"
+      }
+    ]
+  },
+  {
+    "id": "raw-float-lexeme-preserved",
+    "source": "F({{ value|tojson }})",
+    "environment": {
+      "value": 2.0
+    },
+    "environment_source": "{\"value\":2.00}",
+    "deferred_float": {
+      "prefix": "F(",
+      "suffix": ")"
+    }
+  }
+]

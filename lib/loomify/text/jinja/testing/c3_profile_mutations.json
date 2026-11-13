@@ -1,0 +1,82 @@
+[
+  {
+    "id": "qwen08-full-original",
+    "template_sha256": "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",
+    "environment": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": null,
+      "add_generation_prompt": true
+    }
+  },
+  {
+    "id": "qwen08-full-macro-namespace-renamed",
+    "template_sha256": "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",
+    "environment": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": null,
+      "add_generation_prompt": true
+    },
+    "mutations": [
+      {
+        "find": "render_content",
+        "replace": "render_body",
+        "occurrences": 5
+      },
+      {
+        "find": "image_count",
+        "replace": "picture_counter",
+        "occurrences": 4
+      }
+    ]
+  },
+  {
+    "id": "qwen08-full-generation-condition-changed",
+    "template_sha256": "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",
+    "environment": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": null,
+      "add_generation_prompt": true
+    },
+    "mutations": [
+      {
+        "find": "{%- if add_generation_prompt %}",
+        "replace": "{%- if not add_generation_prompt %}"
+      }
+    ]
+  },
+  {
+    "id": "qwen08-full-generation-literal-changed",
+    "template_sha256": "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67",
+    "environment": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": null,
+      "add_generation_prompt": true
+    },
+    "mutations": [
+      {
+        "find": "'<|im_start|>assistant\\n'",
+        "replace": "'<|im_start|>assistant_changed\\n'"
+      }
+    ]
+  }
+]
