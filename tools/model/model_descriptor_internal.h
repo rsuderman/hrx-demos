@@ -68,9 +68,9 @@ struct Loader {
       Fail("expected string metadata: " + prefix + key);
     return *s;
   }
-  std::vector<uint64_t>
-  Dimensions(const std::string &key, size_t count,
-             const std::vector<uint64_t> &fallback = {}) const {
+  std::vector<uint64_t> Dimensions(const std::string &key, size_t count,
+                                   const std::vector<uint64_t> &fallback = {},
+                                   bool allow_zero = false) const {
     const auto *f = Field(key);
     if (!f) {
       if (!fallback.empty())
@@ -78,13 +78,13 @@ struct Loader {
       Fail("missing required metadata: " + prefix + key);
     }
     if (f->source_type != 9)
-      return std::vector<uint64_t>(count, Integer(f->scalar, key));
+      return std::vector<uint64_t>(count, Integer(f->scalar, key, !allow_zero));
     if (f->elements_omitted || f->element_count != count ||
         f->elements.size() != count)
       Fail("wrong array length: " + prefix + key);
     std::vector<uint64_t> out;
     for (const auto &v : f->elements)
-      out.push_back(Integer(v, key));
+      out.push_back(Integer(v, key, !allow_zero));
     return out;
   }
   void Bind(const ModelDescriptor &model, std::vector<TensorBinding> &out,
@@ -118,7 +118,8 @@ struct Loader {
 };
 
 uint64_t Product(uint64_t a, uint64_t b);
-void ReadDecoderDimensions(const Loader &, ModelDescriptor &);
+void ReadDecoderDimensions(const Loader &, ModelDescriptor &,
+                           bool allow_zero_kv = false);
 void ReadRope(const Loader &, ModelDescriptor &, double base);
 void BindGlobals(const Loader &, ModelDescriptor &);
 void BindFeedForward(const Loader &, const ModelDescriptor &,

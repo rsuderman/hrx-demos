@@ -1,0 +1,118 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Seven-tap depthwise short convolution. Input is [rows,3,width] B,C,X.
+// R input/weights/count/epoch, W output, RW selected history only. No aliases.
+// A channel-owning thread computes the ordered chunk in registers, then commits
+// all six history samples. Fresh position zero never reads poisoned old state.
+func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
+kernel.def @llm.convolution.shortconv7(%rows0: index, %width0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  %groups = index.div %width, %threads : index
+  kernel.launch.config workgroups(%groups, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%rows0: index, %width0: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %threads = index.constant 256 : index
+  %base = index.mul %group, %threads : index
+  %raw = index.add %base, %lane : index
+  %channel = index.assume %raw [range(%raw, 0, 32767), lt(%raw, %width)] : index
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %zero32 = scalar.constant 0 : i32
+  %zero_f = scalar.constant 0.0 : f32
+  %descriptor = buffer.view %epoch[%control_origin] : buffer -> view<5xi32>
+  %position = view.load %descriptor[1] : view<5xi32> -> i32
+  %fresh = scalar.cmpi eq, %position, %zero32 : i32
+  %active = func.call @llm.decoder.active_row(%zero, %rows, %count) : (index, index, buffer) -> (i1)
+  %history = buffer.view %state[%history_origin] : buffer -> view<6x[%width]xf32>
+  %weights = buffer.view %weight[%origin] : buffer -> view<[%width]x7xf32>
+  %bcx = buffer.view %input[%origin] : buffer -> view<[%rows]x3x[%width]xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  %old0 = scf.if %active -> (f32) {
+    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+      %h = view.load %history[0, %channel] : view<6x[%width]xf32> -> f32
+      scf.yield %h : f32
+    }
+    scf.yield %v : f32
+  } else { scf.yield %zero_f : f32 }
+  %old1 = scf.if %active -> (f32) {
+    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+      %h = view.load %history[1, %channel] : view<6x[%width]xf32> -> f32
+      scf.yield %h : f32
+    }
+    scf.yield %v : f32
+  } else { scf.yield %zero_f : f32 }
+  %old2 = scf.if %active -> (f32) {
+    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+      %h = view.load %history[2, %channel] : view<6x[%width]xf32> -> f32
+      scf.yield %h : f32
+    }
+    scf.yield %v : f32
+  } else { scf.yield %zero_f : f32 }
+  %old3 = scf.if %active -> (f32) {
+    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+      %h = view.load %history[3, %channel] : view<6x[%width]xf32> -> f32
+      scf.yield %h : f32
+    }
+    scf.yield %v : f32
+  } else { scf.yield %zero_f : f32 }
+  %old4 = scf.if %active -> (f32) {
+    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+      %h = view.load %history[4, %channel] : view<6x[%width]xf32> -> f32
+      scf.yield %h : f32
+    }
+    scf.yield %v : f32
+  } else { scf.yield %zero_f : f32 }
+  %old5 = scf.if %active -> (f32) {
+    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+      %h = view.load %history[5, %channel] : view<6x[%width]xf32> -> f32
+      scf.yield %h : f32
+    }
+    scf.yield %v : f32
+  } else { scf.yield %zero_f : f32 }
+  %next0, %next1, %next2, %next3, %next4, %next5 = scf.for %row = [%zero to %rows step %one](%h0 = %old0 : f32, %h1 = %old1 : f32, %h2 = %old2 : f32, %h3 = %old3 : f32, %h4 = %old4 : f32, %h5 = %old5 : f32) -> (f32, f32, f32, f32, f32, f32) {
+    %live = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+    %n0, %n1, %n2, %n3, %n4, %n5 = scf.if %live -> (f32, f32, f32, f32, f32, f32) {
+      %b = view.load %bcx[%row, 0, %channel] : view<[%rows]x3x[%width]xf32> -> f32
+      %c = view.load %bcx[%row, 1, %channel] : view<[%rows]x3x[%width]xf32> -> f32
+      %x = view.load %bcx[%row, 2, %channel] : view<[%rows]x3x[%width]xf32> -> f32
+      %current = scalar.mulf %b, %x : f32
+      %w0 = view.load %weights[%channel, 0] : view<[%width]x7xf32> -> f32
+      %a0 = scalar.fmaf %w0, %h0, %zero_f : f32
+      %w1 = view.load %weights[%channel, 1] : view<[%width]x7xf32> -> f32
+      %a1 = scalar.fmaf %w1, %h1, %a0 : f32
+      %w2 = view.load %weights[%channel, 2] : view<[%width]x7xf32> -> f32
+      %a2 = scalar.fmaf %w2, %h2, %a1 : f32
+      %w3 = view.load %weights[%channel, 3] : view<[%width]x7xf32> -> f32
+      %a3 = scalar.fmaf %w3, %h3, %a2 : f32
+      %w4 = view.load %weights[%channel, 4] : view<[%width]x7xf32> -> f32
+      %a4 = scalar.fmaf %w4, %h4, %a3 : f32
+      %w5 = view.load %weights[%channel, 5] : view<[%width]x7xf32> -> f32
+      %a5 = scalar.fmaf %w5, %h5, %a4 : f32
+      %w6 = view.load %weights[%channel, 6] : view<[%width]x7xf32> -> f32
+      %a6 = scalar.fmaf %w6, %current, %a5 : f32
+      %y = scalar.mulf %c, %a6 : f32
+      view.store %y, %out[%row, %channel] : f32, view<[%rows]x[%width]xf32>
+      scf.yield %h1, %h2, %h3, %h4, %h5, %current : f32, f32, f32, f32, f32, f32
+    } else {
+      view.store %zero_f, %out[%row, %channel] : f32, view<[%rows]x[%width]xf32>
+      scf.yield %h0, %h1, %h2, %h3, %h4, %h5 : f32, f32, f32, f32, f32, f32
+    }
+    scf.yield %n0, %n1, %n2, %n3, %n4, %n5 : f32, f32, f32, f32, f32, f32
+  }
+  scf.if %active {
+    view.store %next0, %history[0, %channel] : f32, view<6x[%width]xf32>
+    view.store %next1, %history[1, %channel] : f32, view<6x[%width]xf32>
+    view.store %next2, %history[2, %channel] : f32, view<6x[%width]xf32>
+    view.store %next3, %history[3, %channel] : f32, view<6x[%width]xf32>
+    view.store %next4, %history[4, %channel] : f32, view<6x[%width]xf32>
+    view.store %next5, %history[5, %channel] : f32, view<6x[%width]xf32>
+  }
+  kernel.return
+}

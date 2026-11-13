@@ -704,9 +704,9 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
   };
   for (const auto *product :
        {"implementation_text.loom", "implementation.loombc"}) {
-    for (const auto c : {Case{512, 3, 12, true}, Case{512, 3, 14, true},
-                         Case{512, 3, 13, false}, Case{513, 3, 12, false},
-                         Case{512, 0, 12, false}}) {
+    for (const auto c : {Case{512, 3, 12, true}, Case{512, 3, 13, true},
+                         Case{512, 3, 14, true}, Case{512, 3, 8, false},
+                         Case{513, 3, 12, false}, Case{512, 0, 12, false}}) {
       const std::string entry =
           "template.decl @llm.embedding.epoch_f32(%r:index,%h:index,%v:index,%t:index,%b:index,%e:buffer,%c:buffer,%i:buffer,%w:view<[%b]xi8>,%o:view<[%r]x[%h]xf32>)\n"
           "command.def @embedding.contract() launch(%e:buffer,%c:buffer,%i:buffer,%w:buffer,%o:buffer) {\n"
@@ -721,7 +721,9 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
           std::to_string(c.tag) +
           " : index\n"
           " %b = index.constant " +
-          std::to_string(c.tag == 14 ? 1260 : 864) +
+          std::to_string(c.tag == 14   ? 1260
+                         : c.tag == 13 ? 1056
+                                       : 864) +
           " : index\n"
           " %z = index.constant 0 : offset\n"
           " %table = buffer.view %w[%z] : buffer -> view<[%b]xi8>\n"

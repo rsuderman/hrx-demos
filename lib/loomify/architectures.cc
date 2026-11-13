@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/architectures.h"
 #include "lib/loomify/architectures/llama.h"
+#include "lib/loomify/architectures/lfm3.h"
 #include "lib/loomify/architectures/qwen2.h"
 #include "lib/loomify/architectures/qwen3.h"
 #include "lib/loomify/architectures/gemma3.h"
@@ -10,6 +11,17 @@
 namespace hrx::loomify_gguf {
 const ArchitectureFiles *SelectArchitecture(std::string_view family) {
   static const ArchitectureFiles entries[] = {
+      {"lfm3",
+       resources::kLfm3Implementation,
+       resources::kLfm3Preparation,
+       resources::kLfm3Execution,
+       resources::kWeights,
+       "loomify-lfm3",
+       {"generated.lfm3_epoch"},
+       {},
+       internal::EmitLfm3,
+       PublicationLayout::kTextAndTurn,
+       262144},
       {"qwen2",
        resources::kQwen2Implementation,
        resources::kQwen2Preparation,

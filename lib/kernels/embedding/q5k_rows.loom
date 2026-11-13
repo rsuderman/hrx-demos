@@ -1,0 +1,33 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Canonical F32 Q5_K gather. Decode through the existing owned K-block codec;
+// do not apply the Q6 embedding's separately qualified F16 rounding policy.
+template.decl @ggml.q5k.chunk(%weight: buffer, %row_byte_base: offset, %block: index, %group: index, %half: index) -> (vector<16xi8>, f32, f32)
+template.decl @llm.token_embedding_q5k_f32.row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+template.def<@llm.token_embedding_q5k_f32.row> device @llm_token_embedding_q5k_f32_row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %two = index.constant 2 : index
+  %sixteen = index.constant 16 : index
+  %threads = index.constant 256 : index
+  %chunks = index.div %hidden_size, %sixteen : index
+  %row_stride = index.cast %row_bytes : index to offset
+  %id = index.cast %token : i32 to index
+  %weight_origin = index.scale %id, %row_stride : index, offset -> offset
+  %weight_noalias, %output_noalias = buffer.assume.noalias %weight, %output : buffer, buffer
+  %out = buffer.view %output_noalias[%output_origin] : buffer -> view<[%hidden_size]xf32>
+  scf.for %chunk = [%thread to %chunks step %threads] {
+    %block = index.div %chunk, %sixteen : index
+    %in_block = index.rem %chunk, %sixteen : index
+    %group = index.div %in_block, %two : index
+    %half = index.rem %in_block, %two : index
+    %codes, %scale, %minimum = template.apply<@ggml.q5k.chunk>(%weight_noalias, %weight_origin, %block, %group, %half) : (buffer, offset, index, index, index) -> (vector<16xi8>, f32, f32)
+    %values = vector.uitofp %codes : vector<16xi8> to vector<16xf32>
+    %scales = vector.splat %scale : vector<16xf32>
+    %minima = vector.splat %minimum : vector<16xf32>
+    %scaled = vector.mulf %values, %scales : vector<16xf32>
+    %decoded = vector.subf %scaled, %minima : vector<16xf32>
+    %column = index.mul %chunk, %sixteen : index
+    vector.store %decoded, %out[%column] : vector<16xf32>, view<[%hidden_size]xf32>
+  }
+  template.return
+}

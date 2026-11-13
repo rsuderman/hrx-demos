@@ -548,3 +548,29 @@ TEST(ArchitectureInventory, CheckedRangeEndsAndExactUint64Offsets) {
 }
 } // namespace
 } // namespace hrx::model_inspect
+
+namespace hrx::model_inspect {
+namespace {
+TEST(ArchitectureLayers, ShortConvolutionHasOwnKindAndCompactOrdinal) {
+  model::GgufCatalog catalog;
+  model::ModelDescriptor descriptor;
+  SummaryFixture(&catalog, &descriptor);
+  auto &layer = descriptor.layers[0];
+  layer.kind = model::LayerKind::kShortConvolution;
+  layer.attention_ordinal.reset();
+  layer.convolution_ordinal = 0;
+  descriptor.short_convolution = model::ShortConvolutionDescriptor{2048, 7, 6};
+  layer.tensors.push_back({"convolution_input", catalog.tensors[0]});
+  std::string report, error;
+  ASSERT_TRUE(FormatArchitecture(catalog, descriptor, &report, &error))
+      << error;
+  EXPECT_NE(report.find("1 short convolution"), std::string::npos);
+  EXPECT_NE(report.find("short_convolution"), std::string::npos);
+  EXPECT_EQ(RowValue(report, "Convolution ordinal"), "0 (logical)");
+  EXPECT_EQ(RowValue(report, "Convolution geometry"),
+            "2048 channels / 7 taps / 6 history rows");
+  EXPECT_EQ(report.find("gated_delta_net"), std::string::npos);
+  EXPECT_NE(report.find("Short convolution"), std::string::npos);
+}
+} // namespace
+} // namespace hrx::model_inspect

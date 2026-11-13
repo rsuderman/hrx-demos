@@ -3,7 +3,14 @@
 // Existing shared NEOX value helper; family wrappers supply actual rotary facts.
 template.decl @llm.attention.rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane0: index, %head_data: buffer) -> (f32)
 
-template.def<@llm.attention.rope_neox_value> device @llm_attention_rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane0: index, %head_data: buffer) -> (f32) {
+template.decl @llm.attention.rope_neox_factor_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane: index, %factor: f32, %head_data: buffer) -> (f32)
+template.def<@llm.attention.rope_neox_value> device @llm_attention_rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane: index, %head_data: buffer) -> (f32) {
+  %unit_factor = scalar.constant 1.0 : f32
+  %value = template.apply<@llm.attention.rope_neox_factor_value>(%head_size, %rope_half, %rope_size, %log_frequency_step, %position, %lane, %unit_factor, %head_data) : (index, index, index, f32, i32, index, f32, buffer) -> (f32)
+  template.return %value : f32
+}
+
+template.def<@llm.attention.rope_neox_factor_value> device @llm_attention_rope_neox_factor_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane0: index, %factor: f32, %head_data: buffer) -> (f32) {
   %lane = index.assume %lane0 [range(%lane0, 0, 255), lt(%lane0, %head_size)] : index
   %c0_offset = index.constant 0 : offset
   %head_view = buffer.view %head_data[%c0_offset] : buffer -> view<[%head_size]xf32>
@@ -27,7 +34,8 @@ template.def<@llm.attention.rope_neox_value> device @llm_attention_rope_neox_val
     %position_f32 = scalar.sitofp %position : i32 to f32
     %log_frequency = scalar.mulf %pair_f32, %log_frequency_step : f32
     %frequency = scalar.expf<afn> %log_frequency : f32
-    %angle = scalar.mulf %position_f32, %frequency : f32
+    %unscaled_angle = scalar.mulf %position_f32, %frequency : f32
+    %angle = scalar.divf %unscaled_angle, %factor : f32
     %sine = scalar.sinf<afn> %angle : f32
     %cosine = scalar.cosf<afn> %angle : f32
     %own_cosine = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %value, %cosine : f32

@@ -1,0 +1,162 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Sparse structured inputs give exact integer expectations independent of the
+// implementation's multiply/reduction loop. Guarded owners retain all inputs.
+template.decl @llm.projection.f32_rows(%rows: index, %width: index, %columns: index, %count: buffer, %input: buffer, %weight: view<[%columns]x[%width]xf32>, %output: buffer)
+func.def @f32.init(%rows: index, %width: index, %columns: index, %active: i32, %input: buffer, %weight: buffer, %count: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %origin = index.constant 0 : offset
+  %last = index.sub %width, %one : index
+  %x = buffer.view %input[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  %w = buffer.view %weight[%origin] : buffer -> view<[%columns]x[%width]xf32>
+  %n = buffer.view %count[%origin] : buffer -> view<3xi32>
+  view.store %active, %n[0] : i32, view<3xi32>
+  %zero_f = scalar.constant 0.0 : f32
+  %one_f = scalar.constant 1.0 : f32
+  scf.for %r = [%zero to %rows step %one] {
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %a = scalar.addf %rf, %one_f : f32
+    %plus = scalar.addf %a, %one_f : f32
+    %b = scalar.subf %zero_f, %plus : f32
+    scf.for %k = [%zero to %width step %one] {
+      %first = index.cmp eq, %k, %zero : index
+      %end = index.cmp eq, %k, %last : index
+      %tail = scf.select %end, %b, %zero_f : f32
+      %value = scf.select %first, %a, %tail : f32
+      view.store %value, %x[%r, %k] : f32, view<[%rows]x[%width]xf32>
+    }
+  }
+  scf.for %c = [%zero to %columns step %one] {
+    %ci = index.cast %c : index to i32
+    %cf = scalar.uitofp %ci : i32 to f32
+    %a = scalar.addf %cf, %one_f : f32
+    %mod = index.rem %c, %three : index
+    %mi = index.cast %mod : index to i32
+    %mf = scalar.uitofp %mi : i32 to f32
+    %b = scalar.subf %mf, %one_f : f32
+    scf.for %k = [%zero to %width step %one] {
+      %first = index.cmp eq, %k, %zero : index
+      %end = index.cmp eq, %k, %last : index
+      %tail = scf.select %end, %b, %zero_f : f32
+      %value = scf.select %first, %a, %tail : f32
+      view.store %value, %w[%c, %k] : f32, view<[%columns]x[%width]xf32>
+    }
+  }
+  func.return
+}
+func.def @f32.expected(%rows: index, %columns: index, %active: index, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %one_f = scalar.constant 1.0 : f32
+  %y = buffer.view %output[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  scf.for %r = [%zero to %rows step %one] {
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %ra = scalar.addf %rf, %one_f : f32
+    %rb = scalar.addf %ra, %one_f : f32
+    %live = index.cmp ult, %r, %active : index
+    scf.for %c = [%zero to %columns step %one] {
+      %ci = index.cast %c : index to i32
+      %cf = scalar.uitofp %ci : i32 to f32
+      %ca = scalar.addf %cf, %one_f : f32
+      %mod = index.rem %c, %three : index
+      %mi = index.cast %mod : index to i32
+      %mf = scalar.uitofp %mi : i32 to f32
+      %cb = scalar.subf %mf, %one_f : f32
+      %a = scalar.mulf %ra, %ca : f32
+      %b = scalar.mulf %rb, %cb : f32
+      %sum = scalar.subf %a, %b : f32
+      %value = scf.select %live, %sum, %zero_f : f32
+      view.store %value, %y[%r, %c] : f32, view<[%rows]x[%columns]xf32>
+    }
+  }
+  func.return
+}
+func.def @f32.init_small(%input: buffer, %weight: buffer, %count: buffer) {
+  %rows = index.constant 3 : index
+  %width = index.constant 7 : index
+  %columns = index.constant 5 : index
+  %active = scalar.constant 1 : i32
+  func.call @f32.init(%rows, %width, %columns, %active, %input, %weight, %count) : (index, index, index, i32, buffer, buffer, buffer) -> ()
+  func.return
+}
+command.def @f32.actual_small() launch(%input: buffer, %weight: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %width = index.constant 7 : index
+  %columns = index.constant 5 : index
+  %origin = index.constant 0 : offset
+  %w = buffer.view %weight[%origin] : buffer -> view<[%columns]x[%width]xf32>
+  template.apply<@llm.projection.f32_rows>(%rows, %width, %columns, %count, %input, %w, %output) : (index, index, index, buffer, buffer, view<[%columns]x[%width]xf32>, buffer)
+  command.return
+}
+func.def @f32.expected_small(%input: buffer, %weight: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %columns = index.constant 5 : index
+  %active = index.constant 1 : index
+  func.call @f32.expected(%rows, %columns, %active, %output) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @f32_rows_small {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<21xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<35xf32>
+    %count = check.generate.fill value(-123) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<23xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<23xf32> -> tensor<15xf32>
+    check.generate<@f32.init_small>(%input, %weight, %count) : (tensor<21xf32>, tensor<35xf32>, tensor<3xi32>) -> ()
+    check.compare<@f32.actual_small, @f32.expected_small>(%input, %weight, %count, %output) : (tensor<21xf32>, tensor<35xf32>, tensor<3xi32>, tensor<15xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<23xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<21xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<35xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+func.def @f32.init_model(%input: buffer, %weight: buffer, %count: buffer) {
+  %rows = index.constant 4 : index
+  %width = index.constant 2048 : index
+  %columns = index.constant 16 : index
+  %active = scalar.constant 2 : i32
+  func.call @f32.init(%rows, %width, %columns, %active, %input, %weight, %count) : (index, index, index, i32, buffer, buffer, buffer) -> ()
+  func.return
+}
+command.def @f32.actual_model() launch(%input: buffer, %weight: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 4 : index
+  %width = index.constant 2048 : index
+  %columns = index.constant 16 : index
+  %origin = index.constant 0 : offset
+  %w = buffer.view %weight[%origin] : buffer -> view<[%columns]x[%width]xf32>
+  template.apply<@llm.projection.f32_rows>(%rows, %width, %columns, %count, %input, %w, %output) : (index, index, index, buffer, buffer, view<[%columns]x[%width]xf32>, buffer)
+  command.return
+}
+func.def @f32.expected_model(%input: buffer, %weight: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 4 : index
+  %columns = index.constant 16 : index
+  %active = index.constant 2 : index
+  func.call @f32.expected(%rows, %columns, %active, %output) : (index, index, index, buffer) -> ()
+  func.return
+}
+check.scenario @f32_rows_model {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<8192xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<32768xf32>
+    %count = check.generate.fill value(-123) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<72xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<72xf32> -> tensor<64xf32>
+    check.generate<@f32.init_model>(%input, %weight, %count) : (tensor<8192xf32>, tensor<32768xf32>, tensor<3xi32>) -> ()
+    check.compare<@f32.actual_model, @f32.expected_model>(%input, %weight, %count, %output) : (tensor<8192xf32>, tensor<32768xf32>, tensor<3xi32>, tensor<64xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<72xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8192xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<32768xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}

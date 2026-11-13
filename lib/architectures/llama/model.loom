@@ -16,7 +16,7 @@ config.decl @llama.model.embedding_storage_type : index
 config.decl @llama.model.tie_word_embeddings : index
 command.decl @loomify.llama.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
 
 template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
 
@@ -69,6 +69,8 @@ command.def @loomify.llama.model() launch(%parameters: buffer, %residual: buffer
   %rounded = index.add %vocab, %tile_minus_one : index
   %parts = index.div %rounded, %tile : index
   %partial_bytes = index.scale %parts, %word : index, offset -> offset
-  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %q8_bytes, %logit_bytes, %partial_bytes, %residual, %count, %gamma, %weight, %normalized, %selected_ids) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer, buffer)
+  %head_policy = index.constant 0 : index
+  %head_tag = index.constant 14 : index
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %q8_bytes, %logit_bytes, %partial_bytes, %residual, %count, %gamma, %weight, %normalized, %selected_ids) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer, buffer)
   command.return
 }

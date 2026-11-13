@@ -92,7 +92,8 @@ struct Producer {
   void OrdinaryPreparation(uint64_t hidden, uint64_t layers, uint64_t kv,
                            uint64_t history, uint64_t tokens, uint64_t context,
                            uint64_t pool, uint64_t cache_base,
-                           uint64_t map_origin) {
+                           uint64_t map_origin,
+                           uint64_t trailing_state_bytes = 0) {
     Index("loomify.serving.hidden_size", hidden);
     Index("loomify.serving.layer_count", layers);
     Index("loomify.serving.kv_size", kv);
@@ -102,6 +103,7 @@ struct Producer {
     Index("loomify.serving.pool_capacity", pool);
     Index("loomify.serving.cache_base", cache_base, "offset");
     Index("loomify.serving.map_origin", map_origin, "offset");
+    Index("loomify.serving.trailing_state_bytes", trailing_state_bytes);
   }
   void Real(const std::string &name, float value) {
     text << "config.def @" << name << " = " << std::scientific

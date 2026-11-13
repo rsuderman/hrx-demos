@@ -1,0 +1,28 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared fixed-epoch publication; caller supplies source-derived stops.
+func.decl @llm.publication.map_two_stops(%token: i32, %first_stop: i32, %second_stop: i32, %terminal: i32) -> (i32)
+template.decl @llm.publication.epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
+template.def<@llm.publication.epoch_two_stops> device @llm_publication_epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer) {
+  %origin = index.constant 0 : offset
+  %descriptor_origin = index.constant 12 : offset
+  %eos_origin = index.constant 2060 : offset
+  %header = buffer.view %epoch[%origin] : buffer -> view<3xi32>
+  %count = view.load %header[2] : view<3xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %selected = scalar.cmpi ne, %count, %zero32 : i32
+  scf.if %selected {
+    %descriptor = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+    %slot_word = view.load %descriptor[4] : view<5xi32> -> i32
+    %slot_value = index.cast %slot_word : i32 to index
+    %slot = index.assume %slot_value [range(%slot_value, 0, 15)] : index
+    %private = buffer.view %selected_ids[%origin] : buffer -> view<4xi32>
+    %winner = view.load %private[0] : view<4xi32> -> i32
+    %terminal = buffer.view %epoch[%eos_origin] : buffer -> view<1xi32>
+    %eos = view.load %terminal[0] : view<1xi32> -> i32
+    %token = func.call @llm.publication.map_two_stops(%winner, %first, %second, %eos) : (i32, i32, i32, i32) -> (i32)
+    %output = buffer.view %output_ids[%origin] : buffer -> view<16xi32>
+    view.store %token, %output[%slot] : i32, view<16xi32>
+  }
+  template.return
+}

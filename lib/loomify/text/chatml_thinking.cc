@@ -139,7 +139,41 @@ bool ConfigurePlain(std::string_view expected, std::string_view actual,
     Datum(candidate, name, "");
   return true;
 }
+bool ConfigureCompact(std::string_view expected, std::string_view actual,
+                      ChatPolicySelection *candidate) {
+  std::vector<Slot> slots;
+  Captures values;
+  if (!AddSlot(expected, "tools_prefix", "+ \"<tools>\\n\"", 2, &slots) ||
+      !AddSlot(expected, "tools_suffix", "+ \"\\n</tools>\"", 2, &slots) ||
+      !Capture(expected, actual, std::move(slots), &values))
+    return false;
+  auto &prefix = values.at("tools_prefix");
+  if (prefix.empty() || prefix.back() != '\n')
+    return false;
+  // Shared traversal owns the newline before every schema, including the first.
+  prefix.pop_back();
+  EmitData(values, values.at("tools_suffix"), candidate);
+  return true;
+}
 const Revision kRevisions[] = {
+    {"f45005c5.jinja",
+     ChatRevision::ChatmlCompactReasoning,
+     "f45005c50cd2a97329722bf3a2dee9f16c04cdf825a589b280fb7e99e6827818",
+     {"gpt2", "lfm2", true, "", "<|im_end|>"},
+     resources::kChatmlCompactReasoning,
+     {{"<|im_start|>", true},
+      {"<|im_end|>", true},
+      {"<think>"},
+      {"</think>"},
+      {"<tool_call>"},
+      {"</tool_call>"},
+      {"<tool_response>"},
+      {"</tool_response>"},
+      {"<function="},
+      {"</function>"},
+      {"<parameter="},
+      {"</parameter>"}},
+     ConfigureCompact},
     {"58c1a1f0.jinja",
      ChatRevision::ChatmlPlain,
      "58c1a1f04baa7adaeaba1f90267c3d57d9396f0c1f0129bdde9e76d3c6784af7",

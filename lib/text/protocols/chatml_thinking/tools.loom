@@ -25,6 +25,8 @@ func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f:
 func.decl @chatml.mapping_check(%condition: i1)
 func.decl @chatml.admit_mapping(%json: buffer)
 func.decl @chatml.inline_reasoning() -> (i1)
+func.decl @chatml.python_tool_literals() -> (i1)
+func.decl @chatml.tool_call_gap() -> (buffer)
 func.decl @text.json_dump(%json: buffer) -> (buffer)
 func.def @tool_identifier(%text: buffer, %begin: i64, %length: i64) {
   %zero64 = scalar.constant 0 : i64
@@ -94,7 +96,7 @@ func.def public @render_tool(%name: buffer,%arguments: buffer,%ordinal: i64) -> 
   %extent = index.cast %bounded : i64 to index
   %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
   %empty = global.load @chatml_tools.empty : buffer
-  %newline = global.load @chatml_tools.newline : buffer
+  %newline = func.call @chatml.tool_call_gap() : () -> (buffer)
   %prior = scalar.cmpi ne,%ordinal,%zero64 : i64
   %before = scf.select %prior,%newline,%empty : buffer
   %prefix = global.load @tool_open : buffer
@@ -116,7 +118,7 @@ func.def public @render_tool(%name: buffer,%arguments: buffer,%ordinal: i64) -> 
       scf.yield %decoded : buffer
     } else {
       %raw = func.call @text.range(%arguments,%vb,%vl) : (buffer,i64,i64) -> (buffer)
-      %old_revision = func.call @chatml.inline_reasoning() : () -> (i1)
+      %old_revision = func.call @chatml.python_tool_literals() : () -> (i1)
       %four64 = scalar.constant 4 : i64
       %five64 = scalar.constant 5 : i64
       %six64 = scalar.constant 6 : i64

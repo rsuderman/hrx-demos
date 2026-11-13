@@ -7,6 +7,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "interface.loom",
     "projection.loom",
+    "rows.loom",
     "matrix.loom",
 ])
 
@@ -14,13 +15,17 @@ filegroup(
     name = "implementation_sources",
     srcs = [
         "projection.loom",
-        "//lib/kernels/projection:block32_sources",
+        "rows.loom",
+        "//lib/kernels/epoch:active_rows.loom",
         "//lib/kernels/projection:block32_launch.loom",
-        "//lib/kernels/projection:q5_0.loom",
+        "//lib/kernels/projection:block32_sources",
+        "//lib/kernels/projection:f32_rows.loom",
         "//lib/kernels/projection:q4k.loom",
         "//lib/kernels/projection:q4k_canonical.loom",
         "//lib/kernels/projection:q4k_compat.loom",
+        "//lib/kernels/projection:q5_0.loom",
         "//lib/kernels/projection:q5k.loom",
+        "//lib/kernels/projection:q5k_codec.loom",
         "//lib/kernels/projection:q6k.loom",
         "//lib/kernels/projection:q6k_canonical.loom",
         "//lib/kernels/projection:q6k_compat.loom",
@@ -30,7 +35,6 @@ filegroup(
         "//lib/kernels/quantization:q8_1_x4.loom",
         "//lib/kernels/quantization:q8_1_x4_canonical.loom",
         "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom",
-        "//lib/kernels/epoch:active_rows.loom",
     ],
 )
 
@@ -44,8 +48,8 @@ filegroup(
     srcs = [
         "matrix.loom",
         ":implementation_sources",
-        "//lib/kernels/projection:scaled_f16.loom",
-        "//lib/kernels/projection:f16_staging.loom",
         "//lib/kernels/elementwise:swiglu_row.loom",
+        "//lib/kernels/projection:f16_staging.loom",
+        "//lib/kernels/projection:scaled_f16.loom",
     ],
 )

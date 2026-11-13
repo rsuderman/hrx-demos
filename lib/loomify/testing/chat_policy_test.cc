@@ -651,5 +651,42 @@ TEST(ChatPolicy, PlainChatmlOwnsNoSyntheticProseOrThinkingMarkers) {
     EXPECT_EQ(policy.configuration_source, previous);
   }
 }
+TEST(ChatPolicy,
+     CompactChatmlUsesSourceBosAndSeparateOrdinaryReasoningMarkers) {
+  const auto source =
+      Source("lib/text/compact_chatml/templates/f45005c5.jinja");
+  model::TextMetadata metadata;
+  metadata.templates = {Candidate(source)};
+  ChatPolicySelection policy;
+  std::string error;
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_EQ(policy.revision, ChatRevision::ChatmlCompactReasoning);
+  EXPECT_EQ(policy.tokens.tokenizer_model, "gpt2");
+  EXPECT_EQ(policy.tokens.pre_tokenizer, "lfm2");
+  EXPECT_TRUE(policy.tokens.require_bos);
+  EXPECT_TRUE(policy.tokens.bos_piece.empty());
+  EXPECT_EQ(policy.tokens.terminal_piece, "<|im_end|>");
+  EXPECT_EQ(policy.skeleton_sha256,
+            "f45005c50cd2a97329722bf3a2dee9f16c04cdf825a589b280fb7e99e6827818");
+  EXPECT_NE(policy.text_product.find("chatml_thinking/compact_reasoning"),
+            std::string::npos);
+  for (const auto &marker : policy.markers)
+    if (marker.text == "<think>" || marker.text == "</think>")
+      EXPECT_FALSE(marker.require_single_token);
+  EXPECT_NE(policy.configuration_source.find(Hex("<tools>")),
+            std::string::npos);
+  const auto prior = policy.configuration_source;
+  const auto prior_source = policy.source_text;
+  for (const auto &mutated :
+       {Replace(source, "default(true)", "default(false)"),
+        Replace(source, "<|im_end|>", "<|endoftext|>"),
+        Replace(source, "loop.index0 > ns.last_user_index",
+                "loop.index0 >= ns.last_user_index")}) {
+    metadata.templates = {Candidate(mutated)};
+    EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+    EXPECT_EQ(policy.source_text, prior_source);
+    EXPECT_EQ(policy.configuration_source, prior);
+  }
+}
 } // namespace
 } // namespace hrx::loomify_gguf

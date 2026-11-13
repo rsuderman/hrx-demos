@@ -10,10 +10,10 @@ loom_test(
         "q4k_checks.loom",
         "//lib/kernels/embedding:q4k_rows.loom",
         "//lib/kernels/embedding:q6k_rows.loom",
-        "//lib/kernels/qwen:output/embedding.loom",
         "//lib/kernels/projection:q4k.loom",
         "//lib/kernels/projection:qk_common.loom",
         "//lib/kernels/quantization:q8_1_x4.loom",
+        "//lib/kernels/qwen:output/embedding.loom",
     ],
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
@@ -22,8 +22,8 @@ loom_test(
 loom_test(
     name = "f32_execution_test",
     srcs = [
-        "f32_programs.loom",
         "f32_checks.loom",
+        "f32_programs.loom",
         "//lib/kernels/embedding:f32.loom",
     ],
     benchmark_smoke = False,
@@ -48,6 +48,33 @@ loom_test(
     srcs = [
         "q8_0_checks.loom",
         ":q8_0_provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_merge(
+    name = "q5k_provider_" + format,
+    testonly = True,
+    srcs = [
+        "//lib/kernels/decoder:implementation_sources",
+        "//lib/kernels/embedding:epoch_f32_sources",
+        "//lib/kernels/embedding:ordinary_q5.loom",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "q5k_rows_" + format + "_test",
+    srcs = [
+        "q5k_checks.loom",
+        ":q5k_provider_" + format,
     ],
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],

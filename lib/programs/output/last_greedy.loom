@@ -2,13 +2,13 @@ template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %r
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 // SPDX-License-Identifier: MIT
 // Curated fused last-active output from llama_3b/output_head.loom and
-// common/output_head.loom. Only the existing generic QkCompat route is admitted;
+// common/output_head.loom. Encoding and packing policy are explicit operation facts;
 // grouped/tuned routes are not implied by matching tensor dimensions.
 template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
 kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%rows: index, %vocab: index) launch(%rows: index, %vocab: index, %logits: buffer, %partial_logits: buffer, %partial_ids: buffer)
 kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%rows: index, %vocab: index) launch(%rows: index, %vocab: index, %partial_logits: buffer, %partial_ids: buffer, %output: buffer)
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
-template.def<@llm.output.last_greedy> @llm_output_last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer) {
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.def<@llm.output.last_greedy> @llm_output_last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer) {
   %one = index.constant 1 : index
   %zero = index.constant 0 : index
   %origin0 = index.constant 0 : offset
@@ -18,9 +18,8 @@ template.def<@llm.output.last_greedy> @llm_output_last_greedy(%capacity: index, 
   %partial_logits = buffer.alloca<global> align(256) %partial_bytes : buffer
   %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
   template.apply<@llm.output.norm_last>(%capacity, %begin, %origin, %hidden, %control, %input, %gamma, %normalized) : (index, index, offset, index, buffer, buffer, view<[%hidden]xf32>, buffer)
-  template.apply<@llm.projection.pack_input>(%zero, %one, %one, %hidden, %zero, %one32, %origin0, %normalized, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  %q6 = index.constant 14 : index
-  template.apply<@llm.projection.project_packed>(%zero, %q6, %one, %one, %hidden, %vocab, %weight_bytes, %zero, %one32, %origin0, %packed, %packed, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %one, %one, %hidden, %zero, %one32, %origin0, %normalized, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %weight_tag, %one, %one, %hidden, %vocab, %weight_bytes, %zero, %one32, %origin0, %packed, %packed, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%one, %vocab](%one, %vocab, %logits, %partial_logits, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
   kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%one, %vocab](%one, %vocab, %partial_logits, %partial_ids, %token) : [index, index](index, index, buffer, buffer, buffer)
   template.return

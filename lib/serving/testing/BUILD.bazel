@@ -9,6 +9,7 @@ iree_cc_library(
     cxxopts = ["-std=c++17"],
     visibility = [
         "//lib/architectures/llama:__pkg__",
+        "//lib/architectures/lfm3:__pkg__",
         "//lib/architectures/gemma3:__pkg__",
         "//lib/architectures/qwen3:__pkg__",
         "//lib/architectures/qwen2:__pkg__",

@@ -1,0 +1,916 @@
+[
+  {
+    "id": "one-user",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "thinking-on",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": true
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "thinking-off",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": false
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "no-generation",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "missing-generation",
+    "omit_generation_prompt": true,
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "empty-system",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "explicit-system",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Be concise."
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "later-system",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "system",
+          "content": "Again"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "whitespace-unicode",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "  café 🙂\n\t  "
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-reasoning",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "reasoning_content": " thought\n "
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-thinking-alias",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "thinking": " exact thought\n "
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-reasoning-alias",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "reasoning": "why"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "reasoning-precedence",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "thinking": "first",
+          "reasoning": "second",
+          "reasoning_content": "third"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-empty-reasoning",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "reasoning_content": ""
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-implicit-empty",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-inline",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>inline</think>Answer"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "old-inline-reasoning",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>old</think>  Answer\n "
+        },
+        {
+          "role": "user",
+          "content": "Again"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "old-explicit-reasoning",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "reasoning_content": "old"
+        },
+        {
+          "role": "user",
+          "content": "Again"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "preserve-thinking",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "thinking": "kept"
+        },
+        {
+          "role": "user",
+          "content": "Again"
+        }
+      ],
+      "model_options": {
+        "preserve_thinking": true
+      }
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "tools-wrapped-schema",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "café <>&",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "tools-inner-schema",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "name": "f",
+          "parameters": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "tools-empty-system",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "parameters": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "tools-with-system",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Policy"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "parameters": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "multiple-tools",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "parameters": {}
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "g",
+            "parameters": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "xml-call-values",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Before",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"s\":\"café <>&\\n\",\"n\":7,\"yes\":true,\"no\":false,\"nil\":null,\"list\":[1,\"x\"],\"map\":{\"a\":1}}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ],
+    "native_arguments": true
+  },
+  {
+    "id": "xml-multiple-calls",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Before",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{}"
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "g",
+                "arguments": "{\"n\":2}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ],
+    "native_arguments": true
+  },
+  {
+    "id": "tool-responses",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "tool",
+          "content": "one",
+          "tool_call_id": "1"
+        },
+        {
+          "role": "tool",
+          "content": "two",
+          "tool_call_id": "2"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "wrapped-tool-response",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "tool",
+          "content": "<tool_response>\nwrapped\n</tool_response>"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "text-parts",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Hello"
+            },
+            {
+              "type": "text",
+              "text": " café"
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "deferred-wrapper",
+    "native_admission_error": "unsupported chat",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "defer_loading": true,
+          "function": {
+            "name": "f",
+            "parameters": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "deferred-function",
+    "native_admission_error": "unsupported chat",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "defer_loading": true,
+            "parameters": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "additional-tools",
+    "native_admission_error": "unsupported chat",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "tool",
+          "content": "",
+          "additional_tools": [
+            {
+              "name": "g",
+              "parameters": {}
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "tool-reference",
+    "native_admission_error": "unsupported chat",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool_reference",
+              "name": "f"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "parameters": {}
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "merge-tool-parts",
+    "native_admission_error": "unsupported chat",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "tool",
+          "content": "part1",
+          "tool_call_id": "a"
+        },
+        {
+          "role": "tool",
+          "content": "part2",
+          "tool_call_id": "a"
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "string-arguments-error",
+    "error": true,
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "f",
+                "arguments": "{\"n\":1}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "f45005c5"
+    ]
+  },
+  {
+    "id": "assistant-without-user",
+    "revisions": [
+      "f45005c5"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "thinking": "kept"
+        }
+      ]
+    }
+  },
+  {
+    "id": "system-assistant-without-user",
+    "revisions": [
+      "f45005c5"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Policy"
+        },
+        {
+          "role": "assistant",
+          "content": "Answer",
+          "thinking": "kept"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tool-text-parts",
+    "revisions": [
+      "f45005c5"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            },
+            {
+              "type": "text",
+              "text": "two"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "native-empty-arguments",
+    "native_arguments": true,
+    "revisions": [
+      "f45005c5"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{}"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "template-missing-arguments",
+    "native_admission_error": "arguments",
+    "revisions": [
+      "f45005c5"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "template-null-arguments",
+    "native_admission_error": "arguments",
+    "revisions": [
+      "f45005c5"
+    ],
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": null
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

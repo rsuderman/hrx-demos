@@ -144,6 +144,15 @@ public:
         model_opens
             ? "func.def @chatml.call_separator() -> (buffer) { %v = global.load @chatml_output.newline : buffer func.return %v : buffer }"
             : "func.def @chatml.call_separator() -> (buffer) { %v = global.load @chatml_output.separator : buffer func.return %v : buffer }");
+    replace(
+        "func.decl @chatml.completion_think_open() -> (buffer)",
+        "func.def @chatml.completion_think_open() -> (buffer) { %a = global.load @chatml_output.open_think : buffer %b = global.load @chatml_output.newline : buffer %e = global.load @chatml_output.empty : buffer %v = func.call @text.join8(%a,%b,%e,%e,%e,%e,%e,%e) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer) func.return %v : buffer }");
+    replace(
+        "func.decl @chatml.completion_think_close() -> (buffer)",
+        "func.def @chatml.completion_think_close() -> (buffer) { %v = global.load @chatml_output.thought_end : buffer func.return %v : buffer }");
+    replace(
+        "func.decl @chatml.strip_after_think_newlines() -> (i1)",
+        "func.def @chatml.strip_after_think_newlines() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }");
     // Parse the output provider and its real shared utilities separately.
     // Concatenating a declaration and definition into one source unit is
     // invalid; native MERGE resolves that interface without any fixture helper

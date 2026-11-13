@@ -29,14 +29,15 @@ filegroup(
 filegroup(
     name = "qwen_sources",
     srcs = [
-        ":block32_sources",
         "block32_launch.loom",
         "q4k.loom",
         "q4k_canonical.loom",
         "q5k.loom",
-        "q8_0.loom",
+        "q5k_codec.loom",
         "q6k.loom",
         "q6k_canonical.loom",
+        "q8_0.loom",
         "qk_common.loom",
+        ":block32_sources",
     ],
 )

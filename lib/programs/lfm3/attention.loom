@@ -1,0 +1,84 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+config.decl @lfm3.model.hidden_size : index
+config.decl @lfm3.model.query_size : index
+config.decl @lfm3.model.kv_size : index
+config.decl @lfm3.model.query_heads : index
+config.decl @lfm3.model.kv_heads : index
+config.decl @lfm3.model.attention_layer_count : index
+config.decl @lfm3.model.rms_epsilon : f32
+config.decl @lfm3.model.rope_log_step : f32
+config.decl @lfm3.model.rope_log_step_swa : f32
+config.decl @lfm3.model.attention_scale : f32
+config.decl @lfm3.attention.cache_capacity : index
+config.decl @lfm3.attention.pool_capacity : index
+config.decl @lfm3.attention.cache_base : offset
+config.decl @lfm3.attention.map_origin : offset
+func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
+template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
+kernel.decl @llm.attention.prepare_qk_factored_h128(%rows: index, %heads: index) launch(%capacity: index, %epsilon: f32, %rope_step: f32, %use_factors: i1, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %factors: buffer, %output: buffer)
+kernel.decl @llm.decoder.publish_kv_h128(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
+kernel.decl @llm.attention.gated_window_rows_h128(%rows: index, %heads: index, %key_heads: index) launch(%key_heads: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer)
+command.def @loomify.lfm3.attention(%layer: index, %ordinal: index, %window: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %output: buffer) where [range(%rows, 1, 512)] {
+  %hidden = config.get @lfm3.model.hidden_size : index
+  %qwidth = config.get @lfm3.model.query_size : index
+  %kv = config.get @lfm3.model.kv_size : index
+  %qh = config.get @lfm3.model.query_heads : index
+  %kh = config.get @lfm3.model.kv_heads : index
+  %layers = config.get @lfm3.model.attention_layer_count : index
+  %capacity = config.get @lfm3.attention.cache_capacity : index
+  %pool = config.get @lfm3.attention.pool_capacity : index
+  %cache_base = config.get @lfm3.attention.cache_base : offset
+  %map_origin = config.get @lfm3.attention.map_origin : offset
+  %rms_epsilon = config.get @lfm3.model.rms_epsilon : f32
+  %rope_log_step = config.get @lfm3.model.rope_log_step : f32
+  %rope_log_step_swa = config.get @lfm3.model.rope_log_step_swa : f32
+  %attention_scale = config.get @lfm3.model.attention_scale : f32
+  %zero = index.constant 0 : index
+  %word = index.constant 4 : offset
+  %head = index.constant 128 : index
+  %global = index.cmp eq, %window, %zero : index
+  %rope_step = scf.select %global, %rope_log_step, %rope_log_step_swa : f32
+  %qt, %kt, %vt, %ot, %qb, %kb, %vb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index, index, index, index, index)
+  %qw = command.parameter %parameters, "blk.{}.attn_q.weight"[%layer] : view<[%qb]xi8>
+  %kw = command.parameter %parameters, "blk.{}.attn_k.weight"[%layer] : view<[%kb]xi8>
+  %vw = command.parameter %parameters, "blk.{}.attn_v.weight"[%layer] : view<[%vb]xi8>
+  %ow = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%ob]xi8>
+  %qnorm = command.parameter %parameters, "blk.{}.attn_q_norm.weight"[%layer] : view<[%head]xf32>
+  %knorm = command.parameter %parameters, "blk.{}.attn_k_norm.weight"[%layer] : view<[%head]xf32>
+  %factors = command.parameter %parameters, "rope_freqs.weight" : view<64xf32>
+  %gate_weight_elements = index.mul %hidden, %qh : index
+  %gate_weight = command.parameter %parameters, "blk.{}.attn_gate.weight"[%layer] : view<[%qh]x[%hidden]xf32>
+  %q_elements = index.mul %rows, %qwidth : index
+  %q_bytes = index.scale %q_elements, %word : index, offset -> offset
+  %q = buffer.alloca<global> align(256) %q_bytes : buffer
+  %k_elements = index.mul %rows, %kv : index
+  %k_bytes = index.scale %k_elements, %word : index, offset -> offset
+  %k = buffer.alloca<global> align(256) %k_bytes : buffer
+  %v_elements = index.mul %rows, %kv : index
+  %v_bytes = index.scale %v_elements, %word : index, offset -> offset
+  %v = buffer.alloca<global> align(256) %v_bytes : buffer
+  %query_elements = index.mul %rows, %qwidth : index
+  %query_bytes = index.scale %query_elements, %word : index, offset -> offset
+  %query = buffer.alloca<global> align(256) %query_bytes : buffer
+  %key_elements = index.mul %rows, %kv : index
+  %key_bytes = index.scale %key_elements, %word : index, offset -> offset
+  %key = buffer.alloca<global> align(256) %key_bytes : buffer
+  %attended_elements = index.mul %rows, %qwidth : index
+  %attended_bytes = index.scale %attended_elements, %word : index, offset -> offset
+  %attended = buffer.alloca<global> align(256) %attended_bytes : buffer
+  %gate_elements = index.mul %rows, %qh : index
+  %gate_bytes = index.scale %gate_elements, %word : index, offset -> offset
+  %gate = buffer.alloca<global> align(256) %gate_bytes : buffer
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %qwidth, %qt, %qb, %count, %normalized, %qw, %q) : (index, index, index, index, index, buffer, buffer, view<[%qb]xi8>, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %kv, %kt, %kb, %count, %normalized, %kw, %k) : (index, index, index, index, index, buffer, buffer, view<[%kb]xi8>, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %kv, %vt, %vb, %count, %normalized, %vw, %v) : (index, index, index, index, index, buffer, buffer, view<[%vb]xi8>, buffer)
+  template.apply<@llm.projection.f32_rows>(%rows, %hidden, %qh, %count, %normalized, %gate_weight, %gate) : (index, index, index, buffer, buffer, view<[%qh]x[%hidden]xf32>, buffer)
+  kernel.launch @llm.attention.prepare_qk_factored_h128[%rows, %qh](%capacity, %rms_epsilon, %rope_step, %global, %control_origin, %epoch, %q, %qnorm, %factors, %query) : [index, index](index, f32, f32, i1, offset, buffer, buffer, view<[%head]xf32>, view<64xf32>, buffer)
+  kernel.launch @llm.attention.prepare_qk_factored_h128[%rows, %kh](%capacity, %rms_epsilon, %rope_step, %global, %control_origin, %epoch, %k, %knorm, %factors, %key) : [index, index](index, f32, f32, i1, offset, buffer, buffer, view<[%head]xf32>, view<64xf32>, buffer)
+  kernel.launch @llm.decoder.publish_kv_h128[%rows, %kh](%ordinal, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @llm.attention.gated_window_rows_h128[%rows, %qh, %kh](%kh, %ordinal, %layers, %capacity, %pool, %attention_scale, %window, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %gate, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %qwidth, %hidden, %ot, %ob, %count, %attended, %ow, %output) : (index, index, index, index, index, buffer, buffer, view<[%ob]xi8>, buffer)
+  command.return
+}

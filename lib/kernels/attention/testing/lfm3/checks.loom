@@ -1,0 +1,302 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent scalar host RMS/rotation oracle. No device template calls.
+func.def @factored.qk.expected(%use_factors: i1, %step: f32, %epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %h = index.constant 128 : index
+  %half = index.constant 64 : index
+  %width = index.constant 256 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %divisor = scalar.constant 128.0 : f32
+  %epsilon = scalar.constant 0.00001 : f32
+  %input_view = buffer.view %input[%origin] : buffer -> view<3x256xf32>
+  %weights = buffer.view %gamma[%origin] : buffer -> view<128xf32>
+  %divisors = buffer.view %factors[%origin] : buffer -> view<64xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<3x256xf32>
+  %descriptor = buffer.view %epoch[%origin] : buffer -> view<5xi32>
+  %n32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %base32 = view.load %descriptor[1] : view<5xi32> -> i32
+  %n = index.cast %n32 : i32 to index
+  scf.for %row = [%zero to %three step %one] {
+    %live = index.cmp ult, %row, %n : index
+    scf.for %head = [%zero to %two step %one] {
+      %head_base = index.mul %head, %h : index
+      %sum = scf.if %live -> (f32) {
+        %total = scf.for %lane = [%zero to %h step %one](%acc = %zero_f : f32) -> (f32) {
+          %element = index.add %head_base, %lane : index
+          %x = view.load %input_view[%row, %element] : view<3x256xf32> -> f32
+          %square = scalar.mulf %x, %x : f32
+          %next = scalar.addf %acc, %square : f32
+          scf.yield %next : f32
+        }
+        scf.yield %total : f32
+      } else { scf.yield %zero_f : f32 }
+      %mean = scalar.divf %sum, %divisor : f32
+      %stable = scalar.addf %mean, %epsilon : f32
+      %inverse = scalar.rsqrtf %stable : f32
+      scf.for %lane = [%zero to %h step %one] {
+        %element = index.add %head_base, %lane : index
+        %result = scf.if %live -> (f32) {
+          %low = index.cmp ult, %lane, %half : index
+          %pair = index.rem %lane, %half : index
+          %partner_lane = scf.if %low -> (index) {
+            %next = index.add %lane, %half : index
+            scf.yield %next : index
+          } else { scf.yield %pair : index }
+          %partner = index.add %head_base, %partner_lane : index
+          %a = view.load %input_view[%row, %element] : view<3x256xf32> -> f32
+          %b = view.load %input_view[%row, %partner] : view<3x256xf32> -> f32
+          %ga = view.load %weights[%lane] : view<128xf32> -> f32
+          %gb = view.load %weights[%partner_lane] : view<128xf32> -> f32
+          %na = scalar.mulf %a, %inverse : f32
+          %nb = scalar.mulf %b, %inverse : f32
+          %x = scalar.mulf %na, %ga : f32
+          %y = scalar.mulf %nb, %gb : f32
+          %pair32 = index.cast %pair : index to i32
+          %pf = scalar.uitofp %pair32 : i32 to f32
+          %log = scalar.mulf %pf, %step : f32
+          %frequency = scalar.expf %log : f32
+          %row32 = index.cast %row : index to i32
+          %pos32 = scalar.addi %base32, %row32 : i32
+          %position = scalar.uitofp %pos32 : i32 to f32
+          %raw_angle = scalar.mulf %position, %frequency : f32
+          %factor = scf.if %use_factors -> (f32) {
+            %v = view.load %divisors[%pair] : view<64xf32> -> f32
+            scf.yield %v : f32
+          } else {
+            %unit = scalar.constant 1.0 : f32
+            scf.yield %unit : f32
+          }
+          %angle = scalar.divf %raw_angle, %factor : f32
+          %sine = scalar.sinf %angle : f32
+          %cosine = scalar.cosf %angle : f32
+          %own = scalar.mulf %x, %cosine : f32
+          %other = scalar.mulf %y, %sine : f32
+          %rotated = scf.if %low -> (f32) {
+            %v = scalar.subf %own, %other : f32
+            scf.yield %v : f32
+          } else {
+            %v = scalar.addf %own, %other : f32
+            scf.yield %v : f32
+          }
+          scf.yield %rotated : f32
+        } else { scf.yield %zero_f : f32 }
+        view.store %result, %out[%row, %element] : f32, view<3x256xf32>
+      }
+    }
+  }
+  func.return
+}
+command.decl @factored.qk.global() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer)
+func.def @factored.qk.expected.global(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
+  %flag = scalar.constant true : i1
+  %step = scalar.constant -0.21586735546588898 : f32
+  func.call @factored.qk.expected(%flag, %step, %epoch, %input, %gamma, %factors, %output) : (i1, f32, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @factored.qk.global_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(15) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.00390625) : tensor<3x256xf32>
+    %gamma = check.generate.iota offset(0.75) step(0.001953125) : tensor<128xf32>
+    %factors = check.generate.iota offset(1.0) step(0.125) : tensor<64xf32>
+    %storage = check.generate.fill value(123.5) : tensor<776xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<776xf32> -> tensor<3x256xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<776xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
+    check.compare<@factored.qk.global, @factored.qk.expected.global>(%epoch, %input, %gamma, %factors, %output) : (tensor<5xi32>, tensor<3x256xf32>, tensor<128xf32>, tensor<64xf32>, tensor<3x256xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.0001) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x256xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<128xf32>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+command.decl @factored.qk.local() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer)
+func.def @factored.qk.expected.local(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
+  %flag = scalar.constant false : i1
+  %step = scalar.constant -0.14391157031059265 : f32
+  func.call @factored.qk.expected(%flag, %step, %epoch, %input, %gamma, %factors, %output) : (i1, f32, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @factored.qk.local_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(15) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.00390625) : tensor<3x256xf32>
+    %gamma = check.generate.iota offset(0.75) step(0.001953125) : tensor<128xf32>
+    %factors = check.generate.iota offset(1.0) step(0.125) : tensor<64xf32>
+    %storage = check.generate.fill value(123.5) : tensor<776xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<776xf32> -> tensor<3x256xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<776xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
+    check.compare<@factored.qk.local, @factored.qk.expected.local>(%epoch, %input, %gamma, %factors, %output) : (tensor<5xi32>, tensor<3x256xf32>, tensor<128xf32>, tensor<64xf32>, tensor<3x256xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.0001) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3x256xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<128xf32>
+      check.expect.bitwise actual(%factors) expected(%factors) : tensor<64xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+// Independent uniform-attention oracle: the fixture's keys are zero, so every
+// included logical token has equal weight. No production softmax/map helpers.
+func.def @gated.expected(%window: index, %epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %key_origin = index.constant 16 : offset
+  %value_origin = index.constant 32784 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %width = index.constant 128 : index
+  %page = index.constant 64 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %zero64 = scalar.constant 0.0 : f64
+  %pstep = scalar.constant 0.125 : f32
+  %lstep = scalar.constant 0.00390625 : f32
+  %unit_f = scalar.constant 1.0 : f32
+  %keys = buffer.view %cache[%key_origin] : buffer -> view<128x128xf16>
+  %values = buffer.view %cache[%value_origin] : buffer -> view<128x128xf16>
+  %zero16 = scalar.fptrunc %zero_f : f32 to f16
+  scf.for %p = [%zero to %width step %one] {
+    scf.for %lane = [%zero to %width step %one] {
+      %p32 = index.cast %p : index to i32
+      %l32 = index.cast %lane : index to i32
+      %pf = scalar.uitofp %p32 : i32 to f32
+      %lf = scalar.uitofp %l32 : i32 to f32
+      %a = scalar.mulf %pf, %pstep : f32
+      %b = scalar.mulf %lf, %lstep : f32
+      %v = scalar.addf %a, %b : f32
+      %half = scalar.fptrunc %v : f32 to f16
+      view.store %zero16, %keys[%p, %lane] : f16, view<128x128xf16>
+      view.store %half, %values[%p, %lane] : f16, view<128x128xf16>
+    }
+  }
+  %out = buffer.view %output[%origin] : buffer -> view<3x2x128xf32>
+  %gates = buffer.view %gate[%origin] : buffer -> view<3x2xf32>
+  scf.for %row = [%zero to %three step %one] {
+    %active = index.cmp ult, %row, %two : index
+    %base = index.constant 63 : index
+    %position = index.add %base, %row : index
+    %end = index.add %position, %one : index
+    %windowed = index.cmp ne, %window, %zero : index
+    %low = index.sub %end, %window : index
+    %begin = scf.select %windowed, %low, %zero : index
+    %length = index.sub %end, %begin : index
+    %len32 = index.cast %length : index to i32
+    %divisor = scalar.uitofp %len32 : i32 to f64
+    scf.for %head = [%zero to %two step %one] {
+      scf.for %lane = [%zero to %width step %one] {
+        %result = scf.if %active -> (f32) {
+          %sum = scf.for %logical = [%begin to %end step %one](%acc = %zero64 : f64) -> (f64) {
+            // Input map is [1,0], hence a64-token rotation of physical slots.
+            %shifted = index.add %logical, %page : index
+            %physical = index.rem %shifted, %width : index
+            %half = view.load %values[%physical, %lane] : view<128x128xf16> -> f16
+            %v = scalar.extf %half : f16 to f64
+            %next = scalar.addf %acc, %v : f64
+            scf.yield %next : f64
+          }
+          %mean64 = scalar.divf %sum, %divisor : f64
+          %mean = scalar.fptrunc %mean64 : f64 to f32
+          %logit = view.load %gates[%row, %head] : view<3x2xf32> -> f32
+          %negative = scalar.negf %logit : f32
+          %ex = scalar.expf %negative : f32
+          %denom = scalar.addf %unit_f, %ex : f32
+          %sigmoid = scalar.divf %unit_f, %denom : f32
+          %value = scalar.mulf %mean, %sigmoid : f32
+          scf.yield %value : f32
+        } else { scf.yield %zero_f : f32 }
+        view.store %result, %out[%row, %head, %lane] : f32, view<3x2x128xf32>
+      }
+    }
+  }
+  func.return
+}
+command.decl @gated.global() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+func.def @gated.expected.global(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %window = index.constant 0 : index
+  func.call @gated.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @gated.global.page_boundary {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(61) : tensor<5xi32>
+    %map = check.generate.iota offset(1) step(-1) : tensor<2xi32>
+    %query = check.generate.iota offset(-0.5) step(0.001953125) : tensor<3x256xf32>
+    %gate = check.generate.iota offset(-1.0) step(1.0) : tensor<3x2xf32>
+    %cache = check.generate.fill value(23.0) : tensor<32784xf16>
+    %cache_prefix = check.tensor.view %cache offset(0) : tensor<32784xf16> -> tensor<8xf16>
+    %cache_suffix = check.tensor.view %cache offset(65552) : tensor<32784xf16> -> tensor<8xf16>
+    %storage = check.generate.fill value(123.5) : tensor<776xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<776xf32> -> tensor<3x256xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<776xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
+    check.compare<@gated.global, @gated.expected.global>(%epoch, %map, %query, %gate, %cache, %output) : (tensor<5xi32>, tensor<2xi32>, tensor<3x256xf32>, tensor<3x2xf32>, tensor<32784xf16>, tensor<3x256xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<32784xf16>
+      check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<8xf16>
+      check.expect.bitwise actual(%cache_suffix) expected(%cache_suffix) : tensor<8xf16>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<2xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<3x256xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<3x2xf32>
+    }
+  }
+  check.return
+}
+command.decl @gated.local() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+func.def @gated.expected.local(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %window = index.constant 2 : index
+  func.call @gated.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.return
+}
+check.scenario @gated.local.page_boundary {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(61) : tensor<5xi32>
+    %map = check.generate.iota offset(1) step(-1) : tensor<2xi32>
+    %query = check.generate.iota offset(-0.5) step(0.001953125) : tensor<3x256xf32>
+    %gate = check.generate.iota offset(-1.0) step(1.0) : tensor<3x2xf32>
+    %cache = check.generate.fill value(23.0) : tensor<32784xf16>
+    %cache_prefix = check.tensor.view %cache offset(0) : tensor<32784xf16> -> tensor<8xf16>
+    %cache_suffix = check.tensor.view %cache offset(65552) : tensor<32784xf16> -> tensor<8xf16>
+    %storage = check.generate.fill value(123.5) : tensor<776xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<776xf32> -> tensor<3x256xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<776xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
+    check.compare<@gated.local, @gated.expected.local>(%epoch, %map, %query, %gate, %cache, %output) : (tensor<5xi32>, tensor<2xi32>, tensor<3x256xf32>, tensor<3x2xf32>, tensor<32784xf16>, tensor<3x256xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<32784xf16>
+      check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<8xf16>
+      check.expect.bitwise actual(%cache_suffix) expected(%cache_suffix) : tensor<8xf16>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<2xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<3x256xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<3x2xf32>
+    }
+  }
+  check.return
+}

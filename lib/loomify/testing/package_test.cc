@@ -445,6 +445,10 @@ TEST_F(GgufPackageTest, GgufAliasPreservesFormatSuffixAndRejectsRebinding) {
             direct_configuration->configuration_source());
   ASSERT_TRUE(configured->WritePackage(context_, workspace_, &error)) << error;
   const auto document = Read(fs::path(package.output_directory) / "model.json");
+  // Ordinary generated models do not promise restoration of arbitrary private
+  // history from native prefix/session checkpoints.
+  EXPECT_NE(document.find("\"session_cache_capacity\": 0"), std::string::npos);
+  EXPECT_NE(document.find("\"prefix_cache_capacity\": 0"), std::string::npos);
   EXPECT_NE(document.find(alias.string()), std::string::npos);
   EXPECT_EQ(document.find(target.string()), std::string::npos);
   // A directory symlink followed by '..' must retain filesystem semantics.

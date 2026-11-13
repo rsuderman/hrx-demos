@@ -1,0 +1,35 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+config.decl @lfm3.model.hidden_size : index
+config.decl @lfm3.shortconv.history_base : offset
+func.decl pure @loomify.config.layer_conv(%layer: index) -> (index, index, index, index)
+kernel.decl @llm.convolution.shortconv7(%rows: index, %width: index) launch(%rows: index, %width: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+command.def @loomify.lfm3.shortconv(%layer: index, %ordinal: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %cache: buffer, %output: buffer) where [range(%rows, 1, 512)] {
+  %hidden = config.get @lfm3.model.hidden_size : index
+  %it, %ib, %ot, %ob = func.call pure @loomify.config.layer_conv(%layer) : (index) -> (index, index, index, index)
+  %in_weight = command.parameter %parameters, "blk.{}.shortconv.in_proj.weight"[%layer] : view<[%ib]xi8>
+  %out_weight = command.parameter %parameters, "blk.{}.shortconv.out_proj.weight"[%layer] : view<[%ob]xi8>
+  %seven = index.constant 7 : index
+  %three = index.constant 3 : index
+  %six = index.constant 6 : index
+  %word = index.constant 4 : offset
+  %triple = index.mul %hidden, %three : index
+  %conv_elements = index.mul %hidden, %seven : index
+  %conv_weight = command.parameter %parameters, "blk.{}.shortconv.conv.weight"[%layer] : view<[%conv_elements]xf32>
+  %bcx_elements = index.mul %rows, %triple : index
+  %bcx_bytes = index.scale %bcx_elements, %word : index, offset -> offset
+  %bcx = buffer.alloca<global> align(256) %bcx_bytes : buffer
+  %convolved_elements = index.mul %rows, %hidden : index
+  %convolved_bytes = index.scale %convolved_elements, %word : index, offset -> offset
+  %convolved = buffer.alloca<global> align(256) %convolved_bytes : buffer
+  %history_base = config.get @lfm3.shortconv.history_base : offset
+  %history_elements = index.mul %hidden, %six : index
+  %history_stride = index.scale %history_elements, %word : index, offset -> offset
+  %history_offset = index.scale %ordinal, %history_stride : index, offset -> offset
+  %history_origin = index.add %history_base, %history_offset : offset
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %triple, %it, %ib, %count, %normalized, %in_weight, %bcx) : (index, index, index, index, index, buffer, buffer, view<[%ib]xi8>, buffer)
+  kernel.launch @llm.convolution.shortconv7[%rows, %hidden](%rows, %hidden, %history_origin, %control_origin, %count, %epoch, %bcx, %conv_weight, %cache, %convolved) : [index, index](index, index, offset, offset, buffer, buffer, buffer, view<[%conv_elements]xf32>, buffer, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %hidden, %ot, %ob, %count, %convolved, %out_weight, %output) : (index, index, index, index, index, buffer, buffer, view<[%ob]xi8>, buffer)
+  command.return
+}

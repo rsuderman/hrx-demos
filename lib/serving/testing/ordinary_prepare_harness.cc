@@ -109,7 +109,7 @@ public:
     return {module, loomc_module_release};
   }
   Module Build(int64_t tokens, int64_t context, bool bytecode,
-               bool missing_history = false) {
+               const char *missing_fact = nullptr) {
     ConfigurationFacts facts;
     std::string error;
     auto model = case_.model();
@@ -117,9 +117,9 @@ public:
                                     {uint64_t(tokens), uint64_t(context)},
                                     &facts, &error))
         << error;
-    if (missing_history) {
-      const auto begin =
-          facts.source.find("config.def @loomify.serving.history_capacity");
+    if (missing_fact) {
+      const auto begin = facts.source.find(
+          std::string("config.def @loomify.serving.") + missing_fact);
       EXPECT_NE(begin, std::string::npos);
       if (begin != std::string::npos)
         facts.source.erase(begin, facts.source.find('\n', begin) - begin + 1);
@@ -162,7 +162,7 @@ public:
         loomc_link_module(linker, workspace_, &link_options, &module, &result);
     const bool succeeded =
         loomc_status_is_ok(status) && result && loomc_result_succeeded(result);
-    if (missing_history) {
+    if (missing_fact) {
       EXPECT_FALSE(succeeded);
       EXPECT_EQ(module, nullptr);
       EXPECT_FALSE(Diagnostics(result).empty());
@@ -212,7 +212,8 @@ public:
     const int64_t t = request.prefill, c = request.context;
     const int64_t p = ((c + 63) / 64) * 64;
     const int64_t h = std::max<int64_t>(t, 129), b = 768 + 4 * h;
-    const int64_t residual = 4 * t * hidden, arena = b + 4 * layers * p * kv;
+    const int64_t residual = 4 * t * hidden,
+                  arena = b + 4 * layers * p * kv + case_.trailing_state_bytes;
     const int64_t sizes[] = {residual, arena, 2064, 2048 + 4 * ((c + 63) / 64),
                              4 * h,    64,    0,    0,
                              0,        0,     0};
@@ -416,7 +417,8 @@ void CheckMissingPreparationConfig(const OrdinaryPreparationCase &test_case) {
   PreparationContext context(test_case);
   ASSERT_NO_FATAL_FAILURE(context.Init());
   for (bool bytecode : {false, true})
-    EXPECT_FALSE(context.Build(128, 512, bytecode, true));
+    for (const char *fact : {"history_capacity", "trailing_state_bytes"})
+      EXPECT_FALSE(context.Build(128, 512, bytecode, fact));
 }
 
 } // namespace hrx::loomify_gguf::testing

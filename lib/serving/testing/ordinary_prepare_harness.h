@@ -19,6 +19,7 @@ struct OrdinaryPreparationCase {
   int64_t hidden, layers, kv;
   const char *epoch_root;
   const char *terminal_marker;
+  int64_t trailing_state_bytes = 0;
 };
 using Capacity = std::array<int64_t, 2>;
 

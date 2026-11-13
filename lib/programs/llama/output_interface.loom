@@ -1,3 +1,3 @@
 // SPDX-License-Identifier: MIT
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)

@@ -89,6 +89,10 @@ GroupBindings(const std::vector<model::TensorBinding> &bindings,
     if (*kind == LayerKind::kAttention)
       add("Attention", {"input_norm", "query", "key", "value", "query_norm",
                         "key_norm", "attention_output"});
+    else if (*kind == LayerKind::kShortConvolution)
+      add("Short convolution",
+          {"input_norm", "convolution_input", "convolution",
+           "convolution_output", "attention_post_norm"});
     else
       add("Recurrent", {"input_norm", "recurrent_qkv", "recurrent_gate",
                         "alpha", "beta", "convolution", "dt_bias", "decay",
@@ -178,7 +182,7 @@ bool FormatArchitecture(const model::GgufCatalog &c,
     if (!index_roles(GroupBindings(layer->tensors, layer->kind),
                      "layer " + std::to_string(layer->index)))
       return false;
-  size_t attention_count = 0, recurrent_count = 0;
+  size_t attention_count = 0, recurrent_count = 0, convolution_count = 0;
   std::set<uint64_t> ffn_widths;
   std::set<std::pair<uint64_t, uint64_t>> attention_heads;
   for (const auto &layer : m.layers) {
@@ -188,6 +192,8 @@ bool FormatArchitecture(const model::GgufCatalog &c,
       attention_heads.emplace(layer.query_heads, layer.kv_heads);
     } else if (layer.kind == LayerKind::kGatedDeltaNet) {
       ++recurrent_count;
+    } else if (layer.kind == LayerKind::kShortConvolution) {
+      ++convolution_count;
     }
   }
   std::ostringstream out;
@@ -201,7 +207,10 @@ bool FormatArchitecture(const model::GgufCatalog &c,
   Row(out, "Layers",
       std::to_string(m.layers.size()) + " total / " +
           std::to_string(attention_count) + " attention / " +
-          std::to_string(recurrent_count) + " recurrent");
+          std::to_string(recurrent_count) + " recurrent" +
+          (convolution_count ? " / " + std::to_string(convolution_count) +
+                                   " short convolution"
+                             : ""));
   Row(out, "Embedding width", std::to_string(m.embedding_width));
   Row(out, "Feed-forward width", WidthSummary(ffn_widths));
   if (attention_heads.empty()) {
@@ -352,15 +361,19 @@ bool FormatArchitecture(const model::GgufCatalog &c,
       if (options.layer_index && d.index != *options.layer_index)
         continue;
       out << "\nLayer " << d.index << ' '
-          << (d.kind == LayerKind::kAttention ? "attention" : "gated_delta_net")
+          << (d.kind == LayerKind::kAttention          ? "attention"
+              : d.kind == LayerKind::kShortConvolution ? "short_convolution"
+                                                       : "gated_delta_net")
           << '\n';
       Row(out, "Model index", std::to_string(d.index));
-      const auto ordinal = d.kind == LayerKind::kAttention
-                               ? d.attention_ordinal
+      const auto ordinal = d.kind == LayerKind::kAttention ? d.attention_ordinal
+                           : d.kind == LayerKind::kShortConvolution
+                               ? d.convolution_ordinal
                                : d.recurrent_ordinal;
       Row(out,
-          d.kind == LayerKind::kAttention ? "Attention ordinal"
-                                          : "Recurrent ordinal",
+          d.kind == LayerKind::kAttention          ? "Attention ordinal"
+          : d.kind == LayerKind::kShortConvolution ? "Convolution ordinal"
+                                                   : "Recurrent ordinal",
           ordinal ? std::to_string(*ordinal) + " (logical)" : "not provided");
       Row(out, "Feed-forward width", std::to_string(d.feed_forward_width));
       if (d.kind == LayerKind::kAttention) {
@@ -370,7 +383,15 @@ bool FormatArchitecture(const model::GgufCatalog &c,
         Row(out, "Head widths",
             std::to_string(m.key_head_width) + " key / " +
                 std::to_string(m.value_head_width) + " value");
-      } else if (m.ssm) {
+      } else if (d.kind == LayerKind::kShortConvolution) {
+        Row(out, "Convolution geometry",
+            m.short_convolution
+                ? std::to_string(m.short_convolution->width) + " channels / " +
+                      std::to_string(m.short_convolution->kernel) + " taps / " +
+                      std::to_string(m.short_convolution->history_rows) +
+                      " history rows"
+                : "not provided");
+      } else if (d.kind == LayerKind::kGatedDeltaNet && m.ssm) {
         Row(out, "Recurrent heads",
             std::to_string(m.ssm->key_heads) + " key / " +
                 std::to_string(m.ssm->value_heads) + " value");

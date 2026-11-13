@@ -1,3 +1,6 @@
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["two_stops.loom"])
+exports_files([
+    "two_stops.loom",
+    "epoch_two_stops.loom",
+])

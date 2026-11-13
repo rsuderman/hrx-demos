@@ -345,5 +345,49 @@ TEST(TokenPolicyRealAssets, Qwen2TokenizerTailBoundarySkipsUnmappedModelRows) {
     }
   }
 }
+TEST(TokenPolicyRealAssets, CompactChatmlBindsSourceBosAndTwoStops) {
+  const char *asset = std::getenv("LOOMIFY_TEST_LFM3_GGUF");
+  const char *tokenizer = std::getenv("LOOMIFY_TEST_LFM3_TOKENIZER");
+  ASSERT_TRUE(asset && tokenizer) << "explicit immutable LFM3 assets required";
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(asset, "rb"),
+                                                     std::fclose);
+  ASSERT_TRUE(file);
+  ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
+  model::GgufCatalog catalog;
+  model::TextMetadata text;
+  std::string error;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+  ASSERT_TRUE(model::ReadTextMetadata(file.get(), catalog, &text, &error))
+      << error;
+  std::ifstream input(tokenizer, std::ios::binary);
+  ASSERT_TRUE(input);
+  const std::string json{std::istreambuf_iterator<char>(input),
+                         std::istreambuf_iterator<char>()};
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(
+      DerivePublicationTokenFacts(file.get(), "lfm3", text, &facts, &error))
+      << error;
+  ASSERT_TRUE(facts);
+  ASSERT_EQ(facts->raw_stops.size(), 2u);
+  EXPECT_EQ(facts->raw_stops[0].id, 124895);
+  EXPECT_EQ(facts->raw_stops[1].id, 124900);
+  EXPECT_EQ(facts->terminal_index, 1u);
+  BoundTokenPolicy bound;
+  ASSERT_TRUE(BindTokenPolicy(
+      file.get(), {"gpt2", "lfm2", true, "", "<|im_end|>"}, text, facts,
+      {"<|im_start|>", "<|im_end|>"}, json, &bound, &error))
+      << error;
+  EXPECT_EQ(bound.roles.at("tokenizer.ggml.bos_token_id").id, 124894);
+  EXPECT_EQ(bound.encode_flags, 0u);
+  EXPECT_NE(bound.text_source.find("@loomify.tokens.bos_marker"),
+            std::string::npos);
+  auto wrong = text;
+  wrong.pre_tokenizer = "qwen2";
+  const auto source = bound.text_source;
+  EXPECT_FALSE(BindTokenPolicy(
+      file.get(), {"gpt2", "lfm2", true, "", "<|im_end|>"}, wrong, facts,
+      {"<|im_start|>", "<|im_end|>"}, json, &bound, &error));
+  EXPECT_EQ(bound.text_source, source);
+}
 } // namespace
 } // namespace hrx::loomify_gguf

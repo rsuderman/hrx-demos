@@ -1,0 +1,14 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+config.decl @lfm3.publication.end_text_id : i32
+config.decl @lfm3.publication.end_turn_id : i32
+template.decl @llm.publication.epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
+kernel.def @lfm3_publish_epoch_id() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %selected_ids: buffer, %output_ids: buffer) {
+  %first = config.get @lfm3.publication.end_text_id : i32
+  %second = config.get @lfm3.publication.end_turn_id : i32
+  template.apply<@llm.publication.epoch_two_stops>(%first, %second, %epoch, %selected_ids, %output_ids) : (i32, i32, buffer, buffer, buffer)
+  kernel.return
+}

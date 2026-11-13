@@ -64,13 +64,14 @@ template.def<@llm.attention.row_window_f32> device @llm_attention_row_window_f32
   %position = index.assume %position0 [range(%position0, 0, 262143), lt(%position0, %logical_capacity)] : index
   %context_count0 = index.add %position, %c1 : index
   %context_count = index.assume %context_count0 [range(%context_count0, 1, 262144), le(%context_count0, %logical_capacity)] : index
+  // Clamp the retained length before subtracting. This is identical for
+  // window0/global, early prefixes and trimmed windows, without a conditional
+  // select after subtraction (which creates an SCC scheduling cycle on gfx11).
   %windowed = index.cmp ne, %window, %c0 : index
-  %window_before = index.cmp ugt, %context_count, %window : index
-  %trim = scalar.andi %windowed, %window_before : i1
-  %key_begin = scf.if %trim -> (index) {
-    %window_low = index.sub %context_count, %window : index
-    scf.yield %window_low : index
-  } else { scf.yield %c0 : index }
+  %requested = scf.select %windowed, %window, %context_count : index
+  %shorter = index.cmp ult, %requested, %context_count : index
+  %retained = scf.select %shorter, %requested, %context_count : index
+  %key_begin = index.sub %context_count, %retained : index
   %head_base = index.mul %head, %head_size : index
   %element = index.add %head_base, %lane : index
   %key_head = index.div %head, %queries_per_kv : index

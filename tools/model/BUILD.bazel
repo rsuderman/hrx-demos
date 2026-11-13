@@ -37,6 +37,8 @@ iree_cc_library(
         "architectures.cc",
         "architectures.h",
         "architectures/llama.h",
+        "architectures/lfm3.h",
+        "architectures/lfm3.cc",
         "architectures/qwen2.h",
         "architectures/qwen3.h",
         "architectures/gemma3.h",

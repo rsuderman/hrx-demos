@@ -1388,7 +1388,7 @@ check.scenario @last_active_rebases_to_zero {
 // The full fused definition runs bounded synthetic Q6_K weights. Every weight
 // row is identical and nonzero, so the independent expected greedy ID is0.
 // Row selection/normalization is separately checked against a scalar oracle.
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
 command.def @bounded_fused_head() launch(%input: buffer, %control: buffer, %gamma: buffer, %weights: buffer, %normalized: buffer, %token: buffer) {
   %capacity = index.constant 4 : index
   %begin = index.constant 1 : index
@@ -1401,7 +1401,9 @@ command.def @bounded_fused_head() launch(%input: buffer, %control: buffer, %gamm
   %partial_bytes = index.constant 4 : offset
   %weight = buffer.view %weights[%origin] : buffer -> view<[%weight_bytes]xi8>
   %gamma_view = buffer.view %gamma[%origin] : buffer -> view<[%hidden]xf32>
-  template.apply<@llm.output.last_greedy>(%capacity, %begin, %origin, %hidden, %vocab, %weight_bytes, %q8_bytes, %logit_bytes, %partial_bytes, %input, %control, %gamma_view, %weight, %normalized, %token) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%weight_bytes]xi8>, buffer, buffer)
+  %head_policy = index.constant 0 : index
+  %head_tag = index.constant 14 : index
+  template.apply<@llm.output.last_greedy>(%capacity, %begin, %origin, %hidden, %vocab, %weight_bytes, %head_policy, %head_tag, %q8_bytes, %logit_bytes, %partial_bytes, %input, %control, %gamma_view, %weight, %normalized, %token) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%weight_bytes]xi8>, buffer, buffer)
   command.return
 }
 func.def @ref_bounded_head(%input: buffer, %control: buffer, %gamma: buffer, %weights: buffer, %normalized: buffer, %token: buffer) {

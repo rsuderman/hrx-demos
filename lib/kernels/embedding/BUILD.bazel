@@ -9,7 +9,10 @@ filegroup(
     name = "all_sources",
     srcs = glob(
         ["*.loom"],
-        exclude = ["epoch_f32.loom"],
+        exclude = [
+            "epoch_f32.loom",
+            "ordinary_q5.loom",
+        ],
     ),
 )
 
@@ -18,9 +21,11 @@ filegroup(
     srcs = [
         "epoch_f32.loom",
         "q4k_rows.loom",
+        "q5k_rows.loom",
         "q6k_rows.loom",
         "//lib/kernels/epoch:active_rows.loom",
         "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:q5k_codec.loom",
         "//lib/kernels/projection:qk_common.loom",
     ],
 )

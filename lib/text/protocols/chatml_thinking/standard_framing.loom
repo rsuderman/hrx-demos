@@ -1,0 +1,55 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Existing ChatML framing, selected independently of numerical architecture.
+func.decl @chatml.has_effort() -> (i1)
+func.decl @chatml.first_tool_header() -> (i1)
+func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
+global.rodata.def @chatml_standard.empty = bytes("")
+global.rodata.def @chatml_standard.think_open = bytes("3c7468696e6b3e0a")
+global.rodata.def @chatml_standard.think_close = bytes("0a3c2f7468696e6b3e0a0a")
+global.rodata.def @chatml_standard.tool_user = bytes("3c7c696d5f73746172747c3e75736572")
+global.rodata.def @chatml_standard.tool_open = bytes("0a3c746f6f6c5f726573706f6e73653e0a")
+global.rodata.def @chatml_standard.tool_close = bytes("0a3c2f746f6f6c5f726573706f6e73653e")
+global.rodata.def @chatml_standard.newline = bytes("0a")
+func.def inline @chatml.prompt_prefix() -> (buffer) { %v = global.load @chatml_standard.empty : buffer func.return %v : buffer }
+func.def inline @chatml.schema_value(%tool: buffer) -> (buffer) { func.return %tool : buffer }
+func.def pure inline @chatml.group_tool_responses() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def inline @chatml.supports_preserve_thinking() -> (i1) { %v = func.call @chatml.has_effort() : () -> (i1) func.return %v : i1 }
+func.def inline @chatml.is_last_query(%user: i1, %wrapped: i1) -> (i1) {
+  %false = scalar.constant false : i1
+  %ordinary = scalar.cmpi eq,%wrapped,%false : i1
+  %result = scalar.andi %user,%ordinary : i1
+  func.return %result : i1
+}
+func.def inline @chatml.assistant_parts(%raw: buffer,%text: buffer,%reason: buffer,%fields: i64,%retain: i1) -> (buffer,buffer) { func.return %text,%reason : buffer,buffer }
+func.def pure inline @chatml.no_user_index(%last: i64) -> (i64) { func.return %last : i64 }
+func.def inline @chatml.history_prefix(%header: buffer,%reason: buffer,%retain: i1) -> (buffer) {
+  %result = scf.if %retain -> (buffer) {
+    %open = global.load @chatml_standard.think_open : buffer
+    %end = global.load @chatml_standard.think_close : buffer
+    %empty = global.load @chatml_standard.empty : buffer
+    %v = func.call @text.join8(%header,%open,%reason,%end,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    scf.yield %v : buffer
+  } else { scf.yield %header : buffer }
+  func.return %result : buffer
+}
+func.def inline @chatml.render_tool_response(%raw: buffer,%text: buffer,%prior: i1,%first: i1) -> (buffer) {
+  %empty = global.load @chatml_standard.empty : buffer
+  %user = global.load @chatml_standard.tool_user : buffer
+  %first_header = func.call @chatml.first_tool_header() : () -> (i1)
+  %false = scalar.constant false : i1
+  %omit_first = scalar.cmpi eq,%first_header,%false : i1
+  %legacy_first = scalar.andi %first,%omit_first : i1
+  %omit = scalar.ori %prior,%legacy_first : i1
+  %header = scf.select %omit,%empty,%user : buffer
+  %open = global.load @chatml_standard.tool_open : buffer
+  %end = global.load @chatml_standard.tool_close : buffer
+  %result = func.call @text.join8(%header,%open,%text,%end,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  func.return %result : buffer
+}
+func.def inline @chatml.completion_think_open() -> (buffer) { %v = global.load @chatml_standard.think_open : buffer func.return %v : buffer }
+func.def inline @chatml.completion_think_close() -> (buffer) { %v = global.load @chatml_standard.think_close : buffer func.return %v : buffer }
+func.def inline @chatml.tool_call_gap() -> (buffer) { %v = global.load @chatml_standard.newline : buffer func.return %v : buffer }
+func.def inline @chatml.python_tool_literals() -> (i1) { %v = func.call @chatml.inline_reasoning() : () -> (i1) func.return %v : i1 }
+func.decl @chatml.inline_reasoning() -> (i1)
+func.def pure inline @chatml.strip_after_think_newlines() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }

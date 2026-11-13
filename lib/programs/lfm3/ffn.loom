@@ -1,0 +1,48 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
+config.decl @lfm3.model.hidden_size : index
+config.decl @lfm3.model.rms_epsilon : f32
+config.decl @lfm3.model.post_rms_epsilon : f32
+func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
+kernel.decl @llm_ffn_swiglu_f32_prefill(%rows: index, %width: index) launch(%width: index, %rows: index, %gate: buffer, %up: buffer, %output: buffer)
+command.def @loomify.lfm3.ffn(%layer: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512)] {
+  %hidden = config.get @lfm3.model.hidden_size : index
+  %rms_epsilon = config.get @lfm3.model.rms_epsilon : f32
+  %post_rms_epsilon = config.get @lfm3.model.post_rms_epsilon : f32
+  %word = index.constant 4 : offset
+  %ffn, %gt, %ut, %dt, %gb, %ub, %db = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
+  %gamma = command.parameter %parameters, "blk.{}.ffn_norm.weight"[%layer] : view<[%hidden]xf32>
+  %postgamma = command.parameter %parameters, "blk.{}.post_ffw_norm.weight"[%layer] : view<[%hidden]xf32>
+  %gate_weight = command.parameter %parameters, "blk.{}.ffn_gate.weight"[%layer] : view<[%gb]xi8>
+  %up_weight = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%ub]xi8>
+  %down_weight = command.parameter %parameters, "blk.{}.ffn_down.weight"[%layer] : view<[%db]xi8>
+  %normal_elements = index.mul %rows, %hidden : index
+  %normal_bytes = index.scale %normal_elements, %word : index, offset -> offset
+  %normal = buffer.alloca<global> align(256) %normal_bytes : buffer
+  %gate_elements = index.mul %rows, %ffn : index
+  %gate_bytes = index.scale %gate_elements, %word : index, offset -> offset
+  %gate = buffer.alloca<global> align(256) %gate_bytes : buffer
+  %up_elements = index.mul %rows, %ffn : index
+  %up_bytes = index.scale %up_elements, %word : index, offset -> offset
+  %up = buffer.alloca<global> align(256) %up_bytes : buffer
+  %activated_elements = index.mul %rows, %ffn : index
+  %activated_bytes = index.scale %activated_elements, %word : index, offset -> offset
+  %activated = buffer.alloca<global> align(256) %activated_bytes : buffer
+  %down_elements = index.mul %rows, %hidden : index
+  %down_bytes = index.scale %down_elements, %word : index, offset -> offset
+  %down = buffer.alloca<global> align(256) %down_bytes : buffer
+  %post_elements = index.mul %rows, %hidden : index
+  %post_bytes = index.scale %post_elements, %word : index, offset -> offset
+  %post = buffer.alloca<global> align(256) %post_bytes : buffer
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %hidden](%rows, %hidden, %rms_epsilon, %count, %residual, %gamma, %normal) : [index, index](index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %ffn, %gt, %gb, %count, %normal, %gate_weight, %gate) : (index, index, index, index, index, buffer, buffer, view<[%gb]xi8>, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %ffn, %ut, %ub, %count, %normal, %up_weight, %up) : (index, index, index, index, index, buffer, buffer, view<[%ub]xi8>, buffer)
+  kernel.launch @llm_ffn_swiglu_f32_prefill[%rows, %ffn](%ffn, %rows, %gate, %up, %activated) : [index, index](index, index, buffer, buffer, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %ffn, %hidden, %dt, %db, %count, %activated, %down_weight, %down) : (index, index, index, index, index, buffer, buffer, view<[%db]xi8>, buffer)
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %hidden](%rows, %hidden, %post_rms_epsilon, %count, %down, %postgamma, %post) : [index, index](index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  kernel.launch @llm.decoder.residual[%rows, %hidden](%hidden, %count, %post, %residual) : [index, index](index, buffer, buffer, buffer)
+  command.return
+}

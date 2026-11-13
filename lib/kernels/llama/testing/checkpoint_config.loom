@@ -18,3 +18,12 @@ config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : index
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : index
 config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : index
 config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : index
+
+// Generic projection composition retains declarations for unused formats.
+// Match generated configuration's minimal unused-product bounds.
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

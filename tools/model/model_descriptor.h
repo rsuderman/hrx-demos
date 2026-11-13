@@ -14,7 +14,7 @@
 
 namespace hrx::model {
 
-enum class LayerKind { kAttention, kGatedDeltaNet };
+enum class LayerKind { kAttention, kGatedDeltaNet, kShortConvolution };
 
 struct TensorBinding {
   std::string role;
@@ -26,6 +26,7 @@ struct LayerDescriptor {
   LayerKind kind = LayerKind::kAttention;
   std::optional<uint32_t> attention_ordinal;
   std::optional<uint32_t> recurrent_ordinal;
+  std::optional<uint32_t> convolution_ordinal;
 
   uint64_t feed_forward_width = 0;
   uint64_t query_heads = 0;
@@ -55,6 +56,12 @@ struct SsmDescriptor {
   uint64_t recurrent_state_elements = 0;
 };
 
+struct ShortConvolutionDescriptor {
+  uint64_t width = 0;
+  uint64_t kernel = 0;
+  uint64_t history_rows = 0;
+};
+
 struct ModelDescriptor {
   std::string family;
   std::string name;
@@ -68,6 +75,7 @@ struct ModelDescriptor {
 
   RopeDescriptor rope;
   std::optional<SsmDescriptor> ssm;
+  std::optional<ShortConvolutionDescriptor> short_convolution;
   bool output_tied_to_embedding = false;
   std::vector<TensorBinding> globals;
   std::vector<LayerDescriptor> layers;

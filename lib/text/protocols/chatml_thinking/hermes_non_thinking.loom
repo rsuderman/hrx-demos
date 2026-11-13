@@ -30,7 +30,7 @@ func.def inline @chatml.default_system() -> (buffer, i1) {
   %present = scalar.constant true : i1
   func.return %value, %present : buffer, i1
 }
-func.def inline @chatml.system_tools_separator(%has_system: i1) -> (buffer) {
+func.def inline @chatml.system_tools_separator(%has_system: i1,%has_text: i1) -> (buffer) {
   // This template's captured tools prefix already includes its two newlines.
   %empty = global.load @chatml_non_thinking.empty : buffer
   func.return %empty : buffer

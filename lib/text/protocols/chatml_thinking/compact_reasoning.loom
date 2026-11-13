@@ -1,0 +1,279 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Known compact ChatML reasoning revision f45005c5. Numerical-family independent.
+func.decl @loomify.tokens.bos_marker() -> (buffer)
+func.decl @chatml.check(%condition: i1)
+func.decl @text.equal(%a: buffer,%b: buffer) -> (i1)
+func.decl @text.lookup(%json: buffer,%key: buffer) -> (buffer,i64,i1)
+func.decl @text.string(%json: buffer,%key: buffer) -> (buffer,i1)
+func.decl @text.range(%json: buffer,%begin: i64,%length: i64) -> (buffer)
+func.decl @text.trim(%text: buffer) -> (buffer)
+func.decl @text.at(%text: buffer,%at: offset,%marker: buffer) -> (i1)
+func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
+func.decl import("json") @members(%json: buffer) -> (buffer,i32,i64)
+global.rodata.def @compact.empty = bytes("")
+global.rodata.def @compact.think_open = bytes("3c7468696e6b3e")
+global.rodata.def @compact.think_close = bytes("3c2f7468696e6b3e")
+global.rodata.def @compact.empty_think = bytes("3c7468696e6b3e3c2f7468696e6b3e")
+global.rodata.def @compact.tool_header = bytes("3c7c696d5f73746172747c3e746f6f6c0a")
+global.rodata.def @compact.tool_open = bytes("3c746f6f6c5f726573706f6e73653e0a")
+global.rodata.def @compact.tool_marker = bytes("3c746f6f6c5f726573706f6e73653e")
+global.rodata.def @compact.tool_close = bytes("0a3c2f746f6f6c5f726573706f6e73653e")
+global.rodata.def @compact.end = bytes("3c7c696d5f656e647c3e0a")
+global.rodata.def @compact.gap = bytes("0a0a")
+global.rodata.def @compact.function = bytes("66756e6374696f6e")
+global.rodata.def @compact.thinking = bytes("7468696e6b696e67")
+global.rodata.def @compact.reasoning = bytes("726561736f6e696e67")
+global.rodata.def @compact.reasoning_content = bytes("726561736f6e696e675f636f6e74656e74")
+global.rodata.def @compact.deferred = bytes("64656665725f6c6f6164696e67")
+global.rodata.def @compact.additional = bytes("6164646974696f6e616c5f746f6f6c73")
+global.rodata.def @compact.call_id = bytes("746f6f6c5f63616c6c5f6964")
+global.rodata.def @compact.messages = bytes("6d65737361676573")
+global.rodata.def @compact.tools = bytes("746f6f6c73")
+global.rodata.def @compact.role = bytes("726f6c65")
+global.rodata.def @compact.tool = bytes("746f6f6c")
+global.rodata.def @compact.content = bytes("636f6e74656e74")
+global.rodata.def @compact.text = bytes("74657874")
+global.rodata.def @compact.newline = bytes("0a")
+func.def pure inline @chatml.default_thinking() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.keep_reasoning_default() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.inline_reasoning() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.emit_empty_system() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.has_effort() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.supports_preserve_thinking() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.supports_thinking() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.model_emits_think_open() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.allow_later_system() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.system_before_tools() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.require_user() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.first_tool_header() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }
+func.def pure inline @chatml.group_tool_responses() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def pure inline @chatml.python_tool_literals() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }
+func.def inline @chatml.is_last_query(%user: i1,%wrapped: i1) -> (i1) { func.return %user : i1 }
+func.def pure inline @chatml.no_user_index(%last: i64) -> (i64) { %v = scalar.constant -1 : i64 func.return %v : i64 }
+func.def inline @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }
+func.def inline @chatml.normalize_reason(%text: buffer) -> (buffer) { func.return %text : buffer }
+func.def inline @chatml.retained_body(%text: buffer) -> (buffer) { func.return %text : buffer }
+func.def inline @chatml.history_calls(%raw: buffer,%rendered: buffer) -> (buffer) { func.return %rendered : buffer }
+func.def inline @chatml.prompt_prefix() -> (buffer) { %v = func.call @loomify.tokens.bos_marker() : () -> (buffer) func.return %v : buffer }
+func.def inline @chatml.default_system() -> (buffer,i1) { %v = global.load @compact.empty : buffer %p = scalar.constant false : i1 func.return %v,%p : buffer,i1 }
+func.def inline @chatml.system_tools_separator(%has: i1,%has_text: i1) -> (buffer) {
+  %empty = global.load @compact.empty : buffer
+  %gap = global.load @compact.gap : buffer
+  %v = scf.select %has_text,%gap,%empty : buffer
+  func.return %v : buffer
+}
+// Calls follow content directly; two newlines separate consecutive calls only.
+func.def inline @chatml.call_separator() -> (buffer) { %v = global.load @compact.empty : buffer func.return %v : buffer }
+func.def inline @chatml.tool_call_gap() -> (buffer) { %v = global.load @compact.gap : buffer func.return %v : buffer }
+func.def inline @chatml.completion_think_open() -> (buffer) { %v = global.load @compact.think_open : buffer func.return %v : buffer }
+func.def inline @chatml.completion_think_close() -> (buffer) { %v = global.load @compact.think_close : buffer func.return %v : buffer }
+func.def inline @chatml.generation_thought(%thinking: i1) -> (buffer) {
+  %open = global.load @compact.think_open : buffer
+  %closed = global.load @compact.empty_think : buffer
+  %v = scf.select %thinking,%open,%closed : buffer
+  func.return %v : buffer
+}
+func.def pure inline @chatml.history_state(%last_user: i64,%count: i64) -> (i64) {
+  %eight = scalar.constant 8 : i64
+  // One-based ordinals reserve zero for the template's absent-user sentinel.
+  %one = scalar.constant 1 : i64
+  %encoded = scalar.addi %last_user,%one : i64
+  %v = scalar.shli %encoded,%eight : i64
+  func.return %v : i64
+}
+func.def inline @chatml.history_thought(%state: i64,%ordinal: i64,%reason: buffer) -> (i1) {
+  %eight = scalar.constant 8 : i64
+  %mask = scalar.constant 32 : i64
+  %zero = scalar.constant 0 : i64
+  %last = scalar.shrui %state,%eight : i64
+  %one = scalar.constant 1 : i64
+  %current = scalar.addi %ordinal,%one : i64
+  %after = scalar.cmpi ugt,%current,%last : i64
+  %bits = scalar.andi %state,%mask : i64
+  %preserve = scalar.cmpi ne,%bits,%zero : i64
+  %v = scalar.ori %after,%preserve : i1
+  func.return %v : i1
+}
+func.def @compact.find_last(%text: buffer,%marker: buffer) -> (offset,i1) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %size = buffer.length %text
+  %false = scalar.constant false : i1
+  %p,%last,%found = scf.while(%p = %zero : offset,%last = %zero : offset,%found = %false : i1) -> (offset,offset,i1) {
+    %more = index.cmp ult,%p,%size : offset
+    scf.condition %more,%p,%last,%found : i1,offset,offset,i1
+  } do(%p: offset,%last: offset,%found: i1) {
+    %match = func.call @text.at(%text,%p,%marker) : (buffer,offset,buffer) -> (i1)
+    %new_last = scf.select %match,%p,%last : offset
+    %new_found = scalar.ori %found,%match : i1
+    %next = index.add %p,%one : offset
+    scf.yield %next,%new_last,%new_found : offset,offset,i1
+  }
+  func.return %last,%found : offset,i1
+}
+// Raw field precedence follows the template; native aliases alone lose thinking.
+func.def @chatml.assistant_parts(%raw: buffer,%text: buffer,%reason: buffer,%fields: i64,%retain: i1) -> (buffer,buffer) {
+  %thinking = global.load @compact.thinking : buffer
+  %reasoning = global.load @compact.reasoning : buffer
+  %reasoning_content = global.load @compact.reasoning_content : buffer
+  %t,%tk,%tf = func.call @text.lookup(%raw,%thinking) : (buffer,buffer) -> (buffer,i64,i1)
+  %r,%rk,%rf = func.call @text.lookup(%raw,%reasoning) : (buffer,buffer) -> (buffer,i64,i1)
+  %key0 = scf.select %rf,%reasoning,%reasoning_content : buffer
+  %key = scf.select %tf,%thinking,%key0 : buffer
+  %v,%kind,%defined = func.call @text.lookup(%raw,%key) : (buffer,buffer) -> (buffer,i64,i1)
+  %empty = global.load @compact.empty : buffer
+  %open = global.load @compact.think_open : buffer
+  %close = global.load @compact.think_close : buffer
+  %empty_block = global.load @compact.empty_think : buffer
+  %value,%is_string = func.call @text.string(%raw,%key) : (buffer,buffer) -> (buffer,i1)
+  %kept = scf.select %is_string,%value,%empty : buffer
+  %at,%has_close = func.call @compact.find_last(%text,%close) : (buffer,buffer) -> (offset,i1)
+  %content,%prefix = scf.if %retain -> (buffer,buffer) {
+    %explicit = func.call @text.join8(%open,%kept,%close,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    %implicit = scf.select %has_close,%empty,%empty_block : buffer
+    %prefix = scf.select %defined,%explicit,%implicit : buffer
+    scf.yield %text,%prefix : buffer,buffer
+  } else {
+    %content = scf.if %has_close -> (buffer) {
+      %width = buffer.length %close
+      %begin = index.add %at,%width : offset
+      %size = buffer.length %text
+      %length = index.sub %size,%begin : offset
+      %b = index.cast %begin : offset to i64
+      %n = index.cast %length : offset to i64
+      %tail = func.call @text.range(%text,%b,%n) : (buffer,i64,i64) -> (buffer)
+      %trimmed = func.call @text.trim(%tail) : (buffer) -> (buffer)
+      scf.yield %trimmed : buffer
+    } else { scf.yield %text : buffer }
+    scf.yield %content,%empty_block : buffer,buffer
+  }
+  func.return %content,%prefix : buffer,buffer
+}
+func.def inline @chatml.history_prefix(%header: buffer,%reason: buffer,%retain: i1) -> (buffer) {
+  %empty = global.load @compact.empty : buffer
+  %v = func.call @text.join8(%header,%reason,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  func.return %v : buffer
+}
+func.def @chatml.schema_value(%tool: buffer) -> (buffer) {
+  %key = global.load @compact.function : buffer
+  %function,%kind,%found = func.call @text.lookup(%tool,%key) : (buffer,buffer) -> (buffer,i64,i1)
+  %v = scf.select %found,%function,%tool : buffer
+  func.return %v : buffer
+}
+func.def @chatml.render_tool_response(%raw: buffer,%text: buffer,%prior: i1,%first: i1) -> (buffer) {
+  %content_key = global.load @compact.content : buffer
+  %content,%kind,%found = func.call @text.lookup(%raw,%content_key) : (buffer,buffer) -> (buffer,i64,i1)
+  %three = scalar.constant 3 : i64
+  %array = scalar.cmpi eq,%kind,%three : i64
+  %body_text = scf.if %array -> (buffer) {
+    %records,%type,%count = func.call @members(%content) : (buffer) -> (buffer,i32,i64)
+    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+    %extent = index.cast %bounded : i64 to index
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %origin = index.constant 0 : offset
+    %parts = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+    %empty = global.load @compact.empty : buffer
+    %newline = global.load @compact.newline : buffer
+    %text_key = global.load @compact.text : buffer
+    %result = scf.for %i = [%zero to %extent step %one](%prior_text = %empty : buffer) -> (buffer) {
+      %begin = view.load %parts[%i,2] : view<[%extent]x5xi64> -> i64
+      %length = view.load %parts[%i,3] : view<[%extent]x5xi64> -> i64
+      %part = func.call @text.range(%content,%begin,%length) : (buffer,i64,i64) -> (buffer)
+      %value,%present = func.call @text.string(%part,%text_key) : (buffer,buffer) -> (buffer,i1)
+      func.call @chatml.check(%present) : (i1) -> ()
+      %first = index.cmp eq,%i,%zero : index
+      %gap = scf.select %first,%empty,%newline : buffer
+      %next = func.call @text.join8(%prior_text,%gap,%value,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+      scf.yield %next : buffer
+    }
+    scf.yield %result : buffer
+  } else { scf.yield %text : buffer }
+  %marker = global.load @compact.tool_marker : buffer
+  %zero64 = scalar.constant 0 : i64
+  %string = scalar.cmpi eq,%kind,%zero64 : i64
+  %at,%has_wrapper = func.call @compact.find_last(%text,%marker) : (buffer,buffer) -> (offset,i1)
+  %wrapped = scalar.andi %string,%has_wrapper : i1
+  %header = global.load @compact.tool_header : buffer
+  %open = global.load @compact.tool_open : buffer
+  %close = global.load @compact.tool_close : buffer
+  %end = global.load @compact.end : buffer
+  %empty = global.load @compact.empty : buffer
+  %body = scf.if %wrapped -> (buffer) { scf.yield %body_text : buffer } else {
+    %v = func.call @text.join8(%open,%body_text,%close,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    scf.yield %v : buffer
+  }
+  %v = func.call @text.join8(%header,%body,%end,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  func.return %v : buffer
+}
+// The initial port keeps the current text interface. Dynamic tool discovery and
+// merging partial responses are rejected explicitly, not rendered approximately.
+func.def @compact.absent(%json: buffer,%key: buffer) {
+  %v,%kind,%found = func.call @text.lookup(%json,%key) : (buffer,buffer) -> (buffer,i64,i1)
+  %false = scalar.constant false : i1
+  %ok = scalar.cmpi eq,%found,%false : i1
+  func.call @chatml.check(%ok) : (i1) -> ()
+  func.return
+}
+func.def @chatml.admit_request(%request: buffer) {
+  %tools_key = global.load @compact.tools : buffer
+  %tools,%tools_kind,%has_tools = func.call @text.lookup(%request,%tools_key) : (buffer,buffer) -> (buffer,i64,i1)
+  %deferred = global.load @compact.deferred : buffer
+  scf.if %has_tools {
+    %records,%kind,%count = func.call @members(%tools) : (buffer) -> (buffer,i32,i64)
+    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+    %extent = index.cast %bounded : i64 to index
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %origin = index.constant 0 : offset
+    %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+    scf.for %i = [%zero to %extent step %one] {
+      %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
+      %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
+      %tool = func.call @text.range(%tools,%begin,%length) : (buffer,i64,i64) -> (buffer)
+      %fn = func.call @chatml.schema_value(%tool) : (buffer) -> (buffer)
+      func.call @compact.absent(%tool,%deferred) : (buffer,buffer) -> ()
+      func.call @compact.absent(%fn,%deferred) : (buffer,buffer) -> ()
+      scf.yield
+    }
+  }
+  %messages_key = global.load @compact.messages : buffer
+  %messages,%messages_kind,%has_messages = func.call @text.lookup(%request,%messages_key) : (buffer,buffer) -> (buffer,i64,i1)
+  scf.if %has_messages {
+    %records,%kind,%count = func.call @members(%messages) : (buffer) -> (buffer,i32,i64)
+    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+    %extent = index.cast %bounded : i64 to index
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %origin = index.constant 0 : offset
+    %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+    %additional = global.load @compact.additional : buffer
+    %call_id = global.load @compact.call_id : buffer
+    %role_key = global.load @compact.role : buffer
+    %tool_role = global.load @compact.tool : buffer
+    %empty = global.load @compact.empty : buffer
+    %false = scalar.constant false : i1
+    %prior,%prior_tool = scf.for %i = [%zero to %extent step %one](%prior = %empty : buffer,%prior_tool = %false : i1) -> (buffer,i1) {
+      %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
+      %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
+      %message = func.call @text.range(%messages,%begin,%length) : (buffer,i64,i64) -> (buffer)
+      func.call @compact.absent(%message,%additional) : (buffer,buffer) -> ()
+      %role,%has_role = func.call @text.string(%message,%role_key) : (buffer,buffer) -> (buffer,i1)
+      %tool = func.call @text.equal(%role,%tool_role) : (buffer,buffer) -> (i1)
+      %id,%has_id = func.call @text.string(%message,%call_id) : (buffer,buffer) -> (buffer,i1)
+      %size = buffer.length %id
+      %zero_offset = index.constant 0 : offset
+      %nonempty = index.cmp ne,%size,%zero_offset : offset
+      %same = func.call @text.equal(%prior,%id) : (buffer,buffer) -> (i1)
+      %both = scalar.andi %tool,%prior_tool : i1
+      %a = scalar.andi %both,%nonempty : i1
+      %merge = scalar.andi %a,%same : i1
+      %ok = scalar.cmpi eq,%merge,%false : i1
+      func.call @chatml.check(%ok) : (i1) -> ()
+      scf.yield %id,%tool : buffer,i1
+    }
+  }
+  func.return
+}
+func.def pure inline @chatml.strip_after_think_newlines() -> (i1) { %v = scalar.constant false : i1 func.return %v : i1 }

@@ -23,7 +23,8 @@ void RejectHeadNorms(const Loader &l, std::string_view architecture) {
              " Q/K normalization tensor: " + name);
   }
 }
-void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m) {
+void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
+                           bool allow_zero_kv) {
   for (const char *key :
        {"expert_count", "expert_used_count", "nextn_predict_layers"})
     if (l.Int(key, 0, false) != 0)
@@ -43,7 +44,8 @@ void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m) {
   m.training_context = l.Int("context_length");
   auto ff = l.Dimensions("feed_forward_length", layers);
   auto heads = l.Dimensions("attention.head_count", layers);
-  auto kv = l.Dimensions("attention.head_count_kv", layers, heads);
+  auto kv =
+      l.Dimensions("attention.head_count_kv", layers, heads, allow_zero_kv);
   if ((!l.Field("attention.key_length") ||
        !l.Field("attention.value_length")) &&
       m.embedding_width % heads.front())
@@ -68,7 +70,7 @@ void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m) {
     m.vocabulary_size = tokens->element_count;
   }
   for (uint32_t i = 0; i < layers; ++i) {
-    if (heads[i] % kv[i])
+    if (kv[i] && heads[i] % kv[i])
       l.Fail("query heads must be divisible by KV heads at layer" +
              std::to_string(i));
     LayerDescriptor d;

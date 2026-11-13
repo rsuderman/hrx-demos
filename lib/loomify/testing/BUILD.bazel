@@ -22,8 +22,21 @@ exports_files(
         "gemma3_fixture.h",
         "qwen2_fixture.h",
         "qwen2_configuration_test.cc",
+        "lfm3_configuration_test.cc",
     ],
     visibility = ["//lib/loomify:__pkg__"],
+)
+
+iree_cc_library(
+    name = "lfm3_fixture",
+    testonly = True,
+    hdrs = ["lfm3_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/lfm3:__pkg__",
+    ],
+    deps = ["//tools/model:model_descriptor"],
 )
 
 iree_cc_library(

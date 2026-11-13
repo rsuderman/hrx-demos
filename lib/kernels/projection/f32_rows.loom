@@ -1,0 +1,53 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Small ordinary F32 projections, including unquantized per-head gate weights.
+// Each workitem owns output columns; inactive inputs are never read.
+kernel.def @llm.projection.f32_rows_kernel(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %input_width = index.assume %input_width0 [range(%input_width0, 1, 32768)] : index
+  %output_width = index.assume %output_width0 [range(%output_width0, 1, 32768)] : index
+  %rows0 = kernel.workgroup.count<x> : index
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %thread = kernel.workitem.id<x> : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %step = index.constant 256 : index
+  %origin = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %zero_f = scalar.constant 0.0 : f32
+  %words = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %n32 = view.load %words[0] : view<3xi32> -> i32
+  %n = index.cast %n32 : i32 to index
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %fits = index.cmp ule, %n, %rows : index
+  %inside = index.cmp ult, %row, %n : index
+  %valid = scalar.andi %positive, %fits : i1
+  %active = scalar.andi %valid, %inside : i1
+  %input_noalias, %weight_noalias, %output_noalias = buffer.assume.noalias %input, %weight, %output : buffer, buffer, buffer
+  %x = buffer.view %input_noalias[%origin] : buffer -> view<[%rows]x[%input_width]xf32>
+  %w = buffer.view %weight_noalias[%origin] : buffer -> view<[%output_width]x[%input_width]xf32>
+  %y = buffer.view %output_noalias[%origin] : buffer -> view<[%rows]x[%output_width]xf32>
+  scf.for %column0 = [%thread to %output_width step %step] {
+    %column = index.assume %column0 [range(%column0, 0, 32767), lt(%column0, %output_width)] : index
+    %value = scf.if %active -> (f32) {
+      %sum = scf.for %k = [%zero to %input_width step %one](%acc = %zero_f : f32) -> (f32) {
+        %a = view.load %x[%row, %k] : view<[%rows]x[%input_width]xf32> -> f32
+        %b = view.load %w[%column, %k] : view<[%output_width]x[%input_width]xf32> -> f32
+        %product = scalar.mulf %a, %b : f32
+        %next = scalar.addf %acc, %product : f32
+        scf.yield %next : f32
+      }
+      scf.yield %sum : f32
+    } else {
+      scf.yield %zero_f : f32
+    }
+    view.store %value, %y[%row, %column] : f32, view<[%rows]x[%output_width]xf32>
+  }
+  kernel.return
+}

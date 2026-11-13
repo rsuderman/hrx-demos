@@ -10,6 +10,9 @@ func.decl @chatml.model_emits_think_open() -> (i1)
 func.decl @chatml.normalize_content(%text: buffer) -> (buffer)
 func.decl @chatml.normalize_reason(%text: buffer) -> (buffer)
 func.decl @chatml.call_separator() -> (buffer)
+func.decl @chatml.completion_think_open() -> (buffer)
+func.decl @chatml.completion_think_close() -> (buffer)
+func.decl @chatml.strip_after_think_newlines() -> (i1)
 func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
 global.rodata.def @chatml_output.newline = bytes("0a")
 
@@ -92,9 +95,13 @@ func.def @chatml_output.next(%response: buffer, %previous: i64, %state: i64, %ph
   } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
   %false = scalar.constant false : i1
   %not_newline = scalar.cmpi eq, %newline, %false : i1
-  %ready = scalar.andi %was_after, %not_newline : i1
+  %strip_newlines = func.call @chatml.strip_after_think_newlines() : () -> (i1)
+  %preserve_newlines = scalar.cmpi eq,%strip_newlines,%false : i1
+  %content_ready = scalar.ori %not_newline,%preserve_newlines : i1
+  %ready = scalar.andi %was_after,%content_ready : i1
   %mode = scf.select %ready, %one64, %resolved_mode : i64
-  %after = scalar.andi %was_after, %newline : i1
+  %after_candidate = scalar.andi %was_after,%newline : i1
+  %after = scalar.andi %after_candidate,%strip_newlines : i1
   %tool_mode = scalar.cmpi eq, %mode, %three64 : i64
   %kind, %end, %next_mode = scf.if %tool_mode -> (i64, offset, i64) {
     scf.yield %zero64, %start, %three64 : i64, offset, i64
@@ -315,17 +322,16 @@ func.def public @complete_text(%prompt: buffer, %response: buffer, %content: buf
   %text = func.call @chatml.normalize_content(%content) : (buffer) -> (buffer)
   %thought = func.call @chatml.normalize_reason(%reasoning) : (buffer) -> (buffer)
   %empty = global.load @chatml_output.empty : buffer
-  %thinking_assistant = global.load @chatml_output.assistant : buffer
   %plain_assistant = global.load @chatml_output.plain_assistant : buffer
+  %think_open = func.call @chatml.completion_think_open() : () -> (buffer)
+  %thinking_assistant = func.call @text.join8(%plain_assistant,%think_open,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
   %assistant = scf.select %supports_thinking, %thinking_assistant, %plain_assistant : buffer
-  %close_think = global.load @chatml_output.thought_end : buffer
+  %close_think = func.call @chatml.completion_think_close() : () -> (buffer)
   %separator = func.call @chatml.call_separator() : () -> (buffer)
   %close = global.load @chatml_output.end : buffer
   %model_open = func.call @chatml.model_emits_think_open() : () -> (i1)
   %add_open = scalar.andi %model_open,%thinking : i1
-  %literal_open = global.load @chatml_output.open_think : buffer
-  %lf = global.load @chatml_output.newline : buffer
-  %open_line = func.call @text.join8(%literal_open,%lf,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  %open_line = func.call @chatml.completion_think_open() : () -> (buffer)
   %thought_prefix = scf.select %add_open,%open_line,%empty : buffer
   %header = scf.select %no_prefix, %assistant, %thought_prefix : buffer
   %retained_thought = scf.select %needs_thought, %thought, %empty : buffer

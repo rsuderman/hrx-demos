@@ -4,6 +4,7 @@
 // model supplies them without owning format-specific launch branches.
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 template.decl @llm.token_embedding_q4k_f32.row(%hidden: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+template.decl @llm.token_embedding_q5k_f32.row(%hidden: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
 template.decl @llm.token_embedding_q6k_f32.row(%hidden: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
 template.decl @llm.embedding.epoch_f32_row(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
 template.def<@llm.embedding.epoch_f32_row> device @llm_embedding_epoch_f32_row(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer) {
@@ -16,9 +17,13 @@ template.def<@llm.embedding.epoch_f32_row> device @llm_embedding_epoch_f32_row(%
   scf.if %active {
     %q4_tag = index.constant 12 : index
     %q4 = index.cmp eq, %tag, %q4_tag : index
+    %q5_tag = index.constant 13 : index
+    %q5 = index.cmp eq, %tag, %q5_tag : index
     %q4_bytes = index.constant 144 : index
+    %q5_bytes = index.constant 176 : index
     %q6_bytes = index.constant 210 : index
-    %block_bytes = scf.select %q4, %q4_bytes, %q6_bytes : index
+    %other_bytes = scf.select %q5, %q5_bytes, %q6_bytes : index
+    %block_bytes = scf.select %q4, %q4_bytes, %other_bytes : index
     %block_values = index.constant 256 : index
     %blocks = index.div %hidden, %block_values : index
     %weight_row_bytes = index.mul %blocks, %block_bytes : index
@@ -39,7 +44,11 @@ template.def<@llm.embedding.epoch_f32_row> device @llm_embedding_epoch_f32_row(%
     scf.if %q4 {
       template.apply<@llm.token_embedding_q4k_f32.row>(%hidden, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
     } else {
+      scf.if %q5 {
+        template.apply<@llm.token_embedding_q5k_f32.row>(%hidden, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+      } else {
       template.apply<@llm.token_embedding_q6k_f32.row>(%hidden, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+      }
     }
   }
   template.return
@@ -65,6 +74,10 @@ template.def<@llm.embedding.epoch_f32> @llm_embedding_epoch_f32_q4k(%rows: index
   template.return
 }
 template.def<@llm.embedding.epoch_f32> @llm_embedding_epoch_f32_q6k(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>) where [range(%rows, 1, 2048), ge(%hidden, 256), multiple_of(%hidden, 256), ge(%vocabulary, 1), eq(%tag, 14)] {
+  kernel.launch @llm.token_embedding_epoch_f32[%rows](%hidden, %vocabulary, %tag, %epoch, %count, %ids, %weight, %output) : [index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%rows]x[%hidden]xf32>)
+  template.return
+}
+template.def<@llm.embedding.epoch_f32> @llm_embedding_epoch_f32_q5k(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>) where [range(%rows, 1, 2048), ge(%hidden, 256), multiple_of(%hidden, 256), ge(%vocabulary, 1), eq(%tag, 13)] {
   kernel.launch @llm.token_embedding_epoch_f32[%rows](%hidden, %vocabulary, %tag, %epoch, %count, %ids, %weight, %output) : [index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%rows]x[%hidden]xf32>)
   template.return
 }

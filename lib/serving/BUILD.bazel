@@ -25,6 +25,10 @@ loom_merge(
 )
 
 _PRODUCTS = {
+    "//lib/text/protocols/chatml_thinking:compact_reasoning": "kChatmlCompactReasoning",
+    "//lib/architectures/lfm3:implementation": "kLfm3Implementation",
+    "//lib/architectures/lfm3:prepare_library": "kLfm3Preparation",
+    "//lib/architectures/lfm3:execution": "kLfm3Execution",
     "//lib/text/protocols/chatml_thinking:plain": "kChatmlPlain",
     "//lib/architectures/qwen2:implementation": "kQwen2Implementation",
     "//lib/architectures/qwen2:prepare_library": "kQwen2Preparation",

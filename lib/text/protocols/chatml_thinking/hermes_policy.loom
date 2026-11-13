@@ -77,7 +77,7 @@ func.def inline @chatml.default_system() -> (buffer, i1) {
   func.return %empty, %present : buffer, i1
 }
 global.rodata.def @chatml_hermes_policy.system_separator = bytes("0a0a")
-func.def inline @chatml.system_tools_separator(%has_system: i1) -> (buffer) {
+func.def inline @chatml.system_tools_separator(%has_system: i1,%has_text: i1) -> (buffer) {
   %empty = global.load @chatml_hermes_policy.empty : buffer
   %separator = global.load @chatml_hermes_policy.system_separator : buffer
   %value = scf.select %has_system, %separator, %empty : buffer

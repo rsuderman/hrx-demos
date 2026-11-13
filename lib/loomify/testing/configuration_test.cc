@@ -144,7 +144,8 @@ TEST(ConfigurationFactsTest, OrdinaryPreparationUsesSharedTypedFacts) {
           {"cache_capacity", 513},
           {"pool_capacity", 576},
           {"cache_base", 768 + 4 * history},
-          {"map_origin", 2048}};
+          {"map_origin", 2048},
+          {"trailing_state_bytes", 0}};
       for (const auto &[field, value] : expected) {
         const auto &actual = values.at(std::string("loomify.serving.") + field);
         EXPECT_EQ(std::stoull(actual.first), value)

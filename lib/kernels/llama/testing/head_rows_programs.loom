@@ -41,7 +41,7 @@ kernel.decl @llama32_output_norm_last_f32(%token_capacity: index) launch(%token_
 
 kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
 
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
 
 command.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
@@ -100,7 +100,9 @@ command.def public retain @head.full.prefill() launch(%v0: buffer, %v1: buffer, 
     %v27 = buffer.view %v2[%v26] : buffer -> view<[%v19]xf32>
     %v28 = index.constant 12288 : offset
     %v29 = buffer.alloca<global> align(256) %v28 : buffer
-    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
+    %head_policy = index.constant 0 : index
+    %head_tag = index.constant 14 : index
+    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %head_policy, %head_tag, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
     kernel.launch @llama32_publish_epoch_id(%v3, %v6, %v5) : (buffer, buffer, buffer)
   }
   command.return
@@ -133,8 +135,20 @@ command.def public retain @head.full.decode() launch(%v0: buffer, %v1: buffer, %
     %v27 = buffer.view %v2[%v26] : buffer -> view<[%v19]xf32>
     %v28 = index.constant 12288 : offset
     %v29 = buffer.alloca<global> align(256) %v28 : buffer
-    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
+    %head_policy = index.constant 0 : index
+    %head_tag = index.constant 14 : index
+    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %head_policy, %head_tag, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
     kernel.launch @llama32_publish_epoch_id(%v3, %v6, %v5) : (buffer, buffer, buffer)
   }
   command.return
 }
+
+// Same minimal unused-format facts emitted by Producer::ProjectionCapacities.
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

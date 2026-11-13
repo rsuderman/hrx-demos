@@ -13,17 +13,17 @@ cc_test(
     srcs = ["materialization_test.cc"],
     copts = ["-std=c++17"],
     data = [
-        ":provider_text",
         ":provider_bc",
+        ":provider_text",
         "//lib/programs/projection:interface.loom",
     ],
     linkstatic = True,
     deps = [
         "//lib/loomify:native_linking",
-        "@hrx_system//loom/binding/c:loomc",
-        "@hrx_system//loom/binding/c/target/amdgpu",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
 
@@ -31,8 +31,8 @@ cc_test(
     name = "provider_" + format,
     testonly = True,
     srcs = [
-        "//lib/programs/projection:implementation_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/projection:implementation_sources",
     ],
     output_format = format,
 ) for format in [
@@ -64,6 +64,32 @@ exports_files([
     srcs = [
         "gemma3_checks.loom",
         ":provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_merge(
+    name = "f32_rows_provider_" + format,
+    testonly = True,
+    srcs = [
+        "//lib/kernels/projection:f32_rows.loom",
+        "//lib/programs/projection:rows.loom",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "f32_rows_" + format + "_test",
+    srcs = [
+        "f32_rows_checks.loom",
+        ":f32_rows_provider_" + format,
     ],
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],

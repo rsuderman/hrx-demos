@@ -1,0 +1,30 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Ordinary row projections share packing, allocation and encoding admission.
+// Canonical packing reads all capacity rows: callers must define inactive
+// input rows (ordinary model wrappers zero them) before applying this operation.
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.def<@llm.projection.canonical_rows> @llm_projection_canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%rows, 1, 512), range(%input_width, 128, 32768), multiple_of(%input_width, 128)] {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %block_values = index.constant 128 : index
+  %block_bytes = index.constant 144 : offset
+  %blocks = index.div %input_width, %block_values : index
+  %row_bytes = index.scale %blocks, %block_bytes : index, offset -> offset
+  %packed_bytes = index.scale %rows, %row_bytes : index, offset -> offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%one, %rows, %rows, %input_width, %zero, %dynamic, %origin, %count, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%one, %tag, %rows, %rows, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+kernel.decl @llm.projection.f32_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
+template.def<@llm.projection.f32_rows> @llm_projection_f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer) where [range(%rows, 1, 512), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
+  kernel.launch @llm.projection.f32_rows_kernel[%rows](%input_width, %output_width, %count, %input, %weight, %output) : [index](index, index, buffer, buffer, view<[%output_width]x[%input_width]xf32>, buffer)
+  template.return
+}

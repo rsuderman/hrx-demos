@@ -1,0 +1,106 @@
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "model.loom",
+    "epoch.loom",
+    "prepare.loom",
+    "control_core.loom",
+])
+
+_ARCHITECTURE_SOURCES = [
+    "model.loom",
+    "epoch.loom",
+    "//lib/programs/lfm3:implementation_sources",
+]
+
+_IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + [
+    "//lib/kernels/selection:greedy_argmax.loom",
+    "//lib/kernels/epoch:count.loom",
+    "//lib/kernels/publication:two_stops.loom",
+]
+
+filegroup(
+    name = "architecture_sources",
+    srcs = _ARCHITECTURE_SOURCES,
+)
+
+loom_merge(
+    name = "implementation",
+    srcs = _IMPLEMENTATION_SOURCES,
+)
+
+loom_merge(
+    name = "implementation_text",
+    testonly = True,
+    srcs = _IMPLEMENTATION_SOURCES,
+    output_format = "text",
+)
+
+loom_merge(
+    name = "prepare_library",
+    srcs = [
+        "prepare.loom",
+        "//lib/serving:ordinary_prepare.loom",
+    ],
+)
+
+loom_merge(
+    name = "layer_fixture",
+    testonly = True,
+    srcs = [
+        ":implementation",
+        "testing/layer_roots.loom",
+    ],
+)
+
+cc_test(
+    name = "materialization_test",
+    srcs = ["testing/materialization_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        ":layer_fixture",
+        "//lib/platforms/amdgpu/gfx11:targets",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//lib/loomify/testing:lfm3_fixture",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "prepare_test",
+    srcs = ["testing/prepare_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "prepare.loom",
+        ":prepare_library",
+        "//lib/serving:ordinary_prepare.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/serving/testing:ordinary_prepare_harness",
+        "//lib/loomify/testing:lfm3_fixture",
+        "@googletest//:gtest_main",
+    ],
+)
+
+loom_merge(
+    name = "execution",
+    srcs = [
+        "control_core.loom",
+        "//loom-pipeline:llm/common/fixed_epoch_abi.loom",
+        "//lib/serving:ordinary_control.loom",
+        "//lib/kernels/publication:two_stops.loom",
+    ],
+)

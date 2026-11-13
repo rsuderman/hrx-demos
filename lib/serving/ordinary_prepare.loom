@@ -7,6 +7,7 @@ config.decl @loomify.serving.cache_capacity : index
 config.decl @loomify.serving.pool_capacity : index
 config.decl @loomify.serving.cache_base : offset
 config.decl @loomify.serving.map_origin : offset
+config.decl @loomify.serving.trailing_state_bytes : index
 func.decl @loomify.tokens.terminal_marker() -> (buffer)
 // Shared ordinary single-request preparation; architecture adapters supply facts.
 // Copyright 2026 The IREE Authors
@@ -92,7 +93,10 @@ func.def @ordinary_storage() -> (buffer, buffer, buffer, buffer, buffer) {
   %pooled_kv = scalar.muli %pool, %kv : i64
   %plane_stride = scalar.muli %pooled_kv, %two64 : i64
   %arena_kv = scalar.muli %planes, %plane_stride : i64
-  %arena = scalar.addi %base, %arena_kv : i64
+  %arena_end = scalar.addi %base, %arena_kv : i64
+  %trailing_i = config.get @loomify.serving.trailing_state_bytes : index
+  %trailing = index.cast %trailing_i : index to i64
+  %arena = scalar.addi %arena_end, %trailing : i64
   %page_size = scalar.constant 64 : i64
   %page_bias = scalar.constant 63 : i64
   %rounded = scalar.addi %context, %page_bias : i64
