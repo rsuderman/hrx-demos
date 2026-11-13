@@ -1,0 +1,133 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Actual Gemma norm hook and shared canonical Q8 head. Stored block d=.5,
+// signed codes1/2 give .5/1 weights; rows17/19 tie and lowest ID17 wins.
+config.def @gemma3.model.hidden_size = 256 : index
+
+config.def @gemma3.model.rms_epsilon = 0.0 : f32
+
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 257 : index
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 2 : index
+
+config.def @qwen38.greedy_argmax.output_capacity = 257 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index
+
+template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %bytes: index, %policy: index, %tag: index, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%bytes]xi8>, %token: buffer)
+
+func.def @gemma_head.init(%weights: buffer, %input: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %vocab = index.constant 257 : index
+  %blocks = index.constant 8 : index
+  %codes = index.constant 32 : index
+  %row_bytes = index.constant 272 : offset
+  %block_bytes = index.constant 34 : offset
+  %code_offset = index.constant 2 : offset
+  %seventeen = index.constant 17 : index
+  %nineteen = index.constant 19 : index
+  %half = scalar.constant 0.5 : f16
+  %low = scalar.constant 1 : i8
+  %high = scalar.constant 2 : i8
+  scf.for %row = [%zero to %vocab step %one] {
+    %a = index.cmp eq, %row, %seventeen : index
+    %b = index.cmp eq, %row, %nineteen : index
+    %winner = scalar.ori %a, %b : i1
+    %code = scf.select %winner, %high, %low : i8
+    %row_origin = index.scale %row, %row_bytes : index, offset -> offset
+    scf.for %block = [%zero to %blocks step %one] {
+      %block_add = index.scale %block, %block_bytes : index, offset -> offset
+      %origin = index.add %row_origin, %block_add : offset
+      %d = buffer.view %weights[%origin] : buffer -> view<1xf16>
+      view.store %half, %d[0] : f16, view<1xf16>
+      %begin = index.add %origin, %code_offset : offset
+      %q = buffer.view %weights[%begin] : buffer -> view<32xi8>
+      scf.for %i = [%zero to %codes step %one] {
+        view.store %code, %q[%i] : i8, view<32xi8>
+      }
+    }
+  }
+  %origin = index.constant 0 : offset
+  %x = buffer.view %input[%origin] : buffer -> view<4x256xf32>
+  %width = index.constant 256 : index
+  %negative = scalar.constant -1.0 : f32
+  scf.for %i = [%zero to %width step %one] {
+    view.store %negative, %x[0, %i] : f32, view<4x256xf32>
+    view.store %negative, %x[1, %i] : f32, view<4x256xf32>
+  }
+  func.return
+}
+
+command.def @gemma_head.actual() launch(%input: buffer, %count: buffer, %gamma: buffer, %weights: buffer, %normalized: buffer, %token: buffer) {
+  %capacity = index.constant 4 : index
+  %begin = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %hidden = index.constant 256 : index
+  %vocab = index.constant 257 : index
+  %bytes = index.constant 69904 : index
+  %policy = index.constant 1 : index
+  %tag = index.constant 8 : index
+  %g = buffer.view %gamma[%origin] : buffer -> view<[%hidden]xf32>
+  %w = buffer.view %weights[%origin] : buffer -> view<[%bytes]xi8>
+  template.apply<@llm.output.norm_last>(%capacity, %begin, %origin, %hidden, %count, %input, %g, %normalized) : (index, index, offset, index, buffer, buffer, view<[%hidden]xf32>, buffer)
+  template.apply<@llm.output.last_greedy>(%capacity, %begin, %origin, %hidden, %vocab, %bytes, %policy, %tag, %input, %count, %g, %w, %token) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%bytes]xi8>, buffer)
+  command.return
+}
+
+func.def @gemma_head.expected(%input: buffer, %count: buffer, %gamma: buffer, %weights: buffer, %normalized: buffer, %token: buffer) {
+  %origin = index.constant 0 : offset
+  %normal = buffer.view %normalized[%origin] : buffer -> view<256xf32>
+  %selected = buffer.view %token[%origin] : buffer -> view<1xi32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %width = index.constant 256 : index
+  %unit = scalar.constant 1.0 : f32
+  %winner = scalar.constant 17 : i32
+  scf.for %i = [%zero to %width step %one] {
+    view.store %unit, %normal[%i] : f32, view<256xf32>
+  }
+  view.store %winner, %selected[0] : i32, view<1xi32>
+  func.return
+}
+
+check.scenario @gemma_hook_shared_head_last_row_and_tail {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1.0) : tensor<1024xf32>
+    %gamma = check.generate.fill value(1.0) : tensor<256xf32>
+    %weights = check.generate.fill value(0) : tensor<69904xi8>
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %normal_owner = check.generate.fill value(-99.0) : tensor<264xf32>
+    %token_owner = check.generate.fill value(-77) : tensor<9xi32>
+    %normalized = check.tensor.view %normal_owner offset(16) : tensor<264xf32> -> tensor<256xf32>
+    %token = check.tensor.view %token_owner offset(16) : tensor<9xi32> -> tensor<1xi32>
+    check.generate<@gemma_head.init>(%weights, %input) : (tensor<69904xi8>, tensor<1024xf32>) -> ()
+    check.compare<@gemma_head.actual, @gemma_head.expected>(%input, %count, %gamma, %weights, %normalized, %token) : (tensor<1024xf32>, tensor<3xi32>, tensor<256xf32>, tensor<69904xi8>, tensor<256xf32>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%token_owner) expected(%token_owner) : tensor<9xi32>
+      check.expect.approximate actual(%normal_owner) expected(%normal_owner) atol(5.0000000000000002e-05) rtol(5.0000000000000002e-05) nan(same) : tensor<264xf32>, tensor<264xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1024xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+      check.expect.bitwise actual(%weights) expected(%weights) : tensor<69904xi8>
+    }
+  }
+  check.return
+}

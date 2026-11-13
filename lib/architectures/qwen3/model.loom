@@ -2,15 +2,26 @@
 // SPDX-License-Identifier: MIT
 // Architecture order lives here; generated configuration contains facts only.
 config.decl @runner.qwen3.prefill_token_count : index
+
 config.decl @qwen3.model.hidden_size : index
+
 config.decl @qwen3.model.vocabulary_size : index
+
 config.decl @qwen3.model.layer_count : index
+
 config.decl @qwen3.model.embedding_weight_bytes : index
+
+config.decl @qwen3.model.embedding_tag : index
+
 config.decl @qwen3.model.output_weight_bytes : index
+
 command.decl @loomify.qwen3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
+
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
-kernel.decl @llm.decoder.embedding_q6(%rows: index, %width: index, %vocab: index) launch(%width: index, %vocab: index, %control_origin: offset, %epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+
+template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %control_origin: offset, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
 
 command.def @loomify.qwen3.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %input_ids: buffer, %selected_ids: buffer) {
   %phase = index.constant 0 : index
@@ -19,15 +30,16 @@ command.def @loomify.qwen3.model() launch(%parameters: buffer, %residual: buffer
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %zero_offset = index.constant 0 : offset
-  %word = index.constant 4 : offset
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %descriptor_origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %descriptor_origin, %epoch, %count) : (index, offset, buffer, buffer)
   %embedding_bytes = config.get @qwen3.model.embedding_weight_bytes : index
   %embedding = command.parameter %parameters, "token_embd.weight" : view<[%embedding_bytes]xi8>
   %embedding_width = config.get @qwen3.model.hidden_size : index
   %embedding_vocab = config.get @qwen3.model.vocabulary_size : index
-  kernel.launch @llm.decoder.embedding_q6[%rows, %embedding_width, %embedding_vocab](%embedding_width, %embedding_vocab, %descriptor_origin, %epoch, %count, %input_ids, %embedding, %residual) : [index, index, index](index, index, offset, buffer, buffer, buffer, view<[%embedding_bytes]xi8>, buffer)
+  %embedding_tag = config.get @qwen3.model.embedding_tag : index
+  %embedding_output = buffer.view %residual[%zero_offset] : buffer -> view<[%rows]x[%embedding_width]xf32>
+  template.apply<@llm.embedding.ordinary_f32>(%rows, %embedding_width, %embedding_vocab, %embedding_tag, %embedding_bytes, %descriptor_origin, %epoch, %count, %input_ids, %embedding, %embedding_output) : (index, index, index, index, index, offset, buffer, buffer, buffer, view<[%embedding_bytes]xi8>, view<[%rows]x[%embedding_width]xf32>)
   %layers = config.get @qwen3.model.layer_count : index
   scf.for %layer = [%zero to %layers step %one] unroll {
     command.launch @loomify.qwen3.layer[%layer, %phase, %rows, %descriptor_origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
@@ -37,20 +49,8 @@ command.def @loomify.qwen3.model() launch(%parameters: buffer, %residual: buffer
   %output_bytes = config.get @qwen3.model.output_weight_bytes : index
   %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
   %weight = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
-  %normalized_bytes = index.scale %hidden, %word : index, offset -> offset
-  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
-  %group = index.constant 128 : index
-  %packed_group_bytes = index.constant 144 : offset
-  %groups = index.div %hidden, %group : index
-  %q8_bytes = index.scale %groups, %packed_group_bytes : index, offset -> offset
-  %logit_bytes = index.scale %vocab, %word : index, offset -> offset
-  %tile = index.constant 4096 : index
-  %tile_minus_one = index.constant 4095 : index
-  %rounded = index.add %vocab, %tile_minus_one : index
-  %parts = index.div %rounded, %tile : index
-  %partial_bytes = index.scale %parts, %word : index, offset -> offset
   %head_policy = index.constant 0 : index
   %head_tag = index.constant 14 : index
-  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %q8_bytes, %logit_bytes, %partial_bytes, %residual, %count, %gamma, %weight, %normalized, %selected_ids) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer, buffer)
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }

@@ -106,6 +106,58 @@ TEST(Lfm3Configuration, DerivesVaryingShapesMixedFormatsAndHybridStorage) {
       EXPECT_FALSE(facts.parameters.empty());
     }
 }
+TEST(Lfm3Configuration, UsesCheckedOperandAndEmbeddingTags) {
+  for (uint32_t tag : {12u, 13u, 14u}) {
+    auto c = testing::Lfm3Catalog(1024, true);
+    model::ModelDescriptor m;
+    std::string error;
+    ASSERT_TRUE(model::LoadModelDescriptor(c, &m, &error)) << error;
+    for (auto &binding : m.globals) {
+      if (binding.role != "token_embedding" && binding.role != "output")
+        continue;
+      binding.tensor.storage_type = tag;
+      ASSERT_TRUE(model::EncodedTensorByteSize(tag, m.embedding_width,
+                                               m.vocabulary_size,
+                                               &binding.tensor.byte_size));
+    }
+    auto &layer = m.layers[0];
+    layer.feed_forward_width = 32768;
+    for (auto &binding : layer.tensors) {
+      const bool down = binding.role == "ffn_down";
+      if (!down && binding.role != "ffn_gate" && binding.role != "ffn_up")
+        continue;
+      auto &tensor = binding.tensor;
+      tensor.normalized_extents = {int64_t(down ? 32768 : m.embedding_width),
+                                   int64_t(down ? m.embedding_width : 32768), 1,
+                                   1};
+      tensor.storage_type = 6;
+      ASSERT_TRUE(model::EncodedTensorByteSize(6, tensor.normalized_extents[0],
+                                               tensor.normalized_extents[1],
+                                               &tensor.byte_size));
+    }
+    ConfigurationFacts facts;
+    ASSERT_TRUE(
+        DeriveConfiguration(m, "fixture.gguf", {8, 256}, &facts, &error))
+        << error;
+    EXPECT_NE(facts.source.find("@lfm3.model.embedding_tag = " +
+                                std::to_string(tag) + " : index"),
+              std::string::npos);
+    for (auto &binding : layer.tensors) {
+      if (binding.role != "ffn_down")
+        continue;
+      binding.tensor.storage_type = 14;
+      ASSERT_TRUE(model::EncodedTensorByteSize(14, 32768, m.embedding_width,
+                                               &binding.tensor.byte_size));
+    }
+    facts.source = "preserve";
+    facts.parameters.clear();
+    EXPECT_FALSE(
+        DeriveConfiguration(m, "fixture.gguf", {8, 256}, &facts, &error));
+    EXPECT_EQ(facts.source, "preserve");
+    EXPECT_TRUE(facts.parameters.empty());
+  }
+}
+
 TEST(Lfm3Configuration, RejectsUnsupportedFactsTransactionally) {
   auto c = testing::Lfm3Catalog();
   model::ModelDescriptor m;

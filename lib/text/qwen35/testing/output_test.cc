@@ -1,5 +1,6 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
+#include "lib/text/testing/selected_policy.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/bytecode/module.h"
 #include "iree/vm/reflection.h"
@@ -49,6 +50,12 @@ bool Result(loomc_result_t *r) {
     }
   return false;
 }
+enum class Profile {
+  InlineHistory,
+  ExplicitReasoning,
+  Hermes,
+  HermesNonThinking
+};
 class VM {
 public:
   ~VM() {
@@ -61,8 +68,7 @@ public:
     loomc_allocator_free(loomc_allocator_system(),
                          const_cast<uint8_t *>(image.data));
   }
-  bool Init(bool thinking, bool bc, bool model_opens = false,
-            bool supports_thinking = true) {
+  bool Init(Profile selected, bool bc) {
     loomc_target_environment_t *e = nullptr;
     if (!Ok(loomc_target_environment_create_vm(loomc_allocator_system(), &e)))
       return false;
@@ -80,170 +86,50 @@ public:
     if (!Ok(loomc_workspace_create(nullptr, loomc_allocator_system(), &w)))
       return false;
     workspace.reset(w);
-    std::filesystem::path path =
-        std::getenv("TEST_SRCDIR") ? std::getenv("TEST_SRCDIR") : ".";
-    path /=
-        std::getenv("TEST_WORKSPACE") ? std::getenv("TEST_WORKSPACE") : "_main";
-    path /= "lib/text/protocols/chatml_thinking/output.loom";
-    std::ifstream f(path);
-    if (!f) {
-      ADD_FAILURE() << path;
-      return false;
+    const char *template_path = nullptr;
+    switch (selected) {
+    case Profile::InlineHistory:
+      template_path = "lib/text/qwen35/templates/7f0e5290.jinja";
+      break;
+    case Profile::ExplicitReasoning:
+      template_path = "lib/text/qwen35/templates/c3cf9e34.jinja";
+      break;
+    case Profile::Hermes:
+      template_path = "lib/text/qwen3/templates/5da44855.jinja";
+      break;
+    case Profile::HermesNonThinking:
+      template_path = "lib/text/qwen25/templates/cd8e9439.jinja";
+      break;
     }
-    std::string text{std::istreambuf_iterator<char>(f), {}};
-    const auto read_sibling = [&](const char *name) {
-      const auto member_path = path.parent_path() / name;
-      std::ifstream member(member_path);
-      EXPECT_TRUE(member) << member_path;
-      return std::string{std::istreambuf_iterator<char>(member), {}};
-    };
-    const auto completion_text = read_sibling("completion.loom");
-    const auto framing_text = read_sibling("framing.loom");
-    const auto strings_path =
-        path.parent_path().parent_path().parent_path() / "common/strings.loom";
-    std::ifstream strings_file(strings_path);
-    if (!strings_file) {
-      ADD_FAILURE() << strings_path;
-      return false;
-    }
-    const std::string strings{std::istreambuf_iterator<char>(strings_file), {}};
-    text =
-        "func.decl @text.trim_lf(%text: buffer,%left: i1,%right: i1) -> (buffer)\n" +
-        text;
-    // These are independent fixture values for the selected revision default.
-    // The production output implementation is read from its BUILD-owned file.
-    auto decl = text.find("func.decl @chatml.default_thinking() -> (i1)");
-    text.replace(
-        decl,
-        std::string("func.decl @chatml.default_thinking() -> (i1)").size(),
-        std::string("func.def @chatml.default_thinking() -> (i1) { %v = "
-                    "scalar.constant ") +
-            (thinking ? "true" : "false") + " : i1 func.return %v : i1 }");
-    const auto replace = [&](const std::string &declaration,
-                             const std::string &definition) {
-      const auto at = text.find(declaration);
-      EXPECT_NE(at, std::string::npos);
-      if (at != std::string::npos)
-        text.replace(at, declaration.size(), definition);
-    };
-    replace(
-        "func.decl @chatml.supports_thinking() -> (i1)",
-        std::string(
-            "func.def @chatml.supports_thinking() -> (i1) { %v = scalar.constant ") +
-            (supports_thinking ? "true" : "false") +
-            " : i1 func.return %v : i1 }");
-    replace(
-        "func.decl @chatml.model_emits_think_open() -> (i1)",
-        std::string(
-            "func.def @chatml.model_emits_think_open() -> (i1) { %v = scalar.constant ") +
-            (model_opens ? "true" : "false") + " : i1 func.return %v : i1 }");
-    replace(
-        "func.decl @chatml.normalize_content(%text: buffer) -> (buffer)",
-        (!supports_thinking || model_opens)
-            ? "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { func.return %text : buffer }"
-            : "func.def @chatml.normalize_content(%text: buffer) -> (buffer) { %v = func.call @text.trim(%text) : (buffer) -> (buffer) func.return %v : buffer }");
-    replace(
-        "func.decl @chatml.normalize_reason(%text: buffer) -> (buffer)",
-        model_opens
-            ? "func.def @chatml.normalize_reason(%text: buffer) -> (buffer) { %yes = scalar.constant true : i1 %v = func.call @text.trim_lf(%text,%yes,%yes) : (buffer,i1,i1) -> (buffer) func.return %v : buffer }"
-            : "func.def @chatml.normalize_reason(%text: buffer) -> (buffer) { %v = func.call @text.trim(%text) : (buffer) -> (buffer) func.return %v : buffer }");
-    replace(
-        "func.decl @chatml.call_separator() -> (buffer)",
-        model_opens
-            ? "func.def @chatml.call_separator() -> (buffer) { %v = global.load @chatml_output.newline : buffer func.return %v : buffer }"
-            : "func.def @chatml.call_separator() -> (buffer) { %v = global.load @chatml_output.separator : buffer func.return %v : buffer }");
-    replace(
-        "func.decl @chatml.completion_think_open() -> (buffer)",
-        "func.def @chatml.completion_think_open() -> (buffer) { %a = global.load @chatml_output.open_think : buffer %b = global.load @chatml_output.newline : buffer %e = global.load @chatml_output.empty : buffer %v = func.call @text.join8(%a,%b,%e,%e,%e,%e,%e,%e) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer) func.return %v : buffer }");
-    replace(
-        "func.decl @chatml.completion_think_close() -> (buffer)",
-        "func.def @chatml.completion_think_close() -> (buffer) { %v = global.load @chatml_output.thought_end : buffer func.return %v : buffer }");
-    replace(
-        "func.decl @chatml.strip_after_think_newlines() -> (i1)",
-        "func.def @chatml.strip_after_think_newlines() -> (i1) { %v = scalar.constant true : i1 func.return %v : i1 }");
-    // Parse the output provider and its real shared utilities separately.
-    // Concatenating a declaration and definition into one source unit is
-    // invalid; native MERGE resolves that interface without any fixture helper
-    // shim.
-    auto parse = [&](const std::string &contents, const char *identifier) {
-      loomc_source_options_t so{};
-      so.format = LOOMC_SOURCE_FORMAT_TEXT;
-      so.identifier = loomc_make_cstring_view(identifier);
-      so.contents = {reinterpret_cast<const uint8_t *>(contents.data()),
-                     contents.size()};
-      so.storage = LOOMC_SOURCE_STORAGE_BORROWED;
-      loomc_source_t *raw = nullptr;
-      if (!Ok(loomc_source_create(&so, loomc_allocator_system(), &raw)))
-        return Owner<loomc_module_t, loomc_module_release>(
-            nullptr, loomc_module_release);
-      Owner<loomc_source_t, loomc_source_release> source(raw,
-                                                         loomc_source_release);
-      loomc_module_t *parsed_module = nullptr;
-      loomc_result_t *result = nullptr;
-      const auto status = loomc_module_deserialize_from_source(
-          c, w, raw, nullptr, loomc_allocator_system(), &parsed_module,
-          &result);
-      Owner<loomc_module_t, loomc_module_release> module(parsed_module,
-                                                         loomc_module_release);
-      Owner<loomc_result_t, loomc_result_release> parsed(result,
-                                                         loomc_result_release);
-      if (!Ok(status) || !Result(result))
-        module.reset();
-      return module;
-    };
-    auto output = parse(text, "output-fixture");
-    auto utilities = parse(strings, "text-utilities");
-    auto completion = parse(completion_text, "selected-completion");
-    auto framing = parse(framing_text, "selected-framing");
-    if (!output || !utilities || !completion || !framing)
-      return false;
-    loomc_linker_t *linker_raw = nullptr;
-    if (!Ok(loomc_linker_create(c, nullptr, loomc_allocator_system(),
-                                &linker_raw)))
-      return false;
-    Owner<loomc_linker_t, loomc_linker_release> linker(linker_raw,
-                                                       loomc_linker_release);
-    const loomc_link_module_provider_t providers[] = {
-        {output.get(), loomc_make_cstring_view("output"),
-         LOOMC_LINK_PROVIDER_ROLE_INPUT},
-        {utilities.get(), loomc_make_cstring_view("utilities"),
-         LOOMC_LINK_PROVIDER_ROLE_INPUT},
-        {completion.get(), loomc_make_cstring_view("completion"),
-         LOOMC_LINK_PROVIDER_ROLE_INPUT},
-        {framing.get(), loomc_make_cstring_view("framing"),
-         LOOMC_LINK_PROVIDER_ROLE_INPUT}};
-    loomc_link_options_t link{};
-    link.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
-    link.structure_size = sizeof(link);
-    link.mode = LOOMC_LINK_MODE_MERGE;
-    link.module_providers = providers;
-    link.module_provider_count = 4;
     loomc_module_t *m = nullptr;
-    loomc_result_t *r = nullptr;
-    auto status = loomc_link_module(linker_raw, w, &link, &m, &r);
-    Owner<loomc_module_t, loomc_module_release> module(m, loomc_module_release);
-    Owner<loomc_result_t, loomc_result_release> merged(r, loomc_result_release);
-    if (!Ok(status) || !Result(r))
+    std::string error;
+    if (!hrx::loomify_gguf::testing::LinkSelectedText(
+            c, w, template_path,
+            {"output_next", "complete_text", "chatml.output_initial"}, &m,
+            &error)) {
+      ADD_FAILURE() << error;
       return false;
-    if (bc) {
-      loomc_module_serialize_options_t serialization{};
-      serialization.format = LOOMC_SOURCE_FORMAT_BYTECODE;
-      loomc_source_t *bytes = nullptr;
-      if (!Ok(loomc_module_serialize_to_source(
-              m, &serialization, loomc_allocator_system(), &bytes)))
-        return false;
-      Owner<loomc_source_t, loomc_source_release> stored(bytes,
-                                                         loomc_source_release);
-      loomc_module_t *restored = nullptr;
-      loomc_result_t *rr = nullptr;
-      status = loomc_module_deserialize_from_source(
-          c, w, bytes, nullptr, loomc_allocator_system(), &restored, &rr);
-      Owner<loomc_result_t, loomc_result_release> result(rr,
-                                                         loomc_result_release);
-      module.reset(restored);
-      if (!Ok(status) || !Result(rr))
-        return false;
     }
+    Owner<loomc_module_t, loomc_module_release> module(m, loomc_module_release);
+    // Exercise the same fully configured composition in each serialized form.
+    loomc_module_serialize_options_t serialization{};
+    serialization.format =
+        bc ? LOOMC_SOURCE_FORMAT_BYTECODE : LOOMC_SOURCE_FORMAT_TEXT;
+    loomc_source_t *bytes = nullptr;
+    if (!Ok(loomc_module_serialize_to_source(m, &serialization,
+                                             loomc_allocator_system(), &bytes)))
+      return false;
+    Owner<loomc_source_t, loomc_source_release> stored(bytes,
+                                                       loomc_source_release);
+    loomc_module_t *restored = nullptr;
+    loomc_result_t *rr = nullptr;
+    auto status = loomc_module_deserialize_from_source(
+        c, w, bytes, nullptr, loomc_allocator_system(), &restored, &rr);
+    Owner<loomc_result_t, loomc_result_release> result(rr,
+                                                       loomc_result_release);
+    module.reset(restored);
+    if (!Ok(status) || !Result(rr))
+      return false;
     loomc_compiler_t *compiler_raw = nullptr;
     if (!Ok(loomc_compiler_create(c, nullptr, loomc_allocator_system(),
                                   &compiler_raw)))
@@ -466,7 +352,7 @@ void Check(VM &vm, const Fixture &f, size_t split, bool bytewise) {
 TEST(QwenOutput, ModelGeneratedOpenerAtEverySplitAndBytecode) {
   for (bool bc : {false, true}) {
     VM vm;
-    ASSERT_TRUE(vm.Init(true, bc, true));
+    ASSERT_TRUE(vm.Init(Profile::Hermes, bc));
     EXPECT_EQ(vm.Initial(true, true), 34);
     EXPECT_EQ(vm.Initial(false, true), 1);
     EXPECT_EQ(vm.Initial(true, false), 17);
@@ -491,7 +377,7 @@ TEST(QwenOutput, ModelGeneratedOpenerAtEverySplitAndBytecode) {
 TEST(QwenOutput, ModelGeneratedOpeningPreservesCanonicalWhitespace) {
   for (bool bc : {false, true}) {
     VM vm;
-    ASSERT_TRUE(vm.Init(true, bc, true));
+    ASSERT_TRUE(vm.Init(Profile::Hermes, bc));
     const std::string prefix = "history<|im_start|>assistant\n";
     auto result = vm.Complete(prefix, " answer ", "\n thought \n",
                               "<tool_call>x</tool_call>", 34);
@@ -516,7 +402,7 @@ TEST(QwenOutput, ModelGeneratedOpeningPreservesCanonicalWhitespace) {
 TEST(QwenOutput, NeverThinkingKeepsLiteralMarkersAndNoPrefixCompletionPlain) {
   for (bool bc : {false, true}) {
     VM vm;
-    ASSERT_TRUE(vm.Init(false, bc, false, false));
+    ASSERT_TRUE(vm.Init(Profile::HermesNonThinking, bc));
     const Fixture fixtures[] = {
         {u8"  café 🦙 <think>literal</think> \n", "",
          u8"  café 🦙 <think>literal</think> \n", "", 1},
@@ -540,7 +426,8 @@ TEST(QwenOutput, EverySplitAndBytewiseGrowthFromSourceAndBytecode) {
   for (bool bc : {false, true})
     for (bool thinking : {false, true}) {
       VM vm;
-      ASSERT_TRUE(vm.Init(thinking, bc));
+      ASSERT_TRUE(vm.Init(
+          thinking ? Profile::ExplicitReasoning : Profile::InlineHistory, bc));
       EXPECT_EQ(vm.Initial(false, true), 1);
       EXPECT_EQ(vm.Initial(true, true), 2);
       EXPECT_EQ(vm.Initial(false, false), 17);
@@ -594,7 +481,8 @@ TEST(QwenOutput, CanonicalAssistantAndConservativeReplayFromSourceAndBytecode) {
   for (bool bc : {false, true})
     for (bool thinking : {false, true}) {
       VM vm;
-      ASSERT_TRUE(vm.Init(thinking, bc));
+      ASSERT_TRUE(vm.Init(
+          thinking ? Profile::ExplicitReasoning : Profile::InlineHistory, bc));
       const std::string prefix = "history<|im_start|>assistant\n<think>\n";
       auto result =
           vm.Complete(prefix, "\u3000 answer \u00a0", "\u2003 thought \u202f",

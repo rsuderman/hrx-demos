@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor_internal.h"
-#include "tools/model/architectures/qwen35.h"
+#include "tools/model/assembly_registry.h"
 namespace hrx::model::internal {
 namespace {
 std::vector<bool> Recurrent(const Loader &l, size_t count) {

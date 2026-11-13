@@ -6,25 +6,14 @@ load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:model_assembly.bzl", "ordinary_products")
+load("//lib/architectures:assemblies.bzl", "assembly")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files([
-    "control_core.loom",
-    "prepare.loom",
-])
+ordinary_products(assembly("llama"))
 
 # Config declarations are intentionally resolved by the final native LINK.
-genrule(
-    name = "prepare_library",
-    srcs = [
-        "prepare.loom",
-        "//lib/serving:ordinary_prepare.loom",
-    ],
-    outs = ["prepare_library.loombc"],
-    cmd = "$(location @hrx_system//loom/src/loom/tools/loom-link) --mode=merge $(SRCS) --to=bc --output=$@",
-    tools = ["@hrx_system//loom/src/loom/tools/loom-link"],
-)
 
 cc_test(
     name = "prepare_test",
@@ -32,7 +21,7 @@ cc_test(
     srcs = ["testing/prepare_test.cc"],
     copts = ["-std=c++17"],
     data = [
-        "prepare.loom",
+        ":ordinary_prepare_source",
         ":prepare_library",
         "//lib/serving:ordinary_prepare.loom",
     ],
@@ -46,37 +35,10 @@ cc_test(
 )
 
 # One exact set drives source-form fixtures and late-configured bytecode.
-_ARCHITECTURE_SOURCES = [
-    "model.loom",
-    "epoch.loom",
-    "//lib/programs/llama:implementation_sources",
-    "//lib/programs/ffn:interface.loom",
-    "//lib/programs/ffn:ffn.loom",
-]
-
-_IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + ["//lib/kernels/llama:configured_provider_sources"]
 
 exports_files([
     "model.loom",
-    "epoch.loom",
 ])
-
-filegroup(
-    name = "architecture_sources",
-    srcs = _ARCHITECTURE_SOURCES,
-)
-
-loom_merge(
-    name = "implementation",
-    srcs = _IMPLEMENTATION_SOURCES,
-)
-
-loom_merge(
-    name = "implementation_text",
-    testonly = True,
-    srcs = _IMPLEMENTATION_SOURCES,
-    output_format = "text",
-)
 
 loom_merge(
     name = "layer_fixture",
@@ -165,14 +127,5 @@ cc_test(
         "@hrx_system//loom/binding/c/target/cmd",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
-    ],
-)
-
-loom_merge(
-    name = "execution",
-    srcs = [
-        "control_core.loom",
-        "//loom-pipeline:llm/common/fixed_epoch_abi.loom",
-        "//lib/serving:ordinary_control.loom",
     ],
 )

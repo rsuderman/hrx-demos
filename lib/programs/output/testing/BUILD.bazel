@@ -1,34 +1,34 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
-load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
-load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:loom_testing.bzl", "loom_provider_checks")
 
-[loom_merge(
-    name = "q5_provider_" + format,
-    testonly = True,
-    srcs = [
+loom_provider_checks(
+    name = "q5_head",
+    checks = ["q5_head_checks.loom"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "q5_provider",
+    provider_srcs = [
         "//lib/kernels/decoder:implementation_sources",
         "//lib/kernels/selection:greedy_argmax.loom",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/programs/output:last_greedy.loom",
         "//lib/programs/projection:implementation_sources",
     ],
-    output_format = format,
-) for format in [
-    "text",
-    "bc",
-]]
+)
 
-[loom_test(
-    name = "q5_head_" + format + "_test",
-    srcs = [
-        "q5_head_checks.loom",
-        ":q5_provider_" + format,
-    ],
-    benchmark_smoke = False,
+loom_provider_checks(
+    name = "gemma_head",
+    checks = ["gemma_head_checks.loom"],
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
-) for format in [
-    "text",
-    "bc",
-]]
+    provider_name = "gemma_head_provider",
+    provider_srcs = [
+        "//lib/programs/output:last_greedy.loom",
+        "//lib/programs/projection:implementation_sources",
+        "//lib/kernels/selection:greedy_argmax.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/gemma3:output.loom",
+        "//lib/kernels/gemma3:output_norm_last.loom",
+        "//lib/kernels/normalization:rmsnorm_row.loom",
+    ],
+)

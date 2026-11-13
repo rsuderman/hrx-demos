@@ -1,12 +1,13 @@
 // Explicit checkpoint IDs for this existing independent numerical fixture.
 config.def @llama.publication.end_text_id = 128001 : i32
+
 config.def @llama.publication.end_message_id = 128008 : i32
+
 config.def @llama.publication.end_turn_id = 128009 : i32
 
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Maintained test call wiring; numerical bodies are linked from owned kernels.
-
 config.def @llama.model.hidden_size = 3072 : index
 
 config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
@@ -20,7 +21,6 @@ config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %53: index where [ran
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Snapshot active rows for the numerical head; the source packet remains immutable.
-
 config.def @llama.model.vocabulary_size = 128256 : index
 
 config.def @qwen38.greedy_argmax.output_capacity = 128256 : %771: index where [range(%771, 256, 262144)]
@@ -32,16 +32,15 @@ config.def @qwen38.greedy_argmax.output_capacity = 128256 : %771: index where [r
 amdgpu.target<gfx11-generic> @qwen38_greedy_argmax_gfx11_wave64 {subgroup_size = 64}
 
 // Generic MMQ active-extent selection, shared by explicit producer/consumer policies.
-
 kernel.decl @llama32_publish_epoch_id() launch(%epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
 
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
 kernel.decl @llama32_output_norm_last_f32(%token_capacity: index) launch(%token_capacity0: index, %token_begin0: index, %control_origin: offset, %control: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0$25: index) launch(%token_count0$26: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
 
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
 
 command.def public retain @head.rows.prefill() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer) {
   command.serial {
@@ -92,17 +91,12 @@ command.def public retain @head.full.prefill() launch(%v0: buffer, %v1: buffer, 
     %v19 = index.constant 3072 : index
     %v20 = index.constant 128256 : index
     %v21 = index.constant 323205120 : index
-    %v22 = index.constant 3456 : offset
-    %v23 = index.constant 513024 : offset
-    %v24 = index.constant 128 : offset
     %v25 = command.parameter %v0, "token_embd.weight" : view<[%v21]xi8>
     %v26 = index.constant 0 : offset
     %v27 = buffer.view %v2[%v26] : buffer -> view<[%v19]xf32>
-    %v28 = index.constant 12288 : offset
-    %v29 = buffer.alloca<global> align(256) %v28 : buffer
     %head_policy = index.constant 0 : index
     %head_tag = index.constant 14 : index
-    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %head_policy, %head_tag, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
+    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %head_policy, %head_tag, %v1, %v8, %v27, %v25, %v6) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer)
     kernel.launch @llama32_publish_epoch_id(%v3, %v6, %v5) : (buffer, buffer, buffer)
   }
   command.return
@@ -127,17 +121,12 @@ command.def public retain @head.full.decode() launch(%v0: buffer, %v1: buffer, %
     %v19 = index.constant 3072 : index
     %v20 = index.constant 128256 : index
     %v21 = index.constant 323205120 : index
-    %v22 = index.constant 3456 : offset
-    %v23 = index.constant 513024 : offset
-    %v24 = index.constant 128 : offset
     %v25 = command.parameter %v0, "token_embd.weight" : view<[%v21]xi8>
     %v26 = index.constant 0 : offset
     %v27 = buffer.view %v2[%v26] : buffer -> view<[%v19]xf32>
-    %v28 = index.constant 12288 : offset
-    %v29 = buffer.alloca<global> align(256) %v28 : buffer
     %head_policy = index.constant 0 : index
     %head_tag = index.constant 14 : index
-    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %head_policy, %head_tag, %v22, %v23, %v24, %v1, %v8, %v27, %v25, %v29, %v6) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer, buffer)
+    template.apply<@llm.output.last_greedy>(%v16, %v17, %v18, %v19, %v20, %v21, %head_policy, %head_tag, %v1, %v8, %v27, %v25, %v6) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%v19]xf32>, view<[%v21]xi8>, buffer)
     kernel.launch @llama32_publish_epoch_id(%v3, %v6, %v5) : (buffer, buffer, buffer)
   }
   command.return
@@ -145,10 +134,17 @@ command.def public retain @head.full.decode() launch(%v0: buffer, %v1: buffer, %
 
 // Same minimal unused-format facts emitted by Producer::ProjectionCapacities.
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 1 : index
+
 config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+
 config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

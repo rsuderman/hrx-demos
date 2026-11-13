@@ -1,3 +1,5 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
 func.decl @chatml.check(%condition: i1)
 
 global.rodata.decl @chatml.content
@@ -30,8 +32,28 @@ func.decl @text.range(%json: buffer, %begin: i64, %length: i64) -> (buffer)
 
 func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
 
-// Copyright 2026 AMD ROCm Software
-// SPDX-License-Identifier: MIT
+global.rodata.decl @chatml.end
+
+func.decl @chatml.render_schemas(%tools: buffer, %compact: i1) -> (buffer)
+
+global.rodata.decl @chatml.separator
+
+global.rodata.decl @chatml.system_open
+
+global.rodata.decl @loomify.text.tools_prefix
+
+global.rodata.decl @loomify.text.tools_suffix
+
+global.rodata.decl @chatml.low
+
+global.rodata.decl @loomify.text.default_effort
+
+global.rodata.decl @loomify.text.effort_low
+
+global.rodata.decl @loomify.text.effort_xhigh
+
+global.rodata.decl @chatml.assistant_open
+
 // Exact 93d6aa90 Spark GLM policy, independent of numerical architecture.
 global.rodata.def public @spark.empty = bytes("")
 
@@ -47,146 +69,11 @@ global.rodata.def @spark.tool_open = bytes("3c746f6f6c5f726573706f6e73653e")
 
 global.rodata.def @spark.tool_close = bytes("3c2f746f6f6c5f726573706f6e73653e")
 
-func.def pure inline @chatml.default_thinking() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.keep_reasoning_default() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.inline_reasoning() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.emit_empty_system() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.has_effort() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.supports_preserve_thinking() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.supports_thinking() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.model_emits_think_open() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.allow_later_system() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.system_before_tools() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.require_user() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.first_tool_header() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.group_tool_responses() -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.python_tool_literals() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def pure inline @chatml.strip_after_think_newlines() -> (i1) {
-  %v = scalar.constant false : i1
-  func.return %v : i1
-}
-
-func.def inline @chatml.is_last_query(%user: i1, %wrapped: i1) -> (i1) {
-  func.return %user : i1
-}
-
-func.def pure inline @chatml.no_user_index(%last: i64) -> (i64) {
-  %v = scalar.constant -1 : i64
-  func.return %v : i64
-}
-
-func.def inline @chatml.normalize_content(%text: buffer) -> (buffer) {
-  func.return %text : buffer
-}
-
-func.def inline @chatml.normalize_reason(%text: buffer) -> (buffer) {
-  func.return %text : buffer
-}
-
-func.def inline @chatml.retained_body(%text: buffer) -> (buffer) {
-  func.return %text : buffer
-}
-
-func.def inline @chatml.history_calls(%raw: buffer, %rendered: buffer) -> (buffer) {
-  func.return %rendered : buffer
-}
-
-func.def inline @chatml.prompt_prefix() -> (buffer) {
-  %v = global.load @spark.empty : buffer
-  func.return %v : buffer
-}
-
-func.def inline @chatml.call_separator() -> (buffer) {
-  %v = global.load @spark.empty : buffer
-  func.return %v : buffer
-}
-
-func.def inline @chatml.tool_call_gap() -> (buffer) {
-  %v = global.load @spark.empty : buffer
-  func.return %v : buffer
-}
-
-func.def inline @chatml.completion_think_open() -> (buffer) {
-  %v = global.load @spark.think_open : buffer
-  func.return %v : buffer
-}
-
-func.def inline @chatml.completion_think_close() -> (buffer) {
-  %v = global.load @spark.think_close : buffer
-  func.return %v : buffer
-}
-
 func.def inline @chatml.generation_thought(%thinking: i1) -> (buffer) {
   %open = global.load @spark.think_open : buffer
   %close = global.load @spark.think_close : buffer
   %v = scf.select %thinking, %open, %close : buffer
   func.return %v : buffer
-}
-
-func.def pure inline @chatml.history_state(%last_user: i64, %count: i64) -> (i64) {
-  %v = scalar.constant 0 : i64
-  func.return %v : i64
-}
-
-func.def pure inline @chatml.history_thought(%state: i64, %ordinal: i64, %reason: buffer) -> (i1) {
-  %v = scalar.constant true : i1
-  func.return %v : i1
 }
 
 func.def inline @chatml.history_prefix(%header: buffer, %reason: buffer, %retain: i1) -> (buffer) {
@@ -223,11 +110,6 @@ func.def @chatml.default_system() -> (buffer, i1) {
   %v = func.call @text.join8(%lead, %effort, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
   %yes = scalar.constant true : i1
   func.return %v, %yes : buffer, i1
-}
-
-func.def @chatml.system_tools_separator(%has: i1, %has_text: i1) -> (buffer) {
-  %v = global.load @spark.empty : buffer
-  func.return %v : buffer
 }
 
 func.def @chatml.schema_value(%tool: buffer) -> (buffer) {
@@ -298,4 +180,97 @@ func.def @chatml.admit_request(%request: buffer) {
     }
   }
   func.return
+}
+
+// Spark always keeps its default lead, then tools, then initial custom system.
+func.def @chatml.render_system(%source_system: buffer, %source_has_system: i1, %instruction: buffer, %tools: buffer) -> (buffer) {
+  %lead = global.load @spark.system_lead : buffer
+  %open = global.load @chatml.system_open : buffer
+  %close = global.load @chatml.end : buffer
+  %empty = global.load @spark.empty : buffer
+  %gap = global.load @chatml.separator : buffer
+  %zero = index.constant 0 : offset
+  %size = buffer.length %source_system
+  %has_text = index.cmp ne, %size, %zero : offset
+  %sep = scf.select %has_text, %gap, %empty : buffer
+  %records, %kind, %count = func.call @members(%tools) : (buffer) -> (buffer, i32, i64)
+  %zero64 = scalar.constant 0 : i64
+  %has_tools = scalar.cmpi ne, %count, %zero64 : i64
+  %tool_text = scf.if %has_tools -> (buffer) {
+    %prefix = global.load @loomify.text.tools_prefix : buffer
+    %suffix = global.load @loomify.text.tools_suffix : buffer
+    %compact = scalar.constant true : i1
+    %schemas = func.call @chatml.render_schemas(%tools, %compact) : (buffer, i1) -> (buffer)
+    %v = func.call @text.join8(%prefix, %schemas, %suffix, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+    scf.yield %v : buffer
+  } else {
+    scf.yield %empty : buffer
+  }
+  %v = func.call @text.join8(%open, %lead, %instruction, %tool_text, %sep, %source_system, %close, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %v : buffer
+}
+
+global.rodata.def @spark.high = bytes("68696768")
+
+func.def @chatml.effort_instruction(%effort: buffer, %enabled: i1) -> (buffer) {
+  %empty = global.load @spark.empty : buffer
+  %value = scf.if %enabled -> (buffer) {
+    %low_key = global.load @chatml.low : buffer
+    %high_key = global.load @spark.high : buffer
+    %low = func.call @text.equal(%effort, %low_key) : (buffer, buffer) -> (i1)
+    %high = func.call @text.equal(%effort, %high_key) : (buffer, buffer) -> (i1)
+    %valid = scalar.ori %low, %high : i1
+    func.call @chatml.check(%valid) : (i1)
+    %low_text = global.load @loomify.text.effort_low : buffer
+    %high_text = global.load @loomify.text.effort_xhigh : buffer
+    %v = scf.select %low, %low_text, %high_text : buffer
+    scf.yield %v : buffer
+  } else {
+    scf.yield %empty : buffer
+  }
+  func.return %value : buffer
+}
+
+func.def public @chat_reasoning() -> (i32, i32, i32) {
+  %enabled = scalar.constant 1 : i32
+  %mask = scalar.constant 20 : i32
+  %low = scalar.constant 2 : i32
+  %high = scalar.constant 4 : i32
+  %value = global.load @loomify.text.default_effort : buffer
+  %key = global.load @chatml.low : buffer
+  %is_low = func.call @text.equal(%value, %key) : (buffer, buffer) -> (i1)
+  %level = scf.select %is_low, %low, %high : i32
+  func.return %enabled, %mask, %level : i32, i32, i32
+}
+
+// Canonical history follows original assistant rendering, including empty reason.
+// Replay is conservative: a generated open think prefix may disappear canonically.
+func.def public @complete_text(%prompt: buffer, %response: buffer, %content: buffer, %reasoning: buffer, %tools: buffer, %initial_state: i64, %final_state: i64) -> (buffer, i32) {
+  %zero = index.constant 0 : offset
+  %zero64 = scalar.constant 0 : i64
+  %two64 = scalar.constant 2 : i64
+  %mask = scalar.constant 7 : i64
+  %prefix_mask = scalar.constant 16 : i64
+  %flags = scalar.andi %initial_state, %prefix_mask : i64
+  %no_prefix = scalar.cmpi ne, %flags, %zero64 : i64
+  %mode = scalar.andi %initial_state, %mask : i64
+  %thinking = scalar.cmpi eq, %mode, %two64 : i64
+  %thought = func.call @chatml.generation_thought(%thinking) : (i1) -> (buffer)
+  %header = global.load @chatml.assistant_open : buffer
+  %header_size = buffer.length %header
+  %thought_size = buffer.length %thought
+  %prefix_size = index.add %header_size, %thought_size : offset
+  %strip = scf.select %no_prefix, %zero, %prefix_size : offset
+  %prompt_size = buffer.length %prompt
+  %fits = index.cmp uge, %prompt_size, %strip : offset
+  func.call @chatml.check(%fits) : (i1)
+  %kept = index.sub %prompt_size, %strip : offset
+  %kept64 = index.cast %kept : offset to i64
+  %history = func.call @text.range(%prompt, %zero64, %kept64) : (buffer, i64, i64) -> (buffer)
+  %reason_prefix = func.call @spark.reason_prefix(%reasoning) : (buffer) -> (buffer)
+  %end = global.load @chatml.end : buffer
+  %empty = global.load @spark.empty : buffer
+  %v = func.call @text.join8(%history, %header, %reason_prefix, %content, %tools, %end, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  %reuse = scalar.constant 0 : i32
+  func.return %v, %reuse : buffer, i32
 }

@@ -1,3 +1,5 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+
 # Test-only source sets for the explicitly isolated SDK consumer.
 package(default_visibility = ["//internal_consumer:__pkg__"])
 
@@ -19,4 +21,28 @@ filegroup(
         "reference-requirements.txt",
     ],
     visibility = ["//visibility:public"],
+)
+
+iree_cc_library(
+    name = "selected_policy",
+    testonly = True,
+    hdrs = ["selected_policy.h"],
+    cxxopts = ["-std=c++17"],
+    data = [
+        "//lib/text/qwen35:templates/7f0e5290.jinja",
+        "//lib/text/qwen35:templates/c3cf9e34.jinja",
+        "//lib/text/qwen3:templates/5da44855.jinja",
+        "//lib/text/qwen25:templates/cd8e9439.jinja",
+        "//lib/text/protocols/chatml_thinking:inline_history",
+        "//lib/text/protocols/chatml_thinking:explicit_reasoning",
+        "//lib/text/protocols/chatml_thinking:hermes",
+        "//lib/text/protocols/chatml_thinking:hermes_non_thinking",
+        "//lib/text/common:implementation",
+    ],
+    visibility = ["//lib/text:__subpackages__"],
+    deps = [
+        "//lib/loomify:chat_policy",
+        "//lib/loomify:native_linking",
+        "//lib/serving:library_resources",
+    ],
 )

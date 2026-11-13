@@ -88,6 +88,7 @@ bool SelectChatPolicy(const model::TextMetadata &metadata,
     result.source_key = selected->source_key;
     result.template_name = selected->name;
     result.source_text = selected->text;
+    text_policy::EmitFixedTextDefaults(result.revision, &result);
     result.roots = kRoots;
     *out = std::move(result);
     if (error)

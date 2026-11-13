@@ -27,3 +27,18 @@ func.def public inline @llm.active_row(%row: index, %begin: index, %fixed_count:
   }
   func.return %active : i1
 }
+
+// Ordinary packets additionally reject counts above the candidate row capacity.
+func.def public inline @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1) {
+  %origin = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %words = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %n32 = view.load %words[0] : view<3xi32> -> i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %fits = index.cmp ule, %n, %rows : index
+  %inside = index.cmp ult, %row, %n : index
+  %valid_count = scalar.andi %positive, %fits : i1
+  %active = scalar.andi %valid_count, %inside : i1
+  func.return %active : i1
+}

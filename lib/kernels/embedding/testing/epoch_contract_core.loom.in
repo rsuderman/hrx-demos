@@ -1,0 +1,282 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent single-block tables distinguish the final two vocabulary rows.
+// Q4: code2, scale1, d=.5/1 -> 1/2. Q5: code18 -> 9/18.
+// Q6: code33 centered by32, scale1, d=.5/1 -> .5/1.
+// These fixtures target addressing/admission, while existing row-codec fixtures
+// retain their broader independent arithmetic/packing coverage.
+template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
+func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stride0: index, %bytes: index, %weights: buffer, %ids: buffer, %count: buffer) {
+  %rows = index.assume %rows0 [range(%rows0, 2, 513)] : index
+  %vocab = index.assume %vocab0 [range(%vocab0, 2, 128257)] : index
+  %stride = index.assume %stride0 [range(%stride0, 144, 210)] : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %twelve = index.constant 12 : index
+  %thirteen = index.constant 13 : index
+  %zero_offset = index.constant 0 : offset
+  %bank = index.constant 16 : offset
+  %stride_bytes = index.cast %stride : index to offset
+  %first_id = index.sub %vocab, %two : index
+  %q6_tag = index.constant 14 : index
+  %q6 = index.cmp eq, %tag, %q6_tag : index
+  %q5 = index.cmp eq, %tag, %thirteen : index
+  %zero8 = scalar.constant 0 : i8
+  %one8 = scalar.constant 1 : i8
+  %q4_codes = scalar.constant 34 : i8
+  %q6_codes = scalar.constant 17 : i8
+  %q6_high = scalar.constant -86 : i8
+  %q5_high = scalar.constant -1 : i8
+  %half = scalar.constant 0.5 : f16
+  %unit = scalar.constant 1.0 : f16
+  %zero_half = scalar.constant 0.0 : f16
+  scf.for %r = [%zero to %two step %one] {
+    %id = index.add %first_id, %r : index
+    %row_add = index.scale %id, %stride_bytes : index, offset -> offset
+    %base = index.add %bank, %row_add : offset
+    %row = buffer.view %weights[%base] : buffer -> view<[%stride]xi8>
+    scf.for %byte = [%zero to %stride step %one] {
+      view.store %zero8, %row[%byte] : i8, view<[%stride]xi8>
+    }
+    %low = index.cmp eq, %r, %zero : index
+    %d = scf.select %low, %half, %unit : f16
+    scf.if %q6 {
+      %ql = buffer.view %weights[%base] : buffer -> view<128xi8>
+      %qh_offset = index.constant 128 : offset
+      %qh_base = index.add %base, %qh_offset : offset
+      %qh = buffer.view %weights[%qh_base] : buffer -> view<64xi8>
+      %sc_offset = index.constant 192 : offset
+      %sc_base = index.add %base, %sc_offset : offset
+      %sc = buffer.view %weights[%sc_base] : buffer -> view<16xi8>
+      %d_offset = index.constant 208 : offset
+      %d_base = index.add %base, %d_offset : offset
+      %ds = buffer.view %weights[%d_base] : buffer -> view<1xf16>
+      %n128 = index.constant 128 : index
+      %n64 = index.constant 64 : index
+      %n16 = index.constant 16 : index
+      scf.for %i = [%zero to %n128 step %one] {
+        view.store %q6_codes, %ql[%i] : i8, view<128xi8>
+      }
+      scf.for %i = [%zero to %n64 step %one] {
+        view.store %q6_high, %qh[%i] : i8, view<64xi8>
+      }
+      scf.for %i = [%zero to %n16 step %one] {
+        view.store %one8, %sc[%i] : i8, view<16xi8>
+      }
+      view.store %d, %ds[0] : f16, view<1xf16>
+    } else {
+      %header = buffer.view %weights[%base] : buffer -> view<2xf16>
+      view.store %d, %header[0] : f16, view<2xf16>
+      view.store %zero_half, %header[1] : f16, view<2xf16>
+      %sc_offset = index.constant 4 : offset
+      %sc_base = index.add %base, %sc_offset : offset
+      %sc = buffer.view %weights[%sc_base] : buffer -> view<12xi8>
+      scf.for %i = [%zero to %twelve step %one] {
+        view.store %one8, %sc[%i] : i8, view<12xi8>
+      }
+      %q4_offset = index.constant 16 : offset
+      %q5_offset = index.constant 48 : offset
+      %code_offset = scf.select %q5, %q5_offset, %q4_offset : offset
+      %code_base = index.add %base, %code_offset : offset
+      %codes = buffer.view %weights[%code_base] : buffer -> view<128xi8>
+      %n128 = index.constant 128 : index
+      scf.for %i = [%zero to %n128 step %one] {
+        view.store %q4_codes, %codes[%i] : i8, view<128xi8>
+      }
+      scf.if %q5 {
+        %high_base = index.add %base, %q4_offset : offset
+        %highs = buffer.view %weights[%high_base] : buffer -> view<32xi8>
+        %n32 = index.constant 32 : index
+        scf.for %i = [%zero to %n32 step %one] {
+          view.store %q5_high, %highs[%i] : i8, view<32xi8>
+        }
+      }
+    }
+  }
+  %nview = buffer.view %count[%zero_offset] : buffer -> view<1xi32>
+  %n = view.load %nview[0] : view<1xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %active = scalar.cmpi sgt, %n, %zero32 : i32
+  scf.if %active {
+    %tokens = buffer.view %ids[%zero_offset] : buffer -> view<[%rows]xi32>
+    scf.for %r = [%zero to %rows step %one] {
+      %parity = index.rem %r, %two : index
+      %id = index.add %first_id, %parity : index
+      %word = index.cast %id : index to i32
+      view.store %word, %tokens[%r] : i32, view<[%rows]xi32>
+    }
+  }
+  func.return
+}
+
+kernel.def @epoch_contract.init() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%tag: index, %rows: index, %vocab: index, %stride: index, %bytes: index, %weights: buffer, %ids: buffer, %count: buffer) {
+  func.call @epoch_contract.setup(%tag, %rows, %vocab, %stride, %bytes, %weights, %ids, %count) : (index, index, index, index, index, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+
+func.def @epoch_contract.expected(%tag: index, %rows0: index, %vocab: index, %stride: index, %bytes: index, %weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
+  func.call @epoch_contract.setup(%tag, %rows0, %vocab, %stride, %bytes, %weights, %ids, %count) : (index, index, index, index, index, buffer, buffer, buffer) -> ()
+  %rows = index.assume %rows0 [range(%rows0, 2, 513)] : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %width = index.constant 256 : index
+  %origin = index.constant 0 : offset
+  %descriptor_origin = index.constant 12 : offset
+  %output_origin = index.constant 16 : offset
+  %e = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %begin32 = view.load %e[2] : view<5xi32> -> i32
+  %begin0 = index.cast %begin32 : i32 to index
+  %begin = index.assume %begin0 [range(%begin0, 0, 1)] : index
+  %nview = buffer.view %count[%origin] : buffer -> view<1xi32>
+  %n32 = view.load %nview[0] : view<1xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  scf.if %positive {
+    %n0 = index.cast %n32 : i32 to index
+    %n = index.assume %n0 [range(%n0, 1, 513), le(%n0, %rows)] : index
+    %out = buffer.view %output[%output_origin] : buffer -> view<[%rows]x256xf32>
+    %q5_tag = index.constant 13 : index
+    %q6_tag = index.constant 14 : index
+    %q5 = index.cmp eq, %tag, %q5_tag : index
+    %q6 = index.cmp eq, %tag, %q6_tag : index
+    %q4_low = scalar.constant 1.0 : f32
+    %q4_high = scalar.constant 2.0 : f32
+    %q5_low = scalar.constant 9.0 : f32
+    %q5_high = scalar.constant 18.0 : f32
+    %q6_low = scalar.constant 0.5 : f32
+    %q6_high = scalar.constant 1.0 : f32
+    %low0 = scf.select %q5, %q5_low, %q4_low : f32
+    %high0 = scf.select %q5, %q5_high, %q4_high : f32
+    %low = scf.select %q6, %q6_low, %low0 : f32
+    %high = scf.select %q6, %q6_high, %high0 : f32
+    scf.for %r = [%zero to %n step %one] {
+      %input = index.add %begin, %r : index
+      %parity = index.rem %input, %two : index
+      %is_low = index.cmp eq, %parity, %zero : index
+      %value = scf.select %is_low, %low, %high : f32
+      scf.for %c = [%zero to %width step %one] {
+        view.store %value, %out[%r, %c] : f32, view<[%rows]x256xf32>
+      }
+    }
+  }
+  func.return
+}
+@@EPOCH_CASES@@
+
+
+// Ordinary gather shares only the independent table encoder above. Activity,
+// shifted addressing and zero-fill expectations are authored independently here.
+template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %bytes: index, %control_origin: offset, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+func.def @ordinary_contract.setup(%tag: index, %vocab: index, %stride: index, %bytes: index, %weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer) {
+  %rows = index.constant 3 : index
+  func.call @epoch_contract.setup(%tag, %rows, %vocab, %stride, %bytes, %weights, %ids, %count) : (index, index, index, index, index, buffer, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %origin = index.constant 0 : offset
+  %descriptor_origin = index.constant 12 : offset
+  %nview = buffer.view %count[%origin] : buffer -> view<1xi32>
+  %n = view.load %nview[0] : view<1xi32> -> i32
+  %e = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %begin = view.load %e[2] : view<5xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %three32 = scalar.constant 3 : i32
+  %positive = scalar.cmpi sgt, %n, %zero32 : i32
+  %fits = scalar.cmpi sle, %n, %three32 : i32
+  %count_valid = scalar.andi %positive, %fits : i1
+  %begin_valid = scalar.cmpi sge, %begin, %zero32 : i32
+  %valid = scalar.andi %count_valid, %begin_valid : i1
+  %first_id = index.sub %vocab, %two : index
+  %tokens = buffer.view %ids[%origin] : buffer -> view<3xi32>
+  %poison = scalar.constant -1 : i32
+  scf.for %input = [%zero to %rows step %one] {
+    %input32 = index.cast %input : index to i32
+    %after_begin = scalar.cmpi sge, %input32, %begin : i32
+    %relative = scalar.subi %input32, %begin : i32
+    %inside = scalar.cmpi slt, %relative, %n : i32
+    %selected = scalar.andi %after_begin, %inside : i1
+    %used = scalar.andi %valid, %selected : i1
+    %parity = index.rem %input, %two : index
+    %id = index.add %first_id, %parity : index
+    %id32 = index.cast %id : index to i32
+    %word = scf.select %used, %id32, %poison : i32
+    // Every unused input slot stays invalid: an accidental inactive load
+    // cannot be hidden by the fixture's own initialization.
+    view.store %word, %tokens[%input] : i32, view<3xi32>
+  }
+  func.return
+}
+kernel.def @ordinary_contract.init() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%tag: index, %vocab: index, %stride: index, %bytes: index, %weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer) {
+  func.call @ordinary_contract.setup(%tag, %vocab, %stride, %bytes, %weights, %ids, %epoch, %count) : (index, index, index, index, buffer, buffer, buffer, buffer) -> ()
+  kernel.return
+}
+func.def @ordinary_contract.expected(%tag: index, %vocab: index, %stride: index, %bytes: index, %weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
+  func.call @ordinary_contract.setup(%tag, %vocab, %stride, %bytes, %weights, %ids, %epoch, %count) : (index, index, index, index, buffer, buffer, buffer, buffer) -> ()
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %rows = index.constant 3 : index
+  %width = index.constant 256 : index
+  %origin = index.constant 0 : offset
+  %descriptor_origin = index.constant 12 : offset
+  %output_origin = index.constant 16 : offset
+  %e = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %begin = view.load %e[2] : view<5xi32> -> i32
+  %nview = buffer.view %count[%origin] : buffer -> view<1xi32>
+  %n = view.load %nview[0] : view<1xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %three32 = scalar.constant 3 : i32
+  %positive = scalar.cmpi sgt, %n, %zero32 : i32
+  %fits = scalar.cmpi sle, %n, %three32 : i32
+  %count_valid = scalar.andi %positive, %fits : i1
+  %begin_valid = scalar.cmpi sge, %begin, %zero32 : i32
+  %valid = scalar.andi %count_valid, %begin_valid : i1
+  %q5_tag = index.constant 13 : index
+  %q6_tag = index.constant 14 : index
+  %q5 = index.cmp eq, %tag, %q5_tag : index
+  %q6 = index.cmp eq, %tag, %q6_tag : index
+  %q4_low = scalar.constant 1.0 : f32
+  %q4_high = scalar.constant 2.0 : f32
+  %q5_low = scalar.constant 9.0 : f32
+  %q5_high = scalar.constant 18.0 : f32
+  %q6_low = scalar.constant 0.5 : f32
+  %q6_high = scalar.constant 1.0 : f32
+  %low0 = scf.select %q5, %q5_low, %q4_low : f32
+  %high0 = scf.select %q5, %q5_high, %q4_high : f32
+  %low = scf.select %q6, %q6_low, %low0 : f32
+  %high = scf.select %q6, %q6_high, %high0 : f32
+  %zero_f = scalar.constant 0.0 : f32
+  %out = buffer.view %output[%output_origin] : buffer -> view<3x256xf32>
+  scf.for %r = [%zero to %rows step %one] {
+    %r32 = index.cast %r : index to i32
+    %inside = scalar.cmpi slt, %r32, %n : i32
+    %input32 = scalar.addi %begin, %r32 : i32
+    %input_fits = scalar.cmpi slt, %input32, %three32 : i32
+    %a = scalar.andi %valid, %inside : i1
+    %used = scalar.andi %a, %input_fits : i1
+    %value = scf.if %used -> (f32) {
+      %input0 = index.cast %input32 : i32 to index
+      %input = index.assume %input0 [range(%input0, 0, 2)] : index
+      %parity = index.rem %input, %two : index
+      %first = index.cmp eq, %parity, %zero : index
+      %v = scf.select %first, %low, %high : f32
+      scf.yield %v : f32
+    } else {
+      scf.yield %zero_f : f32
+    }
+    scf.for %c = [%zero to %width step %one] {
+      view.store %value, %out[%r, %c] : f32, view<3x256xf32>
+    }
+  }
+  func.return
+}
+@@ORDINARY_CASES@@

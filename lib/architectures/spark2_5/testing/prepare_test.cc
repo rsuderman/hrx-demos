@@ -14,7 +14,7 @@ const OrdinaryPreparationCase kCase{
         std::abort();
       return m;
     },
-    "lib/architectures/spark2_5/prepare.loom",
+    "lib/architectures/spark2_5/generated_prepare.loom",
     "lib/architectures/spark2_5/prepare_library.loombc",
     2560,
     2,

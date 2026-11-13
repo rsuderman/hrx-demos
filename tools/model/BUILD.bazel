@@ -1,7 +1,9 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("//build_tools:model_assembly.bzl", "logical_registry", "logical_sources")
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 
-load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("//lib/architectures:assemblies.bzl", "ASSEMBLIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -29,29 +31,23 @@ iree_cc_library(
     ],
 )
 
+logical_registry(
+    name = "assembly_registry",
+    entries = ASSEMBLIES,
+)
+
 iree_cc_library(
     name = "model_descriptor",
     srcs = [
         "model_descriptor.cc",
         "model_descriptor_internal.h",
-        "architectures.cc",
+        ":assembly_registry",
         "architectures.h",
-        "architectures/llama.h",
-        "architectures/lfm3.h",
-        "architectures/lfm3.cc",
-        "architectures/spark2_5.h",
-        "architectures/spark2_5.cc",
-        "architectures/qwen2.h",
-        "architectures/qwen3.h",
-        "architectures/gemma3.h",
-        "architectures/qwen35.h",
-        "architectures/llama.cc",
-        "architectures/qwen3.cc",
-        "architectures/gemma3.cc",
-        "architectures/qwen35.cc",
-        "architectures/qwen2.cc",
+    ] + logical_sources(ASSEMBLIES),
+    hdrs = [
+        "tensor_names.h",
+        ":assembly_registry.h",
     ],
-    hdrs = ["tensor_names.h"],
     cxxopts = _CXXOPTS,
     deps = [":gguf_catalog"],
 )

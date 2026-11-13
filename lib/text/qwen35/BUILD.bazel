@@ -36,14 +36,9 @@ cc_test(
     size = "small",
     srcs = ["testing/output_test.cc"],
     copts = ["-std=c++17"],
-    data = [
-        "//lib/text/protocols/chatml_thinking:output.loom",
-        "//lib/text/protocols/chatml_thinking:completion.loom",
-        "//lib/text/protocols/chatml_thinking:framing.loom",
-        "//lib/text/common:strings.loom",
-    ],
     linkstatic = True,
     deps = [
+        "//lib/text/testing:selected_policy",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/vm",
         "@hrx_system//runtime/src/iree/vm",

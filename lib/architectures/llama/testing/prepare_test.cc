@@ -9,7 +9,7 @@ namespace {
 const OrdinaryPreparationCase kCase{
     "llama",
     +[]() { return LlamaModelFacts(); },
-    "lib/architectures/llama/prepare.loom",
+    "lib/architectures/llama/generated_prepare.loom",
     "lib/architectures/llama/prepare_library.loombc",
     3072,
     28,

@@ -5,7 +5,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Protocol-independent bounded UTF-8 strings and native JSON field access.
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
 func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
+
 global.rodata.def @text.empty = bytes("")
 
 func.def public @text.equal(%a: buffer, %b: buffer) -> (i1) {
@@ -100,14 +102,14 @@ func.def public @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1) {
   %count = index.cast %bounded : i64 to index
   %records = buffer.view %members[%origin] : buffer -> view<[%count]x5xi64>
   %result, %kind, %found = scf.for %i = [%zero to %count step %one](%prior = %empty : buffer, %prior_kind = %zero64 : i64, %prior_found = %false : i1) -> (buffer, i64, i1) {
-    %begin = view.load %records[%i,0] : view<[%count]x5xi64> -> i64
-    %length = view.load %records[%i,1] : view<[%count]x5xi64> -> i64
+    %begin = view.load %records[%i, 0] : view<[%count]x5xi64> -> i64
+    %length = view.load %records[%i, 1] : view<[%count]x5xi64> -> i64
     %name = func.call @text.decode(%json, %begin, %length) : (buffer, i64, i64) -> (buffer)
     %equal = func.call @text.equal(%name, %key) : (buffer, buffer) -> (i1)
     %value, %value_kind, %value_found = scf.if %equal -> (buffer, i64, i1) {
-      %vb = view.load %records[%i,2] : view<[%count]x5xi64> -> i64
-      %vl = view.load %records[%i,3] : view<[%count]x5xi64> -> i64
-      %vt = view.load %records[%i,4] : view<[%count]x5xi64> -> i64
+      %vb = view.load %records[%i, 2] : view<[%count]x5xi64> -> i64
+      %vl = view.load %records[%i, 3] : view<[%count]x5xi64> -> i64
+      %vt = view.load %records[%i, 4] : view<[%count]x5xi64> -> i64
       %text = func.call @text.range(%json, %vb, %vl) : (buffer, i64, i64) -> (buffer)
       scf.yield %text, %vt, %true : buffer, i64, i1
     } else {
@@ -148,9 +150,15 @@ func.def public @text.at(%text: buffer, %position: offset, %marker: buffer) -> (
       %zero32 = scalar.constant 0 : i32
       %equal = scalar.cmpi eq, %cmp, %zero32 : i32
       scf.yield %equal : i1
-    } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
     scf.yield %matched : i1
-  } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
   func.return %result : i1
 }
 
@@ -258,7 +266,9 @@ func.def public @text.trim(%text: buffer) -> (buffer) {
     %width = scf.if %active -> (offset) {
       %width = func.call @text.space_width(%text, %position, %length) : (buffer, offset, offset) -> (offset)
       scf.yield %width : offset
-    } else { scf.yield %zero : offset }
+    } else {
+      scf.yield %zero : offset
+    }
     %space = index.cmp ne, %width, %zero : offset
     scf.condition %space, %position : i1, offset
   } do(%position: offset) {
@@ -297,7 +307,9 @@ func.def public @text.trim_lf(%text: buffer, %left: i1, %right: i1) -> (buffer) 
       %byte = buffer.load.i8.u %text[%p]
       %match = scalar.cmpi eq, %byte, %lf : i32
       scf.yield %match : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     scf.condition %advance, %p : i1, offset
   } do(%p: offset) {
     %next = index.add %p, %one : offset
@@ -311,7 +323,9 @@ func.def public @text.trim_lf(%text: buffer, %left: i1, %right: i1) -> (buffer) 
       %byte = buffer.load.i8.u %text[%at]
       %match = scalar.cmpi eq, %byte, %lf : i32
       scf.yield %match : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     scf.condition %advance, %p : i1, offset
   } do(%p: offset) {
     %next = index.sub %p, %one : offset
@@ -321,5 +335,37 @@ func.def public @text.trim_lf(%text: buffer, %left: i1, %right: i1) -> (buffer) 
   %start64 = index.cast %begin : offset to i64
   %size64 = index.cast %size_out : offset to i64
   %result = func.call @text.range(%text, %start64, %size64) : (buffer, i64, i64) -> (buffer)
+  func.return %result : buffer
+}
+
+// Shared bounded delimiter search and end-offset slicing.
+func.def public @text.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1) {
+  %length = buffer.length %text
+  %one = index.constant 1 : offset
+  %p = scf.while(%p = %start : offset) -> (offset) {
+    %has = index.cmp ult, %p, %length : offset
+    %advance = scf.if %has -> (i1) {
+      %found = func.call @text.at(%text, %p, %marker) : (buffer, offset, buffer) -> (i1)
+      %false = scalar.constant false : i1
+      %more = scalar.cmpi eq, %found, %false : i1
+      scf.yield %more : i1
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
+    scf.condition %advance, %p : i1, offset
+  } do(%p: offset) {
+    %next = index.add %p, %one : offset
+    scf.yield %next : offset
+  }
+  %found = index.cmp ult, %p, %length : offset
+  func.return %p, %found : offset, i1
+}
+
+func.def public @text.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer) {
+  %length = index.sub %end, %begin : offset
+  %b = index.cast %begin : offset to i64
+  %n = index.cast %length : offset to i64
+  %result = func.call @text.range(%text, %b, %n) : (buffer, i64, i64) -> (buffer)
   func.return %result : buffer
 }

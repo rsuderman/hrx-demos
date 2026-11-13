@@ -39,20 +39,28 @@ func.def @decoder.fixture.embedding_inputs(%epoch: buffer, %tokens: buffer, %wei
   }
   func.return
 }
+
 kernel.def @decoder.fixture.embedding_init() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer, %tokens: buffer, %weight: buffer) {
-  func.call @decoder.fixture.embedding_inputs(%epoch, %tokens, %weight) : (buffer, buffer, buffer) -> ()
+  func.call @decoder.fixture.embedding_inputs(%epoch, %tokens, %weight) : (buffer, buffer, buffer)
   kernel.return
 }
-kernel.decl @llm.decoder.embedding_q6(%rows: index, %width: index, %vocab: index) launch(%width: index, %vocab: index, %origin: offset, %epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
+
+template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocab: index, %tag: index, %bytes: index, %origin: offset, %epoch: buffer, %count: buffer, %tokens: buffer, %weight: view<[%bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
 command.def @decoder.actual.embedding() launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer) {
   %rows = index.constant 3 : index
   %width = index.constant 1024 : index
   %vocab = index.constant 4 : index
+  %tag = index.constant 14 : index
+  %bytes = index.constant 3360 : index
+  %zero = index.constant 0 : offset
   %origin = index.constant 12 : offset
-  kernel.launch @decoder.fixture.embedding_init[](%epoch, %tokens, %weight) : [](buffer, buffer, buffer)
-  kernel.launch @llm.decoder.embedding_q6[%rows, %width, %vocab](%width, %vocab, %origin, %epoch, %count, %tokens, %weight, %output) : [index, index, index](index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @decoder.fixture.embedding_init(%epoch, %tokens, %weight) : (buffer, buffer, buffer)
+  %w = buffer.view %weight[%zero] : buffer -> view<[%bytes]xi8>
+  %out = buffer.view %output[%zero] : buffer -> view<[%rows]x[%width]xf32>
+  template.apply<@llm.embedding.ordinary_f32>(%rows, %width, %vocab, %tag, %bytes, %origin, %epoch, %count, %tokens, %w, %out) : (index, index, index, index, index, offset, buffer, buffer, buffer, view<[%bytes]xi8>, view<[%rows]x[%width]xf32>)
   command.return
 }

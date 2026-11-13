@@ -6,7 +6,6 @@ filegroup(
     name = "revision_test_sources",
     testonly = True,
     srcs = [
-        "testing/revision_cases.h",
         "testing/revision_cases.cc",
     ],
     visibility = ["//internal_consumer:__pkg__"],

@@ -1,6 +1,6 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-#include "lib/loomify/architectures/lfm3.h"
+#include "lib/loomify/assembly_registry.h"
 #include "lib/loomify/configuration_internal.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
@@ -35,57 +35,48 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
   p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", E, V, {13}) ||
-      !p.Tensor(m.globals, "output", E, V, {12, 13, 14, 8}) ||
+  OrdinaryEmbeddingFacts embedding;
+  CanonicalProjectionFacts output;
+  if (!p.OrdinaryEmbedding(m.globals, "token_embedding", E, V, &embedding) ||
+      !p.CanonicalProjection(m.globals, "output", E, V, {}, &output) ||
       !p.Tensor(m.globals, "output_norm", E, 1, {0}) ||
       !p.Tensor(m.globals, "rope_frequencies", H / 2, 1, {0}))
     return false;
-  const auto &embedding = *Role(m.globals, "token_embedding"),
-             &output = *Role(m.globals, "output");
-  p.Projection(output, E, V);
   std::vector<std::vector<uint64_t>> info, attention, ffn, conv;
   uint64_t na = 0, nc = 0;
   double localbase = 0;
   for (size_t i = 0; i < m.layers.size(); ++i) {
     const auto &l = m.layers[i];
     const auto F = l.feed_forward_width;
-    if (l.index != i || l.query_heads != QH || !F || F > 17408 || F % 256 ||
+    if (l.index != i || l.query_heads != QH || !F || F > 32768 || F % 256 ||
         l.recurrent_ordinal)
       return Fail(error, "unsupported LFM3 layer identity or FFN geometry");
     for (const char *role :
          {"input_norm", "attention_post_norm", "ffn_norm", "ffn_post_norm"})
       if (!p.Tensor(l.tensors, role, E, 1, {0}, l.index))
         return false;
-    if (!p.Tensor(l.tensors, "ffn_gate", E, F, {12, 13, 14, 8}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", E, F, {12, 13, 14, 8}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", F, E, {12, 13, 14, 8}, l.index))
+    CanonicalProjectionFacts g, u, d;
+    if (!p.CanonicalProjection(l.tensors, "ffn_gate", E, F, l.index, &g) ||
+        !p.CanonicalProjection(l.tensors, "ffn_up", E, F, l.index, &u) ||
+        !p.CanonicalProjection(l.tensors, "ffn_down", F, E, l.index, &d))
       return false;
-    const auto &g = *Role(l.tensors, "ffn_gate"),
-               &u = *Role(l.tensors, "ffn_up"),
-               &d = *Role(l.tensors, "ffn_down");
-    ffn.push_back({F, g.storage_type, u.storage_type, d.storage_type,
-                   g.byte_size, u.byte_size, d.byte_size});
-    p.Projection(g, E, F);
-    p.Projection(u, E, F);
-    p.Projection(d, F, E);
+    ffn.push_back({F, g.storage_tag, u.storage_tag, d.storage_tag,
+                   g.weight_bytes, u.weight_bytes, d.weight_bytes});
     if (l.kind == model::LayerKind::kShortConvolution) {
       if (l.kv_heads || l.attention_ordinal || l.attention_window ||
           !l.convolution_ordinal || *l.convolution_ordinal != nc)
         return Fail(error, "invalid LFM3 short-convolution ordinal or routing");
+      CanonicalProjectionFacts in, out;
       if (!p.Tensor(l.tensors, "convolution", 7, E, {0}, l.index) ||
-          !p.Tensor(l.tensors, "convolution_input", E, 3 * E, {12, 13, 14, 8},
-                    l.index) ||
-          !p.Tensor(l.tensors, "convolution_output", E, E, {12, 13, 14, 8},
-                    l.index))
+          !p.CanonicalProjection(l.tensors, "convolution_input", E, 3 * E,
+                                 l.index, &in) ||
+          !p.CanonicalProjection(l.tensors, "convolution_output", E, E, l.index,
+                                 &out))
         return false;
-      const auto &in = *Role(l.tensors, "convolution_input"),
-                 &out = *Role(l.tensors, "convolution_output");
       info.push_back({1, nc++, 0});
       attention.push_back(std::vector<uint64_t>(8, 0));
       conv.push_back(
-          {in.storage_type, in.byte_size, out.storage_type, out.byte_size});
-      p.Projection(in, E, 3 * E);
-      p.Projection(out, E, E);
+          {in.storage_tag, in.weight_bytes, out.storage_tag, out.weight_bytes});
     } else if (l.kind == model::LayerKind::kAttention) {
       if (l.kv_heads != KH || l.convolution_ordinal || !l.attention_ordinal ||
           *l.attention_ordinal != na || !PositiveF32(l.rope_base) ||
@@ -97,27 +88,21 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
         localbase = l.rope_base;
       } else if (l.rope_base != m.rope.base)
         return Fail(error, "inconsistent LFM3 global rotary base");
+      CanonicalProjectionFacts q, k, v, o;
       if (!p.Tensor(l.tensors, "query_norm", H, 1, {0}, l.index) ||
           !p.Tensor(l.tensors, "key_norm", H, 1, {0}, l.index) ||
           !p.Tensor(l.tensors, "attention_gate", E, QH, {0}, l.index) ||
-          !p.Tensor(l.tensors, "query", E, Q, {12, 13, 14, 8}, l.index) ||
-          !p.Tensor(l.tensors, "key", E, KV, {12, 13, 14, 8}, l.index) ||
-          !p.Tensor(l.tensors, "value", E, KV, {12, 13, 14, 8}, l.index) ||
-          !p.Tensor(l.tensors, "attention_output", Q, E, {12, 13, 14, 8},
-                    l.index))
+          !p.CanonicalProjection(l.tensors, "query", E, Q, l.index, &q) ||
+          !p.CanonicalProjection(l.tensors, "key", E, KV, l.index, &k) ||
+          !p.CanonicalProjection(l.tensors, "value", E, KV, l.index, &v) ||
+          !p.CanonicalProjection(l.tensors, "attention_output", Q, E, l.index,
+                                 &o))
         return false;
-      const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
-                 &v = *Role(l.tensors, "value"),
-                 &o = *Role(l.tensors, "attention_output");
       info.push_back({0, na++, l.attention_window});
       conv.push_back(std::vector<uint64_t>(4, 0));
-      attention.push_back({q.storage_type, k.storage_type, v.storage_type,
-                           o.storage_type, q.byte_size, k.byte_size,
-                           v.byte_size, o.byte_size});
-      p.Projection(q, E, Q);
-      p.Projection(k, E, KV);
-      p.Projection(v, E, KV);
-      p.Projection(o, Q, E);
+      attention.push_back({q.storage_tag, k.storage_tag, v.storage_tag,
+                           o.storage_tag, q.weight_bytes, k.weight_bytes,
+                           v.weight_bytes, o.weight_bytes});
     } else
       return Fail(error, "unsupported LFM3 layer kind");
   }
@@ -145,10 +130,10 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
            {"kv_heads", KH},
            {"head_size", H},
            {"history_capacity", history},
-           {"embedding_weight_bytes", embedding.byte_size},
-           {"embedding_tag", embedding.storage_type},
-           {"output_weight_bytes", output.byte_size},
-           {"output_tag", output.storage_type},
+           {"embedding_weight_bytes", embedding.weight_bytes},
+           {"embedding_tag", embedding.storage_tag},
+           {"output_weight_bytes", output.weight_bytes},
+           {"output_tag", output.storage_tag},
            {"tied_output", m.output_tied_to_embedding}})
     p.Index(std::string("lfm3.model.") + fact.first, fact.second);
   p.Real("lfm3.model.rms_epsilon", float(m.rms_epsilon));

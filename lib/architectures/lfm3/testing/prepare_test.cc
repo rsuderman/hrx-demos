@@ -14,7 +14,7 @@ const OrdinaryPreparationCase kCase{
         std::abort();
       return m;
     },
-    "lib/architectures/lfm3/prepare.loom",
+    "lib/architectures/lfm3/generated_prepare.loom",
     "lib/architectures/lfm3/prepare_library.loombc",
     2048,
     2,

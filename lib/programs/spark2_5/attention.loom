@@ -14,10 +14,6 @@ config.decl @spark2_5.model.kv_heads : index
 
 config.decl @spark2_5.model.layer_count : index
 
-config.decl @spark2_5.model.rope_log_step_global : f32
-
-config.decl @spark2_5.model.rope_log_step_local : f32
-
 config.decl @spark2_5.model.attention_scale : f32
 
 config.decl @spark2_5.attention.cache_capacity : index
@@ -30,7 +26,7 @@ config.decl @spark2_5.attention.map_origin : offset
 
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index)
 
-func.decl pure @loomify.config.layer_window(%layer: index) -> (index, index)
+func.decl pure @loomify.config.layer_rotary(%layer: index) -> (index, index, f32)
 
 template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
 
@@ -53,14 +49,9 @@ command.def @loomify.spark2_5.attention(%layer: index, %rows: index, %control_or
   %pool = config.get @spark2_5.attention.pool_capacity : index
   %cache_base = config.get @spark2_5.attention.cache_base : offset
   %map_origin = config.get @spark2_5.attention.map_origin : offset
-  %rope_log_step_global = config.get @spark2_5.model.rope_log_step_global : f32
-  %rope_log_step_local = config.get @spark2_5.model.rope_log_step_local : f32
   %attention_scale = config.get @spark2_5.model.attention_scale : f32
-  %zero = index.constant 0 : index
   %word = index.constant 4 : offset
-  %window, %rope_width = func.call pure @loomify.config.layer_window(%layer) : (index) -> (index, index)
-  %global = index.cmp eq, %window, %zero : index
-  %rope_step = scf.select %global, %rope_log_step_global, %rope_log_step_local : f32
+  %window, %rope_width, %rope_step = func.call pure @loomify.config.layer_rotary(%layer) : (index) -> (index, index, f32)
   %qkvt, %ot, %qkvb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index)
   %qkv_weight = command.parameter %parameters, "blk.{}.attn_qkv.weight"[%layer] : view<[%qkvb]xi8>
   %ow = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%ob]xi8>

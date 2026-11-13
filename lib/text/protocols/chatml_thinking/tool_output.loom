@@ -1,3 +1,7 @@
+func.decl @text.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1)
+
+func.decl @text.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer)
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Qwen0.8 tool output spells Python Boolean scalars True/False. The selected
@@ -7,27 +11,47 @@
 // Schemas are the admitted original OpenAI tools array. Null schemas are
 // outside that domain and pass unchanged to the native validation authority.
 func.decl @text.at(%text: buffer, %position: offset, %marker: buffer) -> (i1)
+
 func.decl @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+
 func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
 
 global.rodata.def @chatml_tool.empty = bytes("")
+
 global.rodata.def @chatml_tool.open = bytes("3c746f6f6c5f63616c6c3e")
+
 global.rodata.def @chatml_tool.function = bytes("3c66756e6374696f6e3d")
+
 global.rodata.def @chatml_tool.parameter = bytes("3c706172616d657465723d")
+
 global.rodata.def @chatml_tool.end_parameter = bytes("3c2f706172616d657465723e")
+
 global.rodata.def @chatml_tool.end_function = bytes("3c2f66756e6374696f6e3e")
+
 global.rodata.def @chatml_tool.close = bytes("3c2f746f6f6c5f63616c6c3e")
+
 global.rodata.def @chatml_tool.tag_end = bytes("3e")
+
 global.rodata.def @chatml_tool.function_key = bytes("66756e6374696f6e")
+
 global.rodata.def @chatml_tool.name_key = bytes("6e616d65")
+
 global.rodata.def @chatml_tool.parameters_key = bytes("706172616d6574657273")
+
 global.rodata.def @chatml_tool.properties_key = bytes("70726f70657274696573")
+
 global.rodata.def @chatml_tool.type_key = bytes("74797065")
+
 global.rodata.def @chatml_tool.boolean = bytes("626f6f6c65616e")
+
 global.rodata.def @chatml_tool.true = bytes("54727565")
+
 global.rodata.def @chatml_tool.false = bytes("46616c7365")
 
 func.def @chatml_tool.space(%text: buffer, %p: offset) -> (i1) {
@@ -42,6 +66,7 @@ func.def @chatml_tool.space(%text: buffer, %p: offset) -> (i1) {
   %result = scalar.ori %control, %ordinary : i1
   func.return %result : i1
 }
+
 func.def @chatml_tool.skip(%text: buffer, %start: offset) -> (offset) {
   %length = buffer.length %text
   %one = index.constant 1 : offset
@@ -50,39 +75,16 @@ func.def @chatml_tool.skip(%text: buffer, %start: offset) -> (offset) {
     %space = scf.if %has -> (i1) {
       %s = func.call @chatml_tool.space(%text, %p) : (buffer, offset) -> (i1)
       scf.yield %s : i1
-    } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
     scf.condition %space, %p : i1, offset
   } do(%p: offset) {
     %next = index.add %p, %one : offset
     scf.yield %next : offset
   }
   func.return %p : offset
-}
-func.def @chatml_tool.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1) {
-  %length = buffer.length %text
-  %one = index.constant 1 : offset
-  %p = scf.while(%p = %start : offset) -> (offset) {
-    %has = index.cmp ult, %p, %length : offset
-    %advance = scf.if %has -> (i1) {
-      %found = func.call @text.at(%text, %p, %marker) : (buffer, offset, buffer) -> (i1)
-      %false = scalar.constant false : i1
-      %more = scalar.cmpi eq, %found, %false : i1
-      scf.yield %more : i1
-    } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
-    scf.condition %advance, %p : i1, offset
-  } do(%p: offset) {
-    %next = index.add %p, %one : offset
-    scf.yield %next : offset
-  }
-  %found = index.cmp ult, %p, %length : offset
-  func.return %p, %found : offset, i1
-}
-func.def @chatml_tool.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer) {
-  %length = index.sub %end, %begin : offset
-  %b = index.cast %begin : offset to i64
-  %n = index.cast %length : offset to i64
-  %result = func.call @text.range(%text, %b, %n) : (buffer, i64, i64) -> (buffer)
-  func.return %result : buffer
 }
 
 // Native schema admission supplies function objects with object parameters.
@@ -103,11 +105,11 @@ func.def @chatml_tool.properties(%schemas: buffer, %name: buffer) -> (buffer) {
   %count = index.cast %bounded : i64 to index
   %rows = buffer.view %records[%zero] : buffer -> view<[%count]x5xi64>
   %result = scf.for %i = [%zero_index to %count step %one](%prior = %empty : buffer) -> (buffer) {
-    %kind = view.load %rows[%i,4] : view<[%count]x5xi64> -> i64
+    %kind = view.load %rows[%i, 4] : view<[%count]x5xi64> -> i64
     %is_object = scalar.cmpi eq, %kind, %object : i64
     %candidate = scf.if %is_object -> (buffer) {
-      %begin = view.load %rows[%i,2] : view<[%count]x5xi64> -> i64
-      %size = view.load %rows[%i,3] : view<[%count]x5xi64> -> i64
+      %begin = view.load %rows[%i, 2] : view<[%count]x5xi64> -> i64
+      %size = view.load %rows[%i, 3] : view<[%count]x5xi64> -> i64
       %tool = func.call @text.range(%schemas, %begin, %size) : (buffer, i64, i64) -> (buffer)
       %function, %kind, %found = func.call @text.lookup(%tool, %function_key) : (buffer, buffer) -> (buffer, i64, i1)
       %obj = scalar.cmpi eq, %kind, %object : i64
@@ -126,15 +128,22 @@ func.def @chatml_tool.properties(%schemas: buffer, %name: buffer) -> (buffer) {
           %valid = scalar.andi %vf, %vo : i1
           %props = scf.select %valid, %value, %prior : buffer
           scf.yield %props : buffer
-        } else { scf.yield %prior : buffer }
+        } else {
+          scf.yield %prior : buffer
+        }
         scf.yield %props : buffer
-      } else { scf.yield %prior : buffer }
+      } else {
+        scf.yield %prior : buffer
+      }
       scf.yield %properties : buffer
-    } else { scf.yield %prior : buffer }
+    } else {
+      scf.yield %prior : buffer
+    }
     scf.yield %candidate : buffer
   }
   func.return %result : buffer
 }
+
 func.def @chatml_tool.is_boolean(%properties: buffer, %name: buffer) -> (i1) {
   %zero = index.constant 0 : offset
   %object = scalar.constant 2 : i64
@@ -151,9 +160,15 @@ func.def @chatml_tool.is_boolean(%properties: buffer, %name: buffer) -> (i1) {
       %equal = func.call @text.equal(%type, %expected) : (buffer, buffer) -> (i1)
       %boolean = scalar.andi %found, %equal : i1
       scf.yield %boolean : i1
-    } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
     scf.yield %boolean : i1
-  } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
   func.return %result : i1
 }
 
@@ -200,6 +215,7 @@ func.def @chatml_tool.identifier(%name: buffer) -> (i1) {
   }
   func.return %result : i1
 }
+
 func.def @chatml_tool.name(%text: buffer, %position: offset, %prefix: buffer) -> (buffer, offset, i1) {
   %one = index.constant 1 : offset
   %at = func.call @text.at(%text, %position, %prefix) : (buffer, offset, buffer) -> (i1)
@@ -207,12 +223,14 @@ func.def @chatml_tool.name(%text: buffer, %position: offset, %prefix: buffer) ->
     %size = buffer.length %prefix
     %start = index.add %position, %size : offset
     %tag_end = global.load @chatml_tool.tag_end : buffer
-    %end, %found = func.call @chatml_tool.find(%text, %start, %tag_end) : (buffer, offset, buffer) -> (offset, i1)
-    %name = func.call @chatml_tool.slice(%text, %start, %end) : (buffer, offset, offset) -> (buffer)
+    %end, %found = func.call @text.find(%text, %start, %tag_end) : (buffer, offset, buffer) -> (offset, i1)
+    %name = func.call @text.slice(%text, %start, %end) : (buffer, offset, offset) -> (buffer)
     %next = scf.if %found -> (offset) {
       %after = index.add %end, %one : offset
       scf.yield %after : offset
-    } else { scf.yield %position : offset }
+    } else {
+      scf.yield %position : offset
+    }
     %identifier = func.call @chatml_tool.identifier(%name) : (buffer) -> (i1)
     %valid = scalar.andi %found, %identifier : i1
     scf.yield %name, %next, %valid : buffer, offset, i1
@@ -222,6 +240,7 @@ func.def @chatml_tool.name(%text: buffer, %position: offset, %prefix: buffer) ->
   }
   func.return %name, %next, %valid : buffer, offset, i1
 }
+
 func.def @chatml_tool.parameters(%text: buffer, %output: buffer, %start: offset, %properties: buffer) -> (offset, i1) {
   %prefix = global.load @chatml_tool.parameter : buffer
   %end_tag = global.load @chatml_tool.end_parameter : buffer
@@ -238,7 +257,7 @@ func.def @chatml_tool.parameters(%text: buffer, %output: buffer, %start: offset,
     scf.condition %more, %p, %valid : i1, offset, i1
   } do(%p: offset, %prior_valid: i1) {
     %name, %body, %has_name = func.call @chatml_tool.name(%text, %p, %prefix) : (buffer, offset, buffer) -> (buffer, offset, i1)
-    %end, %has_end = func.call @chatml_tool.find(%text, %body, %end_tag) : (buffer, offset, buffer) -> (offset, i1)
+    %end, %has_end = func.call @text.find(%text, %body, %end_tag) : (buffer, offset, buffer) -> (offset, i1)
     %valid = scalar.andi %has_name, %has_end : i1
     %next = scf.if %valid -> (offset) {
       %boolean = func.call @chatml_tool.is_boolean(%properties, %name) : (buffer, buffer) -> (i1)
@@ -250,32 +269,35 @@ func.def @chatml_tool.parameters(%text: buffer, %output: buffer, %start: offset,
             %last = index.sub %q, %one : offset
             %s = func.call @chatml_tool.space(%text, %last) : (buffer, offset) -> (i1)
             scf.yield %s : i1
-          } else { scf.yield %false : i1 }
+          } else {
+            scf.yield %false : i1
+          }
           scf.condition %space, %q : i1, offset
         } do(%q: offset) {
           %next = index.sub %q, %one : offset
           scf.yield %next : offset
         }
-        %body_text = func.call @chatml_tool.slice(%text, %begin, %trimmed_end) : (buffer, offset, offset) -> (buffer)
+        %body_text = func.call @text.slice(%text, %begin, %trimmed_end) : (buffer, offset, offset) -> (buffer)
         %is_true = func.call @text.equal(%body_text, %true_token) : (buffer, buffer) -> (i1)
         %is_false = func.call @text.equal(%body_text, %false_token) : (buffer, buffer) -> (i1)
         %replace = scalar.ori %is_true, %is_false : i1
         scf.if %replace {
           %letter = scf.select %is_true, %lower_t, %lower_f : i32
           buffer.store.i8 %letter, %output[%begin]
-          scf.yield
         }
-        scf.yield
       }
       %size = buffer.length %end_tag
       %after = index.add %end, %size : offset
       %next = func.call @chatml_tool.skip(%text, %after) : (buffer, offset) -> (offset)
       scf.yield %next : offset
-    } else { scf.yield %p : offset }
+    } else {
+      scf.yield %p : offset
+    }
     scf.yield %next, %valid : offset, i1
   }
   func.return %position, %valid : offset, i1
 }
+
 func.def @chatml_tool.call(%schemas: buffer, %text: buffer, %output: buffer, %position: offset) -> (offset, i1) {
   %open = global.load @chatml_tool.open : buffer
   %function = global.load @chatml_tool.function : buffer
@@ -304,15 +326,24 @@ func.def @chatml_tool.call(%schemas: buffer, %text: buffer, %output: buffer, %po
           %after = index.add %close_at, %size : offset
           %next = func.call @chatml_tool.skip(%text, %after) : (buffer, offset) -> (offset)
           scf.yield %next : offset
-        } else { scf.yield %position : offset }
+        } else {
+          scf.yield %position : offset
+        }
         scf.yield %next, %closed : offset, i1
-      } else { scf.yield %position, %false : offset, i1 }
+      } else {
+        scf.yield %position, %false : offset, i1
+      }
       scf.yield %next, %valid : offset, i1
-    } else { scf.yield %position, %false : offset, i1 }
+    } else {
+      scf.yield %position, %false : offset, i1
+    }
     scf.yield %next, %valid : offset, i1
-  } else { scf.yield %position, %false : offset, i1 }
+  } else {
+    scf.yield %position, %false : offset, i1
+  }
   func.return %next, %valid : offset, i1
 }
+
 func.def @chatml.normalize_tool_output(%schemas: buffer, %response: buffer) -> (buffer) {
   %zero = index.constant 0 : offset
   %false = scalar.constant false : i1
@@ -330,9 +361,13 @@ func.def @chatml.normalize_tool_output(%schemas: buffer, %response: buffer) -> (
       %open_array = scalar.constant 91 : i32
       %is_array = scalar.cmpi eq, %b, %open_array : i32
       scf.yield %is_array : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     scf.yield %array : i1
-  } else { scf.yield %false : i1 }
+  } else {
+    scf.yield %false : i1
+  }
   scf.if %admitted {
     %start = func.call @chatml_tool.skip(%response, %zero) : (buffer, offset) -> (offset)
     %position, %valid = scf.while(%p = %start : offset, %valid = %true : i1) -> (offset, i1) {
@@ -347,9 +382,7 @@ func.def @chatml.normalize_tool_output(%schemas: buffer, %response: buffer) -> (
     scf.if %malformed {
       // No repaired/truncated XML grammar is passed to the native parser.
       buffer.copy %response[%zero], %output[%zero], %length
-      scf.yield
     }
-    scf.yield
   }
   func.return %output : buffer
 }

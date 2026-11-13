@@ -83,6 +83,7 @@ genrule(
     testonly = True,
     srcs = [
         "embedding_programs.loom",
+        "//lib/kernels/embedding:ordinary_f32_sources",
         "//lib/kernels/decoder:implementation_sources",
     ],
     output_format = format,

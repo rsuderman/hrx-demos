@@ -1,6 +1,6 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-#include "lib/text/spark/testing/revision_cases.h"
+#include "lib/text/testing/render_harness.h"
 namespace hrx::loomify_gguf::testing {
 namespace {
 const std::string kStart = u8"<｜start▁of▁sentence｜>";

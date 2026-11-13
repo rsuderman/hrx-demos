@@ -7,6 +7,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <cmath>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <gtest/gtest.h>
 namespace hrx::loomify_gguf {
 namespace {
@@ -144,13 +148,61 @@ TEST(SparkConfiguration, DerivesGeometryPerOperandTagsAndOrdinaryState) {
     EXPECT_EQ(facts.parameters.size(), 3 + 8 * s.l);
     EXPECT_NE(facts.source.find("@loomify.config.layer_attention"),
               std::string::npos);
-    EXPECT_NE(facts.source.find("@loomify.config.layer_window"),
+    EXPECT_NE(facts.source.find("@loomify.config.layer_rotary"),
               std::string::npos);
     EXPECT_NE(facts.source.find("@loomify.config.layer_ffn"),
               std::string::npos);
     EXPECT_EQ(m.training_context, 1048576u);
   }
 }
+TEST(SparkConfiguration, ConsumesActualEmbeddingAndCanonicalOperandFacts) {
+  for (uint32_t embedding_tag : {12u, 13u, 14u}) {
+    for (uint32_t projection_tag : {6u, 8u, 12u, 13u, 14u}) {
+      auto c = testing::Spark25Catalog(1024, 2, 4, 1, 256, false);
+      model::ModelDescriptor m;
+      std::string error;
+      ASSERT_TRUE(model::LoadModelDescriptor(c, &m, &error)) << error;
+      auto encode = [&](model::TensorRecord &tensor, uint32_t tag) {
+        tensor.storage_type = tag;
+        ASSERT_TRUE(model::EncodedTensorByteSize(
+            tag, tensor.normalized_extents[0], tensor.normalized_extents[1],
+            &tensor.byte_size));
+      };
+      for (auto &binding : m.globals) {
+        if (binding.role == "token_embedding")
+          encode(binding.tensor, embedding_tag);
+        if (binding.role == "output")
+          encode(binding.tensor, projection_tag);
+      }
+      // Gate/up/down may have different encodings; the sequence uses each fact.
+      encode(Tensor(m, 0, "query_key_value"), projection_tag);
+      encode(Tensor(m, 0, "ffn_up"), projection_tag);
+      ConfigurationFacts facts;
+      ASSERT_TRUE(
+          DeriveConfiguration(m, "fixture.gguf", {8, 1024}, &facts, &error))
+          << error;
+      EXPECT_NE(facts.source.find("@spark2_5.model.embedding_tag = " +
+                                  std::to_string(embedding_tag) + " : index"),
+                std::string::npos);
+      EXPECT_NE(facts.source.find("@spark2_5.model.output_tag = " +
+                                  std::to_string(projection_tag) + " : index"),
+                std::string::npos);
+      ASSERT_EQ(facts.parameters.size(), 19u);
+      EXPECT_EQ(facts.parameters[0].tensor.storage_type, embedding_tag);
+      EXPECT_EQ(facts.parameters[1].tensor.storage_type, projection_tag);
+      const auto &qkv = Tensor(m, 0, "query_key_value");
+      const auto found =
+          std::find_if(facts.parameters.begin(), facts.parameters.end(),
+                       [&](const auto &parameter) {
+                         return parameter.tensor.name == qkv.name;
+                       });
+      ASSERT_NE(found, facts.parameters.end());
+      EXPECT_EQ(found->tensor.byte_size, qkv.byte_size);
+      EXPECT_EQ(found->tensor.storage_type, projection_tag);
+    }
+  }
+}
+
 TEST(SparkConfiguration, InheritsAndVariesEffectiveRotaryWidths) {
   for (uint64_t width : {32, 64, 128, 256}) {
     auto c = testing::Spark25Catalog();
@@ -166,6 +218,51 @@ TEST(SparkConfiguration, InheritsAndVariesEffectiveRotaryWidths) {
         << error;
   }
 }
+TEST(SparkConfiguration, DerivesIndependentLayerRotaryFacts) {
+  auto c = testing::Spark25Catalog(1024, 3, 4, 1, 256, true);
+  model::ModelDescriptor m;
+  std::string error;
+  ASSERT_TRUE(model::LoadModelDescriptor(c, &m, &error)) << error;
+  m.layers[0].rope_base = 10000;
+  m.layers[0].rope_width = 256;
+  m.layers[1].rope_base = 100000;
+  m.layers[1].rope_width = 128;
+  m.layers[2].attention_window = 0;
+  m.layers[2].rope_base = 2000000;
+  m.layers[2].rope_width =
+      0; // Inherit the model width, independently of window.
+  ConfigurationFacts facts;
+  ASSERT_TRUE(DeriveConfiguration(m, "fixture.gguf", {8, 1024}, &facts, &error))
+      << error;
+  EXPECT_NE(
+      facts.source.find(
+          "@loomify.config.layer_rotary(%layer: index) -> (index, index, f32)"),
+      std::string::npos);
+  for (size_t i = 0; i < m.layers.size(); ++i) {
+    const auto &layer = m.layers[i];
+    const auto width = layer.rope_width ? layer.rope_width : m.rope.width;
+    const auto prefix =
+        i + 1 == m.layers.size() ? "v0_" : "c" + std::to_string(i) + "_";
+    EXPECT_NE(facts.source.find("%" + prefix + "w = index.constant " +
+                                std::to_string(layer.attention_window) +
+                                " : index"),
+              std::string::npos);
+    EXPECT_NE(facts.source.find("%" + prefix + "r = index.constant " +
+                                std::to_string(width) + " : index"),
+              std::string::npos);
+    std::ostringstream step;
+    step << std::scientific
+         << std::setprecision(std::numeric_limits<float>::max_digits10)
+         << float(-2 * std::log(layer.rope_base) / width);
+    EXPECT_NE(facts.source.find("%" + prefix + "s = scalar.constant " +
+                                step.str() + " : f32"),
+              std::string::npos);
+  }
+  EXPECT_EQ(facts.source.find("rope_log_step_local"), std::string::npos);
+  EXPECT_EQ(facts.source.find("rope_log_step_global"), std::string::npos);
+  EXPECT_EQ(facts.source.find("layer_window"), std::string::npos);
+}
+
 TEST(SparkConfiguration, PreservesMatrixRankForOneHead) {
   auto c = testing::Spark25Catalog(1024, 1, 1, 1, 256, true, 256);
   model::ModelDescriptor m;
@@ -187,6 +284,7 @@ TEST(SparkConfiguration,
   std::string error;
   ASSERT_TRUE(model::LoadModelDescriptor(c, &good, &error));
   using Mutation = std::function<void(model::ModelDescriptor &)>;
+  size_t mutation_index = 0;
   for (const auto &mutate : std::vector<Mutation>{
            [](auto &m) { m.embedding_width = 768; },
            [](auto &m) { m.vocabulary_size = 255; },
@@ -195,6 +293,17 @@ TEST(SparkConfiguration,
            [](auto &m) { m.layers[1].rope_width = 63; },
            [](auto &m) { m.layers[0].rope_width = 258; },
            [](auto &m) { m.rope.scaling_factor = 2; },
+           [](auto &m) {
+             m.layers[0].rope_base = std::numeric_limits<double>::quiet_NaN();
+           },
+           [](auto &m) {
+             m.layers[0].rope_base = std::numeric_limits<double>::infinity();
+           },
+           [](auto &m) {
+             for (auto &binding : m.globals)
+               if (binding.role == "output")
+                 binding.tensor.absolute_offset++;
+           },
            [](auto &m) { Tensor(m, 0, "query_key_value").byte_size++; },
            [](auto &m) {
              Tensor(m, 0, "ffn_up").absolute_offset = uint64_t(INT64_MAX);
@@ -205,6 +314,7 @@ TEST(SparkConfiguration,
              m.layers[0].tensors.push_back(m.layers[0].tensors[0]);
            },
            [](auto &m) { m.layers.resize(65); }}) {
+    SCOPED_TRACE(mutation_index++);
     auto m = good;
     mutate(m);
     ConfigurationFacts facts;

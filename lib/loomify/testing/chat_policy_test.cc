@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/chat_policy.h"
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,14 @@ model::ChatTemplateSource Candidate(std::string source,
                                     std::optional<std::string> name = {}) {
   return {name ? "tokenizer.chat_template." + *name : "tokenizer.chat_template",
           name, name.has_value(), std::move(source)};
+}
+std::vector<std::string> CapturedRoots(const ChatPolicySelection &policy) {
+  std::vector<std::string> roots;
+  for (const auto *name : policy.data_roots)
+    if (std::string_view(name).find("loomify.text.") == 0 ||
+        std::string_view(name) == "spark.system_lead")
+      roots.emplace_back(name);
+  return roots;
 }
 TEST(ChatPolicy, ExactThreeIdentitiesAndDefaults) {
   const char *paths[] = {"lib/text/llama/templates/5816fce1.jinja",
@@ -47,7 +56,7 @@ TEST(ChatPolicy, ExactThreeIdentitiesAndDefaults) {
     EXPECT_EQ(policy.preserved_baseline, i == 0);
     EXPECT_EQ(policy.source_text, metadata.templates.front().text);
     EXPECT_FALSE(policy.configuration_source.empty());
-    EXPECT_EQ(policy.data_roots.size(), i == 0 ? 2u : 6u);
+    EXPECT_EQ(CapturedRoots(policy).size(), i == 0 ? 2u : 6u);
     ASSERT_EQ(policy.roots.size(), 20u);
     std::set<std::string> roots(policy.roots.begin(), policy.roots.end());
     EXPECT_EQ(roots.size(), 20u);
@@ -88,11 +97,16 @@ TEST(ChatPolicy, SparkUsesItsOwnExactSkeletonAndSourceEffortData) {
   EXPECT_EQ(policy.tokens.terminal_piece, u8"<｜end▁of▁sentence｜>");
   EXPECT_EQ(policy.markers.front().require_single_token, true);
   EXPECT_EQ(policy.markers[2].require_single_token, false);
-  EXPECT_EQ(policy.data_roots.size(), 7u);
+  EXPECT_EQ(CapturedRoots(policy).size(), 7u);
   const auto prior = policy.configuration_source;
+  const auto product = policy.text_product;
   metadata.templates[0].text = Replace(source, "'## Tools'", "'## Functions'");
   ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
   EXPECT_NE(policy.configuration_source, prior);
+  EXPECT_EQ(policy.text_product, product);
+  EXPECT_EQ(policy.revision, ChatRevision::SparkGlm);
+  EXPECT_EQ(policy.tokens.tokenizer_model, "gpt2");
+  EXPECT_EQ(policy.tokens.pre_tokenizer, "spark2_5");
   metadata.templates[0].text = source;
   ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
   metadata.templates[0].text =
@@ -345,7 +359,7 @@ TEST(ChatPolicy, EveryKnownProtocolKeepsOrderedDataRootsAndAtomicMarkers) {
     ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
     const std::vector<std::string> roots(policy.data_roots.begin(),
                                          policy.data_roots.end());
-    EXPECT_EQ(roots, test.roots);
+    EXPECT_EQ(CapturedRoots(policy), test.roots);
     std::vector<std::string> atomic;
     for (const auto &marker : policy.markers)
       if (marker.require_single_token)
@@ -355,11 +369,14 @@ TEST(ChatPolicy, EveryKnownProtocolKeepsOrderedDataRootsAndAtomicMarkers) {
     // order.
     size_t cursor = 0;
     for (const auto &root : roots) {
-      const auto declaration =
-          "global.rodata.def public @" + root + " = bytes(\"";
-      const auto found = policy.configuration_source.find(declaration, cursor);
-      ASSERT_NE(found, std::string::npos);
-      cursor = found + declaration.size();
+      const auto datum = "global.rodata.def public @" + root + " = bytes(\"";
+      const auto function = "func.def public @" + root + "(";
+      const auto data_at = policy.configuration_source.find(datum, cursor);
+      const auto function_at =
+          policy.configuration_source.find(function, cursor);
+      const auto found = std::min(data_at, function_at);
+      ASSERT_NE(found, std::string::npos) << root;
+      cursor = found + 1;
     }
   }
 }
@@ -586,13 +603,14 @@ TEST(ChatPolicy, HermesDataStripsOnlyTheFramingTerminalAndKeepsEmptyEffort) {
       expected +=
           datum("default_system", "You are Qwen, created by Alibaba Cloud. You "
                                   "are a helpful assistant.");
-    EXPECT_EQ(policy.configuration_source, expected);
+    EXPECT_EQ(policy.configuration_source.substr(0, expected.size()), expected);
+    const auto selected_configuration = policy.configuration_source;
     for (const auto &terminal :
          {std::string("<|im_end|>tail\\n"), std::string("<|im_end|>\\n\\n")}) {
       metadata.templates = {Candidate(Replace(
           source, "</tool_call><|im_end|>\\n", "</tool_call>" + terminal))};
       EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
-      EXPECT_EQ(policy.configuration_source, expected);
+      EXPECT_EQ(policy.configuration_source, selected_configuration);
       EXPECT_EQ(policy.source_text, source);
       EXPECT_FALSE(error.empty());
     }
@@ -671,7 +689,7 @@ TEST(ChatPolicy, PlainChatmlOwnsNoSyntheticProseOrThinkingMarkers) {
   EXPECT_EQ(policy.markers[1].text, "<|im_end|>");
   for (const auto &marker : policy.markers)
     EXPECT_TRUE(marker.require_single_token);
-  EXPECT_EQ(policy.data_roots.size(), 6u);
+  EXPECT_EQ(CapturedRoots(policy).size(), 6u);
   EXPECT_EQ(policy.configuration_source.find("default_system"),
             std::string::npos);
   EXPECT_EQ(policy.configuration_source.find("You are"), std::string::npos);

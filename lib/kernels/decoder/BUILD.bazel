@@ -11,10 +11,10 @@ exports_files([
 filegroup(
     name = "implementation_sources",
     srcs = [
+        "//lib/kernels/epoch:active_rows.loom",
         "rows.loom",
         "split_qkv.loom",
         "qkv_bias.loom",
-        "//lib/kernels/embedding:q6k_rows.loom",
         "//lib/kernels/normalization:rmsnorm_row.loom",
         "//lib/kernels/elementwise:residual_row.loom",
         "//lib/kernels/attention:core.loom",

@@ -1,6 +1,6 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-#include "tools/model/architectures/spark2_5.h"
+#include "tools/model/assembly_registry.h"
 #include "tools/model/model_descriptor_internal.h"
 namespace hrx::model::internal {
 namespace {

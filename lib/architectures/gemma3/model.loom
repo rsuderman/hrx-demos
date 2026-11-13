@@ -2,15 +2,24 @@
 // SPDX-License-Identifier: MIT
 // Architecture order lives here; generated configuration contains facts only.
 config.decl @runner.gemma3.prefill_token_count : index
+
 config.decl @gemma3.model.hidden_size : index
+
 config.decl @gemma3.model.vocabulary_size : index
+
 config.decl @gemma3.model.layer_count : index
+
 config.decl @gemma3.model.embedding_weight_bytes : index
+
 config.decl @gemma3.model.output_weight_bytes : index
+
 command.decl @loomify.gemma3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
+
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
 kernel.decl @gemma3_token_embedding_epoch_q8_f32(%rows: index) launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
-template.decl @loomify.gemma3.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
 
 command.def @loomify.gemma3.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %input_ids: buffer, %selected_ids: buffer) {
   %phase = index.constant 0 : index
@@ -19,10 +28,9 @@ command.def @loomify.gemma3.model() launch(%parameters: buffer, %residual: buffe
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %zero_offset = index.constant 0 : offset
-  %word = index.constant 4 : offset
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %descriptor_origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %descriptor_origin, %epoch, %count) : (index, offset, buffer, buffer)
   %embedding_bytes = config.get @gemma3.model.embedding_weight_bytes : index
   %embedding = command.parameter %parameters, "token_embd.weight" : view<[%embedding_bytes]xi8>
   kernel.launch @gemma3_token_embedding_epoch_q8_f32[%rows](%epoch, %count, %input_ids, %embedding, %residual) : [index](buffer, buffer, buffer, view<[%embedding_bytes]xi8>, buffer)
@@ -35,18 +43,8 @@ command.def @loomify.gemma3.model() launch(%parameters: buffer, %residual: buffe
   %output_bytes = config.get @gemma3.model.output_weight_bytes : index
   %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
   %weight = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
-  %normalized_bytes = index.scale %hidden, %word : index, offset -> offset
-  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
-  %group = index.constant 128 : index
-  %packed_group_bytes = index.constant 144 : offset
-  %groups = index.div %hidden, %group : index
-  %q8_bytes = index.scale %groups, %packed_group_bytes : index, offset -> offset
-  %logit_bytes = index.scale %vocab, %word : index, offset -> offset
-  %tile = index.constant 4096 : index
-  %tile_minus_one = index.constant 4095 : index
-  %rounded = index.add %vocab, %tile_minus_one : index
-  %parts = index.div %rounded, %tile : index
-  %partial_bytes = index.scale %parts, %word : index, offset -> offset
-  template.apply<@loomify.gemma3.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %q8_bytes, %logit_bytes, %partial_bytes, %residual, %count, %gamma, %weight, %normalized, %selected_ids) : (index, index, offset, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer, buffer)
+  %policy = index.constant 1 : index
+  %tag = index.constant 8 : index
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %policy, %tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }

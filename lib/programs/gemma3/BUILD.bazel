@@ -12,6 +12,7 @@ exports_files([
 filegroup(
     name = "implementation_sources",
     srcs = [
+        "//lib/programs/output:last_greedy.loom",
         "layer.loom",
         "attention.loom",
         "ffn.loom",

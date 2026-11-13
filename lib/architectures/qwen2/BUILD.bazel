@@ -4,54 +4,16 @@ load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:model_assembly.bzl", "ordinary_products")
+load("//lib/architectures:assemblies.bzl", "assembly")
 
 package(default_visibility = ["//visibility:public"])
 
+ordinary_products(assembly("qwen2"))
+
 exports_files([
     "model.loom",
-    "epoch.loom",
-    "prepare.loom",
-    "control_core.loom",
 ])
-
-_ARCHITECTURE_SOURCES = [
-    "model.loom",
-    "epoch.loom",
-    "//lib/programs/qwen2:implementation_sources",
-]
-
-_IMPLEMENTATION_SOURCES = _ARCHITECTURE_SOURCES + [
-    "//lib/kernels/decoder:implementation_sources",
-    "//lib/programs/projection:matrix_sources",
-    "//lib/kernels/selection:greedy_argmax.loom",
-    "//lib/kernels/epoch:count.loom",
-    "//lib/kernels/publication:two_stops.loom",
-]
-
-filegroup(
-    name = "architecture_sources",
-    srcs = _ARCHITECTURE_SOURCES,
-)
-
-loom_merge(
-    name = "implementation",
-    srcs = _IMPLEMENTATION_SOURCES,
-)
-
-loom_merge(
-    name = "implementation_text",
-    testonly = True,
-    srcs = _IMPLEMENTATION_SOURCES,
-    output_format = "text",
-)
-
-loom_merge(
-    name = "prepare_library",
-    srcs = [
-        "prepare.loom",
-        "//lib/serving:ordinary_prepare.loom",
-    ],
-)
 
 cc_test(
     name = "prepare_test",
@@ -59,7 +21,7 @@ cc_test(
     srcs = ["testing/prepare_test.cc"],
     copts = ["-std=c++17"],
     data = [
-        "prepare.loom",
+        ":ordinary_prepare_source",
         ":prepare_library",
         "//lib/serving:ordinary_prepare.loom",
     ],
@@ -69,16 +31,6 @@ cc_test(
         "//lib/loomify/testing:qwen2_fixture",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
-    ],
-)
-
-loom_merge(
-    name = "execution",
-    srcs = [
-        "control_core.loom",
-        "//loom-pipeline:llm/common/fixed_epoch_abi.loom",
-        "//lib/serving:ordinary_control.loom",
-        "//lib/kernels/publication:two_stops.loom",
     ],
 )
 

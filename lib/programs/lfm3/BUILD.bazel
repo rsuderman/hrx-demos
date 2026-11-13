@@ -16,11 +16,10 @@ exports_files(_SOURCES)
 filegroup(
     name = "implementation_sources",
     srcs = _SOURCES + [
+        "//lib/kernels/embedding:ordinary_f32_sources",
         "//lib/programs/output:last_greedy.loom",
         "//lib/programs/ffn:canonical_swiglu.loom",
         "//lib/programs/projection:implementation_sources",
-        "//lib/kernels/embedding:q5k_rows.loom",
-        "//lib/kernels/embedding:ordinary_q5.loom",
         "//lib/kernels/decoder:implementation_sources",
         "//lib/kernels/convolution:shortconv.loom",
         "//lib/kernels/attention:factored_rows.loom",

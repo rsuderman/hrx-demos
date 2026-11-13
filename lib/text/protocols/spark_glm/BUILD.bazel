@@ -13,10 +13,6 @@ loom_merge(
         "//lib/text/protocols/chatml_thinking:tools.loom",
         "//lib/text/protocols/chatml_thinking:tool_output.loom",
         "policy.loom",
-        "framing.loom",
-        "system.loom",
-        "effort.loom",
-        "completion.loom",
         "tool_parse.loom",
     ],
 )

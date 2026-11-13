@@ -1,18 +1,44 @@
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 // SPDX-License-Identifier: MIT
 // Curated fused last-active output from llama_3b/output_head.loom and
 // common/output_head.loom. Encoding and packing policy are explicit operation facts;
 // grouped/tuned routes are not implied by matching tensor dimensions.
 template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%rows: index, %vocab: index) launch(%rows: index, %vocab: index, %logits: buffer, %partial_logits: buffer, %partial_ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%rows: index, %vocab: index) launch(%rows: index, %vocab: index, %partial_logits: buffer, %partial_ids: buffer, %output: buffer)
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
-template.def<@llm.output.last_greedy> @llm_output_last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer) {
+
+kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%rows$32: index, %vocab$33: index) launch(%rows$34: index, %vocab$35: index, %logits: buffer, %partial_logits: buffer, %partial_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%rows$39: index, %vocab$40: index) launch(%rows$41: index, %vocab$42: index, %partial_logits: buffer, %partial_ids: buffer, %output: buffer)
+
+template.decl @llm.output.scratch_shape(%hidden: index, %vocab: index)
+
+template.def<@llm.output.scratch_shape> @llm_output_scratch_shape(%hidden: index, %vocab: index) where [range(%hidden, 128, 32768), multiple_of(%hidden, 128), range(%vocab, 1, 262144)] {
+  template.return
+}
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
+
+template.def<@llm.output.last_greedy> @llm_output_last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer) {
+  template.apply<@llm.output.scratch_shape>(%hidden, %vocab) : (index, index)
   %one = index.constant 1 : index
   %zero = index.constant 0 : index
   %origin0 = index.constant 0 : offset
   %one32 = scalar.constant 1 : i32
+  %word = index.constant 4 : offset
+  %normalized_bytes = index.scale %hidden, %word : index, offset -> offset
+  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
+  %group = index.constant 128 : index
+  %packed_group_bytes = index.constant 144 : offset
+  %groups = index.div %hidden, %group : index
+  %q8_bytes = index.scale %groups, %packed_group_bytes : index, offset -> offset
+  %logit_bytes = index.scale %vocab, %word : index, offset -> offset
+  %tile = index.constant 4096 : index
+  %tile_minus_one = index.constant 4095 : index
+  %rounded = index.add %vocab, %tile_minus_one : index
+  %parts = index.div %rounded, %tile : index
+  %partial_bytes = index.scale %parts, %word : index, offset -> offset
   %packed = buffer.alloca<global> align(256) %q8_bytes : buffer
   %logits = buffer.alloca<global> align(256) %logit_bytes : buffer
   %partial_logits = buffer.alloca<global> align(256) %partial_bytes : buffer

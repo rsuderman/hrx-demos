@@ -9,7 +9,7 @@ namespace {
 const OrdinaryPreparationCase kCase{
     "qwen2",
     +[]() { return qwen2::ModelFacts(); },
-    "lib/architectures/qwen2/prepare.loom",
+    "lib/architectures/qwen2/generated_prepare.loom",
     "lib/architectures/qwen2/prepare_library.loombc",
     1536,
     28,

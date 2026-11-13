@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/configuration_internal.h"
-#include "lib/loomify/architectures/gemma3.h"
+#include "lib/loomify/assembly_registry.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitGemma(const model::ModelDescriptor &m, const std::string &asset,
                const ConfigurationSettings &s, ConfigurationFacts *out,

@@ -8,8 +8,6 @@ template.decl @llm.rmsnorm.row(%width: index, %divisor: f32, %rows: index, %row:
 
 template.decl @llm.residual_add_f32.row(%width: index, %rows: index, %row: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
-template.decl @llm.token_embedding_q6k_f32.row(%width: index, %weight_row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
-
 template.decl @llm.attention.head_rms_value(%raw: f32, %divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %weight: buffer) -> (f32)
 
 template.decl @llm.attention.rope_neox_value(%head_size: index, %half: index, %rope_size: index, %log_step: f32, %position: i32, %lane: index, %head: buffer) -> (f32)
@@ -18,19 +16,7 @@ template.decl @llm.attention.row_f32(%query_heads: index, %key_heads: index, %he
 
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
 
-func.def public inline @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1) {
-  %origin = index.constant 0 : offset
-  %zero32 = scalar.constant 0 : i32
-  %words = buffer.view %count[%origin] : buffer -> view<3xi32>
-  %n32 = view.load %words[0] : view<3xi32> -> i32
-  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
-  %n = index.cast %n32 : i32 to index
-  %fits = index.cmp ule, %n, %rows : index
-  %inside = index.cmp ult, %row, %n : index
-  %valid_count = scalar.andi %positive, %fits : i1
-  %active = scalar.andi %valid_count, %inside : i1
-  func.return %active : i1
-}
+func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
 
 func.def public inline @llm.decoder.position(%row: index, %rows: index, %capacity: index, %origin: offset, %epoch: buffer) -> (i1, index) {
   %zero32 = scalar.constant 0 : i32
@@ -103,54 +89,6 @@ kernel.def @llm.decoder.residual(%rows0: index, %width0: index) {
   %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
   scf.if %active {
     template.apply<@llm.residual_add_f32.row>(%width, %rows, %row, %residual, %source, %residual) : (index, index, index, buffer, buffer, buffer)
-  }
-  kernel.return
-}
-
-kernel.def @llm.decoder.embedding_q6(%rows0: index, %width0: index, %vocabulary0: index) {
-  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
-  %one = index.constant 1 : index
-  %threads = index.constant 256 : index
-  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
-} launch(%width0: index, %vocabulary0: index, %control_origin: offset, %epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer) {
-  %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
-  %vocabulary = index.assume %vocabulary0 [range(%vocabulary0, 1, 262144)] : index
-  %rows = kernel.workgroup.count<x> : index
-  %row = kernel.workgroup.id<x> : index
-  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
-  %origin = index.constant 0 : offset
-  %word = index.constant 4 : offset
-  %row_bytes = index.scale %width, %word : index, offset -> offset
-  %output_origin = index.scale %row, %row_bytes : index, offset -> offset
-  %descriptor = buffer.view %epoch[%control_origin] : buffer -> view<5xi32>
-  %input_begin32 = view.load %descriptor[2] : view<5xi32> -> i32
-  %zero32 = scalar.constant 0 : i32
-  %nonnegative = scalar.cmpi sge, %input_begin32, %zero32 : i32
-  %input_begin = index.cast %input_begin32 : i32 to index
-  %input_row = index.add %input_begin, %row : index
-  %fits = index.cmp ult, %input_row, %rows : index
-  %a = scalar.andi %active, %nonnegative : i1
-  %valid = scalar.andi %a, %fits : i1
-  scf.if %valid {
-    %ids = buffer.view %tokens[%origin] : buffer -> view<[%rows]xi32>
-    %bounded_input_row = index.assume %input_row [range(%input_row, 0, 511), lt(%input_row, %rows)] : index
-    %id32 = view.load %ids[%bounded_input_row] : view<[%rows]xi32> -> i32
-    %id_value = index.cast %id32 : i32 to index
-    %id = index.assume %id_value [range(%id_value, 0, 262143), lt(%id_value, %vocabulary)] : index
-    %bounded_id = index.cast %id : index to i32
-    %block_values = index.constant 256 : index
-    %block_bytes = index.constant 210 : index
-    %blocks = index.div %width, %block_values : index
-    %weight_row_bytes = index.mul %blocks, %block_bytes : index
-    template.apply<@llm.token_embedding_q6k_f32.row>(%width, %weight_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
-  } else {
-    %lane = kernel.workitem.id<x> : index
-    %step = index.constant 256 : index
-    %zero = scalar.constant 0.0 : f32
-    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
-    scf.for %element = [%lane to %width step %step] {
-      view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
-    }
   }
   kernel.return
 }

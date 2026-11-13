@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "tools/model/model_descriptor_internal.h"
-#include "tools/model/architectures/gemma3.h"
+#include "tools/model/assembly_registry.h"
 namespace hrx::model::internal {
 namespace {
 const char *Gemma3TensorSuffix(std::string_view role, bool is_layer) {

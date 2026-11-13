@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/architectures/ordinary_decoder.h"
-#include "lib/loomify/architectures/qwen3.h"
+#include "lib/loomify/assembly_registry.h"
 
 namespace hrx::loomify_gguf::internal {
 bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
@@ -28,7 +28,8 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
   p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", E, V, {14}) ||
+  OrdinaryEmbeddingFacts embedding;
+  if (!p.OrdinaryEmbedding(m.globals, "token_embedding", E, V, &embedding) ||
       !p.Tensor(m.globals, "output", E, V, {14}) ||
       !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
@@ -49,7 +50,7 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
     if (!BindOrdinaryDecoderMatrices(p, l, E, Q, KV, attention, ffn))
       return false;
   }
-  EmitOrdinaryDecoderFacts(p, m, s, "qwen3", Q, KV, attention, ffn);
+  EmitOrdinaryDecoderFacts(p, m, s, "qwen3", Q, KV, embedding, attention, ffn);
   p.facts.source = p.text.str();
   *out = std::move(p.facts);
   if (error)

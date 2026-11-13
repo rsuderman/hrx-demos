@@ -1,0 +1,60 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Ordinary packet gather defines every inactive/invalid-position row as zero.
+func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
+
+template.decl @llm.embedding.decode_f32_row(%hidden: index, %tag: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+
+template.decl @llm.embedding.table_contract(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index)
+
+kernel.def @llm.embedding.ordinary_f32_kernel(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%hidden0: index, %vocabulary0: index, %tag: index, %control_origin: offset, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer) {
+  %hidden = index.assume %hidden0 [range(%hidden0, 256, 32768), multiple_of(%hidden0, 256)] : index
+  %vocabulary = index.assume %vocabulary0 [range(%vocabulary0, 1, 262144)] : index
+  %rows = kernel.workgroup.count<x> : index
+  %row = kernel.workgroup.id<x> : index
+  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+  %origin = index.constant 0 : offset
+  %word = index.constant 4 : offset
+  %row_bytes = index.scale %hidden, %word : index, offset -> offset
+  %output_origin = index.scale %row, %row_bytes : index, offset -> offset
+  %descriptor = buffer.view %epoch[%control_origin] : buffer -> view<5xi32>
+  %input_begin32 = view.load %descriptor[2] : view<5xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %nonnegative = scalar.cmpi sge, %input_begin32, %zero32 : i32
+  %input_begin = index.cast %input_begin32 : i32 to index
+  %input_row = index.add %input_begin, %row : index
+  %fits = index.cmp ult, %input_row, %rows : index
+  %valid_count_begin = scalar.andi %active, %nonnegative : i1
+  %valid = scalar.andi %valid_count_begin, %fits : i1
+  scf.if %valid {
+    %tokens = buffer.view %ids[%origin] : buffer -> view<[%rows]xi32>
+    %input = index.assume %input_row [range(%input_row, 0, 511), lt(%input_row, %rows)] : index
+    %id_word = view.load %tokens[%input] : view<[%rows]xi32> -> i32
+    %id_value = index.cast %id_word : i32 to index
+    %id = index.assume %id_value [range(%id_value, 0, 262143), lt(%id_value, %vocabulary)] : index
+    %token = index.cast %id : index to i32
+    template.apply<@llm.embedding.decode_f32_row>(%hidden, %tag, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+  } else {
+    %lane = kernel.workitem.id<x> : index
+    %step = index.constant 256 : index
+    %zero = scalar.constant 0.0 : f32
+    %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%hidden]xf32>
+    scf.for %element = [%lane to %hidden step %step] {
+      view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%hidden]xf32>
+    }
+  }
+  kernel.return
+}
+
+template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %control_origin: offset, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
+template.def<@llm.embedding.ordinary_f32> @llm_embedding_ordinary_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %control_origin: offset, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>) where [range(%rows, 1, 512), range(%hidden, 256, 32768), multiple_of(%hidden, 256), range(%vocabulary, 1, 262144)] {
+  template.apply<@llm.embedding.table_contract>(%rows, %hidden, %vocabulary, %tag, %weight_bytes) : (index, index, index, index, index)
+  kernel.launch @llm.embedding.ordinary_f32_kernel[%rows](%hidden, %vocabulary, %tag, %control_origin, %epoch, %count, %ids, %weight, %output) : [index](index, index, index, offset, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%rows]x[%hidden]xf32>)
+  template.return
+}

@@ -24,6 +24,7 @@ exports_files(
         "qwen2_configuration_test.cc",
         "lfm3_configuration_test.cc",
         "spark2_5_configuration_test.cc",
+        "component_configuration_test.cc",
     ],
     visibility = ["//lib/loomify:__pkg__"],
 )

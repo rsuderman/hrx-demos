@@ -39,7 +39,9 @@ bool BindOrdinaryDecoderMatrices(Producer &p, const model::LayerDescriptor &l,
 void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &m,
                               const ConfigurationSettings &s,
                               std::string_view family_prefix, uint64_t Q,
-                              uint64_t KV, const ConfigRows &attention,
+                              uint64_t KV,
+                              const OrdinaryEmbeddingFacts &embedding,
+                              const ConfigRows &attention,
                               const ConfigRows &ffn) {
   const auto E = m.embedding_width, V = m.vocabulary_size, H = m.key_head_width;
   const auto QH = m.layers.front().query_heads, KH = m.layers.front().kv_heads;
@@ -57,8 +59,8 @@ void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &m,
   p.Real(prefix + "model.rms_epsilon", float(m.rms_epsilon));
   p.Real(prefix + "model.rope_log_step", float(-2 * std::log(m.rope.base) / H));
   p.Real(prefix + "model.attention_scale", float(1 / std::sqrt(double(H))));
-  p.Index(prefix + "model.embedding_weight_bytes",
-          Role(m.globals, "token_embedding")->byte_size);
+  p.Index(prefix + "model.embedding_tag", embedding.storage_tag);
+  p.Index(prefix + "model.embedding_weight_bytes", embedding.weight_bytes);
   p.Index(prefix + "model.output_weight_bytes",
           Role(m.globals, "output")->byte_size);
   p.Index("runner." + std::string(family_prefix) + ".prefill_token_count",

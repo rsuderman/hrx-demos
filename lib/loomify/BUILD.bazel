@@ -1,9 +1,11 @@
-# Copyright 2026 AMD ROCm™ Software
-# SPDX-License-Identifier: MIT
-
 load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
+load("//build_tools:model_assembly.bzl", "native_registry", "native_sources")
+# Copyright 2026 AMD ROCm™ Software
+# SPDX-License-Identifier: MIT
+
+load("//lib/architectures:assemblies.bzl", "ASSEMBLIES")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -28,30 +30,24 @@ iree_cc_library(
 )
 
 # Source-authored finite policies; no native linker or tokenizer implementation.
+native_registry(
+    name = "assembly_registry",
+    entries = ASSEMBLIES,
+)
+
 iree_cc_library(
     name = "architecture_selection",
     srcs = [
-        "architectures.cc",
+        ":assembly_registry",
         "configuration_internal.h",
         "publication.cc",
-        "architectures/llama.cc",
-        "architectures/llama.h",
-        "architectures/lfm3.cc",
-        "architectures/lfm3.h",
-        "architectures/spark2_5.cc",
-        "architectures/spark2_5.h",
-        "architectures/qwen2.cc",
-        "architectures/qwen2.h",
-        "architectures/qwen3.cc",
-        "architectures/qwen3.h",
         "architectures/ordinary_decoder.cc",
         "architectures/ordinary_decoder.h",
-        "architectures/gemma3.cc",
-        "architectures/gemma3.h",
-        "architectures/qwen35.cc",
-        "architectures/qwen35.h",
+    ] + native_sources(ASSEMBLIES),
+    hdrs = [
+        "publication_internal.h",
+        ":assembly_registry.h",
     ],
-    hdrs = ["publication_internal.h"],
     cxxopts = _CXXOPTS,
     visibility = ["//lib/loomify/testing:__pkg__"],
     deps = [
@@ -101,6 +97,21 @@ iree_cc_library(
     deps = [
         "//tools/model:gguf_catalog",
         "//tools/model:model_descriptor",
+    ],
+)
+
+cc_test(
+    name = "component_configuration_test",
+    srcs = [
+        "//lib/loomify/testing:component_configuration_test.cc",
+        "configuration_internal.h",
+    ],
+    copts = ["-std=c++17"],
+    deps = [
+        ":configuration",
+        ":architecture_selection",
+        "//tools/model:model_descriptor",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -224,6 +235,7 @@ iree_cc_library(
     hdrs = ["linking.h"],
     cxxopts = _CXXOPTS,
     visibility = [
+        "//lib/text/testing:__pkg__",
         "//lib/loomify:__pkg__",
         "//lib/loomify/testing/platform:__pkg__",
         "//lib/loomify/testing:__pkg__",
@@ -317,6 +329,7 @@ iree_cc_library(
     hdrs = ["chat_policy.h"],
     cxxopts = _CXXOPTS,
     visibility = [
+        "//lib/text/testing:__pkg__",
         "//lib/loomify:__subpackages__",
         "//lib/serving/testing:__pkg__",
     ],

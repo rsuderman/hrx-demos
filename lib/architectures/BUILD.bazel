@@ -1,0 +1,3 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+exports_files(["assemblies.bzl"])

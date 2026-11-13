@@ -11,7 +11,8 @@ filegroup(
         ["*.loom"],
         exclude = [
             "epoch_f32.loom",
-            "ordinary_q5.loom",
+            "storage.loom",
+            "ordinary_f32.loom",
         ],
     ),
 )
@@ -19,6 +20,7 @@ filegroup(
 filegroup(
     name = "epoch_f32_sources",
     srcs = [
+        "storage.loom",
         "epoch_f32.loom",
         "q4k_rows.loom",
         "q5k_rows.loom",
@@ -27,5 +29,20 @@ filegroup(
         "//lib/kernels/projection:q4k.loom",
         "//lib/kernels/projection:q5k_codec.loom",
         "//lib/kernels/projection:qk_common.loom",
+    ],
+)
+
+filegroup(
+    name = "ordinary_f32_sources",
+    srcs = [
+        "ordinary_f32.loom",
+        "storage.loom",
+        "q4k_rows.loom",
+        "q5k_rows.loom",
+        "q6k_rows.loom",
+        "//lib/kernels/projection:q4k.loom",
+        "//lib/kernels/projection:q5k_codec.loom",
+        "//lib/kernels/projection:qk_common.loom",
+        "//lib/kernels/epoch:active_rows.loom",
     ],
 )

@@ -4,6 +4,8 @@ load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
 load("//build_tools:loom_resources.bzl", "loom_resources")
+load("//build_tools:model_assembly.bzl", "assembly_products")
+load("//lib/architectures:assemblies.bzl", "ASSEMBLIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -26,35 +28,14 @@ loom_merge(
 
 _PRODUCTS = {
     "//lib/text/protocols/chatml_thinking:compact_reasoning": "kChatmlCompactReasoning",
-    "//lib/architectures/lfm3:implementation": "kLfm3Implementation",
-    "//lib/architectures/lfm3:prepare_library": "kLfm3Preparation",
-    "//lib/architectures/lfm3:execution": "kLfm3Execution",
-    "//lib/architectures/spark2_5:implementation": "kSpark25Implementation",
-    "//lib/architectures/spark2_5:prepare_library": "kSpark25Preparation",
-    "//lib/architectures/spark2_5:execution": "kSpark25Execution",
     "//lib/text/protocols/spark_glm:policy": "kSparkGlm",
     "//lib/text/protocols/chatml_thinking:plain": "kChatmlPlain",
-    "//lib/architectures/qwen2:implementation": "kQwen2Implementation",
-    "//lib/architectures/qwen2:prepare_library": "kQwen2Preparation",
-    "//lib/architectures/qwen2:execution": "kQwen2Execution",
     "//lib/text/protocols/chatml_thinking:hermes_non_thinking": "kChatmlHermesNonThinking",
     "//lib/platforms/amdgpu/gfx11:attention_h256_implementation": "kGfx11AttentionH256Schedule",
     "//lib/platforms/amdgpu/gfx11/projection:implementation": "kGfx11ScaledF16Projection",
-    "//lib/architectures/qwen3:implementation": "kQwen3Implementation",
-    "//lib/architectures/qwen3:prepare_library": "kQwen3Preparation",
-    "//lib/architectures/qwen3:execution": "kQwen3Execution",
     "//lib/text/protocols/chatml_thinking:hermes": "kChatmlHermes",
     "//lib/platforms/amdgpu/gfx11:targets": "kGfx11Targets",
-    "//lib/architectures/gemma3:implementation": "kGemmaImplementation",
-    "//lib/architectures/gemma3:prepare_library": "kGemmaPreparation",
-    "//lib/architectures/gemma3:execution": "kGemmaExecution",
     "//lib/text/protocols/gemma_turns:implementation": "kGemmaTurns",
-    "//lib/architectures/llama:implementation": "kLlamaImplementation",
-    "//lib/architectures/llama:prepare_library": "kLlamaPreparation",
-    "//lib/architectures/llama:execution": "kLlamaExecution",
-    "//lib/architectures/qwen35:implementation": "kQwenImplementation",
-    "//lib/architectures/qwen35:prepare_library": "kQwenPreparation",
-    "//lib/architectures/qwen35:execution": "kQwenExecution",
     "//lib/text/common:implementation": "kTextCommon",
     "//lib/text/protocols/llama_headers:implementation": "kLlamaText",
     "//lib/text/protocols/chatml_thinking:inline_history": "kChatmlInlineHistory",
@@ -62,6 +43,8 @@ _PRODUCTS = {
     ":greedy": "kGreedy",
     ":weights.loom": "kWeights",
 }
+
+_PRODUCTS.update(assembly_products(ASSEMBLIES))
 
 filegroup(
     name = "export_products",
@@ -78,6 +61,7 @@ iree_cc_library(
     name = "library_resources",
     hdrs = [":library_resources_header"],
     visibility = [
+        "//lib/text/testing:__pkg__",
         "//lib/loomify:__pkg__",
         "//tools/loomify-gguf:__pkg__",
     ],

@@ -14,7 +14,9 @@ bool BindOrdinaryDecoderMatrices(Producer &p,
 void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &model,
                               const ConfigurationSettings &settings,
                               std::string_view family_prefix, uint64_t query,
-                              uint64_t kv, const ConfigRows &attention,
+                              uint64_t kv,
+                              const OrdinaryEmbeddingFacts &embedding,
+                              const ConfigRows &attention,
                               const ConfigRows &ffn);
 } // namespace hrx::loomify_gguf::internal
 #endif

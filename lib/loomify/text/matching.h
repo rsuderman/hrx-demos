@@ -27,6 +27,9 @@ bool Capture(std::string_view expected, std::string_view actual,
              std::vector<Slot> slots, Captures *values);
 void Datum(ChatPolicySelection *policy, const char *name,
            std::string_view value);
+// Complete fixed implementation details for a maintained selected product.
+// Call once after capture succeeds, before publishing the candidate.
+void EmitFixedTextDefaults(ChatRevision revision, ChatPolicySelection *policy);
 Match SelectLlamaHeaders(std::string_view actual, ChatPolicySelection *out);
 Match SelectChatmlThinking(std::string_view actual, ChatPolicySelection *out);
 Match SelectGemmaTurns(std::string_view actual, ChatPolicySelection *out);

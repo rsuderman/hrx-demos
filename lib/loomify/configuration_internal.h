@@ -53,6 +53,77 @@ inline bool PositiveF32(double value) {
   return std::isfinite(value) && std::isfinite(float(value)) &&
          float(value) > 0;
 }
+struct CanonicalProjectionFacts {
+  uint32_t storage_tag;
+  uint64_t weight_bytes, input_width, output_width;
+};
+struct OrdinaryEmbeddingFacts {
+  uint32_t storage_tag;
+  uint64_t weight_bytes, hidden_size, vocabulary_size;
+};
+inline bool CheckEncodedExtent(const model::TensorRecord &tensor,
+                               uint64_t input, uint64_t output,
+                               std::string *error) {
+  uint64_t bytes;
+  if (!model::EncodedTensorByteSize(tensor.storage_type, input, output,
+                                    &bytes) ||
+      bytes > uint64_t(INT64_MAX) || bytes != tensor.byte_size)
+    return Fail(error, "invalid encoded tensor extent: " + tensor.name);
+  return true;
+}
+inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
+                                     uint64_t input, uint64_t output,
+                                     CanonicalProjectionFacts *facts,
+                                     std::string *error) {
+  uint64_t block = 0, maximum = 0;
+  switch (tensor.storage_type) {
+  case 12:
+  case 13:
+    block = 256;
+    maximum = 32768;
+    break;
+  case 14:
+    block = 256;
+    maximum = 17408;
+    break;
+  case 6:
+  case 8:
+    block = 128;
+    maximum = 32768;
+    break;
+  default:
+    return Fail(error,
+                "unsupported canonical projection encoding: " + tensor.name);
+  }
+  if (!facts || input < block || input > maximum || input % block || !output ||
+      output > 262144)
+    return Fail(error,
+                "unsupported canonical projection geometry: " + tensor.name);
+  if (!CheckEncodedExtent(tensor, input, output, error))
+    return false;
+  *facts = {tensor.storage_type, tensor.byte_size, input, output};
+  return true;
+}
+inline bool CheckOrdinaryEmbedding(const model::TensorRecord &tensor,
+                                   uint64_t hidden, uint64_t vocabulary,
+                                   OrdinaryEmbeddingFacts *facts,
+                                   std::string *error) {
+  if (!facts ||
+      (tensor.storage_type != 12 && tensor.storage_type != 13 &&
+       tensor.storage_type != 14) ||
+      hidden < 256 || hidden > 32768 || hidden % 256 || !vocabulary ||
+      vocabulary > 262144)
+    return Fail(error, "unsupported ordinary embedding geometry or encoding: " +
+                           tensor.name);
+  if (!CheckEncodedExtent(tensor, hidden, vocabulary, error))
+    return false;
+  *facts = {tensor.storage_type, tensor.byte_size, hidden, vocabulary};
+  return true;
+}
+struct LayerRotaryFacts {
+  uint64_t window, width;
+  float log_step;
+};
 struct Producer {
   ConfigurationFacts facts;
   std::map<std::string, model::TensorRecord> identities;
@@ -141,6 +212,69 @@ struct Producer {
       return Fail(error, "inconsistent aliases for tensor: " + key);
     facts.parameters.push_back({role, layer, asset, *t});
     return true;
+  }
+  bool CanonicalProjection(const std::vector<model::TensorBinding> &bindings,
+                           const std::string &role, uint64_t input,
+                           uint64_t output, std::optional<uint32_t> layer,
+                           CanonicalProjectionFacts *result) {
+    const auto *tensor = Role(bindings, role);
+    CanonicalProjectionFacts checked;
+    if (!result || !tensor)
+      return Fail(error, "requires exactly one projection role: " + role);
+    if (!CheckCanonicalProjection(*tensor, input, output, &checked, error) ||
+        !Tensor(bindings, role, input, output, {}, layer, 2))
+      return false;
+    Projection(*tensor, input, output);
+    *result = checked;
+    return true;
+  }
+  bool OrdinaryEmbedding(const std::vector<model::TensorBinding> &bindings,
+                         const std::string &role, uint64_t hidden,
+                         uint64_t vocabulary, OrdinaryEmbeddingFacts *result) {
+    const auto *tensor = Role(bindings, role);
+    OrdinaryEmbeddingFacts checked;
+    if (!result || !tensor)
+      return Fail(error, "requires exactly one embedding role: " + role);
+    if (!CheckOrdinaryEmbedding(*tensor, hidden, vocabulary, &checked, error) ||
+        !Tensor(bindings, role, hidden, vocabulary, {}, std::nullopt, 2))
+      return false;
+    *result = checked;
+    return true;
+  }
+  // The family admits nonempty layer facts; this writes only typed constants.
+  void LayerRotaryLookup(const std::vector<LayerRotaryFacts> &rows) {
+    text
+        << "func.def public pure inline @loomify.config.layer_rotary(%layer: index) -> (index, index, f32) where [range(%layer, 0, "
+        << rows.size() - 1 << ")] {\n";
+    const auto emit = [&](const std::string &prefix,
+                          const LayerRotaryFacts &row, const char *indent) {
+      text << indent << "%" << prefix << "w = index.constant " << row.window
+           << " : index\n"
+           << indent << "%" << prefix << "r = index.constant " << row.width
+           << " : index\n"
+           << indent << "%" << prefix << "s = scalar.constant "
+           << std::scientific
+           << std::setprecision(std::numeric_limits<float>::max_digits10)
+           << row.log_step << " : f32\n";
+    };
+    emit("v0_", rows.back(), "  ");
+    for (size_t i = 0; i + 1 < rows.size(); ++i) {
+      const auto prior = "v" + std::to_string(i) + "_";
+      const auto next = "v" + std::to_string(i + 1) + "_";
+      const auto current = "c" + std::to_string(i) + "_";
+      text << "  %l" << i << " = index.constant " << i << " : index\n"
+           << "  %is" << i << " = index.cmp eq, %layer, %l" << i
+           << " : index\n  %" << next << "w, %" << next << "r, %" << next
+           << "s = scf.if %is" << i << " -> (index, index, f32) {\n";
+      emit(current, rows[i], "    ");
+      text << "    scf.yield %" << current << "w, %" << current << "r, %"
+           << current << "s : index, index, f32\n  } else {\n"
+           << "    scf.yield %" << prior << "w, %" << prior << "r, %" << prior
+           << "s : index, index, f32\n  }\n";
+    }
+    const auto last = "v" + std::to_string(rows.size() - 1) + "_";
+    text << "  func.return %" << last << "w, %" << last << "r, %" << last
+         << "s : index, index, f32\n}\n";
   }
   // Scalar cases contain facts only. The layer range is a caller precondition;
   // the final arm represents the last valid layer rather than a new fallback.

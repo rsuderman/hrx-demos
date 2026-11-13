@@ -72,9 +72,10 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
   loomc_status_free(build_status);
   if (!built) {
     EXPECT_FALSE(expect_success) << Diagnostics(result);
+    // Rejection may originate in the operation or its shared encoding/extent
+    // admission helpers; unrelated materialization failures are not evidence.
     if (!expect_success)
-      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"),
-                std::string::npos)
+      EXPECT_NE(Diagnostics(result).find("llm.embedding."), std::string::npos)
           << Diagnostics(result);
     if (result)
       loomc_result_release(result);
@@ -118,8 +119,7 @@ void Compile(loomc_context_t *context, loomc_workspace_t *workspace,
       EXPECT_TRUE(accepted) << Diagnostics(result);
     } else if (!accepted) {
       rejected = true;
-      EXPECT_NE(Diagnostics(result).find("llm.embedding.epoch"),
-                std::string::npos)
+      EXPECT_NE(Diagnostics(result).find("llm.embedding."), std::string::npos)
           << Diagnostics(result);
     }
     if (result && loomc_result_succeeded(result)) {
@@ -697,20 +697,54 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
   // Root the real production operation directly. A full-model root would let
   // unrelated unresolved FFN/projection templates mask the intended failure.
   struct Case {
-    int hidden;
-    int vocabulary;
-    int tag;
+    uint64_t rows;
+    uint64_t hidden;
+    uint64_t vocabulary;
+    uint32_t tag;
+    uint64_t bytes;
     bool accepted;
   };
   for (const auto *product :
        {"implementation_text.loom", "implementation.loombc"}) {
-    for (const auto c : {Case{512, 3, 12, true}, Case{512, 3, 13, true},
-                         Case{512, 3, 14, true}, Case{512, 3, 8, false},
-                         Case{513, 3, 12, false}, Case{512, 0, 12, false}}) {
+    for (const auto c : {
+             Case{8, 512, 3, 12, 864, true},
+             Case{8, 512, 3, 13, 1056, true},
+             Case{8, 512, 3, 14, 1260, true},
+             Case{513, 256, 128257, 12, 18469008, true},
+             Case{513, 256, 128257, 13, 22573232, true},
+             Case{513, 256, 128257, 14, 26933970, true},
+             Case{2048, 256, 3, 12, 432, true},
+             Case{8, 512, 3, 8, 1632, false},
+             Case{8, 513, 3, 12, 864, false},
+             Case{8, 512, 0, 12, 864, false},
+             Case{0, 512, 3, 12, 864, false},
+             Case{2049, 512, 3, 12, 864, false},
+             Case{8, 512, 3, 14, 1259, false},
+             Case{8, 512, 3, 14, 1261, false},
+             Case{8, 256, 2147483649, 12, 309237645456, false},
+             // Table multiplication would exceed the signed index domain,
+             // while the independent output extent still fits.
+             Case{8, 1099511627776, 2147483648, 14, 1, false},
+             // A valid one-row table does not permit output rows*hidden*4
+             // to wrap. Every literal itself remains representable.
+             Case{8, 1152921504606846976, 1, 12, 648518346341351424, false},
+         }) {
+      SCOPED_TRACE(::testing::Message()
+                   << product << " rows=" << c.rows << " hidden=" << c.hidden
+                   << " vocab=" << c.vocabulary << " tag=" << c.tag
+                   << " bytes=" << c.bytes);
+      if (c.accepted) {
+        uint64_t encoded_bytes = 0;
+        ASSERT_TRUE(model::EncodedTensorByteSize(c.tag, c.hidden, c.vocabulary,
+                                                 &encoded_bytes));
+        EXPECT_EQ(encoded_bytes, c.bytes);
+      }
       const std::string entry =
           "template.decl @llm.embedding.epoch_f32(%r:index,%h:index,%v:index,%t:index,%b:index,%e:buffer,%c:buffer,%i:buffer,%w:view<[%b]xi8>,%o:view<[%r]x[%h]xf32>)\n"
           "command.def @embedding.contract() launch(%e:buffer,%c:buffer,%i:buffer,%w:buffer,%o:buffer) {\n"
-          " %r = index.constant 8 : index\n"
+          " %r = index.constant " +
+          std::to_string(c.rows) +
+          " : index\n"
           " %h = index.constant " +
           std::to_string(c.hidden) +
           " : index\n"
@@ -721,9 +755,7 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
           std::to_string(c.tag) +
           " : index\n"
           " %b = index.constant " +
-          std::to_string(c.tag == 14   ? 1260
-                         : c.tag == 13 ? 1056
-                                       : 864) +
+          std::to_string(c.bytes) +
           " : index\n"
           " %z = index.constant 0 : offset\n"
           " %table = buffer.view %w[%z] : buffer -> view<[%b]xi8>\n"

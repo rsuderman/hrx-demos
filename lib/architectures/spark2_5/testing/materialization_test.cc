@@ -45,11 +45,19 @@ TEST(Spark25Materialization,
   for (uint64_t hidden : {1024, 2560}) {
     for (uint64_t rows : {8, 17}) {
       auto catalog =
-          testing::Spark25Catalog(hidden, 2, 16, 4, 10240, hidden == 2560);
+          testing::Spark25Catalog(hidden, 3, 16, 4, 10240, hidden == 2560);
       model::ModelDescriptor descriptor;
       std::string error;
       ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error))
           << error;
+      // Two distinct local profiles and an independent full-history profile.
+      descriptor.layers[0].rope_base = 10000;
+      descriptor.layers[0].rope_width = 256;
+      descriptor.layers[1].rope_base = 100000;
+      descriptor.layers[1].rope_width = 128;
+      descriptor.layers[2].attention_window = 0;
+      descriptor.layers[2].rope_base = 2000000;
+      descriptor.layers[2].rope_width = 64;
       ConfigurationFacts configuration;
       ASSERT_TRUE(DeriveConfiguration(descriptor, "fixture.gguf", {rows, 1024},
                                       &configuration, &error))

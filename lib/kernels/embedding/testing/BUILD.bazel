@@ -3,6 +3,7 @@
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:loom_testing.bzl", "loom_provider_checks")
 
 loom_test(
     name = "q4k_rows_test",
@@ -62,7 +63,7 @@ loom_test(
     srcs = [
         "//lib/kernels/decoder:implementation_sources",
         "//lib/kernels/embedding:epoch_f32_sources",
-        "//lib/kernels/embedding:ordinary_q5.loom",
+        "//lib/kernels/embedding:ordinary_f32_sources",
     ],
     output_format = format,
 ) for format in [
@@ -82,3 +83,26 @@ loom_test(
     "text",
     "bc",
 ]]
+
+loom_provider_checks(
+    name = "epoch_contract",
+    checks = [":epoch_contract_checks"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "epoch_contract_provider",
+    provider_srcs = [
+        "//lib/kernels/embedding:ordinary_f32_sources",
+        "//lib/kernels/embedding:epoch_f32_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+    ],
+)
+
+genrule(
+    name = "epoch_contract_checks",
+    testonly = True,
+    srcs = [
+        "epoch_contract_fixtures.py",
+        "epoch_contract_core.loom.in",
+    ],
+    outs = ["generated_epoch_contract_checks.loom"],
+    cmd = "python3 $(location epoch_contract_fixtures.py) $(location epoch_contract_core.loom.in) $@",
+)

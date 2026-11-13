@@ -1,3 +1,9 @@
+func.decl @text.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1)
+
+func.decl @text.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer)
+
+func.decl @text.append(%output: buffer, %position: offset, %text: buffer) -> (offset)
+
 func.decl @chatml.check(%condition: i1)
 
 func.decl @chatml.normalize_tool_output(%schemas: buffer, %response: buffer) -> (buffer)
@@ -39,40 +45,6 @@ global.rodata.def @spark_parse.tag = bytes("3e0a")
 global.rodata.def @spark_parse.empty_array = bytes("5b5d")
 
 // Scan a complete bounded delimiter; partial tails are malformed complete calls.
-func.def @spark_parse.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1) {
-  %size = buffer.length %text
-  %one = index.constant 1 : offset
-  %false = scalar.constant false : i1
-  %at, %found = scf.while(%p = %start : offset, %found = %false : i1) -> (offset, i1) {
-    %inside = index.cmp ult, %p, %size : offset
-    %not_found = scalar.cmpi eq, %found, %false : i1
-    %more = scalar.andi %inside, %not_found : i1
-    scf.condition %more, %p, %found : i1, offset, i1
-  } do(%p: offset, %found: i1) {
-    %match = func.call @text.at(%text, %p, %marker) : (buffer, offset, buffer) -> (i1)
-    %next = index.add %p, %one : offset
-    %position = scf.select %match, %p, %next : offset
-    scf.yield %position, %match : offset, i1
-  }
-  func.return %at, %found : offset, i1
-}
-
-func.def @spark_parse.append(%output: buffer, %at: offset, %part: buffer) -> (offset) {
-  %zero = index.constant 0 : offset
-  %size = buffer.length %part
-  buffer.copy %part[%zero], %output[%at], %size
-  %next = index.add %at, %size : offset
-  func.return %next : offset
-}
-
-func.def @spark_parse.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer) {
-  %size = index.sub %end, %begin : offset
-  %b = index.cast %begin : offset to i64
-  %n = index.cast %size : offset to i64
-  %v = func.call @text.range(%text, %b, %n) : (buffer, i64, i64) -> (buffer)
-  func.return %v : buffer
-}
-
 func.def @spark_parse.require_at(%text: buffer, %at: offset, %marker: buffer) -> (offset) {
   %valid = func.call @text.at(%text, %at, %marker) : (buffer, offset, buffer) -> (i1)
   func.call @chatml.check(%valid) : (i1)
@@ -115,55 +87,55 @@ func.def @spark_parse.convert(%response: buffer) -> (buffer) {
     scf.condition %more, %at, %out : i1, offset, offset
   } do(%at: offset, %out: offset) {
     %name_begin = func.call @spark_parse.require_at(%response, %at, %call_open) : (buffer, offset, buffer) -> (offset)
-    %key_at, %has_key = func.call @spark_parse.find(%response, %name_begin, %key_open) : (buffer, offset, buffer) -> (offset, i1)
-    %call_end, %has_end = func.call @spark_parse.find(%response, %name_begin, %call_close) : (buffer, offset, buffer) -> (offset, i1)
+    %key_at, %has_key = func.call @text.find(%response, %name_begin, %key_open) : (buffer, offset, buffer) -> (offset, i1)
+    %call_end, %has_end = func.call @text.find(%response, %name_begin, %call_close) : (buffer, offset, buffer) -> (offset, i1)
     func.call @chatml.check(%has_end) : (i1)
     %key_before_end = index.cmp ult, %key_at, %call_end : offset
     %has_args = scalar.andi %has_key, %key_before_end : i1
     %name_end = scf.select %has_args, %key_at, %call_end : offset
-    %name = func.call @spark_parse.slice(%response, %name_begin, %name_end) : (buffer, offset, offset) -> (buffer)
+    %name = func.call @text.slice(%response, %name_begin, %name_end) : (buffer, offset, offset) -> (buffer)
     func.call @spark_parse.identifier(%name) : (buffer)
-    %o0 = func.call @spark_parse.append(%output, %out, %xml_open) : (buffer, offset, buffer) -> (offset)
-    %o1 = func.call @spark_parse.append(%output, %o0, %name) : (buffer, offset, buffer) -> (offset)
-    %o2 = func.call @spark_parse.append(%output, %o1, %tag) : (buffer, offset, buffer) -> (offset)
+    %o0 = func.call @text.append(%output, %out, %xml_open) : (buffer, offset, buffer) -> (offset)
+    %o1 = func.call @text.append(%output, %o0, %name) : (buffer, offset, buffer) -> (offset)
+    %o2 = func.call @text.append(%output, %o1, %tag) : (buffer, offset, buffer) -> (offset)
     %argument_end, %o3 = scf.while(%p = %name_end : offset, %o = %o2 : offset) -> (offset, offset) {
       %more = index.cmp ult, %p, %call_end : offset
       scf.condition %more, %p, %o : i1, offset, offset
     } do(%p: offset, %o: offset) {
       %kb = func.call @spark_parse.require_at(%response, %p, %key_open) : (buffer, offset, buffer) -> (offset)
-      %ke, %has_ke = func.call @spark_parse.find(%response, %kb, %key_close) : (buffer, offset, buffer) -> (offset, i1)
+      %ke, %has_ke = func.call @text.find(%response, %kb, %key_close) : (buffer, offset, buffer) -> (offset, i1)
       %ke_before = index.cmp ult, %ke, %call_end : offset
       %ke_valid = scalar.andi %has_ke, %ke_before : i1
       func.call @chatml.check(%ke_valid) : (i1)
-      %key = func.call @spark_parse.slice(%response, %kb, %ke) : (buffer, offset, offset) -> (buffer)
+      %key = func.call @text.slice(%response, %kb, %ke) : (buffer, offset, offset) -> (buffer)
       func.call @spark_parse.identifier(%key) : (buffer)
       %after_key = func.call @spark_parse.require_at(%response, %ke, %key_close) : (buffer, offset, buffer) -> (offset)
       %vb = func.call @spark_parse.require_at(%response, %after_key, %value_open) : (buffer, offset, buffer) -> (offset)
-      %ve, %has_ve = func.call @spark_parse.find(%response, %vb, %value_close) : (buffer, offset, buffer) -> (offset, i1)
+      %ve, %has_ve = func.call @text.find(%response, %vb, %value_close) : (buffer, offset, buffer) -> (offset, i1)
       %ve_before = index.cmp ult, %ve, %call_end : offset
       %ve_valid = scalar.andi %has_ve, %ve_before : i1
       func.call @chatml.check(%ve_valid) : (i1)
-      %value = func.call @spark_parse.slice(%response, %vb, %ve) : (buffer, offset, offset) -> (buffer)
+      %value = func.call @text.slice(%response, %vb, %ve) : (buffer, offset, offset) -> (buffer)
       // The native XML parser consumes these markers structurally. Reject
       // ambiguous embedded framing instead of rewriting it inside raw values.
-      %collision, %collides = func.call @spark_parse.find(%value, %zero, %xml_delimiter) : (buffer, offset, buffer) -> (offset, i1)
+      %collision, %collides = func.call @text.find(%value, %zero, %xml_delimiter) : (buffer, offset, buffer) -> (offset, i1)
       %safe = scalar.cmpi eq, %collides, %false : i1
       func.call @chatml.check(%safe) : (i1)
-      %a = func.call @spark_parse.append(%output, %o, %xml_key) : (buffer, offset, buffer) -> (offset)
-      %b = func.call @spark_parse.append(%output, %a, %key) : (buffer, offset, buffer) -> (offset)
-      %c = func.call @spark_parse.append(%output, %b, %tag) : (buffer, offset, buffer) -> (offset)
-      %d = func.call @spark_parse.append(%output, %c, %value) : (buffer, offset, buffer) -> (offset)
-      %e = func.call @spark_parse.append(%output, %d, %xml_value_close) : (buffer, offset, buffer) -> (offset)
+      %a = func.call @text.append(%output, %o, %xml_key) : (buffer, offset, buffer) -> (offset)
+      %b = func.call @text.append(%output, %a, %key) : (buffer, offset, buffer) -> (offset)
+      %c = func.call @text.append(%output, %b, %tag) : (buffer, offset, buffer) -> (offset)
+      %d = func.call @text.append(%output, %c, %value) : (buffer, offset, buffer) -> (offset)
+      %e = func.call @text.append(%output, %d, %xml_value_close) : (buffer, offset, buffer) -> (offset)
       %next = func.call @spark_parse.require_at(%response, %ve, %value_close) : (buffer, offset, buffer) -> (offset)
       scf.yield %next, %e : offset, offset
     }
     %args_complete = index.cmp eq, %argument_end, %call_end : offset
     func.call @chatml.check(%args_complete) : (i1)
     %next = func.call @spark_parse.require_at(%response, %call_end, %call_close) : (buffer, offset, buffer) -> (offset)
-    %o4 = func.call @spark_parse.append(%output, %o3, %xml_close) : (buffer, offset, buffer) -> (offset)
+    %o4 = func.call @text.append(%output, %o3, %xml_close) : (buffer, offset, buffer) -> (offset)
     scf.yield %next, %o4 : offset, offset
   }
-  %result = func.call @spark_parse.slice(%output, %zero, %written) : (buffer, offset, offset) -> (buffer)
+  %result = func.call @text.slice(%output, %zero, %written) : (buffer, offset, offset) -> (buffer)
   func.return %result : buffer
 }
 

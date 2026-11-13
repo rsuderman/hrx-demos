@@ -1,17 +1,23 @@
 // Explicit checkpoint IDs for this existing independent numerical fixture.
 config.def @llama.publication.end_text_id = 128001 : i32
+
 config.def @llama.publication.end_message_id = 128008 : i32
+
 config.def @llama.publication.end_turn_id = 128009 : i32
 
-kernel.decl @qwen38_greedy_argmax_f32(%v: index) launch(%v: index, %logits: buffer, %ids: buffer)
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%r: index, %v: index) launch(%r: index, %v: index, %logits: buffer, %partial: buffer, %ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%r: index, %v: index) launch(%r: index, %v: index, %partial: buffer, %ids: buffer, %output: buffer)
+kernel.decl @qwen38_greedy_argmax_f32(%v$3: index) launch(%v$4: index, %logits: buffer, %ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%r$7: index, %v$8: index) launch(%r$9: index, %v$10: index, %logits: buffer, %partial: buffer, %ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%r$14: index, %v$15: index) launch(%r$16: index, %v$17: index, %partial: buffer, %ids: buffer, %output: buffer)
+
 // SPDX-License-Identifier: MIT
-kernel.decl @llama32_publish_epoch_id() launch(%epoch:buffer,%private_ids:buffer,%output:buffer)
+kernel.decl @llama32_publish_epoch_id() launch(%epoch: buffer, %private_ids: buffer, %output: buffer)
+
 kernel.def @init.publish_c1_s0_raw7() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -32,12 +38,14 @@ kernel.def @init.publish_c1_s0_raw7() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s0_raw7() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s0_raw7[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s0_raw7() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s0_raw7(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s0_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s0_raw7(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -61,12 +69,13 @@ func.def @ref.publish_c1_s0_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %value, %out[0] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s0_raw7 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(7) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s0_raw7,@ref.publish_c1_s0_raw7>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s0_raw7, @ref.publish_c1_s0_raw7>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -74,10 +83,11 @@ check.scenario @case.publish_c1_s0_raw7 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s0_raw128001() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -98,12 +108,14 @@ kernel.def @init.publish_c1_s0_raw128001() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s0_raw128001() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s0_raw128001[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s0_raw128001() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s0_raw128001(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s0_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s0_raw128001(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -127,12 +139,13 @@ func.def @ref.publish_c1_s0_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[0] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s0_raw128001 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128001) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s0_raw128001,@ref.publish_c1_s0_raw128001>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s0_raw128001, @ref.publish_c1_s0_raw128001>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -140,10 +153,11 @@ check.scenario @case.publish_c1_s0_raw128001 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s0_raw128008() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -164,12 +178,14 @@ kernel.def @init.publish_c1_s0_raw128008() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s0_raw128008() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s0_raw128008[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s0_raw128008() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s0_raw128008(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s0_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s0_raw128008(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -193,12 +209,13 @@ func.def @ref.publish_c1_s0_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[0] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s0_raw128008 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128008) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s0_raw128008,@ref.publish_c1_s0_raw128008>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s0_raw128008, @ref.publish_c1_s0_raw128008>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -206,10 +223,11 @@ check.scenario @case.publish_c1_s0_raw128008 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s0_raw128009() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -230,12 +248,14 @@ kernel.def @init.publish_c1_s0_raw128009() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s0_raw128009() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s0_raw128009[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s0_raw128009() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s0_raw128009(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s0_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s0_raw128009(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -259,12 +279,13 @@ func.def @ref.publish_c1_s0_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[0] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s0_raw128009 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128009) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s0_raw128009,@ref.publish_c1_s0_raw128009>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s0_raw128009, @ref.publish_c1_s0_raw128009>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -272,10 +293,11 @@ check.scenario @case.publish_c1_s0_raw128009 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s0_raw5() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -296,12 +318,14 @@ kernel.def @init.publish_c1_s0_raw5() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s0_raw5() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s0_raw5[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s0_raw5() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s0_raw5(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s0_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s0_raw5(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -325,12 +349,13 @@ func.def @ref.publish_c1_s0_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %value, %out[0] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s0_raw5 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(5) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s0_raw5,@ref.publish_c1_s0_raw5>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s0_raw5, @ref.publish_c1_s0_raw5>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -338,10 +363,11 @@ check.scenario @case.publish_c1_s0_raw5 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s2_raw7() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -362,12 +388,14 @@ kernel.def @init.publish_c1_s2_raw7() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s2_raw7() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s2_raw7[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s2_raw7() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s2_raw7(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s2_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s2_raw7(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -391,12 +419,13 @@ func.def @ref.publish_c1_s2_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %value, %out[2] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s2_raw7 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(7) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s2_raw7,@ref.publish_c1_s2_raw7>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s2_raw7, @ref.publish_c1_s2_raw7>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -404,10 +433,11 @@ check.scenario @case.publish_c1_s2_raw7 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s2_raw128001() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -428,12 +458,14 @@ kernel.def @init.publish_c1_s2_raw128001() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s2_raw128001() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s2_raw128001[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s2_raw128001() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s2_raw128001(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s2_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s2_raw128001(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -457,12 +489,13 @@ func.def @ref.publish_c1_s2_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[2] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s2_raw128001 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128001) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s2_raw128001,@ref.publish_c1_s2_raw128001>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s2_raw128001, @ref.publish_c1_s2_raw128001>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -470,10 +503,11 @@ check.scenario @case.publish_c1_s2_raw128001 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s2_raw128008() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -494,12 +528,14 @@ kernel.def @init.publish_c1_s2_raw128008() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s2_raw128008() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s2_raw128008[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s2_raw128008() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s2_raw128008(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s2_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s2_raw128008(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -523,12 +559,13 @@ func.def @ref.publish_c1_s2_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[2] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s2_raw128008 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128008) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s2_raw128008,@ref.publish_c1_s2_raw128008>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s2_raw128008, @ref.publish_c1_s2_raw128008>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -536,10 +573,11 @@ check.scenario @case.publish_c1_s2_raw128008 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s2_raw128009() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -560,12 +598,14 @@ kernel.def @init.publish_c1_s2_raw128009() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s2_raw128009() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s2_raw128009[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s2_raw128009() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s2_raw128009(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s2_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s2_raw128009(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -589,12 +629,13 @@ func.def @ref.publish_c1_s2_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[2] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s2_raw128009 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128009) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s2_raw128009,@ref.publish_c1_s2_raw128009>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s2_raw128009, @ref.publish_c1_s2_raw128009>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -602,10 +643,11 @@ check.scenario @case.publish_c1_s2_raw128009 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s2_raw5() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -626,12 +668,14 @@ kernel.def @init.publish_c1_s2_raw5() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s2_raw5() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s2_raw5[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s2_raw5() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s2_raw5(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s2_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s2_raw5(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -655,12 +699,13 @@ func.def @ref.publish_c1_s2_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %value, %out[2] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s2_raw5 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(5) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s2_raw5,@ref.publish_c1_s2_raw5>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s2_raw5, @ref.publish_c1_s2_raw5>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -668,10 +713,11 @@ check.scenario @case.publish_c1_s2_raw5 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s7_raw7() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -692,12 +738,14 @@ kernel.def @init.publish_c1_s7_raw7() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s7_raw7() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s7_raw7[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s7_raw7() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s7_raw7(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s7_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s7_raw7(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -721,12 +769,13 @@ func.def @ref.publish_c1_s7_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %value, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s7_raw7 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(7) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s7_raw7,@ref.publish_c1_s7_raw7>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s7_raw7, @ref.publish_c1_s7_raw7>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -734,10 +783,11 @@ check.scenario @case.publish_c1_s7_raw7 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s7_raw128001() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -758,12 +808,14 @@ kernel.def @init.publish_c1_s7_raw128001() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s7_raw128001() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s7_raw128001[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s7_raw128001() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s7_raw128001(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s7_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s7_raw128001(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -787,12 +839,13 @@ func.def @ref.publish_c1_s7_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s7_raw128001 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128001) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s7_raw128001,@ref.publish_c1_s7_raw128001>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s7_raw128001, @ref.publish_c1_s7_raw128001>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -800,10 +853,11 @@ check.scenario @case.publish_c1_s7_raw128001 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s7_raw128008() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -824,12 +878,14 @@ kernel.def @init.publish_c1_s7_raw128008() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s7_raw128008() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s7_raw128008[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s7_raw128008() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s7_raw128008(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s7_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s7_raw128008(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -853,12 +909,13 @@ func.def @ref.publish_c1_s7_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s7_raw128008 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128008) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s7_raw128008,@ref.publish_c1_s7_raw128008>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s7_raw128008, @ref.publish_c1_s7_raw128008>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -866,10 +923,11 @@ check.scenario @case.publish_c1_s7_raw128008 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s7_raw128009() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -890,12 +948,14 @@ kernel.def @init.publish_c1_s7_raw128009() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s7_raw128009() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s7_raw128009[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s7_raw128009() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s7_raw128009(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s7_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s7_raw128009(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -919,12 +979,13 @@ func.def @ref.publish_c1_s7_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) 
   view.store %value, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s7_raw128009 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128009) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s7_raw128009,@ref.publish_c1_s7_raw128009>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s7_raw128009, @ref.publish_c1_s7_raw128009>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -932,10 +993,11 @@ check.scenario @case.publish_c1_s7_raw128009 {
   }
   check.return
 }
+
 kernel.def @init.publish_c1_s7_raw5() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -956,12 +1018,14 @@ kernel.def @init.publish_c1_s7_raw5() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c1_s7_raw5() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c1_s7_raw5[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c1_s7_raw5() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c1_s7_raw5(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c1_s7_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c1_s7_raw5(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -985,12 +1049,13 @@ func.def @ref.publish_c1_s7_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %value, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @case.publish_c1_s7_raw5 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(5) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c1_s7_raw5,@ref.publish_c1_s7_raw5>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c1_s7_raw5, @ref.publish_c1_s7_raw5>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -998,10 +1063,11 @@ check.scenario @case.publish_c1_s7_raw5 {
   }
   check.return
 }
+
 kernel.def @init.publish_c0_snone_raw7() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1022,12 +1088,14 @@ kernel.def @init.publish_c0_snone_raw7() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c0_snone_raw7() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c0_snone_raw7[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c0_snone_raw7() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c0_snone_raw7(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c0_snone_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c0_snone_raw7(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1048,12 +1116,13 @@ func.def @ref.publish_c0_snone_raw7(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %eos, %meta[515] : i32, view<520xi32>
   func.return
 }
+
 check.scenario @case.publish_c0_snone_raw7 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(7) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c0_snone_raw7,@ref.publish_c0_snone_raw7>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c0_snone_raw7, @ref.publish_c0_snone_raw7>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -1061,10 +1130,11 @@ check.scenario @case.publish_c0_snone_raw7 {
   }
   check.return
 }
+
 kernel.def @init.publish_c0_snone_raw128001() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1085,12 +1155,14 @@ kernel.def @init.publish_c0_snone_raw128001() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c0_snone_raw128001() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c0_snone_raw128001[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c0_snone_raw128001() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c0_snone_raw128001(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c0_snone_raw128001(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c0_snone_raw128001(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1111,12 +1183,13 @@ func.def @ref.publish_c0_snone_raw128001(%epoch:buffer,%raw:buffer,%output:buffe
   view.store %eos, %meta[515] : i32, view<520xi32>
   func.return
 }
+
 check.scenario @case.publish_c0_snone_raw128001 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128001) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c0_snone_raw128001,@ref.publish_c0_snone_raw128001>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c0_snone_raw128001, @ref.publish_c0_snone_raw128001>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -1124,10 +1197,11 @@ check.scenario @case.publish_c0_snone_raw128001 {
   }
   check.return
 }
+
 kernel.def @init.publish_c0_snone_raw128008() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1148,12 +1222,14 @@ kernel.def @init.publish_c0_snone_raw128008() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c0_snone_raw128008() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c0_snone_raw128008[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c0_snone_raw128008() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c0_snone_raw128008(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c0_snone_raw128008(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c0_snone_raw128008(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1174,12 +1250,13 @@ func.def @ref.publish_c0_snone_raw128008(%epoch:buffer,%raw:buffer,%output:buffe
   view.store %eos, %meta[515] : i32, view<520xi32>
   func.return
 }
+
 check.scenario @case.publish_c0_snone_raw128008 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128008) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c0_snone_raw128008,@ref.publish_c0_snone_raw128008>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c0_snone_raw128008, @ref.publish_c0_snone_raw128008>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -1187,10 +1264,11 @@ check.scenario @case.publish_c0_snone_raw128008 {
   }
   check.return
 }
+
 kernel.def @init.publish_c0_snone_raw128009() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1211,12 +1289,14 @@ kernel.def @init.publish_c0_snone_raw128009() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c0_snone_raw128009() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c0_snone_raw128009[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c0_snone_raw128009() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c0_snone_raw128009(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c0_snone_raw128009(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c0_snone_raw128009(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1237,12 +1317,13 @@ func.def @ref.publish_c0_snone_raw128009(%epoch:buffer,%raw:buffer,%output:buffe
   view.store %eos, %meta[515] : i32, view<520xi32>
   func.return
 }
+
 check.scenario @case.publish_c0_snone_raw128009 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(128009) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c0_snone_raw128009,@ref.publish_c0_snone_raw128009>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c0_snone_raw128009, @ref.publish_c0_snone_raw128009>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -1250,10 +1331,11 @@ check.scenario @case.publish_c0_snone_raw128009 {
   }
   check.return
 }
+
 kernel.def @init.publish_c0_snone_raw5() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1274,12 +1356,14 @@ kernel.def @init.publish_c0_snone_raw5() {
   view.store %eos, %meta[515] : i32, view<520xi32>
   kernel.return
 }
-command.def @publish_c0_snone_raw5() launch(%epoch:buffer,%raw:buffer,%output:buffer) {
-  kernel.launch @init.publish_c0_snone_raw5[](%epoch) : [](buffer)
-  kernel.launch @llama32_publish_epoch_id[](%epoch,%raw,%output) : [](buffer,buffer,buffer)
+
+command.def @publish_c0_snone_raw5() launch(%epoch: buffer, %raw: buffer, %output: buffer) {
+  kernel.launch @init.publish_c0_snone_raw5(%epoch) : (buffer)
+  kernel.launch @llama32_publish_epoch_id(%epoch, %raw, %output) : (buffer, buffer, buffer)
   command.return
 }
-func.def @ref.publish_c0_snone_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
+
+func.def @ref.publish_c0_snone_raw5(%epoch: buffer, %raw: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<520xi32>
   %h = scalar.constant 5 : i32
@@ -1300,12 +1384,13 @@ func.def @ref.publish_c0_snone_raw5(%epoch:buffer,%raw:buffer,%output:buffer) {
   view.store %eos, %meta[515] : i32, view<520xi32>
   func.return
 }
+
 check.scenario @case.publish_c0_snone_raw5 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(-77) step(3) : tensor<520xi32>
     %raw = check.generate.iota offset(5) step(17) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@publish_c0_snone_raw5,@ref.publish_c0_snone_raw5>(%epoch,%raw,%output) : (tensor<520xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@publish_c0_snone_raw5, @ref.publish_c0_snone_raw5>(%epoch, %raw, %output) : (tensor<520xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
       check.expect.bitwise actual(%raw) expected(%raw) : tensor<8xi32>
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
@@ -1313,6 +1398,7 @@ check.scenario @case.publish_c0_snone_raw5 {
   }
   check.return
 }
+
 check.case public @qwen38_greedy_argmax_cross_tile_tie_case {
   %token_count = check.literal value(1) : index
   %output_size = check.literal value(8201) : index
@@ -1330,7 +1416,8 @@ check.case public @qwen38_greedy_argmax_cross_tile_tie_case {
   check.return
 }
 
-kernel.decl @llama32_output_norm_last_f32(%capacity: index) launch(%capacity: index, %begin: index, %origin: offset, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @llama32_output_norm_last_f32(%capacity$722: index) launch(%capacity$723: index, %begin: index, %origin: offset, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 command.def @norm_last() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %capacity = index.constant 4 : index
   %begin = index.constant 1 : index
@@ -1338,6 +1425,7 @@ command.def @norm_last() launch(%input: buffer, %gamma: buffer, %control: buffer
   kernel.launch @llama32_output_norm_last_f32[%capacity](%capacity, %begin, %origin, %control, %input, %gamma, %output) : [index](index, index, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 // Control count=2, begin=1 selects source row2 and writes destination row0.
 func.def @ref_norm_last(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
@@ -1350,7 +1438,7 @@ func.def @ref_norm_last(%input: buffer, %gamma: buffer, %control: buffer, %outpu
   %width = index.constant 3072 : index
   %zero_f = scalar.constant 0.0 : f32
   %width_f = scalar.constant 3072.0 : f32
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
     %v = view.load %x[%row, %c] : view<4x3072xf32> -> f32
     %square = scalar.mulf %v, %v : f32
@@ -1369,6 +1457,7 @@ func.def @ref_norm_last(%input: buffer, %gamma: buffer, %control: buffer, %outpu
   }
   func.return
 }
+
 check.scenario @last_active_rebases_to_zero {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<12288xf32>
@@ -1377,7 +1466,7 @@ check.scenario @last_active_rebases_to_zero {
     %storage = check.generate.fill value(-99.0) : tensor<3076xf32>
     %output = check.tensor.view %storage offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     check.compare<@norm_last, @ref_norm_last>(%input, %gamma, %control, %output) : (tensor<12288xf32>, tensor<3072xf32>, tensor<1xi32>, tensor<3072xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00005) rtol(0.00005) nan(same) : tensor<3076xf32>, tensor<3076xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(5.0000000000000002e-05) rtol(5.0000000000000002e-05) nan(same) : tensor<3076xf32>, tensor<3076xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<12288xf32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
       check.expect.bitwise actual(%control) expected(%control) : tensor<1xi32>
@@ -1385,10 +1474,12 @@ check.scenario @last_active_rebases_to_zero {
   }
   check.return
 }
+
 // The full fused definition runs bounded synthetic Q6_K weights. Every weight
 // row is identical and nonzero, so the independent expected greedy ID is0.
 // Row selection/normalization is separately checked against a scalar oracle.
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
+
 command.def @bounded_fused_head() launch(%input: buffer, %control: buffer, %gamma: buffer, %weights: buffer, %normalized: buffer, %token: buffer) {
   %capacity = index.constant 4 : index
   %begin = index.constant 1 : index
@@ -1396,16 +1487,14 @@ command.def @bounded_fused_head() launch(%input: buffer, %control: buffer, %gamm
   %hidden = index.constant 3072 : index
   %vocab = index.constant 256 : index
   %weight_bytes = index.constant 645120 : index
-  %q8_bytes = index.constant 3456 : offset
-  %logit_bytes = index.constant 1024 : offset
-  %partial_bytes = index.constant 4 : offset
   %weight = buffer.view %weights[%origin] : buffer -> view<[%weight_bytes]xi8>
   %gamma_view = buffer.view %gamma[%origin] : buffer -> view<[%hidden]xf32>
   %head_policy = index.constant 0 : index
   %head_tag = index.constant 14 : index
-  template.apply<@llm.output.last_greedy>(%capacity, %begin, %origin, %hidden, %vocab, %weight_bytes, %head_policy, %head_tag, %q8_bytes, %logit_bytes, %partial_bytes, %input, %control, %gamma_view, %weight, %normalized, %token) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%weight_bytes]xi8>, buffer, buffer)
+  template.apply<@llm.output.last_greedy>(%capacity, %begin, %origin, %hidden, %vocab, %weight_bytes, %head_policy, %head_tag, %input, %control, %gamma_view, %weight, %token) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%weight_bytes]xi8>, buffer)
   command.return
 }
+
 func.def @ref_bounded_head(%input: buffer, %control: buffer, %gamma: buffer, %weights: buffer, %normalized: buffer, %token: buffer) {
   %origin = index.constant 0 : offset
   %ids = buffer.view %token[%origin] : buffer -> view<1xi32>
@@ -1413,6 +1502,7 @@ func.def @ref_bounded_head(%input: buffer, %control: buffer, %gamma: buffer, %we
   view.store %zero, %ids[0] : i32, view<1xi32>
   func.return
 }
+
 check.scenario @bounded_fused_greedy {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<12288xf32>

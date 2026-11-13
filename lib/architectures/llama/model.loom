@@ -1,22 +1,37 @@
 // Scalar/layout limits of the maintained adjacent128 rotary recipe. These do
 // not identify a checkpoint; matrix encoding and dimensions are operation facts.
 config.decl @llama.model.head_size : index
+
 template.decl @loomify.llama.model_layout(%hidden: index, %head: index, %vocabulary: index)
-template.def<@loomify.llama.model_layout> @loomify_llama_model_layout(%hidden: index, %head: index, %vocabulary: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), eq(%head, 128), range(%vocabulary, 1, 128256)] { template.return }
+
+template.def<@loomify.llama.model_layout> @loomify_llama_model_layout(%hidden: index, %head: index, %vocabulary: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), eq(%head, 128), range(%vocabulary, 1, 128256)] {
+  template.return
+}
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Architecture order lives here; generated configuration contains facts only.
 config.decl @runner.llama32.prefill_token_count : index
+
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.vocabulary_size : index
+
 config.decl @llama.model.layer_count : index
+
 config.decl @llama.model.embedding_weight_bytes : index
+
 config.decl @llama.model.output_weight_bytes : index
+
 config.decl @llama.model.embedding_storage_type : index
+
 config.decl @llama.model.tie_word_embeddings : index
+
 command.decl @loomify.llama.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
+
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
-template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
 
 template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
 
@@ -27,10 +42,9 @@ command.def @loomify.llama.model() launch(%parameters: buffer, %residual: buffer
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %zero_offset = index.constant 0 : offset
-  %word = index.constant 4 : offset
   %count_bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %descriptor_origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %descriptor_origin, %epoch, %count) : (index, offset, buffer, buffer)
   %layout_hidden = config.get @llama.model.hidden_size : index
   %layout_head = config.get @llama.model.head_size : index
   %layout_vocabulary = config.get @llama.model.vocabulary_size : index
@@ -57,20 +71,8 @@ command.def @loomify.llama.model() launch(%parameters: buffer, %residual: buffer
     %separate = command.parameter %parameters, "output.weight" : view<[%output_bytes]xi8>
     scf.yield %separate : view<[%output_bytes]xi8>
   }
-  %normalized_bytes = index.scale %hidden, %word : index, offset -> offset
-  %normalized = buffer.alloca<global> align(256) %normalized_bytes : buffer
-  %group = index.constant 128 : index
-  %packed_group_bytes = index.constant 144 : offset
-  %groups = index.div %hidden, %group : index
-  %q8_bytes = index.scale %groups, %packed_group_bytes : index, offset -> offset
-  %logit_bytes = index.scale %vocab, %word : index, offset -> offset
-  %tile = index.constant 4096 : index
-  %tile_minus_one = index.constant 4095 : index
-  %rounded = index.add %vocab, %tile_minus_one : index
-  %parts = index.div %rounded, %tile : index
-  %partial_bytes = index.scale %parts, %word : index, offset -> offset
   %head_policy = index.constant 0 : index
   %head_tag = index.constant 14 : index
-  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %q8_bytes, %logit_bytes, %partial_bytes, %residual, %count, %gamma, %weight, %normalized, %selected_ids) : (index, index, offset, index, index, index, index, index, offset, offset, offset, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer, buffer)
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }

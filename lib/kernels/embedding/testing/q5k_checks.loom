@@ -4,9 +4,13 @@
 // all8blocks and all8scale/min groups, nonzero origins, reordered IDs,
 // mixed signs and non-F16-representable results; inactive row and bank guards.
 config.def @qwen.model.hidden_size = 2048 : index
+
 config.def @qwen.model.hidden_row_bytes = 8192 : index
+
 config.def @qwen.model.embedding_row_bytes = 1408 : index
+
 template.decl @llm.token_embedding_q5k_f32.row(%width: index, %row_bytes: index, %id: i32, %origin: offset, %weight: buffer, %output: buffer)
+
 kernel.def @q5.gather(%tokens: index) {
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
@@ -16,19 +20,20 @@ kernel.def @q5.gather(%tokens: index) {
   %limit = index.constant 3 : index
   %valid = index.cmp ult, %row0, %limit : index
   scf.if %valid {
-  %row = index.assume %row0 [range(%row0, 0, 2)] : index
-  %origin = index.constant 0 : offset
-  %width = index.constant 2048 : index
-  %row_bytes = index.constant 1408 : index
-  %output_stride = index.constant 8192 : offset
-  %output_origin = index.scale %row, %output_stride : index, offset -> offset
-  %tokens = buffer.view %ids[%origin] : buffer -> view<512xi32>
-  %id0 = view.load %tokens[%row] : view<512xi32> -> i32
-  %id = scalar.assume %id0 [range(%id0, 0, 2)] : i32
-  template.apply<@llm.token_embedding_q5k_f32.row>(%width, %row_bytes, %id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+    %row = index.assume %row0 [range(%row0, 0, 2)] : index
+    %origin = index.constant 0 : offset
+    %width = index.constant 2048 : index
+    %row_bytes = index.constant 1408 : index
+    %output_stride = index.constant 8192 : offset
+    %output_origin = index.scale %row, %output_stride : index, offset -> offset
+    %tokens = buffer.view %ids[%origin] : buffer -> view<512xi32>
+    %id0 = view.load %tokens[%row] : view<512xi32> -> i32
+    %id = scalar.assume %id0 [range(%id0, 0, 2)] : i32
+    template.apply<@llm.token_embedding_q5k_f32.row>(%width, %row_bytes, %id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
   }
   kernel.return
 }
+
 func.def @q5.d(%row: index, %block: index) -> (f32) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -47,6 +52,7 @@ func.def @q5.d(%row: index, %block: index) -> (f32) {
   %value = scf.select %odd, %small, %d : f32
   func.return %value : f32
 }
+
 func.def @q5.setup(%weights: buffer, %ids: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -165,15 +171,17 @@ func.def @q5.setup(%weights: buffer, %ids: buffer) {
   }
   func.return
 }
+
 kernel.def @q5.init() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%weights: buffer, %ids: buffer) {
-  func.call @q5.setup(%weights, %ids) : (buffer, buffer) -> ()
+  func.call @q5.setup(%weights, %ids) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual.q5() launch(%weights: buffer, %ids: buffer, %output: buffer) {
-  kernel.launch @q5.init[](%weights, %ids) : [](buffer, buffer)
+  kernel.launch @q5.init(%weights, %ids) : (buffer, buffer)
   %tokens = index.constant 3 : index
   %weight_begin = index.constant 256 : offset
   %output_begin = index.constant 128 : offset
@@ -182,8 +190,9 @@ command.def public @actual.q5() launch(%weights: buffer, %ids: buffer, %output: 
   kernel.launch @q5.gather[%tokens](%ids, %w, %out) : [index](buffer, view<4224xi8>, view<8192xf32>)
   command.return
 }
+
 func.def @expected.q5(%weights: buffer, %ids: buffer, %output: buffer) {
-  func.call @q5.setup(%weights, %ids) : (buffer, buffer) -> ()
+  func.call @q5.setup(%weights, %ids) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -240,6 +249,7 @@ func.def @expected.q5(%weights: buffer, %ids: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @q5_embedding_f32_2048_nonzero {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<4736xi8>
@@ -255,7 +265,9 @@ check.scenario @q5_embedding_f32_2048_nonzero {
 }
 
 template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocab: index, %tag: index, %bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weights: view<[%bytes]xi8>, %out: view<[%rows]x[%hidden]xf32>)
-kernel.decl @llm.embedding.ordinary_q5(%rows: index, %width: index, %vocab: index) launch(%width: index, %vocab: index, %origin: offset, %epoch: buffer, %count: buffer, %tokens: buffer, %weights: buffer, %output: buffer)
+
+template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocab: index, %tag: index, %bytes: index, %origin: offset, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
 kernel.def @q5.packet() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -269,8 +281,9 @@ kernel.def @q5.packet() {
   view.store %begin, %e[2] : i32, view<5xi32>
   kernel.return
 }
+
 command.def @actual.q5_epoch() launch(%weights: buffer, %ids: buffer, %output: buffer) {
-  kernel.launch @q5.init[](%weights, %ids) : [](buffer, buffer)
+  kernel.launch @q5.init(%weights, %ids) : (buffer, buffer)
   %rows = index.constant 4 : index
   %hidden = index.constant 2048 : index
   %vocab = index.constant 3 : index
@@ -284,17 +297,20 @@ command.def @actual.q5_epoch() launch(%weights: buffer, %ids: buffer, %output: b
   %count = buffer.alloca<global> align(4) %count_bytes : buffer
   %active = scalar.constant 3 : i32
   %begin = scalar.constant 0 : i32
-  kernel.launch @q5.packet[](%active, %begin, %epoch, %count) : [](i32, i32, buffer, buffer)
+  kernel.launch @q5.packet(%active, %begin, %epoch, %count) : (i32, i32, buffer, buffer)
   %w = buffer.view %weights[%weight_origin] : buffer -> view<[%bytes]xi8>
   %out = buffer.view %output[%out_origin] : buffer -> view<[%rows]x[%hidden]xf32>
   template.apply<@llm.embedding.epoch_f32>(%rows, %hidden, %vocab, %tag, %bytes, %epoch, %count, %ids, %w, %out) : (index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, view<[%rows]x[%hidden]xf32>)
   command.return
 }
+
 command.def @actual.q5_ordinary() launch(%weights: buffer, %ids: buffer, %output: buffer) {
-  kernel.launch @q5.init[](%weights, %ids) : [](buffer, buffer)
+  kernel.launch @q5.init(%weights, %ids) : (buffer, buffer)
   %rows = index.constant 4 : index
   %hidden = index.constant 2048 : index
   %vocab = index.constant 3 : index
+  %tag = index.constant 13 : index
+  %bytes = index.constant 4224 : index
   %weight_origin = index.constant 256 : offset
   %out_origin = index.constant 128 : offset
   %epoch_origin = index.constant 12 : offset
@@ -304,14 +320,15 @@ command.def @actual.q5_ordinary() launch(%weights: buffer, %ids: buffer, %output
   %count = buffer.alloca<global> align(4) %count_bytes : buffer
   %active = scalar.constant 2 : i32
   %begin = scalar.constant 1 : i32
-  kernel.launch @q5.packet[](%active, %begin, %epoch, %count) : [](i32, i32, buffer, buffer)
-  %w = buffer.view %weights[%weight_origin] : buffer -> view<4224xi8>
-  %out = buffer.view %output[%out_origin] : buffer -> view<4x2048xf32>
-  kernel.launch @llm.embedding.ordinary_q5[%rows, %hidden, %vocab](%hidden, %vocab, %epoch_origin, %epoch, %count, %ids, %w, %out) : [index, index, index](index, index, offset, buffer, buffer, buffer, view<4224xi8>, view<4x2048xf32>)
+  kernel.launch @q5.packet(%active, %begin, %epoch, %count) : (i32, i32, buffer, buffer)
+  %w = buffer.view %weights[%weight_origin] : buffer -> view<[%bytes]xi8>
+  %out = buffer.view %output[%out_origin] : buffer -> view<[%rows]x[%hidden]xf32>
+  template.apply<@llm.embedding.ordinary_f32>(%rows, %hidden, %vocab, %tag, %bytes, %epoch_origin, %epoch, %count, %ids, %w, %out) : (index, index, index, index, index, offset, buffer, buffer, buffer, view<[%bytes]xi8>, view<[%rows]x[%hidden]xf32>)
   command.return
 }
+
 func.def @expected.q5_ordinary(%weights: buffer, %ids: buffer, %output: buffer) {
-  func.call @expected.q5(%weights, %ids, %output) : (buffer, buffer, buffer) -> ()
+  func.call @expected.q5(%weights, %ids, %output) : (buffer, buffer, buffer)
   %origin = index.constant 128 : offset
   %out = buffer.view %output[%origin] : buffer -> view<4x2048xf32>
   %zero = index.constant 0 : index
@@ -330,6 +347,7 @@ func.def @expected.q5_ordinary(%weights: buffer, %ids: buffer, %output: buffer) 
   }
   func.return
 }
+
 check.scenario @q5_epoch_inactive_preserved {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<4736xi8>
@@ -343,6 +361,7 @@ check.scenario @q5_epoch_inactive_preserved {
   }
   check.return
 }
+
 check.scenario @q5_ordinary_offset_zero_inactive {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<4736xi8>

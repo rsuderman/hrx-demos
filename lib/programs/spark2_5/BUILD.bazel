@@ -15,6 +15,7 @@ exports_files(_SOURCES)
 filegroup(
     name = "implementation_sources",
     srcs = _SOURCES + [
+        "//lib/kernels/embedding:ordinary_f32_sources",
         "//lib/programs/output:last_greedy.loom",
         "//lib/programs/projection:implementation_sources",
         "//lib/programs/ffn:canonical_swiglu.loom",

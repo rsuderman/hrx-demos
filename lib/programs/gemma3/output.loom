@@ -1,28 +1,11 @@
-template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
-template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+// Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-// Curated fused last-active output from llama_3b/output_head.loom and
-// common/output_head.loom. The shared canonical Q8_0/x4 route is admitted;
-// grouped/tuned routes are not implied by matching tensor dimensions.
-kernel.decl @gemma3_output_norm_last_f32(%capacity: index) launch(%capacity: index, %begin: index, %origin: offset, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%rows: index, %vocab: index) launch(%rows: index, %vocab: index, %logits: buffer, %partial_logits: buffer, %partial_ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%rows: index, %vocab: index) launch(%rows: index, %vocab: index, %partial_logits: buffer, %partial_ids: buffer, %output: buffer)
-template.decl @loomify.gemma3.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer)
-template.def<@loomify.gemma3.last_greedy> @gemma3_output_last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %q8_bytes: offset, %logit_bytes: offset, %partial_bytes: offset, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %normalized: buffer, %token: buffer) {
-  %policy = index.constant 1 : index
-  %one = index.constant 1 : index
-  %zero = index.constant 0 : index
-  %origin0 = index.constant 0 : offset
-  %one32 = scalar.constant 1 : i32
-  %packed = buffer.alloca<global> align(256) %q8_bytes : buffer
-  %logits = buffer.alloca<global> align(256) %logit_bytes : buffer
-  %partial_logits = buffer.alloca<global> align(256) %partial_bytes : buffer
-  %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
-  kernel.launch @gemma3_output_norm_last_f32[%capacity](%capacity, %begin, %origin, %control, %input, %gamma, %normalized) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
-  template.apply<@llm.projection.pack_input>(%policy, %one, %one, %hidden, %zero, %one32, %origin0, %normalized, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  %q8 = index.constant 8 : index
-  template.apply<@llm.projection.project_packed>(%policy, %q8, %one, %one, %hidden, %vocab, %weight_bytes, %zero, %one32, %origin0, %packed, %packed, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
-  kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%one, %vocab](%one, %vocab, %logits, %partial_logits, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
-  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%one, %vocab](%one, %vocab, %partial_logits, %partial_ids, %token) : [index, index](index, index, buffer, buffer, buffer)
+// Gemma retains its stored-gamma normalization; the head owns all scratch.
+kernel.decl @gemma3_output_norm_last_f32(%capacity$0: index) launch(%capacity$1: index, %begin: index, %origin: offset, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
+
+template.def<@llm.output.norm_last> @loomify_gemma3_output_norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer) {
+  kernel.launch @gemma3_output_norm_last_f32[%capacity](%capacity, %begin, %origin, %control, %input, %gamma, %output) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
   template.return
 }

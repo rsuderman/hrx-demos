@@ -43,7 +43,9 @@ global.rodata.def @chatml_output.separator = bytes("0a0a")
 
 global.rodata.decl @chatml_output.end
 
-func.def @chatml.output_initial(%thinking: i1, %generation: i1) -> (i64) {
+// Retain this component entry through selected-product merges so direct state
+// tests exercise the same implementation as chat_end and output_next.
+func.def public @chatml.output_initial(%thinking: i1, %generation: i1) -> (i64) {
   %content = scalar.constant 1 : i64
   %thought = scalar.constant 2 : i64
   %no_prefix = scalar.constant 17 : i64

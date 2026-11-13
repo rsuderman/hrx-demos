@@ -9,7 +9,7 @@ namespace {
 const OrdinaryPreparationCase kCase{
     "gemma3",
     +[]() { return gemma3::ModelFacts(); },
-    "lib/architectures/gemma3/prepare.loom",
+    "lib/architectures/gemma3/generated_prepare.loom",
     "lib/architectures/gemma3/prepare_library.loombc",
     1152,
     6,
