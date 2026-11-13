@@ -1,0 +1,16 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Root and diagnostic hooks over shared ordinary preparation.
+global.rodata.def @spark2_5_epoch_root = bytes("67656e6572617465642e737061726b325f355f65706f6368")
+
+global.rodata.def @spark2_5_unsupported = bytes("537061726b322e35207265717569726573206f7264696e6172792067726565647920737461676573")
+
+func.def public inline @ordinary.epoch_root() -> (buffer) {
+  %value = global.load @spark2_5_epoch_root : buffer
+  func.return %value : buffer
+}
+
+func.def public inline @ordinary.unsupported() -> (buffer) {
+  %value = global.load @spark2_5_unsupported : buffer
+  func.return %value : buffer
+}

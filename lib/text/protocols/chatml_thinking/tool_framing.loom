@@ -1,0 +1,13 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+global.rodata.def public @tool_open = bytes("3c746f6f6c5f63616c6c3e0a3c66756e6374696f6e3d")
+
+global.rodata.def public @tag_end = bytes("3e0a")
+
+global.rodata.def public @parameter_open = bytes("3c706172616d657465723d")
+
+global.rodata.def public @parameter_end = bytes("0a3c2f706172616d657465723e0a")
+
+global.rodata.def public @tool_close = bytes("3c2f66756e6374696f6e3e0a3c2f746f6f6c5f63616c6c3e")
+
+global.rodata.def public @parameter_key_end = bytes("3e0a")

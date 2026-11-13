@@ -34,6 +34,8 @@ struct LayerDescriptor {
   // Effective causal window (zero means full history) and per-layer RoPE base.
   uint64_t attention_window = 0;
   double rope_base = 10000;
+  // Zero inherits the model rotary width; otherwise the effective layer width.
+  uint64_t rope_width = 0;
   std::vector<TensorBinding> tensors;
 };
 

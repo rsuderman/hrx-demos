@@ -23,8 +23,21 @@ exports_files(
         "qwen2_fixture.h",
         "qwen2_configuration_test.cc",
         "lfm3_configuration_test.cc",
+        "spark2_5_configuration_test.cc",
     ],
     visibility = ["//lib/loomify:__pkg__"],
+)
+
+iree_cc_library(
+    name = "spark2_5_fixture",
+    testonly = True,
+    hdrs = ["spark2_5_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/spark2_5:__pkg__",
+    ],
+    deps = ["//tools/model:model_descriptor"],
 )
 
 iree_cc_library(

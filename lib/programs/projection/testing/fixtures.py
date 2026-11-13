@@ -17,7 +17,7 @@ text.append(r"""
 func.def @projection_test.init(%capacity0: index, %width0: index, %columns0: index, %tag0: index, %complex: i1, %active_count0: index, %input: buffer, %weight: buffer, %count: buffer) {
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 12)] : index
   %width = index.assume %width0 [range(%width0, 128, 17408)] : index
-  %columns = index.assume %columns0 [range(%columns0, 1, 4096)] : index
+  %columns = index.assume %columns0 [range(%columns0, 1, 131072)] : index
   %tag = index.assume %tag0 [range(%tag0, 8, 14)] : index
   %active_count = index.assume %active_count0 [range(%active_count0, 1, 9)] : index
   %zero = index.constant 0 : index
@@ -145,7 +145,7 @@ func.def @projection_test.expected(%policy0: index, %rows0: index, %capacity0: i
   %rows = index.assume %rows0 [range(%rows0, 1, 12)] : index
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 12)] : index
   %width = index.assume %width0 [range(%width0, 128, 17408)] : index
-  %columns = index.assume %columns0 [range(%columns0, 1, 4096)] : index
+  %columns = index.assume %columns0 [range(%columns0, 1, 131072)] : index
   %tag = index.assume %tag0 [range(%tag0, 8, 14)] : index
   %begin = index.assume %begin0 [range(%begin0, 0, 1)] : index
   %count = index.assume %count0 [range(%count0, 1, 9)] : index
@@ -266,6 +266,13 @@ cases += [
     (1, 8, 128, 7, 1, 1, 0, 1, False, False),
     (1, 14, 17408, 7, 1, 1, 0, 1, False, False),
     (1, 8, 1024, 4096, 1, 1, 0, 1, False, False),
+]
+# Spark actual QKV/output/tied-head geometry; logical anchors remain independent.
+cases += [
+    (1, 14, 2560, 6144, 2, 2, 0, 2, False, False),
+    (1, 12, 4096, 2560, 1, 1, 0, 1, False, False),
+    (1, 14, 4096, 2560, 1, 1, 0, 1, False, False),
+    (1, 14, 2560, 131072, 1, 1, 0, 1, False, False),
 ]
 for policy, tag, K, N, R, C, begin, count, dynamic, complex_ in cases:
     name = f"p{policy}_q{tag}_k{K}_r{R}_n{count}"

@@ -14,6 +14,7 @@ enum class PublicationLayout {
   kTextAndTurn,
   kEosAndTurn,
   kHostManaged,
+  kEos,
 };
 struct TokenIdentity {
   int32_t id = 0;

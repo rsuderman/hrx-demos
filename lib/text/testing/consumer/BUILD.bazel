@@ -19,6 +19,7 @@ cc_test(
         "//lib/text/gemma:revision_test_sources",
         "//lib/text/plain_chatml:revision_test_sources",
         "//lib/text/compact_chatml:revision_test_sources",
+        "//lib/text/spark:revision_test_sources",
     ],
     copts = ["-std=c++17"],
     linkstatic = True,

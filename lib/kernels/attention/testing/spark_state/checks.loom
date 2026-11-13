@@ -1,0 +1,567 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Uniform zero-key attention has an independent F64 mean oracle. Physical
+// values depend separately on slot, KV head and lane. Reversed64-token pages
+// and512-token windows therefore affect the independently computed answer.
+func.def @spark.state.expected(%window: index, %epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %sixteen = index.constant 16 : index
+  %h = index.constant 256 : index
+  %pool = index.constant 1024 : index
+  %page = index.constant 64 : index
+  %last_page = index.constant 15 : index
+  %position_base = index.constant 511 : index
+  %kbase = index.constant 16 : offset
+  %vbase = index.constant 2097168 : offset
+  %origin = index.constant 0 : offset
+  %keys = buffer.view %cache[%kbase] : buffer -> view<1024x4x256xf16>
+  %values = buffer.view %cache[%vbase] : buffer -> view<1024x4x256xf16>
+  %out = buffer.view %output[%origin] : buffer -> view<4x16x256xf32>
+  %gates = buffer.view %gate[%origin] : buffer -> view<4x16xf32>
+  %zero_f = scalar.constant 0.0 : f32
+  %zero64 = scalar.constant 0.0 : f64
+  %zero16 = scalar.fptrunc %zero_f : f32 to f16
+  %pstep = scalar.constant 0.001953125 : f32
+  %hstep = scalar.constant 2.0 : f32
+  %lstep = scalar.constant 0.00390625 : f32
+  %unit = scalar.constant 1.0 : f32
+  scf.for %p = [%zero to %pool step %one] {
+    scf.for %head = [%zero to %four step %one] {
+      scf.for %lane = [%zero to %h step %one] {
+        %p32 = index.cast %p : index to i32
+        %h32 = index.cast %head : index to i32
+        %l32 = index.cast %lane : index to i32
+        %pf = scalar.uitofp %p32 : i32 to f32
+        %hf = scalar.uitofp %h32 : i32 to f32
+        %lf = scalar.uitofp %l32 : i32 to f32
+        %a = scalar.mulf %pf, %pstep : f32
+        %b = scalar.mulf %hf, %hstep : f32
+        %c = scalar.mulf %lf, %lstep : f32
+        %ab = scalar.addf %a, %b : f32
+        %v = scalar.addf %ab, %c : f32
+        %half = scalar.fptrunc %v : f32 to f16
+        view.store %zero16, %keys[%p, %head, %lane] : f16, view<1024x4x256xf16>
+        view.store %half, %values[%p, %head, %lane] : f16, view<1024x4x256xf16>
+      }
+    }
+  }
+  scf.for %row = [%zero to %four step %one] {
+    %active = index.cmp ult, %row, %three : index
+    %position = index.add %position_base, %row : index
+    %end = index.add %position, %one : index
+    %windowed = index.cmp ne, %window, %zero : index
+    %long = index.cmp ugt, %end, %window : index
+    %trim = scalar.andi %windowed, %long : i1
+    %low = index.sub %end, %window : index
+    %begin = scf.select %trim, %low, %zero : index
+    %length = index.sub %end, %begin : index
+    %len32 = index.cast %length : index to i32
+    %divisor = scalar.uitofp %len32 : i32 to f64
+    scf.for %head = [%zero to %sixteen step %one] {
+      %kvhead = index.div %head, %four : index
+      scf.for %lane = [%zero to %h step %one] {
+        %result = scf.if %active -> (f32) {
+          %sum = scf.for %logical = [%begin to %end step %one](%acc = %zero64 : f64) -> (f64) {
+            %logical_page = index.div %logical, %page : index
+            %physical_page = index.sub %last_page, %logical_page : index
+            %within = index.rem %logical, %page : index
+            %page_base = index.mul %physical_page, %page : index
+            %physical = index.add %page_base, %within : index
+            %half = view.load %values[%physical, %kvhead, %lane] : view<1024x4x256xf16> -> f16
+            %v = scalar.extf %half : f16 to f64
+            %next = scalar.addf %acc, %v : f64
+            scf.yield %next : f64
+          }
+          %mean64 = scalar.divf %sum, %divisor : f64
+          %mean = scalar.fptrunc %mean64 : f64 to f32
+          %logit = view.load %gates[%row, %head] : view<4x16xf32> -> f32
+          %negative = scalar.negf %logit : f32
+          %ex = scalar.expf %negative : f32
+          %den = scalar.addf %unit, %ex : f32
+          %sigmoid = scalar.divf %unit, %den : f32
+          %v = scalar.mulf %mean, %sigmoid : f32
+          scf.yield %v : f32
+        } else {
+          scf.yield %zero_f : f32
+        }
+        view.store %result, %out[%row, %head, %lane] : f32, view<4x16x256xf32>
+      }
+    }
+  }
+  func.return
+}
+
+command.decl @spark.state.global() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+
+func.def @spark.state.expected.global(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %window = index.constant 0 : index
+  func.call @spark.state.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @spark.state.global_boundary {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.iota offset(-2029) step(508) : tensor<9xi32>
+    %map_storage = check.generate.iota offset(19) step(-1) : tensor<20xi32>
+    %query = check.generate.iota offset(-0.5) step(1.52587890625e-05) : tensor<4x4096xf32>
+    %gate = check.generate.iota offset(-2.0) step(0.125) : tensor<4x16xf32>
+    %cache = check.generate.fill value(23.0) : tensor<2097168xf16>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<4x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(49152) : tensor<4x4096xf32> -> tensor<4096xf32>
+    check.compare<@spark.state.global, @spark.state.expected.global>(%epoch_storage, %map_storage, %query, %gate, %cache, %output) : (tensor<9xi32>, tensor<20xi32>, tensor<4x4096xf32>, tensor<4x16xf32>, tensor<2097168xf16>, tensor<4x4096xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-05) rtol(3.0000000000000001e-05) nan(same) : tensor<4x4096xf32>, tensor<4x4096xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<4096xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<2097168xf16>
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<9xi32>
+      check.expect.bitwise actual(%map_storage) expected(%map_storage) : tensor<20xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<4x4096xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x16xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @spark.state.local() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+
+func.def @spark.state.expected.local(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %window = index.constant 512 : index
+  func.call @spark.state.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @spark.state.local_boundary {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch_storage = check.generate.iota offset(-2029) step(508) : tensor<9xi32>
+    %map_storage = check.generate.iota offset(19) step(-1) : tensor<20xi32>
+    %query = check.generate.iota offset(-0.5) step(1.52587890625e-05) : tensor<4x4096xf32>
+    %gate = check.generate.iota offset(-2.0) step(0.125) : tensor<4x16xf32>
+    %cache = check.generate.fill value(23.0) : tensor<2097168xf16>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<4x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(49152) : tensor<4x4096xf32> -> tensor<4096xf32>
+    check.compare<@spark.state.local, @spark.state.expected.local>(%epoch_storage, %map_storage, %query, %gate, %cache, %output) : (tensor<9xi32>, tensor<20xi32>, tensor<4x4096xf32>, tensor<4x16xf32>, tensor<2097168xf16>, tensor<4x4096xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-05) rtol(3.0000000000000001e-05) nan(same) : tensor<4x4096xf32>, tensor<4x4096xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<4096xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<2097168xf16>
+      check.expect.bitwise actual(%epoch_storage) expected(%epoch_storage) : tensor<9xi32>
+      check.expect.bitwise actual(%map_storage) expected(%map_storage) : tensor<20xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<4x4096xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<4x16xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @spark.state.publish_kv() launch(%epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
+func.def @spark.state.publish_kv.expected(%epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %width = index.constant 1024 : index
+  %page = index.constant 64 : index
+  %last_page = index.constant 15 : index
+  %position_base = index.constant 511 : index
+  %origin = index.constant 0 : offset
+  %kbase = index.constant 16 : offset
+  %vbase = index.constant 2097168 : offset
+  %keys = buffer.view %key[%origin] : buffer -> view<4x1024xf32>
+  %values = buffer.view %value[%origin] : buffer -> view<4x1024xf32>
+  %kc = buffer.view %cache[%kbase] : buffer -> view<1024x1024xf16>
+  %vc = buffer.view %cache[%vbase] : buffer -> view<1024x1024xf16>
+  scf.for %row = [%zero to %three step %one] {
+    %logical = index.add %position_base, %row : index
+    %logical_page = index.div %logical, %page : index
+    %physical_page = index.sub %last_page, %logical_page : index
+    %within = index.rem %logical, %page : index
+    %begin = index.mul %physical_page, %page : index
+    %physical = index.add %begin, %within : index
+    scf.for %column = [%zero to %width step %one] {
+      %k = view.load %keys[%row, %column] : view<4x1024xf32> -> f32
+      %v = view.load %values[%row, %column] : view<4x1024xf32> -> f32
+      %kh = scalar.fptrunc %k : f32 to f16
+      %vh = scalar.fptrunc %v : f32 to f16
+      view.store %kh, %kc[%physical, %column] : f16, view<1024x1024xf16>
+      view.store %vh, %vc[%physical, %column] : f16, view<1024x1024xf16>
+    }
+  }
+  func.return
+}
+
+check.scenario @spark.state.publish_kv_selected_positions {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2029) step(508) : tensor<9xi32>
+    %map = check.generate.iota offset(19) step(-1) : tensor<20xi32>
+    %key = check.generate.iota offset(0.0123) step(0.0001) : tensor<4x1024xf32>
+    %value = check.generate.iota offset(-0.5) step(0.00011) : tensor<4x1024xf32>
+    %cache = check.generate.fill value(23.0) : tensor<2097168xf16>
+    check.compare<@spark.state.publish_kv, @spark.state.publish_kv.expected>(%epoch, %map, %key, %value, %cache) : (tensor<9xi32>, tensor<20xi32>, tensor<4x1024xf32>, tensor<4x1024xf32>, tensor<2097168xf16>) -> () {
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<2097168xf16>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<9xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<20xi32>
+      check.expect.bitwise actual(%key) expected(%key) : tensor<4x1024xf32>
+      check.expect.bitwise actual(%value) expected(%value) : tensor<4x1024xf32>
+    }
+  }
+  check.return
+}
+
+// Independent packet interpretation and source-stop mapping, without invoking
+// any production publication function. Raw private winners remain unchanged.
+func.def @spark.state.publication.expected(%two: i1, %epoch: buffer, %selected: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %packet = buffer.view %epoch[%origin] : buffer -> view<520xi32>
+  %winner_words = buffer.view %selected[%origin] : buffer -> view<4xi32>
+  %out = buffer.view %output[%origin] : buffer -> view<16xi32>
+  %count = view.load %packet[2] : view<520xi32> -> i32
+  %zero = scalar.constant 0 : i32
+  %has_output = scalar.cmpi ne, %count, %zero : i32
+  scf.if %has_output {
+    %slot32 = view.load %packet[7] : view<520xi32> -> i32
+    %slot_value = index.cast %slot32 : i32 to index
+    %slot = index.assume %slot_value [range(%slot_value, 0, 15)] : index
+    %terminal = view.load %packet[515] : view<520xi32> -> i32
+    %winner = view.load %winner_words[0] : view<4xi32> -> i32
+    %first = scalar.constant 1337 : i32
+    %second = scalar.constant 1433 : i32
+    %is_first = scalar.cmpi eq, %winner, %first : i32
+    %is_second = scalar.cmpi eq, %winner, %second : i32
+    %extra_stop = scalar.andi %two, %is_second : i1
+    %stop = scalar.ori %is_first, %extra_stop : i1
+    %token = scf.select %stop, %terminal, %winner : i32
+    view.store %token, %out[%slot] : i32, view<16xi32>
+  }
+  func.return
+}
+
+command.decl @spark.state.publication_one() launch(%epoch: buffer, %selected: buffer, %output: buffer)
+
+command.decl @spark.state.publication_two() launch(%epoch: buffer, %selected: buffer, %output: buffer)
+
+func.def @spark.state.publication_one.expected(%epoch: buffer, %selected: buffer, %output: buffer) {
+  %two = scalar.constant false : i1
+  func.call @spark.state.publication.expected(%two, %epoch, %selected, %output) : (i1, buffer, buffer, buffer)
+  func.return
+}
+
+func.def @spark.state.publication_two.expected(%epoch: buffer, %selected: buffer, %output: buffer) {
+  %two = scalar.constant true : i1
+  func.call @spark.state.publication.expected(%two, %epoch, %selected, %output) : (i1, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @spark.state.publication_one_1337_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1337) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_one, @spark.state.publication_one.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_one_1337_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-1) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1337) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_one, @spark.state.publication_one.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_one_1433_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1433) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_one, @spark.state.publication_one.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_one_1433_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-1) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1433) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_one, @spark.state.publication_one.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_one_31_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(31) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_one, @spark.state.publication_one.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_one_31_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-1) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(31) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_one, @spark.state.publication_one.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_two_1337_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1337) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_two, @spark.state.publication_two.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_two_1337_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-1) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1337) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_two, @spark.state.publication_two.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_two_1433_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1433) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_two, @spark.state.publication_two.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_two_1433_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-1) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(1433) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_two, @spark.state.publication_two.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_two_31_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-2) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(31) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_two, @spark.state.publication_two.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @spark.state.publication_two_31_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(-1) step(1) : tensor<520xi32>
+    %selected = check.generate.fill value(31) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@spark.state.publication_two, @spark.state.publication_two.expected>(%epoch, %selected, %output) : (tensor<520xi32>, tensor<4xi32>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
+      check.expect.bitwise actual(%selected) expected(%selected) : tensor<4xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<520xi32>
+    }
+  }
+  check.return
+}
+
+// Independent analytic logits are [0,2,-1] times query-head amplitude.
+// No owned dot/reduction/softmax helper is used by this F64 scalar oracle.
+func.def @spark.state.nonzero_qk.expected(%epoch: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %kbase = index.constant 16 : offset
+  %vbase = index.constant 1552 : offset
+  %keys = buffer.view %cache[%kbase] : buffer -> view<3x256xf16>
+  %values = buffer.view %cache[%vbase] : buffer -> view<3x256xf16>
+  %q = buffer.view %query[%origin] : buffer -> view<2x2x256xf32>
+  %gates = buffer.view %gate[%origin] : buffer -> view<2x2xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<2x2x256xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %h = index.constant 256 : index
+  %last = index.constant 255 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %positive = scalar.constant 32.0 : f32
+  %negative = scalar.constant -16.0 : f32
+  %pstep = scalar.constant 2.0 : f32
+  %lstep = scalar.constant 0.00390625 : f32
+  %q0 = scalar.constant 1.0 : f32
+  %q1 = scalar.constant 2.0 : f32
+  view.store %q0, %q[0, 0, 255] : f32, view<2x2x256xf32>
+  view.store %q1, %q[0, 1, 255] : f32, view<2x2x256xf32>
+  scf.for %p = [%zero to %three step %one] {
+    %first = index.cmp eq, %p, %zero : index
+    %second = index.cmp eq, %p, %one : index
+    %tail = scf.select %second, %positive, %negative : f32
+    %key_tail = scf.select %first, %zero_f, %tail : f32
+    %p32 = index.cast %p : index to i32
+    %pf = scalar.uitofp %p32 : i32 to f32
+    %a = scalar.mulf %pf, %pstep : f32
+    scf.for %lane = [%zero to %h step %one] {
+      %upper = index.cmp eq, %lane, %last : index
+      %key = scf.select %upper, %key_tail, %zero_f : f32
+      %key16 = scalar.fptrunc %key : f32 to f16
+      %l32 = index.cast %lane : index to i32
+      %lf = scalar.uitofp %l32 : i32 to f32
+      %b = scalar.mulf %lf, %lstep : f32
+      %v = scalar.addf %a, %b : f32
+      %half = scalar.fptrunc %v : f32 to f16
+      view.store %key16, %keys[%p, %lane] : f16, view<3x256xf16>
+      view.store %half, %values[%p, %lane] : f16, view<3x256xf16>
+    }
+  }
+  %zero64 = scalar.constant 0.0 : f64
+  %one64 = scalar.constant 1.0 : f64
+  %two64 = scalar.constant 2.0 : f64
+  %three64 = scalar.constant 3.0 : f64
+  scf.for %row = [%zero to %two step %one] {
+    %active = index.cmp eq, %row, %zero : index
+    scf.for %head = [%zero to %two step %one] {
+      %head32 = index.cast %head : index to i32
+      %head64 = scalar.uitofp %head32 : i32 to f64
+      %amplitude = scalar.addf %head64, %one64 : f64
+      %twice = scalar.mulf %amplitude, %two64 : f64
+      %triple = scalar.mulf %amplitude, %three64 : f64
+      %log_w0 = scalar.negf %twice : f64
+      %log_w2 = scalar.negf %triple : f64
+      %w0 = scalar.expf %log_w0 : f64
+      %w2 = scalar.expf %log_w2 : f64
+      %partial_den = scalar.addf %w0, %one64 : f64
+      %den = scalar.addf %partial_den, %w2 : f64
+      %logit = view.load %gates[%row, %head] : view<2x2xf32> -> f32
+      %logit64 = scalar.extf %logit : f32 to f64
+      %negative_logit = scalar.negf %logit64 : f64
+      %gate_exp = scalar.expf %negative_logit : f64
+      %gate_den = scalar.addf %one64, %gate_exp : f64
+      %sigmoid = scalar.divf %one64, %gate_den : f64
+      scf.for %lane = [%zero to %h step %one] {
+        %result = scf.if %active -> (f32) {
+          %v0 = view.load %values[0, %lane] : view<3x256xf16> -> f16
+          %v1 = view.load %values[1, %lane] : view<3x256xf16> -> f16
+          %v2 = view.load %values[2, %lane] : view<3x256xf16> -> f16
+          %a = scalar.extf %v0 : f16 to f64
+          %b = scalar.extf %v1 : f16 to f64
+          %c = scalar.extf %v2 : f16 to f64
+          %weighted_a = scalar.mulf %a, %w0 : f64
+          %weighted_c = scalar.mulf %c, %w2 : f64
+          %ab = scalar.addf %weighted_a, %b : f64
+          %sum = scalar.addf %ab, %weighted_c : f64
+          %mean = scalar.divf %sum, %den : f64
+          %gated = scalar.mulf %mean, %sigmoid : f64
+          %value = scalar.fptrunc %gated : f64 to f32
+          scf.yield %value : f32
+        } else {
+          scf.yield %zero_f : f32
+        }
+        view.store %result, %out[%row, %head, %lane] : f32, view<2x2x256xf32>
+      }
+    }
+  }
+  func.return
+}
+
+command.decl @spark.state.nonzero_qk() launch(%epoch: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+
+check.scenario @spark.state.nonzero_upper_half_qk {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(1) step(1) : tensor<5xi32>
+    %query = check.generate.fill value(0.0) : tensor<2x512xf32>
+    %gate = check.generate.iota offset(0.0) step(1.0) : tensor<2x2xf32>
+    %cache = check.generate.fill value(23.0) : tensor<1552xf16>
+    %storage = check.generate.fill value(123.5) : tensor<1032xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<1032xf32> -> tensor<2x512xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<1032xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(4112) : tensor<1032xf32> -> tensor<4xf32>
+    %inactive = check.tensor.view %output offset(2048) : tensor<2x512xf32> -> tensor<512xf32>
+    check.compare<@spark.state.nonzero_qk, @spark.state.nonzero_qk.expected>(%epoch, %query, %gate, %cache, %output) : (tensor<5xi32>, tensor<2x512xf32>, tensor<2x2xf32>, tensor<1552xf16>, tensor<2x512xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<2x512xf32>, tensor<2x512xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<512xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<2x512xf32>
+      check.expect.bitwise actual(%gate) expected(%gate) : tensor<2x2xf32>
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<1552xf16>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}

@@ -38,6 +38,8 @@ cc_test(
     copts = ["-std=c++17"],
     data = [
         "//lib/text/protocols/chatml_thinking:output.loom",
+        "//lib/text/protocols/chatml_thinking:completion.loom",
+        "//lib/text/protocols/chatml_thinking:framing.loom",
         "//lib/text/common:strings.loom",
     ],
     linkstatic = True,

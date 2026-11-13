@@ -1,0 +1,28 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+package(default_visibility = ["//visibility:public"])
+
+_SOURCES = [
+    "attention.loom",
+    "ffn.loom",
+    "layer.loom",
+    "output.loom",
+    "publication.loom",
+]
+
+exports_files(_SOURCES)
+
+filegroup(
+    name = "implementation_sources",
+    srcs = _SOURCES + [
+        "//lib/programs/output:last_greedy.loom",
+        "//lib/programs/projection:implementation_sources",
+        "//lib/programs/ffn:canonical_swiglu.loom",
+        "//lib/kernels/decoder:implementation_sources",
+        "//lib/kernels/attention:raw_rows.loom",
+        "//lib/kernels/attention:factored_rows.loom",
+        "//lib/kernels/elementwise:ffn_launches.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
+        "//lib/kernels/publication:epoch_two_stops.loom",
+    ],
+)

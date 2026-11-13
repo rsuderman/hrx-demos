@@ -1,0 +1,48 @@
+func.decl @chatml.check(%condition: i1)
+
+global.rodata.decl @chatml.low
+
+global.rodata.decl @loomify.text.default_effort
+
+global.rodata.decl @loomify.text.effort_low
+
+global.rodata.decl @loomify.text.effort_xhigh
+
+global.rodata.decl @spark.empty
+
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+global.rodata.def @spark.high = bytes("68696768")
+
+func.def @chatml.effort_instruction(%effort: buffer, %enabled: i1) -> (buffer) {
+  %empty = global.load @spark.empty : buffer
+  %value = scf.if %enabled -> (buffer) {
+    %low_key = global.load @chatml.low : buffer
+    %high_key = global.load @spark.high : buffer
+    %low = func.call @text.equal(%effort, %low_key) : (buffer, buffer) -> (i1)
+    %high = func.call @text.equal(%effort, %high_key) : (buffer, buffer) -> (i1)
+    %valid = scalar.ori %low, %high : i1
+    func.call @chatml.check(%valid) : (i1)
+    %low_text = global.load @loomify.text.effort_low : buffer
+    %high_text = global.load @loomify.text.effort_xhigh : buffer
+    %v = scf.select %low, %low_text, %high_text : buffer
+    scf.yield %v : buffer
+  } else {
+    scf.yield %empty : buffer
+  }
+  func.return %value : buffer
+}
+
+func.def public @chat_reasoning() -> (i32, i32, i32) {
+  %enabled = scalar.constant 1 : i32
+  %mask = scalar.constant 20 : i32
+  %low = scalar.constant 2 : i32
+  %high = scalar.constant 4 : i32
+  %value = global.load @loomify.text.default_effort : buffer
+  %key = global.load @chatml.low : buffer
+  %is_low = func.call @text.equal(%value, %key) : (buffer, buffer) -> (i1)
+  %level = scf.select %is_low, %low, %high : i32
+  func.return %enabled, %mask, %level : i32, i32, i32
+}

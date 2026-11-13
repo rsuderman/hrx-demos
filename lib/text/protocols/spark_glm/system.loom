@@ -1,0 +1,49 @@
+global.rodata.decl @chatml.end
+
+func.decl @chatml.render_schemas(%tools: buffer, %compact: i1) -> (buffer)
+
+global.rodata.decl @chatml.separator
+
+global.rodata.decl @chatml.system_open
+
+global.rodata.decl @loomify.text.tools_prefix
+
+global.rodata.decl @loomify.text.tools_suffix
+
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
+global.rodata.decl @spark.empty
+
+global.rodata.decl @spark.system_lead
+
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Spark always keeps its default lead, then tools, then initial custom system.
+func.def @chatml.render_system(%source_system: buffer, %source_has_system: i1, %instruction: buffer, %tools: buffer) -> (buffer) {
+  %lead = global.load @spark.system_lead : buffer
+  %open = global.load @chatml.system_open : buffer
+  %close = global.load @chatml.end : buffer
+  %empty = global.load @spark.empty : buffer
+  %gap = global.load @chatml.separator : buffer
+  %zero = index.constant 0 : offset
+  %size = buffer.length %source_system
+  %has_text = index.cmp ne, %size, %zero : offset
+  %sep = scf.select %has_text, %gap, %empty : buffer
+  %records, %kind, %count = func.call @members(%tools) : (buffer) -> (buffer, i32, i64)
+  %zero64 = scalar.constant 0 : i64
+  %has_tools = scalar.cmpi ne, %count, %zero64 : i64
+  %tool_text = scf.if %has_tools -> (buffer) {
+    %prefix = global.load @loomify.text.tools_prefix : buffer
+    %suffix = global.load @loomify.text.tools_suffix : buffer
+    %compact = scalar.constant true : i1
+    %schemas = func.call @chatml.render_schemas(%tools, %compact) : (buffer, i1) -> (buffer)
+    %v = func.call @text.join8(%prefix, %schemas, %suffix, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+    scf.yield %v : buffer
+  } else {
+    scf.yield %empty : buffer
+  }
+  %v = func.call @text.join8(%open, %lead, %instruction, %tool_text, %sep, %source_system, %close, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %v : buffer
+}

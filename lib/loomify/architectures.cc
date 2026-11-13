@@ -3,6 +3,7 @@
 #include "lib/loomify/architectures.h"
 #include "lib/loomify/architectures/llama.h"
 #include "lib/loomify/architectures/lfm3.h"
+#include "lib/loomify/architectures/spark2_5.h"
 #include "lib/loomify/architectures/qwen2.h"
 #include "lib/loomify/architectures/qwen3.h"
 #include "lib/loomify/architectures/gemma3.h"
@@ -11,6 +12,17 @@
 namespace hrx::loomify_gguf {
 const ArchitectureFiles *SelectArchitecture(std::string_view family) {
   static const ArchitectureFiles entries[] = {
+      {"spark2_5",
+       resources::kSpark25Implementation,
+       resources::kSpark25Preparation,
+       resources::kSpark25Execution,
+       resources::kWeights,
+       "loomify-spark2_5",
+       {"generated.spark2_5_epoch"},
+       {},
+       internal::EmitSpark25,
+       PublicationLayout::kEos,
+       262144},
       {"lfm3",
        resources::kLfm3Implementation,
        resources::kLfm3Preparation,

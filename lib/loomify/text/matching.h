@@ -14,11 +14,13 @@ struct Slot {
   std::string name;
   size_t begin, end;
   std::string original;
+  bool multiline = false;
 };
 using Captures = std::map<std::string, std::string>;
 std::string_view Fixture(const char *name);
 bool AddSlot(std::string_view source, const char *name, std::string_view anchor,
-             size_t quote_offset, std::vector<Slot> *slots);
+             size_t quote_offset, std::vector<Slot> *slots,
+             bool multiline = false);
 // Match every byte outside the selected quoted slots, preserving tag
 // identities.
 bool Capture(std::string_view expected, std::string_view actual,
@@ -28,5 +30,6 @@ void Datum(ChatPolicySelection *policy, const char *name,
 Match SelectLlamaHeaders(std::string_view actual, ChatPolicySelection *out);
 Match SelectChatmlThinking(std::string_view actual, ChatPolicySelection *out);
 Match SelectGemmaTurns(std::string_view actual, ChatPolicySelection *out);
+Match SelectSparkGlm(std::string_view actual, ChatPolicySelection *out);
 } // namespace hrx::loomify_gguf::text_policy
 #endif

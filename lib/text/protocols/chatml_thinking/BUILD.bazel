@@ -22,6 +22,17 @@ filegroup(
         "input.loom",
         "output.loom",
         "mapping.loom",
+        "schemas.loom",
+    ],
+)
+
+filegroup(
+    name = "default_sources",
+    srcs = [
+        "framing.loom",
+        "effort.loom",
+        "system.loom",
+        "completion.loom",
     ],
 )
 
@@ -34,6 +45,10 @@ loom_merge(
         "mapping.loom",
         "plain_policy.loom",
         "plain_output.loom",
+        "framing.loom",
+        "effort.loom",
+        "system.loom",
+        "schemas.loom",
     ],
 )
 
@@ -42,8 +57,11 @@ filegroup(
     srcs = [
         "standard_framing.loom",
         ":core_sources",
+        ":default_sources",
         "tools.loom",
         "tool_output.loom",
+        "tool_framing.loom",
+        "xml_parse.loom",
         "legacy_policy.loom",
     ],
 )
@@ -69,6 +87,7 @@ loom_merge(
     srcs = [
         "standard_framing.loom",
         ":core_sources",
+        ":default_sources",
         "hermes_common.loom",
         "hermes_policy.loom",
         "hermes_tools.loom",
@@ -80,6 +99,7 @@ loom_merge(
     srcs = [
         "standard_framing.loom",
         ":core_sources",
+        ":default_sources",
         "hermes_common.loom",
         "hermes_non_thinking.loom",
         "hermes_tools.loom",
@@ -90,8 +110,11 @@ loom_merge(
     name = "compact_reasoning",
     srcs = [
         ":core_sources",
+        ":default_sources",
         "compact_reasoning.loom",
         "tools.loom",
         "tool_output.loom",
+        "tool_framing.loom",
+        "xml_parse.loom",
     ],
 )

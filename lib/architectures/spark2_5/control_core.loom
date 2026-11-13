@@ -1,0 +1,16 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+config.decl @spark2_5.publication.eos_id : i32
+
+func.decl @llm.publication.map_one_stop(%token: i32, %source_stop: i32, %terminal: i32) -> (i32)
+
+func.def @loomify.serving.terminal_id() -> (i32) {
+  %terminal = config.get @spark2_5.publication.eos_id : i32
+  func.return %terminal : i32
+}
+
+func.def public inline @loomify_serving_native_token(%token: i32, %terminal: i32) -> (i32) {
+  %source = config.get @spark2_5.publication.eos_id : i32
+  %mapped = func.call @llm.publication.map_one_stop(%token, %source, %terminal) : (i32, i32, i32) -> (i32)
+  func.return %mapped : i32
+}

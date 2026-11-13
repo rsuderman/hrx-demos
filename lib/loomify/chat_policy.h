@@ -17,7 +17,8 @@ enum class ChatRevision {
   ChatmlHermesNonThinking,
   GemmaTurns,
   ChatmlPlain,
-  ChatmlCompactReasoning
+  ChatmlCompactReasoning,
+  SparkGlm
 };
 struct ChatMarker {
   std::string text;

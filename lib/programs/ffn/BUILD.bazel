@@ -8,6 +8,7 @@ exports_files([
     "interface.loom",
     "ffn.loom",
     "matrix_swiglu.loom",
+    "canonical_swiglu.loom",
 ])
 
 loom_library(

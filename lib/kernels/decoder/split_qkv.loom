@@ -1,0 +1,56 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Partition token-major fused Q,K,V into disjoint compact F32 row buffers.
+func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
+
+kernel.def @llm.decoder.split_qkv(%rows0: index, %query_width0: index, %kv_width0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%query_width0: index, %kv_width0: index, %count: buffer, %fused: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %qwidth = index.assume %query_width0 [range(%query_width0, 256, 32768), multiple_of(%query_width0, 256)] : index
+  %kvwidth = index.assume %kv_width0 [range(%kv_width0, 256, 32768), multiple_of(%kv_width0, 256)] : index
+  %rows0 = kernel.workgroup.count<x> : index
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %lane = kernel.workitem.id<x> : index
+  %step = index.constant 256 : index
+  %two = index.constant 2 : index
+  %twokv = index.mul %kvwidth, %two : index
+  %width = index.add %qwidth, %twokv : index
+  %vbegin = index.add %qwidth, %kvwidth : index
+  %origin = index.constant 0 : offset
+  %input = buffer.view %fused[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  %q = buffer.view %query[%origin] : buffer -> view<[%rows]x[%qwidth]xf32>
+  %k = buffer.view %key[%origin] : buffer -> view<[%rows]x[%kvwidth]xf32>
+  %v = buffer.view %value[%origin] : buffer -> view<[%rows]x[%kvwidth]xf32>
+  %active = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
+  scf.for %element = [%lane to %width step %step] {
+    %x = scf.if %active -> (f32) {
+      %x = view.load %input[%row, %element] : view<[%rows]x[%width]xf32> -> f32
+      scf.yield %x : f32
+    } else {
+      %zero = scalar.constant 0.0 : f32
+      scf.yield %zero : f32
+    }
+    %is_q = index.cmp ult, %element, %qwidth : index
+    scf.if %is_q {
+      %column = index.assume %element [range(%element, 0, 32767), lt(%element, %qwidth)] : index
+      view.store %x, %q[%row, %column] : f32, view<[%rows]x[%qwidth]xf32>
+    } else {
+      %is_k = index.cmp ult, %element, %vbegin : index
+      scf.if %is_k {
+        %column0 = index.sub %element, %qwidth : index
+        %column = index.assume %column0 [range(%column0, 0, 32767), lt(%column0, %kvwidth)] : index
+        view.store %x, %k[%row, %column] : f32, view<[%rows]x[%kvwidth]xf32>
+      } else {
+        %column0 = index.sub %element, %vbegin : index
+        %column = index.assume %column0 [range(%column0, 0, 32767), lt(%column0, %kvwidth)] : index
+        view.store %x, %v[%row, %column] : f32, view<[%rows]x[%kvwidth]xf32>
+      }
+    }
+  }
+  kernel.return
+}

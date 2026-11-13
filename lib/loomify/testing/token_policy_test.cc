@@ -152,6 +152,25 @@ TEST_F(TokenPolicyTest, PublicationUsesSourceIdsDespiteMalformedTemplate) {
             "config.def @llama.publication.end_message_id = 3 : i32\n"
             "config.def @llama.publication.end_turn_id = 4 : i32\n");
 }
+TEST_F(TokenPolicyTest, SparkSingleStopUsesRelocatedDeclaredEosOnly) {
+  Open(false, true, false, u8"<｜end▁of▁sentence｜>");
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(internal::DeriveSourcePublication(
+      file.get(), PublicationLayout::kEos, "spark2_5", text, &facts, &error))
+      << error;
+  ASSERT_TRUE(facts);
+  ASSERT_EQ(facts->raw_stops.size(), 1u);
+  EXPECT_EQ(facts->raw_stops.front().id, 4);
+  EXPECT_EQ(facts->raw_stops.front().piece, u8"<｜end▁of▁sentence｜>");
+  EXPECT_EQ(facts->terminal_index, 0u);
+  EXPECT_EQ(facts->configuration_source,
+            "config.def @spark2_5.publication.eos_id = 4 : i32\n");
+  facts->configuration_source = "prior";
+  Open(false, true, false, "unknown");
+  EXPECT_FALSE(internal::DeriveSourcePublication(
+      file.get(), PublicationLayout::kEos, "spark2_5", text, &facts, &error));
+  EXPECT_EQ(facts->configuration_source, "prior");
+}
 TEST_F(TokenPolicyTest,
        UnspecifiedAndInvalidLayoutsNeverUseHostManagedFallback) {
   for (const auto layout :

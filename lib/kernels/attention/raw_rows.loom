@@ -1,0 +1,53 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Raw projected heads: no Q/K normalization, bias or factor allocation.
+func.decl @llm.decoder.position(%row: index, %rows: index, %capacity: index, %origin: offset, %epoch: buffer) -> (i1, index)
+
+template.decl @llm.attention.rope_neox_value(%head_size: index, %half: index, %rope_size: index, %log_step: f32, %position: i32, %lane: index, %head: buffer) -> (f32)
+
+kernel.def @llm.attention.prepare_qk_raw_h256(%rows0: index, %heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 128)] : index
+  %h = index.constant 256 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%h, %one, %one) : index
+} launch(%logical_capacity: index, %rope_width0: index, %rope_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %output: buffer) {
+  %rows0 = kernel.workgroup.count<y> : index
+  %heads0 = kernel.workgroup.count<x> : index
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 128)] : index
+  %row0 = kernel.workgroup.id<y> : index
+  %head0 = kernel.workgroup.id<x> : index
+  %lane0 = kernel.workitem.id<x> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %heads)] : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 255)] : index
+  %h = index.constant 256 : index
+  %rope_width = index.assume %rope_width0 [range(%rope_width0, 2, 256), multiple_of(%rope_width0, 2)] : index
+  %capacity = index.assume %logical_capacity [range(%logical_capacity, 1, 262144)] : index
+  %valid, %position = func.call @llm.decoder.position(%row, %rows, %capacity, %control_origin, %epoch) : (index, index, index, offset, buffer) -> (i1, index)
+  %origin = index.constant 0 : offset
+  %width = index.mul %heads, %h : index
+  %base = index.mul %head, %h : index
+  %element0 = index.add %base, %lane : index
+  %element = index.assume %element0 [range(%element0, 0, 32767), lt(%element0, %width)] : index
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  scf.if %valid {
+    %input = buffer.view %projection[%origin] : buffer -> view<[%rows]x[%width]xf32>
+    %raw = view.load %input[%row, %element] : view<[%rows]x[%width]xf32> -> f32
+    %scratch_bytes = index.constant 1024 : offset
+    %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+    %staged = buffer.view %scratch[%origin] : buffer -> view<256xf32>
+    view.store %raw, %staged[%lane] : f32, view<256xf32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %two = index.constant 2 : index
+    %half = index.div %rope_width, %two : index
+    %position32 = index.cast %position : index to i32
+    %rotated = template.apply<@llm.attention.rope_neox_value>(%h, %half, %rope_width, %rope_step, %position32, %lane, %scratch) : (index, index, index, f32, i32, index, buffer) -> (f32)
+    view.store %rotated, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  } else {
+    %zero = scalar.constant 0.0 : f32
+    view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
+  }
+  kernel.return
+}

@@ -1,0 +1,509 @@
+[
+  {
+    "id": "one-user",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "thinking-off",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": false
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "effort-low",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "low"
+      }
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "effort-high",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "high"
+      }
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "effort-invalid",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "reasoning_effort": "medium"
+      }
+    },
+    "revisions": [
+      "93d6aa90"
+    ],
+    "error": true
+  },
+  {
+    "id": "effort-disabled",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "enable_thinking": false,
+      "model_options": {
+        "reasoning_effort": "medium"
+      }
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "no-generation",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "model_options": {
+        "add_generation_prompt": false
+      }
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "missing-generation",
+    "omit_generation_prompt": true,
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "system-first",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": " custom \n"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "empty-system",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "later-system",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        },
+        {
+          "role": "system",
+          "content": "later"
+        },
+        {
+          "role": "system",
+          "content": ""
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "assistant-only",
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "A"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "assistant-history",
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "A",
+          "reasoning_content": " kept "
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        },
+        {
+          "role": "assistant",
+          "content": "B",
+          "reasoning_content": ""
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "literal-think",
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "literal </think> remains"
+        },
+        {
+          "role": "user",
+          "content": "<think>x</think>"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "text-parts",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            },
+            {
+              "type": "text",
+              "text": "B"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": " 中文123!é\r\n"
+            },
+            {
+              "type": "text",
+              "text": " 🙂 \t"
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "null-content",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": null
+        },
+        {
+          "role": "assistant"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "grouped-tools",
+    "request": {
+      "messages": [
+        {
+          "role": "tool",
+          "content": "one"
+        },
+        {
+          "role": "tool",
+          "content": "two"
+        },
+        {
+          "role": "user",
+          "content": "Next"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "tools-system",
+    "request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "custom"
+        },
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "f",
+            "description": "café <&>",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "glm-call",
+    "native_arguments": true,
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "assistant",
+          "content": "A",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"x\":1}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "glm-values",
+    "native_arguments": true,
+    "request": {
+      "messages": [
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "f",
+                "arguments": "{\"s\":\" café \",\"b\":true,\"n\":null,\"a\":[1,2],\"o\":{\"k\":3}}"
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "g",
+                "arguments": "{}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "empty-history",
+    "request": {
+      "messages": []
+    },
+    "revisions": [
+      "93d6aa90"
+    ],
+    "error": true
+  },
+  {
+    "id": "unknown-role",
+    "request": {
+      "messages": [
+        {
+          "role": "developer",
+          "content": "x"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ],
+    "error": true
+  },
+  {
+    "id": "bad-content-block",
+    "request": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "text": "x"
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ],
+    "error": true
+  },
+  {
+    "id": "tool-array",
+    "native_admission_error": "unsupported",
+    "request": {
+      "messages": [
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            }
+          ]
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "tool-null",
+    "native_admission_error": "unsupported",
+    "request": {
+      "messages": [
+        {
+          "role": "tool",
+          "content": null
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  },
+  {
+    "id": "tool-missing",
+    "native_admission_error": "unsupported",
+    "request": {
+      "messages": [
+        {
+          "role": "tool"
+        }
+      ]
+    },
+    "revisions": [
+      "93d6aa90"
+    ]
+  }
+]

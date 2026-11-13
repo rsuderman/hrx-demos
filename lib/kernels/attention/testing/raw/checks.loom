@@ -1,0 +1,88 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent host scalar oracle: raw NeoX64 followed by unchanged tail.
+func.def @raw.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %h = index.constant 256 : index
+  %r = index.constant 64 : index
+  %half = index.constant 32 : index
+  %step = scalar.constant -0.48202963969994922 : f32
+  %source = buffer.view %input[%origin] : buffer -> view<2x256xf32>
+  %target = buffer.view %output[%origin] : buffer -> view<2x256xf32>
+  %descriptor = buffer.view %epoch[%origin] : buffer -> view<5xi32>
+  %base = view.load %descriptor[1] : view<5xi32> -> i32
+  %position = scalar.sitofp %base : i32 to f32
+  scf.for %row = [%zero to %two step %one] {
+    scf.for %lane = [%zero to %h step %one] {
+      %active = index.cmp eq, %row, %zero : index
+      %value = scf.if %active -> (f32) {
+        %own = view.load %source[%row, %lane] : view<2x256xf32> -> f32
+        %rotates = index.cmp ult, %lane, %r : index
+        %v = scf.if %rotates -> (f32) {
+          %low = index.cmp ult, %lane, %half : index
+          %pair = index.rem %lane, %half : index
+          %partner = scf.if %low -> (index) {
+            %p = index.add %lane, %half : index
+            scf.yield %p : index
+          } else {
+            scf.yield %pair : index
+          }
+          %other = view.load %source[%row, %partner] : view<2x256xf32> -> f32
+          %pair32 = index.cast %pair : index to i32
+          %pf = scalar.uitofp %pair32 : i32 to f32
+          %log = scalar.mulf %pf, %step : f32
+          %frequency = scalar.expf %log : f32
+          %angle = scalar.mulf %position, %frequency : f32
+          %sine = scalar.sinf %angle : f32
+          %cosine = scalar.cosf %angle : f32
+          %a = scalar.mulf %own, %cosine : f32
+          %b = scalar.mulf %other, %sine : f32
+          %result = scf.if %low -> (f32) {
+            %v = scalar.subf %a, %b : f32
+            scf.yield %v : f32
+          } else {
+            %v = scalar.addf %a, %b : f32
+            scf.yield %v : f32
+          }
+          scf.yield %result : f32
+        } else {
+          scf.yield %own : f32
+        }
+        scf.yield %v : f32
+      } else {
+        %zero_f = scalar.constant 0.0 : f32
+        scf.yield %zero_f : f32
+      }
+      view.store %value, %target[%row, %lane] : f32, view<2x256xf32>
+    }
+  }
+  func.return
+}
+
+command.decl @raw.partial() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+check.scenario @raw.partial_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(1) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.00390625) : tensor<2x256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<520xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<520xf32> -> tensor<2x256xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<520xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(2064) : tensor<520xf32> -> tensor<4xf32>
+    %tail = check.tensor.view %output offset(256) : tensor<2x256xf32> -> tensor<192xf32>
+    %inactive = check.tensor.view %output offset(1024) : tensor<2x256xf32> -> tensor<256xf32>
+    check.compare<@raw.partial, @raw.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x256xf32>, tensor<2x256xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(2.0000000000000002e-05) rtol(0.0001) nan(same) : tensor<2x256xf32>, tensor<2x256xf32>
+      check.expect.bitwise actual(%tail) expected(%tail) : tensor<192xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x256xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}

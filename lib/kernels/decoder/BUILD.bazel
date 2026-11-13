@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "rows.loom",
+    "split_qkv.loom",
     "qkv_bias.loom",
 ])
 
@@ -11,6 +12,7 @@ filegroup(
     name = "implementation_sources",
     srcs = [
         "rows.loom",
+        "split_qkv.loom",
         "qkv_bias.loom",
         "//lib/kernels/embedding:q6k_rows.loom",
         "//lib/kernels/normalization:rmsnorm_row.loom",

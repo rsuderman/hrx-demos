@@ -3,10 +3,15 @@
 // Config-free H128 variants: source frequency divisors and head-wise gates.
 // R projected inputs/gamma/factors/count/epoch/map/cache, W separate outputs.
 func.decl @llm.decoder.position(%row: index, %rows: index, %capacity: index, %origin: offset, %epoch: buffer) -> (i1, index)
+
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
+
 template.decl @llm.attention.head_rms_value(%raw: f32, %divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %weight: buffer) -> (f32)
+
 template.decl @llm.attention.rope_neox_factor_value(%head_size: index, %half: index, %rope_size: index, %log_step: f32, %position: i32, %lane: index, %factor: f32, %head: buffer) -> (f32)
+
 template.decl @llm.attention.row_window_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %window: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %scale: f32, %position: i32, %head: index, %lane: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 kernel.def @llm.attention.prepare_qk_factored_h128(%rows0: index, %heads0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
   %heads = index.assume %heads0 [range(%heads0, 1, 128)] : index
@@ -66,27 +71,17 @@ kernel.def @llm.attention.prepare_qk_factored_h128(%rows0: index, %heads0: index
   kernel.return
 }
 
-kernel.def @llm.attention.gated_window_rows_h128(%rows0: index, %query_heads0: index, %kv_heads0: index) {
-  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
-  %heads = index.assume %query_heads0 [range(%query_heads0, 1, 128)] : index
-  %h = index.constant 128 : index
-  %one = index.constant 1 : index
-  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%h, %one, %one) : index
-} launch(%kv_heads0: index, %layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %attention_scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer) {
+template.decl @llm.attention.gated_window_rows(%h: index, %rows0: index, %qheads0: index, %row0: index, %head0: index, %lane0: index, %kv_heads0: index, %layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %attention_scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer)
+
+template.def<@llm.attention.gated_window_rows> device @llm.attention.gated_window_rows_body(%h: index, %rows0: index, %qheads0: index, %row0: index, %head0: index, %lane0: index, %kv_heads0: index, %layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %attention_scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer) {
   %layer = index.assume %layer0 [range(%layer0, 0, 63), lt(%layer0, %layers)] : index
   %pool = index.assume %pool_capacity [range(%pool_capacity, 0, 4194304), multiple_of(%pool_capacity, 64)] : index
-  %qheads0 = kernel.workgroup.count<x> : index
   %qheads = index.assume %qheads0 [range(%qheads0, 1, 128)] : index
-  %rows0 = kernel.workgroup.count<y> : index
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
-  %h = index.constant 128 : index
   %kheads = index.assume %kv_heads0 [range(%kv_heads0, 1, 128)] : index
-  %head0 = kernel.workgroup.id<x> : index
   %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %qheads)] : index
-  %row0 = kernel.workgroup.id<y> : index
   %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
-  %lane0 = kernel.workitem.id<x> : index
-  %lane = index.assume %lane0 [range(%lane0, 0, 127)] : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 255), lt(%lane0, %h)] : index
   %capacity = index.assume %logical_capacity [range(%logical_capacity, 1, 262144)] : index
   %valid, %position0 = func.call @llm.decoder.position(%row, %rows, %capacity, %control_origin, %epoch) : (index, index, index, offset, buffer) -> (i1, index)
   %qwidth = index.mul %qheads, %h : index
@@ -126,7 +121,7 @@ kernel.def @llm.attention.gated_window_rows_h128(%rows0: index, %query_heads0: i
     %sigmoid = scalar.divf %unit_f, %denominator : f32
     %head_base = index.mul %head, %h : index
     %element0 = index.add %head_base, %lane : index
-    %element = index.assume %element0 [range(%element0, 0, 16383), lt(%element0, %qwidth)] : index
+    %element = index.assume %element0 [range(%element0, 0, 32767), lt(%element0, %qwidth)] : index
     %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%qwidth]xf32>
     %plain = view.load %out[%row, %element] : view<[%rows]x[%qwidth]xf32> -> f32
     %gated = scalar.mulf %plain, %sigmoid : f32
@@ -135,10 +130,44 @@ kernel.def @llm.attention.gated_window_rows_h128(%rows0: index, %query_heads0: i
     %origin = index.constant 0 : offset
     %base = index.mul %head, %h : index
     %element0 = index.add %base, %lane : index
-    %element = index.assume %element0 [range(%element0, 0, 16383), lt(%element0, %qwidth)] : index
+    %element = index.assume %element0 [range(%element0, 0, 32767), lt(%element0, %qwidth)] : index
     %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%qwidth]xf32>
     %zero = scalar.constant 0.0 : f32
     view.store %zero, %out[%row, %element] : f32, view<[%rows]x[%qwidth]xf32>
   }
+  template.return
+}
+
+kernel.def @llm.attention.gated_window_rows_h128(%rows0: index, %query_heads0: index, %kv_heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %query_heads0 [range(%query_heads0, 1, 128)] : index
+  %h = index.constant 128 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%h, %one, %one) : index
+} launch(%kv_heads0: index, %layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %attention_scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer) {
+  %h = index.constant 128 : index
+  %rows0 = kernel.workgroup.count<y> : index
+  %qheads0 = kernel.workgroup.count<x> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %head0 = kernel.workgroup.id<x> : index
+  %lane0 = kernel.workitem.id<x> : index
+  template.apply<@llm.attention.gated_window_rows>(%h, %rows0, %qheads0, %row0, %head0, %lane0, %kv_heads0, %layer0, %layers, %logical_capacity, %pool_capacity, %attention_scale, %window, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %gate_logits, %cache, %output) : (index, index, index, index, index, index, index, index, index, index, index, f32, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def @llm.attention.gated_window_rows_h256(%rows0: index, %query_heads0: index, %kv_heads0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %heads = index.assume %query_heads0 [range(%query_heads0, 1, 128)] : index
+  %h = index.constant 256 : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%h, %one, %one) : index
+} launch(%kv_heads0: index, %layer0: index, %layers: index, %logical_capacity: index, %pool_capacity: index, %attention_scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer) {
+  %h = index.constant 256 : index
+  %rows0 = kernel.workgroup.count<y> : index
+  %qheads0 = kernel.workgroup.count<x> : index
+  %row0 = kernel.workgroup.id<y> : index
+  %head0 = kernel.workgroup.id<x> : index
+  %lane0 = kernel.workitem.id<x> : index
+  template.apply<@llm.attention.gated_window_rows>(%h, %rows0, %qheads0, %row0, %head0, %lane0, %kv_heads0, %layer0, %layers, %logical_capacity, %pool_capacity, %attention_scale, %window, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %gate_logits, %cache, %output) : (index, index, index, index, index, index, index, index, index, index, index, f32, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
   kernel.return
 }

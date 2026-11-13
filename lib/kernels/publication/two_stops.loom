@@ -8,3 +8,9 @@ func.def public pure inline @llm.publication.map_two_stops(%token: i32, %first_s
   %mapped = scf.select %stop, %terminal, %token : i32
   func.return %mapped : i32
 }
+
+func.def public pure inline @llm.publication.map_one_stop(%token: i32, %source_stop: i32, %terminal: i32) -> (i32) {
+  %stop = scalar.cmpi eq, %token, %source_stop : i32
+  %mapped = scf.select %stop, %terminal, %token : i32
+  func.return %mapped : i32
+}

@@ -1,0 +1,20 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Selected framing data shared by all existing ChatML policies.
+global.rodata.def public @chatml.user_open = bytes("3c7c696d5f73746172747c3e757365720a")
+
+global.rodata.def public @chatml.assistant_open = bytes("3c7c696d5f73746172747c3e617373697374616e740a")
+
+global.rodata.def public @chatml.system_open = bytes("3c7c696d5f73746172747c3e73797374656d0a")
+
+global.rodata.def public @chatml.end = bytes("3c7c696d5f656e647c3e0a")
+
+global.rodata.def public @input_open_boundary = bytes("3c7c696d5f656e647c3e0a")
+
+global.rodata.def public @input_terminated_boundary = bytes("0a")
+
+global.rodata.def public @chatml_output.plain_assistant = bytes("3c7c696d5f73746172747c3e617373697374616e740a")
+
+global.rodata.def public @chatml_output.assistant = bytes("3c7c696d5f73746172747c3e617373697374616e740a3c7468696e6b3e0a")
+
+global.rodata.def public @chatml_output.end = bytes("3c7c696d5f656e647c3e0a")

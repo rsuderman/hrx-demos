@@ -1,0 +1,274 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent host scalar oracle: raw NeoX64 followed by unchanged tail.
+func.def @raw.geometry.expected(%heads: index, %rope: index, %step: f32, %epoch: buffer, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %h = index.constant 256 : index
+  %r = index.add %rope, %zero : index
+  %half = index.div %r, %two : index
+  %width = index.mul %heads, %h : index
+  %source = buffer.view %input[%origin] : buffer -> view<2x[%width]xf32>
+  %target = buffer.view %output[%origin] : buffer -> view<2x[%width]xf32>
+  %descriptor = buffer.view %epoch[%origin] : buffer -> view<5xi32>
+  %n32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %n = index.cast %n32 : i32 to index
+  %base = view.load %descriptor[1] : view<5xi32> -> i32
+  scf.for %row = [%zero to %two step %one] {
+    %row32 = index.cast %row : index to i32
+    %pos32 = scalar.addi %base, %row32 : i32
+    %position = scalar.sitofp %pos32 : i32 to f32
+    scf.for %element = [%zero to %width step %one] {
+      %lane = index.rem %element, %h : index
+      %head_base = index.sub %element, %lane : index
+      %active = index.cmp ult, %row, %n : index
+      %value = scf.if %active -> (f32) {
+        %own = view.load %source[%row, %element] : view<2x[%width]xf32> -> f32
+        %rotates = index.cmp ult, %lane, %r : index
+        %v = scf.if %rotates -> (f32) {
+          %low = index.cmp ult, %lane, %half : index
+          %pair = index.rem %lane, %half : index
+          %partner = scf.if %low -> (index) {
+            %p = index.add %lane, %half : index
+            scf.yield %p : index
+          } else {
+            scf.yield %pair : index
+          }
+          %partner_element0 = index.add %head_base, %partner : index
+          %partner_element = index.assume %partner_element0 [range(%partner_element0, 0, 32767), lt(%partner_element0, %width)] : index
+          %other = view.load %source[%row, %partner_element] : view<2x[%width]xf32> -> f32
+          %pair32 = index.cast %pair : index to i32
+          %pf = scalar.uitofp %pair32 : i32 to f32
+          %log = scalar.mulf %pf, %step : f32
+          %frequency = scalar.expf %log : f32
+          %angle = scalar.mulf %position, %frequency : f32
+          %sine = scalar.sinf %angle : f32
+          %cosine = scalar.cosf %angle : f32
+          %a = scalar.mulf %own, %cosine : f32
+          %b = scalar.mulf %other, %sine : f32
+          %result = scf.if %low -> (f32) {
+            %v = scalar.subf %a, %b : f32
+            scf.yield %v : f32
+          } else {
+            %v = scalar.addf %a, %b : f32
+            scf.yield %v : f32
+          }
+          scf.yield %result : f32
+        } else {
+          scf.yield %own : f32
+        }
+        scf.yield %v : f32
+      } else {
+        %zero_f = scalar.constant 0.0 : f32
+        scf.yield %zero_f : f32
+      }
+      view.store %value, %target[%row, %element] : f32, view<2x[%width]xf32>
+    }
+  }
+  func.return
+}
+
+command.decl @raw.geometry0() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry0.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 16 : index
+  %rope = index.constant 256 : index
+  %step = scalar.constant -0.071955784156063907 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry0_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(-2) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x4096xf32>
+    %storage = check.generate.fill value(123.5) : tensor<8200xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<8200xf32> -> tensor<2x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<8200xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(32784) : tensor<8200xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry0, @raw.geometry0.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x4096xf32>, tensor<2x4096xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x4096xf32>, tensor<2x4096xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x4096xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @raw.geometry1() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry1.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 16 : index
+  %rope = index.constant 256 : index
+  %step = scalar.constant -0.071955784156063907 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry1_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(1) step(62) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x4096xf32>
+    %storage = check.generate.fill value(123.5) : tensor<8200xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<8200xf32> -> tensor<2x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<8200xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(32784) : tensor<8200xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry1, @raw.geometry1.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x4096xf32>, tensor<2x4096xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x4096xf32>, tensor<2x4096xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x4096xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @raw.geometry2() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry2.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 4 : index
+  %rope = index.constant 64 : index
+  %step = scalar.constant -0.482029639699949 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry2_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(62) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x1024xf32>
+    %storage = check.generate.fill value(123.5) : tensor<2056xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<2056xf32> -> tensor<2x1024xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2056xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(8208) : tensor<2056xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry2, @raw.geometry2.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x1024xf32>, tensor<2x1024xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x1024xf32>, tensor<2x1024xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x1024xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @raw.geometry3() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry3.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 16 : index
+  %rope = index.constant 64 : index
+  %step = scalar.constant -0.482029639699949 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry3_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(2) step(509) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x4096xf32>
+    %storage = check.generate.fill value(123.5) : tensor<8200xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<8200xf32> -> tensor<2x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<8200xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(32784) : tensor<8200xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry3, @raw.geometry3.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x4096xf32>, tensor<2x4096xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x4096xf32>, tensor<2x4096xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x4096xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @raw.geometry4() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry4.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 4 : index
+  %rope = index.constant 256 : index
+  %step = scalar.constant -0.071955784156063907 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry4_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(1) step(511) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x1024xf32>
+    %storage = check.generate.fill value(123.5) : tensor<2056xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<2056xf32> -> tensor<2x1024xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2056xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(8208) : tensor<2056xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry4, @raw.geometry4.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x1024xf32>, tensor<2x1024xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x1024xf32>, tensor<2x1024xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x1024xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @raw.geometry5() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry5.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 2 : index
+  %rope = index.constant 128 : index
+  %step = scalar.constant -0.10000000000000001 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry5_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(0) step(1023) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x512xf32>
+    %storage = check.generate.fill value(123.5) : tensor<1032xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<1032xf32> -> tensor<2x512xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<1032xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(4112) : tensor<1032xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry5, @raw.geometry5.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x512xf32>, tensor<2x512xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x512xf32>, tensor<2x512xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x512xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @raw.geometry6() launch(%epoch: buffer, %input: buffer, %output: buffer)
+
+func.def @raw.geometry6.expected(%epoch: buffer, %input: buffer, %output: buffer) {
+  %heads = index.constant 4 : index
+  %rope = index.constant 64 : index
+  %step = scalar.constant -0.482029639699949 : f32
+  func.call @raw.geometry.expected(%heads, %rope, %step, %epoch, %input, %output) : (index, index, f32, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @raw.geometry6_case {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.iota offset(1) step(1022) : tensor<5xi32>
+    %input = check.generate.iota offset(-0.75) step(0.000244140625) : tensor<2x1024xf32>
+    %storage = check.generate.fill value(123.5) : tensor<2056xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<2056xf32> -> tensor<2x1024xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2056xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(8208) : tensor<2056xf32> -> tensor<4xf32>
+    check.compare<@raw.geometry6, @raw.geometry6.expected>(%epoch, %input, %output) : (tensor<5xi32>, tensor<2x1024xf32>, tensor<2x1024xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.0001) rtol(0.00020000000000000001) nan(same) : tensor<2x1024xf32>, tensor<2x1024xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<2x1024xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+    }
+  }
+  check.return
+}

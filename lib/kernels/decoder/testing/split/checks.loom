@@ -1,0 +1,164 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Host partition oracle reads logical column ranges, never device helpers.
+func.def @split.expected(%qwidth: index, %kvwidth: index, %count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %origin = index.constant 0 : offset
+  %twokv = index.mul %kvwidth, %two : index
+  %width = index.add %qwidth, %twokv : index
+  %vbegin = index.add %qwidth, %kvwidth : index
+  %nview = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %n32 = view.load %nview[0] : view<3xi32> -> i32
+  %n = index.cast %n32 : i32 to index
+  %x = buffer.view %input[%origin] : buffer -> view<3x[%width]xf32>
+  %q = buffer.view %query[%origin] : buffer -> view<3x[%qwidth]xf32>
+  %k = buffer.view %key[%origin] : buffer -> view<3x[%kvwidth]xf32>
+  %v = buffer.view %value[%origin] : buffer -> view<3x[%kvwidth]xf32>
+  %zero_f = scalar.constant 0.0 : f32
+  scf.for %r = [%zero to %three step %one] {
+    %live = index.cmp ult, %r, %n : index
+    scf.for %c = [%zero to %qwidth step %one] {
+      %a = view.load %x[%r, %c] : view<3x[%width]xf32> -> f32
+      %b = scf.select %live, %a, %zero_f : f32
+      view.store %b, %q[%r, %c] : f32, view<3x[%qwidth]xf32>
+    }
+    scf.for %c = [%zero to %kvwidth step %one] {
+      %ki = index.add %qwidth, %c : index
+      %vi = index.add %vbegin, %c : index
+      %ka = view.load %x[%r, %ki] : view<3x[%width]xf32> -> f32
+      %va = view.load %x[%r, %vi] : view<3x[%width]xf32> -> f32
+      %kb = scf.select %live, %ka, %zero_f : f32
+      %vb = scf.select %live, %va, %zero_f : f32
+      view.store %kb, %k[%r, %c] : f32, view<3x[%kvwidth]xf32>
+      view.store %vb, %v[%r, %c] : f32, view<3x[%kvwidth]xf32>
+    }
+  }
+  func.return
+}
+
+command.decl @split.actual0() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer)
+
+func.def @split.expected0(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %q = index.constant 4096 : index
+  %kv = index.constant 1024 : index
+  func.call @split.expected(%q, %kv, %count, %input, %query, %key, %value) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @split.case0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %input_owner = check.generate.iota offset(-16.0) step(0.125) : tensor<18440xf32>
+    %input = check.tensor.view %input_owner offset(16) : tensor<18440xf32> -> tensor<18432xf32>
+    %query_owner = check.generate.fill value(-77.0) : tensor<12296xf32>
+    %query = check.tensor.view %query_owner offset(16) : tensor<12296xf32> -> tensor<12288xf32>
+    %key_owner = check.generate.fill value(-77.0) : tensor<3080xf32>
+    %key = check.tensor.view %key_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    %value_owner = check.generate.fill value(-77.0) : tensor<3080xf32>
+    %value = check.tensor.view %value_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    check.compare<@split.actual0, @split.expected0>(%count, %input, %query, %key, %value) : (tensor<3xi32>, tensor<18432xf32>, tensor<12288xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<18440xf32>
+      check.expect.bitwise actual(%query_owner) expected(%query_owner) : tensor<12296xf32>
+      check.expect.bitwise actual(%key_owner) expected(%key_owner) : tensor<3080xf32>
+      check.expect.bitwise actual(%value_owner) expected(%value_owner) : tensor<3080xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @split.actual1() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer)
+
+func.def @split.expected1(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %q = index.constant 4096 : index
+  %kv = index.constant 1024 : index
+  func.call @split.expected(%q, %kv, %count, %input, %query, %key, %value) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @split.case1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %input_owner = check.generate.iota offset(-16.0) step(0.125) : tensor<18440xf32>
+    %input = check.tensor.view %input_owner offset(16) : tensor<18440xf32> -> tensor<18432xf32>
+    %query_owner = check.generate.fill value(-77.0) : tensor<12296xf32>
+    %query = check.tensor.view %query_owner offset(16) : tensor<12296xf32> -> tensor<12288xf32>
+    %key_owner = check.generate.fill value(-77.0) : tensor<3080xf32>
+    %key = check.tensor.view %key_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    %value_owner = check.generate.fill value(-77.0) : tensor<3080xf32>
+    %value = check.tensor.view %value_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    check.compare<@split.actual1, @split.expected1>(%count, %input, %query, %key, %value) : (tensor<3xi32>, tensor<18432xf32>, tensor<12288xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<18440xf32>
+      check.expect.bitwise actual(%query_owner) expected(%query_owner) : tensor<12296xf32>
+      check.expect.bitwise actual(%key_owner) expected(%key_owner) : tensor<3080xf32>
+      check.expect.bitwise actual(%value_owner) expected(%value_owner) : tensor<3080xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @split.actual2() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer)
+
+func.def @split.expected2(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %q = index.constant 4096 : index
+  %kv = index.constant 1024 : index
+  func.call @split.expected(%q, %kv, %count, %input, %query, %key, %value) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @split.case2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %input_owner = check.generate.iota offset(-16.0) step(0.125) : tensor<18440xf32>
+    %input = check.tensor.view %input_owner offset(16) : tensor<18440xf32> -> tensor<18432xf32>
+    %query_owner = check.generate.fill value(-77.0) : tensor<12296xf32>
+    %query = check.tensor.view %query_owner offset(16) : tensor<12296xf32> -> tensor<12288xf32>
+    %key_owner = check.generate.fill value(-77.0) : tensor<3080xf32>
+    %key = check.tensor.view %key_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    %value_owner = check.generate.fill value(-77.0) : tensor<3080xf32>
+    %value = check.tensor.view %value_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    check.compare<@split.actual2, @split.expected2>(%count, %input, %query, %key, %value) : (tensor<3xi32>, tensor<18432xf32>, tensor<12288xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<18440xf32>
+      check.expect.bitwise actual(%query_owner) expected(%query_owner) : tensor<12296xf32>
+      check.expect.bitwise actual(%key_owner) expected(%key_owner) : tensor<3080xf32>
+      check.expect.bitwise actual(%value_owner) expected(%value_owner) : tensor<3080xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @split.actual3() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer)
+
+func.def @split.expected3(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %q = index.constant 512 : index
+  %kv = index.constant 256 : index
+  func.call @split.expected(%q, %kv, %count, %input, %query, %key, %value) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @split.case3 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %input_owner = check.generate.iota offset(-16.0) step(0.125) : tensor<3080xf32>
+    %input = check.tensor.view %input_owner offset(16) : tensor<3080xf32> -> tensor<3072xf32>
+    %query_owner = check.generate.fill value(-77.0) : tensor<1544xf32>
+    %query = check.tensor.view %query_owner offset(16) : tensor<1544xf32> -> tensor<1536xf32>
+    %key_owner = check.generate.fill value(-77.0) : tensor<776xf32>
+    %key = check.tensor.view %key_owner offset(16) : tensor<776xf32> -> tensor<768xf32>
+    %value_owner = check.generate.fill value(-77.0) : tensor<776xf32>
+    %value = check.tensor.view %value_owner offset(16) : tensor<776xf32> -> tensor<768xf32>
+    check.compare<@split.actual3, @split.expected3>(%count, %input, %query, %key, %value) : (tensor<3xi32>, tensor<3072xf32>, tensor<1536xf32>, tensor<768xf32>, tensor<768xf32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3080xf32>
+      check.expect.bitwise actual(%query_owner) expected(%query_owner) : tensor<1544xf32>
+      check.expect.bitwise actual(%key_owner) expected(%key_owner) : tensor<776xf32>
+      check.expect.bitwise actual(%value_owner) expected(%value_owner) : tensor<776xf32>
+    }
+  }
+  check.return
+}

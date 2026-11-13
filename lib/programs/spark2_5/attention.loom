@@ -1,0 +1,105 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+config.decl @spark2_5.model.hidden_size : index
+
+config.decl @spark2_5.model.query_size : index
+
+config.decl @spark2_5.model.kv_size : index
+
+config.decl @spark2_5.model.query_heads : index
+
+config.decl @spark2_5.model.kv_heads : index
+
+config.decl @spark2_5.model.layer_count : index
+
+config.decl @spark2_5.model.rope_log_step_global : f32
+
+config.decl @spark2_5.model.rope_log_step_local : f32
+
+config.decl @spark2_5.model.attention_scale : f32
+
+config.decl @spark2_5.attention.cache_capacity : index
+
+config.decl @spark2_5.attention.pool_capacity : index
+
+config.decl @spark2_5.attention.cache_base : offset
+
+config.decl @spark2_5.attention.map_origin : offset
+
+func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index)
+
+func.decl pure @loomify.config.layer_window(%layer: index) -> (index, index)
+
+template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
+
+kernel.decl @llm.attention.prepare_qk_raw_h256(%rows: index, %heads: index) launch(%capacity: index, %rope_width: index, %rope_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.split_qkv(%rows: index, %query_width$47: index, %kv_width$48: index) launch(%query_width$49: index, %kv_width$50: index, %count: buffer, %fused: buffer, %query: buffer, %key: buffer, %value: buffer)
+
+kernel.decl @llm.decoder.publish_kv_h256(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
+kernel.decl @llm.attention.gated_window_rows_h256(%rows: index, %heads: index, %key_heads$72: index) launch(%key_heads$73: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer)
+
+command.def @loomify.spark2_5.attention(%layer: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %output: buffer) where [range(%rows, 1, 512)] {
+  %hidden = config.get @spark2_5.model.hidden_size : index
+  %qwidth = config.get @spark2_5.model.query_size : index
+  %kv = config.get @spark2_5.model.kv_size : index
+  %qh = config.get @spark2_5.model.query_heads : index
+  %kh = config.get @spark2_5.model.kv_heads : index
+  %layers = config.get @spark2_5.model.layer_count : index
+  %capacity = config.get @spark2_5.attention.cache_capacity : index
+  %pool = config.get @spark2_5.attention.pool_capacity : index
+  %cache_base = config.get @spark2_5.attention.cache_base : offset
+  %map_origin = config.get @spark2_5.attention.map_origin : offset
+  %rope_log_step_global = config.get @spark2_5.model.rope_log_step_global : f32
+  %rope_log_step_local = config.get @spark2_5.model.rope_log_step_local : f32
+  %attention_scale = config.get @spark2_5.model.attention_scale : f32
+  %zero = index.constant 0 : index
+  %word = index.constant 4 : offset
+  %window, %rope_width = func.call pure @loomify.config.layer_window(%layer) : (index) -> (index, index)
+  %global = index.cmp eq, %window, %zero : index
+  %rope_step = scf.select %global, %rope_log_step_global, %rope_log_step_local : f32
+  %qkvt, %ot, %qkvb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index)
+  %qkv_weight = command.parameter %parameters, "blk.{}.attn_qkv.weight"[%layer] : view<[%qkvb]xi8>
+  %ow = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%ob]xi8>
+  %gate_weight_elements = index.mul %hidden, %qh : index
+  %gate_weight = command.parameter %parameters, "blk.{}.attn_gate.weight"[%layer] : view<[%qh]x[%hidden]xf32>
+  %q_elements = index.mul %rows, %qwidth : index
+  %q_bytes = index.scale %q_elements, %word : index, offset -> offset
+  %q = buffer.alloca<global> align(256) %q_bytes : buffer
+  %k_elements = index.mul %rows, %kv : index
+  %k_bytes = index.scale %k_elements, %word : index, offset -> offset
+  %k = buffer.alloca<global> align(256) %k_bytes : buffer
+  %v_elements = index.mul %rows, %kv : index
+  %v_bytes = index.scale %v_elements, %word : index, offset -> offset
+  %v = buffer.alloca<global> align(256) %v_bytes : buffer
+  %query_elements = index.mul %rows, %qwidth : index
+  %query_bytes = index.scale %query_elements, %word : index, offset -> offset
+  %query = buffer.alloca<global> align(256) %query_bytes : buffer
+  %key_elements = index.mul %rows, %kv : index
+  %key_bytes = index.scale %key_elements, %word : index, offset -> offset
+  %key = buffer.alloca<global> align(256) %key_bytes : buffer
+  %attended_elements = index.mul %rows, %qwidth : index
+  %attended_bytes = index.scale %attended_elements, %word : index, offset -> offset
+  %attended = buffer.alloca<global> align(256) %attended_bytes : buffer
+  %gate_elements = index.mul %rows, %qh : index
+  %gate_bytes = index.scale %gate_elements, %word : index, offset -> offset
+  %gate = buffer.alloca<global> align(256) %gate_bytes : buffer
+  %two = index.constant 2 : index
+  %twokv = index.mul %kv, %two : index
+  %qkvwidth = index.add %qwidth, %twokv : index
+  %qkv_elements = index.mul %rows, %qkvwidth : index
+  %qkv_bytes = index.scale %qkv_elements, %word : index, offset -> offset
+  %qkv = buffer.alloca<global> align(256) %qkv_bytes : buffer
+  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %qkvwidth, %qkvt, %qkvb, %count, %normalized, %qkv_weight, %qkv) : (index, index, index, index, index, buffer, buffer, view<[%qkvb]xi8>, buffer)
+  kernel.launch @llm.decoder.split_qkv[%rows, %qwidth, %kv](%qwidth, %kv, %count, %qkv, %q, %k, %v) : [index, index, index](index, index, buffer, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.f32_rows>(%rows, %hidden, %qh, %count, %normalized, %gate_weight, %gate) : (index, index, index, buffer, buffer, view<[%qh]x[%hidden]xf32>, buffer)
+  kernel.launch @llm.attention.prepare_qk_raw_h256[%rows, %qh](%capacity, %rope_width, %rope_step, %control_origin, %epoch, %q, %query) : [index, index](index, index, f32, offset, buffer, buffer, buffer)
+  kernel.launch @llm.attention.prepare_qk_raw_h256[%rows, %kh](%capacity, %rope_width, %rope_step, %control_origin, %epoch, %k, %key) : [index, index](index, index, f32, offset, buffer, buffer, buffer)
+  kernel.launch @llm.decoder.publish_kv_h256[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @llm.attention.gated_window_rows_h256[%rows, %qh, %kh](%kh, %layer, %layers, %capacity, %pool, %attention_scale, %window, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %gate, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.canonical_rows>(%rows, %qwidth, %hidden, %ot, %ob, %count, %attended, %ow, %output) : (index, index, index, index, index, buffer, buffer, view<[%ob]xi8>, buffer)
+  command.return
+}

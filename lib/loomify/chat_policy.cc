@@ -78,7 +78,7 @@ bool SelectChatPolicy(const model::TextMetadata &metadata,
   }
   for (auto select :
        {text_policy::SelectLlamaHeaders, text_policy::SelectChatmlThinking,
-        text_policy::SelectGemmaTurns}) {
+        text_policy::SelectGemmaTurns, text_policy::SelectSparkGlm}) {
     ChatPolicySelection result;
     const auto match = select(selected->text, &result);
     if (match == text_policy::Match::InvalidBuiltin)

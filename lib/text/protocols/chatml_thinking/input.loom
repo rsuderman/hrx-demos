@@ -5,72 +5,137 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 global.rodata.def @chatml.messages = bytes("6d65737361676573")
+
 global.rodata.def @chatml.role = bytes("726f6c65")
+
 global.rodata.def @chatml.content = bytes("636f6e74656e74")
+
 global.rodata.def @chatml.text = bytes("74657874")
+
 global.rodata.def @chatml.type = bytes("74797065")
+
 global.rodata.def @chatml.system = bytes("73797374656d")
+
 global.rodata.def @chatml.user = bytes("75736572")
+
 global.rodata.def @chatml.assistant = bytes("617373697374616e74")
+
 global.rodata.def @chatml.tool = bytes("746f6f6c")
+
 global.rodata.def @chatml.enable_thinking = bytes("656e61626c655f7468696e6b696e67")
+
 global.rodata.def @chatml.model_options = bytes("6d6f64656c5f6f7074696f6e73")
+
 global.rodata.def @chatml.reasoning_effort = bytes("726561736f6e696e675f6566666f7274")
+
 global.rodata.def @chatml.preserve_thinking = bytes("70726573657276655f7468696e6b696e67")
+
 global.rodata.def @chatml.add_generation_prompt = bytes("6164645f67656e65726174696f6e5f70726f6d7074")
-global.rodata.def @chatml.low = bytes("6c6f77")
-global.rodata.def @chatml.medium = bytes("6d656469756d")
+
+global.rodata.def public @chatml.low = bytes("6c6f77")
+
+global.rodata.def public @chatml.medium = bytes("6d656469756d")
+
 global.rodata.decl @loomify.text.default_effort
+
 global.rodata.decl @loomify.text.default_effort_instruction
-global.rodata.def @chatml.xhigh = bytes("7868696768")
-global.rodata.def @chatml.user_open = bytes("3c7c696d5f73746172747c3e757365720a")
-global.rodata.def @chatml.assistant_open = bytes("3c7c696d5f73746172747c3e617373697374616e740a")
-global.rodata.def @chatml.system_open = bytes("3c7c696d5f73746172747c3e73797374656d0a")
-global.rodata.def @chatml.end = bytes("3c7c696d5f656e647c3e0a")
-global.rodata.def @chatml.separator = bytes("0a0a")
-global.rodata.def @chatml.newline = bytes("0a")
+
+global.rodata.def public @chatml.xhigh = bytes("7868696768")
+
+global.rodata.decl @chatml.user_open
+
+global.rodata.decl @chatml.assistant_open
+
+global.rodata.decl @chatml.system_open
+
+global.rodata.decl @chatml.end
+
+global.rodata.def public @chatml.separator = bytes("0a0a")
+
+global.rodata.def public @chatml.newline = bytes("0a")
+
 global.rodata.def @chatml.response_start = bytes("3c746f6f6c5f726573706f6e73653e")
+
 global.rodata.def @chatml.response_end = bytes("3c2f746f6f6c5f726573706f6e73653e")
+
 global.rodata.decl @loomify.text.effort_xhigh
+
 global.rodata.decl @loomify.text.effort_low
 
-global.rodata.def @chatml_input.empty = bytes("")
+global.rodata.def public @chatml_input.empty = bytes("")
+
 func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+
 func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+
 func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer)
-func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
+
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
 func.decl @text.trim(%text: buffer) -> (buffer)
+
 func.decl @chatml.check(%condition: i1)
+
 func.decl @text.at(%text: buffer, %position: offset, %marker: buffer) -> (i1)
+
 func.decl @chatml.default_thinking() -> (i1)
+
 func.decl @chatml.keep_reasoning_default() -> (i1)
+
 func.decl @chatml.inline_reasoning() -> (i1)
+
 func.decl @chatml.emit_empty_system() -> (i1)
+
 func.decl @chatml.has_effort() -> (i1)
+
 func.decl @chatml.output_initial(%thinking: i1, %generation: i1) -> (i64)
+
 func.decl @chatml.normalize_content(%text: buffer) -> (buffer)
+
 func.decl @chatml.normalize_reason(%text: buffer) -> (buffer)
+
 func.decl @chatml.retained_body(%text: buffer) -> (buffer)
+
 func.decl @chatml.call_separator() -> (buffer)
-func.decl @chatml.history_calls(%raw: buffer,%rendered: buffer) -> (buffer)
+
+func.decl @chatml.history_calls(%raw: buffer, %rendered: buffer) -> (buffer)
+
 func.decl @chatml.allow_later_system() -> (i1)
+
 func.decl @chatml.require_user() -> (i1)
+
 func.decl @chatml.first_tool_header() -> (i1)
+
 func.decl @chatml.system_before_tools() -> (i1)
+
 func.decl @chatml.generation_thought(%thinking: i1) -> (buffer)
+
 func.decl @chatml.history_state(%last_user: i64, %count: i64) -> (i64)
+
 func.decl @chatml.history_thought(%state: i64, %ordinal: i64, %reason: buffer) -> (i1)
+
 func.decl @chatml.prompt_prefix() -> (buffer)
+
 func.decl @chatml.schema_value(%tool: buffer) -> (buffer)
+
 func.decl @chatml.group_tool_responses() -> (i1)
+
 func.decl @chatml.render_tool_response(%raw: buffer, %text: buffer, %prior: i1, %first: i1) -> (buffer)
+
 func.decl @chatml.history_prefix(%header: buffer, %reason: buffer, %retain: i1) -> (buffer)
+
 func.decl @chatml.assistant_parts(%raw: buffer, %text: buffer, %reason: buffer, %fields: i64, %retain: i1) -> (buffer, buffer)
+
 func.decl @chatml.supports_preserve_thinking() -> (i1)
+
 func.decl @chatml.is_last_query(%role_is_user: i1, %wrapped: i1) -> (i1)
+
 func.decl @chatml.no_user_index(%last_ordinal: i64) -> (i64)
+
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
 
 // Host chat messages support null/string/text-parts content. This same bounded
@@ -91,7 +156,7 @@ func.def @chatml.content_text(%message: buffer) -> (buffer) {
   %a = scalar.ori %string, %array : i1
   %b = scalar.ori %null, %missing : i1
   %valid = scalar.ori %a, %b : i1
-  func.call @chatml.check(%valid) : (i1) -> ()
+  func.call @chatml.check(%valid) : (i1)
   %text = scf.if %string -> (buffer) {
     %bytes = buffer.length %raw
     %length = index.cast %bytes : offset to i64
@@ -107,23 +172,25 @@ func.def @chatml.content_text(%message: buffer) -> (buffer) {
       %one = index.constant 1 : index
       %parts = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
       %joined = scf.for %i = [%zero to %extent step %one](%prior = %empty : buffer) -> (buffer) {
-        %begin = view.load %parts[%i,2] : view<[%extent]x5xi64> -> i64
-        %length = view.load %parts[%i,3] : view<[%extent]x5xi64> -> i64
+        %begin = view.load %parts[%i, 2] : view<[%extent]x5xi64> -> i64
+        %length = view.load %parts[%i, 3] : view<[%extent]x5xi64> -> i64
         %part = func.call @text.range(%raw, %begin, %length) : (buffer, i64, i64) -> (buffer)
         %text_key = global.load @chatml.text : buffer
         %body, %present = func.call @text.string(%part, %text_key) : (buffer, buffer) -> (buffer, i1)
-        func.call @chatml.check(%present) : (i1) -> ()
+        func.call @chatml.check(%present) : (i1)
         %type_key = global.load @chatml.type : buffer
         %part_type, %typed = func.call @text.string(%part, %type_key) : (buffer, buffer) -> (buffer, i1)
         %is_text = func.call @text.equal(%part_type, %text_key) : (buffer, buffer) -> (i1)
         %not_typed = scalar.cmpi eq, %typed, %false : i1
         %valid_part = scalar.ori %is_text, %not_typed : i1
-        func.call @chatml.check(%valid_part) : (i1) -> ()
-        %next = func.call @text.join8(%prior,%body,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+        func.call @chatml.check(%valid_part) : (i1)
+        %next = func.call @text.join8(%prior, %body, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
         scf.yield %next : buffer
       }
       scf.yield %joined : buffer
-    } else { scf.yield %empty : buffer }
+    } else {
+      scf.yield %empty : buffer
+    }
     scf.yield %text : buffer
   }
   %trimmed = func.call @chatml.normalize_content(%text) : (buffer) -> (buffer)
@@ -132,7 +199,7 @@ func.def @chatml.content_text(%message: buffer) -> (buffer) {
 
 // Typed booleans preserve absent defaults and reject null/numeric aliases.
 func.def @chatml.boolean(%json: buffer, %key: buffer, %default: i1) -> (i1) {
-  %value, %kind, %found = func.call @text.lookup(%json, %key) : (buffer, buffer) -> (buffer,i64,i1)
+  %value, %kind, %found = func.call @text.lookup(%json, %key) : (buffer, buffer) -> (buffer, i64, i1)
   %three = scalar.constant 5 : i64
   %four = scalar.constant 4 : i64
   %yes = scalar.cmpi eq, %kind, %four : i64
@@ -141,7 +208,7 @@ func.def @chatml.boolean(%json: buffer, %key: buffer, %default: i1) -> (i1) {
   %false = scalar.constant false : i1
   %absent = scalar.cmpi eq, %found, %false : i1
   %valid = scalar.ori %absent, %boolean : i1
-  func.call @chatml.check(%valid) : (i1) -> ()
+  func.call @chatml.check(%valid) : (i1)
   %result = scf.select %found, %yes, %default : i1
   func.return %result : i1
 }
@@ -149,12 +216,19 @@ func.def @chatml.boolean(%json: buffer, %key: buffer, %default: i1) -> (i1) {
 // Source-private rendering state: low2 previous role, bit4 thinking,
 // bit5 preserve_thinking, bit6 generation prompt; last real user at bit8+.
 func.decl @chatml.supports_thinking() -> (i1)
+
 func.decl @chatml.default_system() -> (buffer, i1)
+
 func.decl @chatml.system_tools_separator(%has_system: i1, %has_text: i1) -> (buffer)
 
+func.decl @chatml.effort_instruction(%effort: buffer, %enabled: i1) -> (buffer)
+
+func.decl @chatml.render_system(%source_system: buffer, %source_has_system: i1, %instruction: buffer, %tools: buffer) -> (buffer)
+
 func.decl @chatml.admit_request(%request: buffer)
+
 func.def @chatml.options(%request: buffer) -> (i1, i1, i1, buffer) {
-  func.call @chatml.admit_request(%request) : (buffer) -> ()
+  func.call @chatml.admit_request(%request) : (buffer)
   %zero64 = scalar.constant 0 : i64
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -164,18 +238,18 @@ func.def @chatml.options(%request: buffer) -> (i1, i1, i1, buffer) {
   %empty = global.load @chatml_input.empty : buffer
   %thinking_key = global.load @chatml.enable_thinking : buffer
   %default_thinking = func.call @chatml.default_thinking() : () -> (i1)
-  %requested_thinking = func.call @chatml.boolean(%request, %thinking_key, %default_thinking) : (buffer,buffer,i1) -> (i1)
+  %requested_thinking = func.call @chatml.boolean(%request, %thinking_key, %default_thinking) : (buffer, buffer, i1) -> (i1)
   %supports_thinking = func.call @chatml.supports_thinking() : () -> (i1)
   %thinking = scalar.andi %requested_thinking, %supports_thinking : i1
   %options_key = global.load @chatml.model_options : buffer
-  %options, %options_kind, %has_options = func.call @text.lookup(%request, %options_key) : (buffer,buffer) -> (buffer,i64,i1)
+  %options, %options_kind, %has_options = func.call @text.lookup(%request, %options_key) : (buffer, buffer) -> (buffer, i64, i1)
   %default_preserve = func.call @chatml.keep_reasoning_default() : () -> (i1)
-  %preserve, %generation, %effort = scf.if %has_options -> (i1,i1,buffer) {
+  %preserve, %generation, %effort = scf.if %has_options -> (i1, i1, buffer) {
     %two64 = scalar.constant 2 : i64
     %object = scalar.cmpi eq, %options_kind, %two64 : i64
-    func.call @chatml.check(%object) : (i1) -> ()
-    %records, %kind, %count = func.call @members(%options) : (buffer) -> (buffer,i32,i64)
-    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+    func.call @chatml.check(%object) : (i1)
+    %records, %kind, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
+    %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
     %extent = index.cast %bounded : i64 to index
     %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
     %preserve_key = global.load @chatml.preserve_thinking : buffer
@@ -183,69 +257,56 @@ func.def @chatml.options(%request: buffer) -> (i1, i1, i1, buffer) {
     %effort_key = global.load @chatml.reasoning_effort : buffer
     %supports_effort = func.call @chatml.has_effort() : () -> (i1)
     scf.for %i = [%zero to %extent step %one] {
-      %begin = view.load %fields[%i,0] : view<[%extent]x5xi64> -> i64
-      %length = view.load %fields[%i,1] : view<[%extent]x5xi64> -> i64
-      %key = func.call @text.decode(%options,%begin,%length) : (buffer,i64,i64) -> (buffer)
-      %is_preserve = func.call @text.equal(%key,%preserve_key) : (buffer,buffer) -> (i1)
-      %is_generation = func.call @text.equal(%key,%generation_key) : (buffer,buffer) -> (i1)
-      %is_effort = func.call @text.equal(%key,%effort_key) : (buffer,buffer) -> (i1)
-    %supports_preserve = func.call @chatml.supports_preserve_thinking() : () -> (i1)
-    %accepted_preserve = scalar.andi %is_preserve,%supports_preserve : i1
-    %accepted_effort = scalar.andi %is_effort,%supports_effort : i1
-    %accepted_specific = scalar.ori %accepted_preserve,%accepted_effort : i1
-    %accepted = scalar.ori %accepted_specific,%is_generation : i1
-      func.call @chatml.check(%accepted) : (i1) -> ()
-      scf.yield
+      %begin = view.load %fields[%i, 0] : view<[%extent]x5xi64> -> i64
+      %length = view.load %fields[%i, 1] : view<[%extent]x5xi64> -> i64
+      %key = func.call @text.decode(%options, %begin, %length) : (buffer, i64, i64) -> (buffer)
+      %is_preserve = func.call @text.equal(%key, %preserve_key) : (buffer, buffer) -> (i1)
+      %is_generation = func.call @text.equal(%key, %generation_key) : (buffer, buffer) -> (i1)
+      %is_effort = func.call @text.equal(%key, %effort_key) : (buffer, buffer) -> (i1)
+      %supports_preserve = func.call @chatml.supports_preserve_thinking() : () -> (i1)
+      %accepted_preserve = scalar.andi %is_preserve, %supports_preserve : i1
+      %accepted_effort = scalar.andi %is_effort, %supports_effort : i1
+      %accepted_specific = scalar.ori %accepted_preserve, %accepted_effort : i1
+      %accepted = scalar.ori %accepted_specific, %is_generation : i1
+      func.call @chatml.check(%accepted) : (i1)
     }
-    %keep = func.call @chatml.boolean(%options,%preserve_key,%default_preserve) : (buffer,buffer,i1) -> (i1)
-    %generate = func.call @chatml.boolean(%options,%generation_key,%true) : (buffer,buffer,i1) -> (i1)
-    %requested, %effort_string = func.call @text.string(%options,%effort_key) : (buffer,buffer) -> (buffer,i1)
-    %effort_raw, %effort_kind, %effort_present = func.call @text.lookup(%options,%effort_key) : (buffer,buffer) -> (buffer,i64,i1)
-    %absent = scalar.cmpi eq,%effort_present,%false : i1
-    %valid_type = scalar.ori %absent,%effort_string : i1
-    func.call @chatml.check(%valid_type) : (i1) -> ()
+    %keep = func.call @chatml.boolean(%options, %preserve_key, %default_preserve) : (buffer, buffer, i1) -> (i1)
+    %generate = func.call @chatml.boolean(%options, %generation_key, %true) : (buffer, buffer, i1) -> (i1)
+    %requested, %effort_string = func.call @text.string(%options, %effort_key) : (buffer, buffer) -> (buffer, i1)
+    %effort_raw, %effort_kind, %effort_present = func.call @text.lookup(%options, %effort_key) : (buffer, buffer) -> (buffer, i64, i1)
+    %absent = scalar.cmpi eq, %effort_present, %false : i1
+    %valid_type = scalar.ori %absent, %effort_string : i1
+    func.call @chatml.check(%valid_type) : (i1)
     %xhigh = global.load @loomify.text.default_effort : buffer
-    %resolved = scf.select %effort_present,%requested,%xhigh : buffer
-    scf.yield %keep,%generate,%resolved : i1,i1,buffer
+    %resolved = scf.select %effort_present, %requested, %xhigh : buffer
+    scf.yield %keep, %generate, %resolved : i1, i1, buffer
   } else {
     %xhigh = global.load @loomify.text.default_effort : buffer
-    scf.yield %default_preserve,%true,%xhigh : i1,i1,buffer
+    scf.yield %default_preserve, %true, %xhigh : i1, i1, buffer
   }
   %has_effort = func.call @chatml.has_effort() : () -> (i1)
-  %uses_effort = scalar.andi %thinking,%has_effort : i1
-  %instruction = scf.if %uses_effort -> (buffer) {
-    %low_key = global.load @chatml.low : buffer
-    %medium_key = global.load @chatml.medium : buffer
-    %xhigh_key = global.load @chatml.xhigh : buffer
-    %low = func.call @text.equal(%effort,%low_key) : (buffer,buffer) -> (i1)
-    %medium = func.call @text.equal(%effort,%medium_key) : (buffer,buffer) -> (i1)
-    %xhigh = func.call @text.equal(%effort,%xhigh_key) : (buffer,buffer) -> (i1)
-    %a = scalar.ori %low,%medium : i1
-    %valid = scalar.ori %a,%xhigh : i1
-    func.call @chatml.check(%valid) : (i1) -> ()
-    %low_text = global.load @loomify.text.effort_low : buffer
-    %high_text = global.load @loomify.text.effort_xhigh : buffer
-    %high_or_empty = scf.select %xhigh,%high_text,%empty : buffer
-    %text = scf.select %low,%low_text,%high_or_empty : buffer
-    scf.yield %text : buffer
-  } else { scf.yield %empty : buffer }
-  func.return %thinking,%preserve,%generation,%instruction : i1,i1,i1,buffer
+  %uses_effort = scalar.andi %thinking, %has_effort : i1
+  %instruction = func.call @chatml.effort_instruction(%effort, %uses_effort) : (buffer, i1) -> (buffer)
+  func.return %thinking, %preserve, %generation, %instruction : i1, i1, i1, buffer
 }
 
 func.def @chatml.wrapped_response(%text: buffer) -> (i1) {
   %zero = index.constant 0 : offset
   %start = global.load @chatml.response_start : buffer
   %end = global.load @chatml.response_end : buffer
-  %prefix = func.call @text.at(%text,%zero,%start) : (buffer,offset,buffer) -> (i1)
+  %prefix = func.call @text.at(%text, %zero, %start) : (buffer, offset, buffer) -> (i1)
   %size = buffer.length %text
   %suffix_size = buffer.length %end
-  %fits = index.cmp uge,%size,%suffix_size : offset
+  %fits = index.cmp uge, %size, %suffix_size : offset
   %suffix = scf.if %fits -> (i1) {
-    %position = index.sub %size,%suffix_size : offset
-    %matches = func.call @text.at(%text,%position,%end) : (buffer,offset,buffer) -> (i1)
+    %position = index.sub %size, %suffix_size : offset
+    %matches = func.call @text.at(%text, %position, %end) : (buffer, offset, buffer) -> (i1)
     scf.yield %matches : i1
-  } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
-  %result = scalar.andi %prefix,%suffix : i1
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
+  %result = scalar.andi %prefix, %suffix : i1
   func.return %result : i1
 }
 
@@ -254,16 +315,16 @@ func.def @chatml.wrapped_response(%text: buffer) -> (i1) {
 // in a user message is deliberately not a new user query.
 func.def @chatml.scan(%request: buffer) -> (i64, buffer, i1, i64) {
   %messages_key = global.load @chatml.messages : buffer
-  %messages,%kind,%found = func.call @text.lookup(%request,%messages_key) : (buffer,buffer) -> (buffer,i64,i1)
+  %messages, %kind, %found = func.call @text.lookup(%request, %messages_key) : (buffer, buffer) -> (buffer, i64, i1)
   %three64 = scalar.constant 3 : i64
-  %array = scalar.cmpi eq,%kind,%three64 : i64
-  %valid = scalar.andi %found,%array : i1
-  func.call @chatml.check(%valid) : (i1) -> ()
-  %records,%type,%count = func.call @members(%messages) : (buffer) -> (buffer,i32,i64)
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %valid = scalar.andi %found, %array : i1
+  func.call @chatml.check(%valid) : (i1)
+  %records, %type, %count = func.call @members(%messages) : (buffer) -> (buffer, i32, i64)
   %zero64 = scalar.constant 0 : i64
-  %nonempty = scalar.cmpi sgt,%count,%zero64 : i64
-  func.call @chatml.check(%nonempty) : (i1) -> ()
-  %bounded = scalar.assume %count [range(%count,1,2147483647)] : i64
+  %nonempty = scalar.cmpi sgt, %count, %zero64 : i64
+  func.call @chatml.check(%nonempty) : (i1)
+  %bounded = scalar.assume %count [range(%count, 1, 2147483647)] : i64
   %extent = index.cast %bounded : i64 to index
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
@@ -275,40 +336,40 @@ func.def @chatml.scan(%request: buffer) -> (i64, buffer, i1, i64) {
   %user_role = global.load @chatml.user : buffer
   %system_role = global.load @chatml.system : buffer
   %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
-  %last,%seen,%system,%has_system = scf.for %i = [%zero to %extent step %one](%prior = %zero64 : i64,%seen_user = %false : i1,%prior_system = %empty : buffer,%prior_has_system = %false : i1) -> (i64,i1,buffer,i1) {
-    %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
-    %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
-    %message = func.call @text.range(%messages,%begin,%length) : (buffer,i64,i64) -> (buffer)
-    %role,%has_role = func.call @text.string(%message,%role_key) : (buffer,buffer) -> (buffer,i1)
-    func.call @chatml.check(%has_role) : (i1) -> ()
-    %user = func.call @text.equal(%role,%user_role) : (buffer,buffer) -> (i1)
-    %is_system = func.call @text.equal(%role,%system_role) : (buffer,buffer) -> (i1)
+  %last, %seen, %system, %has_system = scf.for %i = [%zero to %extent step %one](%prior = %zero64 : i64, %seen_user = %false : i1, %prior_system = %empty : buffer, %prior_has_system = %false : i1) -> (i64, i1, buffer, i1) {
+    %begin = view.load %fields[%i, 2] : view<[%extent]x5xi64> -> i64
+    %length = view.load %fields[%i, 3] : view<[%extent]x5xi64> -> i64
+    %message = func.call @text.range(%messages, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    %role, %has_role = func.call @text.string(%message, %role_key) : (buffer, buffer) -> (buffer, i1)
+    func.call @chatml.check(%has_role) : (i1)
+    %user = func.call @text.equal(%role, %user_role) : (buffer, buffer) -> (i1)
+    %is_system = func.call @text.equal(%role, %system_role) : (buffer, buffer) -> (i1)
     %text = func.call @chatml.content_text(%message) : (buffer) -> (buffer)
     %wrapped = func.call @chatml.wrapped_response(%text) : (buffer) -> (i1)
-    %real_user = func.call @chatml.is_last_query(%user,%wrapped) : (i1,i1) -> (i1)
+    %real_user = func.call @chatml.is_last_query(%user, %wrapped) : (i1, i1) -> (i1)
     %ordinal = index.cast %i : index to i64
-    %new_last = scf.select %real_user,%ordinal,%prior : i64
-    %new_seen = scalar.ori %seen_user,%real_user : i1
-    %first = index.cmp eq,%i,%zero : index
-    %first_system = scalar.andi %first,%is_system : i1
-    %not_system = scalar.cmpi eq,%is_system,%false : i1
-    %system_order = scalar.ori %first,%not_system : i1
+    %new_last = scf.select %real_user, %ordinal, %prior : i64
+    %new_seen = scalar.ori %seen_user, %real_user : i1
+    %first = index.cmp eq, %i, %zero : index
+    %first_system = scalar.andi %first, %is_system : i1
+    %not_system = scalar.cmpi eq, %is_system, %false : i1
+    %system_order = scalar.ori %first, %not_system : i1
     %allow_later = func.call @chatml.allow_later_system() : () -> (i1)
     %accepted_order = scalar.ori %system_order, %allow_later : i1
-    func.call @chatml.check(%accepted_order) : (i1) -> ()
-    %new_system = scf.select %first_system,%text,%prior_system : buffer
-    %new_has_system = scalar.ori %prior_has_system,%first_system : i1
-    scf.yield %new_last,%new_seen,%new_system,%new_has_system : i64,i1,buffer,i1
+    func.call @chatml.check(%accepted_order) : (i1)
+    %new_system = scf.select %first_system, %text, %prior_system : buffer
+    %new_has_system = scalar.ori %prior_has_system, %first_system : i1
+    scf.yield %new_last, %new_seen, %new_system, %new_has_system : i64, i1, buffer, i1
   }
   %required = func.call @chatml.require_user() : () -> (i1)
-  %not_required = scalar.cmpi eq,%required,%false : i1
-  %valid_history = scalar.ori %seen,%not_required : i1
-  func.call @chatml.check(%valid_history) : (i1) -> ()
+  %not_required = scalar.cmpi eq, %required, %false : i1
+  %valid_history = scalar.ori %seen, %not_required : i1
+  func.call @chatml.check(%valid_history) : (i1)
   %one64 = scalar.constant 1 : i64
-  %last_ordinal = scalar.subi %count,%one64 : i64
+  %last_ordinal = scalar.subi %count, %one64 : i64
   %missing_user = func.call @chatml.no_user_index(%last_ordinal) : (i64) -> (i64)
-  %last_query = scf.select %seen,%last,%missing_user : i64
-  func.return %last_query,%system,%has_system,%count : i64,buffer,i1,i64
+  %last_query = scf.select %seen, %last, %missing_user : i64
+  func.return %last_query, %system, %has_system, %count : i64, buffer, i1, i64
 }
 
 global.rodata.decl @loomify.text.tools_prefix
@@ -316,125 +377,67 @@ global.rodata.decl @loomify.text.tools_prefix
 global.rodata.decl @loomify.text.tools_suffix
 
 func.decl @text.json_dump(%json: buffer) -> (buffer)
+
 func.decl @chatml.admit_mapping(%json: buffer)
 
-func.def public @chat_begin(%request: buffer,%tools: buffer) -> (buffer,i64) {
-  %thinking,%preserve,%generation,%instruction = func.call @chatml.options(%request) : (buffer) -> (i1,i1,i1,buffer)
-  %last,%source_system,%source_has_system,%message_count = func.call @chatml.scan(%request) : (buffer) -> (i64,buffer,i1,i64)
-  %default_system,%has_default = func.call @chatml.default_system() : () -> (buffer,i1)
-  %false = scalar.constant false : i1
-  %missing_system = scalar.cmpi eq,%source_has_system,%false : i1
-  %use_default = scalar.andi %missing_system,%has_default : i1
-  %system = scf.select %use_default,%default_system,%source_system : buffer
-  %has_system = scalar.ori %source_has_system,%use_default : i1
+func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
+  %thinking, %preserve, %generation, %instruction = func.call @chatml.options(%request) : (buffer) -> (i1, i1, i1, buffer)
+  %last, %source_system, %source_has_system, %message_count = func.call @chatml.scan(%request) : (buffer) -> (i64, buffer, i1, i64)
+  %result = func.call @chatml.render_system(%source_system, %source_has_system, %instruction, %tools) : (buffer, i1, buffer, buffer) -> (buffer)
   %empty = global.load @chatml_input.empty : buffer
-  %zero = index.constant 0 : offset
-  %instruction_size = buffer.length %instruction
-  %system_size = buffer.length %system
-  %has_instruction = index.cmp ne,%instruction_size,%zero : offset
-  %has_text = index.cmp ne,%system_size,%zero : offset
-  %separator = global.load @chatml.separator : buffer
-  %separate_instruction = scalar.andi %has_instruction,%has_text : i1
-  %between = scf.select %separate_instruction,%separator,%empty : buffer
-  %system_body = func.call @text.join8(%instruction,%between,%system,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-  func.call @chatml.admit_mapping(%tools) : (buffer) -> ()
-  %records,%kind,%count = func.call @members(%tools) : (buffer) -> (buffer,i32,i64)
   %zero64 = scalar.constant 0 : i64
-  %has_tools = scalar.cmpi ne,%count,%zero64 : i64
-  %open = global.load @chatml.system_open : buffer
-  %close = global.load @chatml.end : buffer
-  %result = scf.if %has_tools -> (buffer) {
-    %bounded = scalar.assume %count [range(%count,1,2147483647)] : i64
-    %extent = index.cast %bounded : i64 to index
-    %first = index.constant 0 : index
-    %one = index.constant 1 : index
-    %fields = buffer.view %records[%zero] : buffer -> view<[%extent]x5xi64>
-    %tool_prefix = global.load @loomify.text.tools_prefix : buffer
-    %tool_suffix = global.load @loomify.text.tools_suffix : buffer
-    %instruction_separator = scf.select %has_instruction,%separator,%empty : buffer
-    %system_first = func.call @chatml.system_before_tools() : () -> (i1)
-    %start = scf.if %system_first -> (buffer) {
-      %sep = func.call @chatml.system_tools_separator(%has_system,%has_text) : (i1,i1) -> (buffer)
-      %value = func.call @text.join8(%open,%system,%sep,%tool_prefix,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-      scf.yield %value : buffer
-    } else {
-      %value = func.call @text.join8(%open,%instruction,%instruction_separator,%tool_prefix,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-      scf.yield %value : buffer
-    }
-    %newline = global.load @chatml.newline : buffer
-    %body = scf.for %i = [%first to %extent step %one](%prior = %start : buffer) -> (buffer) {
-      %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
-      %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
-      %value = func.call @text.range(%tools,%begin,%length) : (buffer,i64,i64) -> (buffer)
-      %schema = func.call @chatml.schema_value(%value) : (buffer) -> (buffer)
-      %formatted = func.call @text.json_dump(%schema) : (buffer) -> (buffer)
-      %next = func.call @text.join8(%prior,%newline,%formatted,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-      scf.yield %next : buffer
-    }
-    %system_separator = scf.select %has_text,%separator,%empty : buffer
-    %tail_system = scf.select %system_first,%empty,%system : buffer
-    %tail_separator = scf.select %system_first,%empty,%system_separator : buffer
-    %rendered = func.call @text.join8(%body,%tool_suffix,%tail_separator,%tail_system,%close,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-    scf.yield %rendered : buffer
-  } else {
-    %emit_empty = func.call @chatml.emit_empty_system() : () -> (i1)
-    %keep_empty = scalar.andi %has_system,%emit_empty : i1
-    %with_text = scalar.ori %has_text,%has_instruction : i1
-    %emit = scalar.ori %with_text,%keep_empty : i1
-    %rendered = scf.if %emit -> (buffer) {
-      %frame = func.call @text.join8(%open,%system_body,%close,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-      scf.yield %frame : buffer
-    } else { scf.yield %empty : buffer }
-    scf.yield %rendered : buffer
-  }
   %sixteen = scalar.constant 16 : i64
   %thirty_two = scalar.constant 32 : i64
   %sixty_four = scalar.constant 64 : i64
   %eight = scalar.constant 8 : i64
-  %thinking_bit = scf.select %thinking,%sixteen,%zero64 : i64
-  %preserve_bit = scf.select %preserve,%thirty_two,%zero64 : i64
-  %generation_bit = scf.select %generation,%sixty_four,%zero64 : i64
-  %last_bits = func.call @chatml.history_state(%last,%message_count) : (i64,i64) -> (i64)
-  %a = scalar.ori %thinking_bit,%preserve_bit : i64
-  %b = scalar.ori %a,%generation_bit : i64
-  %state = scalar.ori %b,%last_bits : i64
+  %thinking_bit = scf.select %thinking, %sixteen, %zero64 : i64
+  %preserve_bit = scf.select %preserve, %thirty_two, %zero64 : i64
+  %generation_bit = scf.select %generation, %sixty_four, %zero64 : i64
+  %last_bits = func.call @chatml.history_state(%last, %message_count) : (i64, i64) -> (i64)
+  %a = scalar.ori %thinking_bit, %preserve_bit : i64
+  %b = scalar.ori %a, %generation_bit : i64
+  %state = scalar.ori %b, %last_bits : i64
   %prefix = func.call @chatml.prompt_prefix() : () -> (buffer)
-  %prefixed = func.call @text.join8(%prefix,%result,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-  func.return %prefixed,%state : buffer,i64
+  %prefixed = func.call @text.join8(%prefix, %result, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %prefixed, %state : buffer, i64
 }
 
-func.def public @chat_end(%state: i64) -> (buffer,i64) {
+func.def public @chat_end(%state: i64) -> (buffer, i64) {
   %zero64 = scalar.constant 0 : i64
   %three = scalar.constant 3 : i64
   %sixteen = scalar.constant 16 : i64
   %sixty_four = scalar.constant 64 : i64
-  %prior_role = scalar.andi %state,%three : i64
-  %tool = scalar.cmpi eq,%prior_role,%three : i64
-  %thinking_bit = scalar.andi %state,%sixteen : i64
-  %generation_bit = scalar.andi %state,%sixty_four : i64
-  %thinking = scalar.cmpi ne,%thinking_bit,%zero64 : i64
-  %generation = scalar.cmpi ne,%generation_bit,%zero64 : i64
+  %prior_role = scalar.andi %state, %three : i64
+  %tool = scalar.cmpi eq, %prior_role, %three : i64
+  %thinking_bit = scalar.andi %state, %sixteen : i64
+  %generation_bit = scalar.andi %state, %sixty_four : i64
+  %thinking = scalar.cmpi ne, %thinking_bit, %zero64 : i64
+  %generation = scalar.cmpi ne, %generation_bit, %zero64 : i64
   %empty = global.load @chatml_input.empty : buffer
   %close = global.load @chatml.end : buffer
   %group = func.call @chatml.group_tool_responses() : () -> (i1)
-  %close_group = scalar.andi %tool,%group : i1
-  %before = scf.select %close_group,%close,%empty : buffer
+  %close_group = scalar.andi %tool, %group : i1
+  %before = scf.select %close_group, %close, %empty : buffer
   %suffix = scf.if %generation -> (buffer) {
     %header = global.load @chatml.assistant_open : buffer
     %thought = func.call @chatml.generation_thought(%thinking) : (i1) -> (buffer)
-    %result = func.call @text.join8(%header,%thought,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    %result = func.call @text.join8(%header, %thought, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
     scf.yield %result : buffer
-  } else { scf.yield %empty : buffer }
-  %result = func.call @text.join8(%before,%suffix,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-  %output_state = func.call @chatml.output_initial(%thinking,%generation) : (i1,i1) -> (i64)
-  func.return %result,%output_state : buffer,i64
+  } else {
+    scf.yield %empty : buffer
+  }
+  %result = func.call @text.join8(%before, %suffix, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  %output_state = func.call @chatml.output_initial(%thinking, %generation) : (i1, i1) -> (i64)
+  func.return %result, %output_state : buffer, i64
 }
 
 global.rodata.def @chatml.inline_open = bytes("3c7468696e6b3e")
+
 global.rodata.def @chatml.inline_close = bytes("3c2f7468696e6b3e")
+
 // Legacy revision's inline fallback deliberately uses first closing marker for
 // reasoning and last closing marker for content, as its reference template does.
-func.def @chatml.inline_parts(%text: buffer) -> (buffer,buffer) {
+func.def @chatml.inline_parts(%text: buffer) -> (buffer, buffer) {
   %zero = index.constant 0 : offset
   %one = index.constant 1 : offset
   %size = buffer.length %text
@@ -444,48 +447,48 @@ func.def @chatml.inline_parts(%text: buffer) -> (buffer,buffer) {
   %close_size = buffer.length %close
   %false = scalar.constant false : i1
   %true = scalar.constant true : i1
-  %first,%last,%last_open,%seen = scf.for %i = [%zero to %size step %one](%first_close = %size : offset,%last_close = %size : offset,%reason_begin = %zero : offset,%seen_close = %false : i1) -> (offset,offset,offset,i1) {
-    %is_close = func.call @text.at(%text,%i,%close) : (buffer,offset,buffer) -> (i1)
-    %is_open = func.call @text.at(%text,%i,%open) : (buffer,offset,buffer) -> (i1)
-    %not_seen = scalar.cmpi eq,%seen_close,%false : i1
-    %first_match = scalar.andi %is_close,%not_seen : i1
-    %open_before = scalar.andi %is_open,%not_seen : i1
-    %new_first = scf.select %first_match,%i,%first_close : offset
-    %new_last = scf.select %is_close,%i,%last_close : offset
-    %after_open = index.add %i,%open_size : offset
-    %new_begin = scf.select %open_before,%after_open,%reason_begin : offset
-    %new_seen = scalar.ori %seen_close,%is_close : i1
-    scf.yield %new_first,%new_last,%new_begin,%new_seen : offset,offset,offset,i1
+  %first, %last, %last_open, %seen = scf.for %i = [%zero to %size step %one](%first_close = %size : offset, %last_close = %size : offset, %reason_begin = %zero : offset, %seen_close = %false : i1) -> (offset, offset, offset, i1) {
+    %is_close = func.call @text.at(%text, %i, %close) : (buffer, offset, buffer) -> (i1)
+    %is_open = func.call @text.at(%text, %i, %open) : (buffer, offset, buffer) -> (i1)
+    %not_seen = scalar.cmpi eq, %seen_close, %false : i1
+    %first_match = scalar.andi %is_close, %not_seen : i1
+    %open_before = scalar.andi %is_open, %not_seen : i1
+    %new_first = scf.select %first_match, %i, %first_close : offset
+    %new_last = scf.select %is_close, %i, %last_close : offset
+    %after_open = index.add %i, %open_size : offset
+    %new_begin = scf.select %open_before, %after_open, %reason_begin : offset
+    %new_seen = scalar.ori %seen_close, %is_close : i1
+    scf.yield %new_first, %new_last, %new_begin, %new_seen : offset, offset, offset, i1
   }
-  %content,%reasoning = scf.if %seen -> (buffer,buffer) {
-    %reason_size = index.sub %first,%last_open : offset
+  %content, %reasoning = scf.if %seen -> (buffer, buffer) {
+    %reason_size = index.sub %first, %last_open : offset
     %reason_begin64 = index.cast %last_open : offset to i64
     %reason_size64 = index.cast %reason_size : offset to i64
-    %reason_raw = func.call @text.range(%text,%reason_begin64,%reason_size64) : (buffer,i64,i64) -> (buffer)
+    %reason_raw = func.call @text.range(%text, %reason_begin64, %reason_size64) : (buffer, i64, i64) -> (buffer)
     %reason = func.call @chatml.normalize_reason(%reason_raw) : (buffer) -> (buffer)
-    %begin = index.add %last,%close_size : offset
-    %start,%stripping = scf.for %i = [%begin to %size step %one](%prior = %begin : offset,%strip = %true : i1) -> (offset,i1) {
+    %begin = index.add %last, %close_size : offset
+    %start, %stripping = scf.for %i = [%begin to %size step %one](%prior = %begin : offset, %strip = %true : i1) -> (offset, i1) {
       %byte = buffer.load.i8.u %text[%i]
       %newline = scalar.constant 10 : i32
-      %lf = scalar.cmpi eq,%byte,%newline : i32
-      %continue = scalar.andi %strip,%lf : i1
-      %after = index.add %i,%one : offset
-      %next = scf.select %continue,%after,%prior : offset
-      scf.yield %next,%continue : offset,i1
+      %lf = scalar.cmpi eq, %byte, %newline : i32
+      %continue = scalar.andi %strip, %lf : i1
+      %after = index.add %i, %one : offset
+      %next = scf.select %continue, %after, %prior : offset
+      scf.yield %next, %continue : offset, i1
     }
-    %length = index.sub %size,%start : offset
+    %length = index.sub %size, %start : offset
     %start64 = index.cast %start : offset to i64
     %length64 = index.cast %length : offset to i64
-    %body = func.call @text.range(%text,%start64,%length64) : (buffer,i64,i64) -> (buffer)
-    scf.yield %body,%reason : buffer,buffer
+    %body = func.call @text.range(%text, %start64, %length64) : (buffer, i64, i64) -> (buffer)
+    scf.yield %body, %reason : buffer, buffer
   } else {
     %empty = global.load @chatml_input.empty : buffer
-    scf.yield %text,%empty : buffer,buffer
+    scf.yield %text, %empty : buffer, buffer
   }
-  func.return %content,%reasoning : buffer,buffer
+  func.return %content, %reasoning : buffer, buffer
 }
 
-func.def public @chat_message(%raw: buffer,%role: buffer,%content: buffer,%parts: buffer,%frames: buffer, %reasoning: buffer,%calls: buffer,%state: i64,%ordinal: i64,%fields: i64,%part_count: i64) -> (buffer, i64, buffer, i64) {
+func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %frames: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer, i64) {
   %zero64 = scalar.constant 0 : i64
   %one64 = scalar.constant 1 : i64
   %two64 = scalar.constant 2 : i64
@@ -496,105 +499,118 @@ func.def public @chat_message(%raw: buffer,%role: buffer,%content: buffer,%parts
   %false = scalar.constant false : i1
   %empty = global.load @chatml_input.empty : buffer
   %role_key = global.load @chatml.role : buffer
-  %decoded_role,%has_role = func.call @text.string(%raw,%role_key) : (buffer,buffer) -> (buffer,i1)
-  func.call @chatml.check(%has_role) : (i1) -> ()
+  %decoded_role, %has_role = func.call @text.string(%raw, %role_key) : (buffer, buffer) -> (buffer, i1)
+  func.call @chatml.check(%has_role) : (i1)
   %system_role = global.load @chatml.system : buffer
   %user_role = global.load @chatml.user : buffer
   %assistant_role = global.load @chatml.assistant : buffer
   %tool_role = global.load @chatml.tool : buffer
-  %system = func.call @text.equal(%decoded_role,%system_role) : (buffer,buffer) -> (i1)
-  %user = func.call @text.equal(%decoded_role,%user_role) : (buffer,buffer) -> (i1)
-  %assistant = func.call @text.equal(%decoded_role,%assistant_role) : (buffer,buffer) -> (i1)
-  %tool = func.call @text.equal(%decoded_role,%tool_role) : (buffer,buffer) -> (i1)
-  %first = scalar.cmpi eq,%ordinal,%zero64 : i64
-  %not_system = scalar.cmpi eq,%system,%false : i1
-  %valid_system = scalar.ori %not_system,%first : i1
-  %a = scalar.ori %system,%user : i1
-  %b = scalar.ori %assistant,%tool : i1
-  %known = scalar.ori %a,%b : i1
+  %system = func.call @text.equal(%decoded_role, %system_role) : (buffer, buffer) -> (i1)
+  %user = func.call @text.equal(%decoded_role, %user_role) : (buffer, buffer) -> (i1)
+  %assistant = func.call @text.equal(%decoded_role, %assistant_role) : (buffer, buffer) -> (i1)
+  %tool = func.call @text.equal(%decoded_role, %tool_role) : (buffer, buffer) -> (i1)
+  %first = scalar.cmpi eq, %ordinal, %zero64 : i64
+  %not_system = scalar.cmpi eq, %system, %false : i1
+  %valid_system = scalar.ori %not_system, %first : i1
+  %a = scalar.ori %system, %user : i1
+  %b = scalar.ori %assistant, %tool : i1
+  %known = scalar.ori %a, %b : i1
   %later_system = func.call @chatml.allow_later_system() : () -> (i1)
-  %allowed_system = scalar.ori %valid_system,%later_system : i1
-  %valid = scalar.andi %known,%allowed_system : i1
-  func.call @chatml.check(%valid) : (i1) -> ()
+  %allowed_system = scalar.ori %valid_system, %later_system : i1
+  %valid = scalar.andi %known, %allowed_system : i1
+  func.call @chatml.check(%valid) : (i1)
   %text = func.call @chatml.normalize_content(%content) : (buffer) -> (buffer)
   %thought = func.call @chatml.normalize_reason(%reasoning) : (buffer) -> (buffer)
-  %prior_role = scalar.andi %state,%three64 : i64
-  %prior_tool = scalar.cmpi eq,%prior_role,%three64 : i64
-  %not_tool = scalar.cmpi eq,%tool,%false : i1
-  %closing_turn = scalar.andi %prior_tool,%not_tool : i1
+  %prior_role = scalar.andi %state, %three64 : i64
+  %prior_tool = scalar.cmpi eq, %prior_role, %three64 : i64
+  %not_tool = scalar.cmpi eq, %tool, %false : i1
+  %closing_turn = scalar.andi %prior_tool, %not_tool : i1
   %group_tools = func.call @chatml.group_tool_responses() : () -> (i1)
-  %closing_tool = scalar.andi %closing_turn,%group_tools : i1
+  %closing_tool = scalar.andi %closing_turn, %group_tools : i1
   %close = global.load @chatml.end : buffer
-  %before = scf.select %closing_tool,%close,%empty : buffer
+  %before = scf.select %closing_tool, %close, %empty : buffer
   %body = scf.if %assistant -> (buffer) {
-    %history_calls = func.call @chatml.history_calls(%raw,%calls) : (buffer,buffer) -> (buffer)
-    %has_reason_field_bits = scalar.andi %fields,%one64 : i64
-    %has_reason_field = scalar.cmpi ne,%has_reason_field_bits,%zero64 : i64
+    %history_calls = func.call @chatml.history_calls(%raw, %calls) : (buffer, buffer) -> (buffer)
+    %has_reason_field_bits = scalar.andi %fields, %one64 : i64
+    %has_reason_field = scalar.cmpi ne, %has_reason_field_bits, %zero64 : i64
     %inline_policy = func.call @chatml.inline_reasoning() : () -> (i1)
-    %no_reason_field = scalar.cmpi eq,%has_reason_field,%false : i1
-    %inline = scalar.andi %inline_policy,%no_reason_field : i1
-    %ordinary_content,%ordinary_reason = scf.if %inline -> (buffer,buffer) {
-      %body,%reason = func.call @chatml.inline_parts(%text) : (buffer) -> (buffer,buffer)
-      scf.yield %body,%reason : buffer,buffer
-    } else { scf.yield %text,%thought : buffer,buffer }
-    %retain = func.call @chatml.history_thought(%state,%ordinal,%ordinary_reason) : (i64,i64,buffer) -> (i1)
-    %rendered_content,%rendered_reason = func.call @chatml.assistant_parts(%raw,%ordinary_content,%ordinary_reason,%fields,%retain) : (buffer,buffer,buffer,i64,i1) -> (buffer,buffer)
+    %no_reason_field = scalar.cmpi eq, %has_reason_field, %false : i1
+    %inline = scalar.andi %inline_policy, %no_reason_field : i1
+    %ordinary_content, %ordinary_reason = scf.if %inline -> (buffer, buffer) {
+      %body, %reason = func.call @chatml.inline_parts(%text) : (buffer) -> (buffer, buffer)
+      scf.yield %body, %reason : buffer, buffer
+    } else {
+      scf.yield %text, %thought : buffer, buffer
+    }
+    %retain = func.call @chatml.history_thought(%state, %ordinal, %ordinary_reason) : (i64, i64, buffer) -> (i1)
+    %rendered_content, %rendered_reason = func.call @chatml.assistant_parts(%raw, %ordinary_content, %ordinary_reason, %fields, %retain) : (buffer, buffer, buffer, i64, i1) -> (buffer, buffer)
     %body_content = scf.if %retain -> (buffer) {
       %value = func.call @chatml.retained_body(%rendered_content) : (buffer) -> (buffer)
       scf.yield %value : buffer
-    } else { scf.yield %rendered_content : buffer }
+    } else {
+      scf.yield %rendered_content : buffer
+    }
     %header = global.load @chatml.assistant_open : buffer
-    %prefix = func.call @chatml.history_prefix(%header,%rendered_reason,%retain) : (buffer,buffer,i1) -> (buffer)
+    %prefix = func.call @chatml.history_prefix(%header, %rendered_reason, %retain) : (buffer, buffer, i1) -> (buffer)
     %zero = index.constant 0 : offset
     %content_size = buffer.length %body_content
     %call_size = buffer.length %history_calls
-    %has_content = index.cmp ne,%content_size,%zero : offset
-    %has_calls = index.cmp ne,%call_size,%zero : offset
-    %separate = scalar.andi %has_content,%has_calls : i1
+    %has_content = index.cmp ne, %content_size, %zero : offset
+    %has_calls = index.cmp ne, %call_size, %zero : offset
+    %separate = scalar.andi %has_content, %has_calls : i1
     %separator = func.call @chatml.call_separator() : () -> (buffer)
-    %between = scf.select %separate,%separator,%empty : buffer
-    %result = func.call @text.join8(%prefix,%body_content,%between,%history_calls,%close,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    %between = scf.select %separate, %separator, %empty : buffer
+    %result = func.call @text.join8(%prefix, %body_content, %between, %history_calls, %close, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
     scf.yield %result : buffer
   } else {
-    %later = scalar.cmpi eq,%first,%false : i1
-    %later_system_turn = scalar.andi %system,%later : i1
-    %ordinary_turn = scalar.ori %user,%later_system_turn : i1
+    %later = scalar.cmpi eq, %first, %false : i1
+    %later_system_turn = scalar.andi %system, %later : i1
+    %ordinary_turn = scalar.ori %user, %later_system_turn : i1
     %result = scf.if %ordinary_turn -> (buffer) {
       %user_header = global.load @chatml.user_open : buffer
       %system_header = global.load @chatml.system_open : buffer
-      %header = scf.select %system,%system_header,%user_header : buffer
-      %value = func.call @text.join8(%header,%text,%close,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+      %header = scf.select %system, %system_header, %user_header : buffer
+      %value = func.call @text.join8(%header, %text, %close, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
       scf.yield %value : buffer
     } else {
       %value = scf.if %tool -> (buffer) {
-        %result = func.call @chatml.render_tool_response(%raw,%text,%prior_tool,%first) : (buffer,buffer,i1,i1) -> (buffer)
+        %result = func.call @chatml.render_tool_response(%raw, %text, %prior_tool, %first) : (buffer, buffer, i1, i1) -> (buffer)
         scf.yield %result : buffer
-      } else { scf.yield %empty : buffer }
+      } else {
+        scf.yield %empty : buffer
+      }
       scf.yield %value : buffer
     }
     scf.yield %result : buffer
   }
-  %result = func.call @text.join8(%before,%body,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
-  %role_a = scf.select %tool,%three64,%zero64 : i64
-  %role_b = scf.select %assistant,%two64,%role_a : i64
-  %next_role = scf.select %user,%one64,%role_b : i64
-  %retained = scalar.andi %state,%role_mask : i64
-  %next = scalar.ori %retained,%next_role : i64
+  %result = func.call @text.join8(%before, %body, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  %role_a = scf.select %tool, %three64, %zero64 : i64
+  %role_b = scf.select %assistant, %two64, %role_a : i64
+  %next_role = scf.select %user, %one64, %role_b : i64
+  %retained = scalar.andi %state, %role_mask : i64
+  %next = scalar.ori %retained, %next_role : i64
   %projection_count = scalar.constant 0 : i64
-  func.return %result,%next,%empty, %projection_count : buffer, i64, buffer, i64
+  func.return %result, %next, %empty, %projection_count : buffer, i64, buffer, i64
 }
 
-
-
 global.rodata.def @input_user_prefix = bytes("3c7c696d5f73746172747c3e757365720a")
-global.rodata.def @input_open_boundary = bytes("3c7c696d5f656e647c3e0a")
-global.rodata.def @input_terminated_boundary = bytes("0a")
+
+global.rodata.decl @input_open_boundary
+
+global.rodata.decl @input_terminated_boundary
+
 global.rodata.def @input_empty_boundary = bytes("")
+
 global.rodata.def @input_mode_error = bytes("756e737570706f7274656420736f7572636520696e70757420666f726d6174206f72207475726e20626f756e64617279")
+
 global.rodata.def @input_capacity_error = bytes("736f7572636520696e70757420746f6b656e206361706163697479206973206f7574206f662072616e6765")
+
 global.rodata.def @input_overflow_error = bytes("636f6d706c65746520696e707574206578636565647320746f6b656e206361706163697479")
-func.decl import("input") @require(%condition: i32,%diagnostic: buffer)
-func.decl import("input") @encode(%text: buffer,%flags: i32,%capacity: i64) -> (buffer,i64)
+
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+func.decl import("input") @encode(%text: buffer, %flags: i32, %capacity: i64) -> (buffer, i64)
+
 func.def @chatml.prepare_text_input(%text: buffer, %format: i32, %boundary: i32, %capacity: i64) -> (buffer, i64) {
   %zero32 = scalar.constant 0 : i32
   %one32 = scalar.constant 1 : i32
@@ -604,12 +620,12 @@ func.def @chatml.prepare_text_input(%text: buffer, %format: i32, %boundary: i32,
   %valid_modes = scalar.andi %valid_format, %valid_boundary : i1
   %valid_modes32 = scalar.extui %valid_modes : i1 to i32
   %mode_error = global.load @input_mode_error : buffer
-  func.call @require(%valid_modes32, %mode_error) : (i32, buffer) -> ()
+  func.call @require(%valid_modes32, %mode_error) : (i32, buffer)
   %capacity_limit = scalar.constant 2305843009213693950 : i64
   %valid_capacity = scalar.cmpi ule, %capacity, %capacity_limit : i64
   %valid_capacity32 = scalar.extui %valid_capacity : i1 to i32
   %capacity_error = global.load @input_capacity_error : buffer
-  func.call @require(%valid_capacity32, %capacity_error) : (i32, buffer) -> ()
+  func.call @require(%valid_capacity32, %capacity_error) : (i32, buffer)
   %user = scalar.cmpi eq, %format, %one32 : i32
   %open = scalar.cmpi eq, %boundary, %one32 : i32
   %terminated = scalar.cmpi eq, %boundary, %two32 : i32
@@ -626,7 +642,9 @@ func.def @chatml.prepare_text_input(%text: buffer, %format: i32, %boundary: i32,
   %body = scf.if %user -> (buffer) {
     %trimmed = func.call @chatml.normalize_content(%text) : (buffer) -> (buffer)
     scf.yield %trimmed : buffer
-  } else { scf.yield %text : buffer }
+  } else {
+    scf.yield %text : buffer
+  }
   %text_size = buffer.length %body
   %separator_size = buffer.length %separator
   %prefix_size = buffer.length %prefix
@@ -663,9 +681,10 @@ func.def @chatml.prepare_text_input(%text: buffer, %format: i32, %boundary: i32,
   %fits = scalar.cmpi ule, %count, %capacity : i64
   %fits32 = scalar.extui %fits : i1 to i32
   %overflow_error = global.load @input_overflow_error : buffer
-  func.call @require(%fits32, %overflow_error) : (i32, buffer) -> ()
+  func.call @require(%fits32, %overflow_error) : (i32, buffer)
   func.return %tokens, %count : buffer, i64
 }
+
 func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64, %format: i32, %boundary: i32, %capacity: i64) -> (buffer, i64, buffer) {
   %zero64 = scalar.constant 0 : i64
   %plain = scalar.cmpi eq, %media_count, %zero64 : i64
@@ -682,37 +701,41 @@ func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64,
 func.def @chatml.user_prefix(%boundary: i32) -> (buffer) {
   %user = global.load @chatml.user_open : buffer
   %zero32 = scalar.constant 0 : i32
-  %fresh = scalar.cmpi eq,%boundary,%zero32 : i32
+  %fresh = scalar.cmpi eq, %boundary, %zero32 : i32
   %effort = func.call @chatml.has_effort() : () -> (i1)
   %default = func.call @chatml.default_thinking() : () -> (i1)
-  %a = scalar.andi %fresh,%effort : i1
-  %enabled = scalar.andi %a,%default : i1
+  %a = scalar.andi %fresh, %effort : i1
+  %enabled = scalar.andi %a, %default : i1
   %default_instruction = global.load @loomify.text.default_effort_instruction : buffer
   %instruction_length = buffer.length %default_instruction
   %zero_length = index.constant 0 : offset
   %has_instruction = index.cmp ne, %instruction_length, %zero_length : offset
-  %insert = scalar.andi %enabled,%has_instruction : i1
+  %insert = scalar.andi %enabled, %has_instruction : i1
   %ordinary_prefix = scf.if %insert -> (buffer) {
     %system = global.load @chatml.system_open : buffer
     %instruction = global.load @loomify.text.default_effort_instruction : buffer
     %end = global.load @chatml.end : buffer
     %empty = global.load @chatml_input.empty : buffer
-    %value = func.call @text.join8(%system,%instruction,%end,%user,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    %value = func.call @text.join8(%system, %instruction, %end, %user, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
     scf.yield %value : buffer
-  } else { scf.yield %user : buffer }
-  %default_system,%has_default = func.call @chatml.default_system() : () -> (buffer,i1)
-  %insert_default = scalar.andi %fresh,%has_default : i1
+  } else {
+    scf.yield %user : buffer
+  }
+  %default_system, %has_default = func.call @chatml.default_system() : () -> (buffer, i1)
+  %insert_default = scalar.andi %fresh, %has_default : i1
   %prefix = scf.if %insert_default -> (buffer) {
     %system = global.load @chatml.system_open : buffer
     %end = global.load @chatml.end : buffer
     %empty = global.load @chatml_input.empty : buffer
-    %value = func.call @text.join8(%system,%default_system,%end,%user,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+    %value = func.call @text.join8(%system, %default_system, %end, %user, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
     scf.yield %value : buffer
-  } else { scf.yield %ordinary_prefix : buffer }
+  } else {
+    scf.yield %ordinary_prefix : buffer
+  }
   %initial = func.call @chatml.prompt_prefix() : () -> (buffer)
   %none = global.load @chatml_input.empty : buffer
-  %start = scf.select %fresh,%initial,%none : buffer
-  %result = func.call @text.join8(%start,%prefix,%none,%none,%none,%none,%none,%none) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  %start = scf.select %fresh, %initial, %none : buffer
+  %result = func.call @text.join8(%start, %prefix, %none, %none, %none, %none, %none, %none) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
   func.return %result : buffer
 }
 
@@ -722,7 +745,7 @@ func.def @chatml.user_suffix() -> (buffer) {
   %thinking = func.call @chatml.default_thinking() : () -> (i1)
   %thought = func.call @chatml.generation_thought(%thinking) : (i1) -> (buffer)
   %empty = global.load @chatml_input.empty : buffer
-  %value = func.call @text.join8(%end,%assistant,%thought,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  %value = func.call @text.join8(%end, %assistant, %thought, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
   func.return %value : buffer
 }
 
@@ -730,34 +753,4 @@ func.def @chatml.user_suffix() -> (buffer) {
 // This protocol has no additional date/header request constraint.
 func.def public @text.validate_request(%request: buffer) {
   func.return
-}
-
-// Cold discovery follows this selected text policy, not the thinking default.
-func.def public @chat_reasoning() -> (i32, i32, i32) {
-  %supported = func.call @chatml.supports_thinking() : () -> (i1)
-  %enabled = scalar.extui %supported : i1 to i32
-  %zero = scalar.constant 0 : i32
-  %has_effort = func.call @chatml.has_effort() : () -> (i1)
-  %mask, %default = scf.if %has_effort -> (i32, i32) {
-    %levels = scalar.constant 44 : i32
-    %low_level = scalar.constant 2 : i32
-    %medium_level = scalar.constant 3 : i32
-    %xhigh_level = scalar.constant 5 : i32
-    %value = global.load @loomify.text.default_effort : buffer
-    %low_text = global.load @chatml.low : buffer
-    %medium_text = global.load @chatml.medium : buffer
-    %xhigh_text = global.load @chatml.xhigh : buffer
-    %low = func.call @text.equal(%value, %low_text) : (buffer, buffer) -> (i1)
-    %medium = func.call @text.equal(%value, %medium_text) : (buffer, buffer) -> (i1)
-    %xhigh = func.call @text.equal(%value, %xhigh_text) : (buffer, buffer) -> (i1)
-    %a = scalar.ori %low, %medium : i1
-    %valid = scalar.ori %a, %xhigh : i1
-    func.call @chatml.check(%valid) : (i1) -> ()
-    %other = scf.select %medium, %medium_level, %xhigh_level : i32
-    %selected = scf.select %low, %low_level, %other : i32
-    scf.yield %levels, %selected : i32, i32
-  } else {
-    scf.yield %zero, %zero : i32, i32
-  }
-  func.return %enabled, %mask, %default : i32, i32, i32
 }

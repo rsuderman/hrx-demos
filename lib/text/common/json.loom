@@ -6,8 +6,10 @@
 // JSONC comments/trailing commas and ambiguous duplicate keys are outside this
 // helper contract, even though native compact accepts those extensions. Floating-point
 // lexemes deliberately retain their spelling; no runtime dtoa is introduced.
-func.decl @text.range(%text: buffer,%begin: i64,%length: i64) -> (buffer)
+func.decl @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl import("json") @compact(%text: buffer) -> (buffer)
+
 func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
 
 global.rodata.def @text_json.hex = bytes("30313233343536373839616263646566")
@@ -99,7 +101,6 @@ func.def @text_json.quote(%decoded: buffer, %size: offset, %output: buffer, %sta
         %h = buffer.load.i8.u %hex[%high]
         %l = buffer.load.i8.u %hex[%low]
 
-
         %three = index.constant 3 : offset
         %four = index.constant 4 : offset
         %five = index.constant 5 : offset
@@ -132,7 +133,7 @@ func.def @text_json.quote(%decoded: buffer, %size: offset, %output: buffer, %sta
 
 // Preserve caller-local buffer bounds when multiple public rendering roots
 // share this formatter during VM compilation.
-func.def public inline @text.json_dump(%document: buffer) -> (buffer) {
+func.def inline @text_json.dump(%document: buffer, %spaced: i1) -> (buffer) {
   %text = func.call @compact(%document) : (buffer) -> (buffer)
   %zero = index.constant 0 : offset
   %one = index.constant 1 : offset
@@ -194,7 +195,10 @@ func.def public inline @text.json_dump(%document: buffer) -> (buffer) {
             %false = scalar.constant false : i1
             %go = scalar.cmpi eq, %stop, %false : i1
             scf.yield %go : i1
-          } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+          } else {
+            %false = scalar.constant false : i1
+            scf.yield %false : i1
+          }
           scf.condition %more, %q : i1, offset
         } do(%q: offset) {
           %next = index.add %q, %one : offset
@@ -208,12 +212,17 @@ func.def public inline @text.json_dump(%document: buffer) -> (buffer) {
           %value = buffer.load.i8.u %text[%p1]
           %is_zero = scalar.cmpi eq, %value, %zero32 : i32
           scf.yield %is_zero : i1
-        } else { %false = scalar.constant false : i1 scf.yield %false : i1 }
+        } else {
+          %false = scalar.constant false : i1
+          scf.yield %false : i1
+        }
         %written_size = scf.select %negative_zero, %one, %number_size : offset
         %from = scf.if %negative_zero -> (offset) {
           %next = index.add %p, %one : offset
           scf.yield %next : offset
-        } else { scf.yield %p : offset }
+        } else {
+          scf.yield %p : offset
+        }
         buffer.copy %text[%from], %output[%written], %written_size
         %end = index.add %written, %written_size : offset
         scf.yield %end, %number_size : offset, offset
@@ -224,11 +233,14 @@ func.def public inline @text.json_dump(%document: buffer) -> (buffer) {
         %is_comma = scalar.cmpi eq, %b, %comma : i32
         %is_colon = scalar.cmpi eq, %b, %colon : i32
         %separator = scalar.ori %is_comma, %is_colon : i1
-        %end = scf.if %separator -> (offset) {
+        %add_space = scalar.andi %separator, %spaced : i1
+        %end = scf.if %add_space -> (offset) {
           buffer.store.i8 %space8, %output[%after]
           %end = index.add %after, %one : offset
           scf.yield %end : offset
-        } else { scf.yield %after : offset }
+        } else {
+          scf.yield %after : offset
+        }
         scf.yield %end, %one : offset, offset
       }
       %next = index.add %p, %step : offset
@@ -256,4 +268,16 @@ func.def public @text.json_quote(%text: buffer) -> (buffer) {
   %length64 = index.cast %end : offset to i64
   %result = func.call @text.range(%output, %zero64, %length64) : (buffer, i64, i64) -> (buffer)
   func.return %result : buffer
+}
+
+func.def public inline @text.json_dump(%document: buffer) -> (buffer) {
+  %yes = scalar.constant true : i1
+  %v = func.call @text_json.dump(%document, %yes) : (buffer, i1) -> (buffer)
+  func.return %v : buffer
+}
+
+func.def public inline @text.json_dump_compact(%document: buffer) -> (buffer) {
+  %no = scalar.constant false : i1
+  %v = func.call @text_json.dump(%document, %no) : (buffer, i1) -> (buffer)
+  func.return %v : buffer
 }

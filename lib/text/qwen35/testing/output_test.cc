@@ -91,6 +91,14 @@ public:
       return false;
     }
     std::string text{std::istreambuf_iterator<char>(f), {}};
+    const auto read_sibling = [&](const char *name) {
+      const auto member_path = path.parent_path() / name;
+      std::ifstream member(member_path);
+      EXPECT_TRUE(member) << member_path;
+      return std::string{std::istreambuf_iterator<char>(member), {}};
+    };
+    const auto completion_text = read_sibling("completion.loom");
+    const auto framing_text = read_sibling("framing.loom");
     const auto strings_path =
         path.parent_path().parent_path().parent_path() / "common/strings.loom";
     std::ifstream strings_file(strings_path);
@@ -185,7 +193,9 @@ public:
     };
     auto output = parse(text, "output-fixture");
     auto utilities = parse(strings, "text-utilities");
-    if (!output || !utilities)
+    auto completion = parse(completion_text, "selected-completion");
+    auto framing = parse(framing_text, "selected-framing");
+    if (!output || !utilities || !completion || !framing)
       return false;
     loomc_linker_t *linker_raw = nullptr;
     if (!Ok(loomc_linker_create(c, nullptr, loomc_allocator_system(),
@@ -197,13 +207,17 @@ public:
         {output.get(), loomc_make_cstring_view("output"),
          LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {utilities.get(), loomc_make_cstring_view("utilities"),
+         LOOMC_LINK_PROVIDER_ROLE_INPUT},
+        {completion.get(), loomc_make_cstring_view("completion"),
+         LOOMC_LINK_PROVIDER_ROLE_INPUT},
+        {framing.get(), loomc_make_cstring_view("framing"),
          LOOMC_LINK_PROVIDER_ROLE_INPUT}};
     loomc_link_options_t link{};
     link.type = LOOMC_STRUCTURE_TYPE_LINK_OPTIONS;
     link.structure_size = sizeof(link);
     link.mode = LOOMC_LINK_MODE_MERGE;
     link.module_providers = providers;
-    link.module_provider_count = 2;
+    link.module_provider_count = 4;
     loomc_module_t *m = nullptr;
     loomc_result_t *r = nullptr;
     auto status = loomc_link_module(linker_raw, w, &link, &m, &r);

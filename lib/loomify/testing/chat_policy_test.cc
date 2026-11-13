@@ -74,6 +74,41 @@ std::string Replace(std::string source, const std::string &before,
     source.replace(offset, before.size(), after);
   return source;
 }
+TEST(ChatPolicy, SparkUsesItsOwnExactSkeletonAndSourceEffortData) {
+  const auto source = Source("lib/text/spark/templates/93d6aa90.jinja");
+  model::TextMetadata metadata;
+  metadata.templates.push_back(Candidate(source));
+  ChatPolicySelection policy;
+  std::string error;
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_EQ(policy.revision, ChatRevision::SparkGlm);
+  EXPECT_EQ(policy.tokens.pre_tokenizer, "spark2_5");
+  EXPECT_TRUE(policy.tokens.require_bos);
+  EXPECT_EQ(policy.tokens.bos_piece, u8"<｜start▁of▁sentence｜>");
+  EXPECT_EQ(policy.tokens.terminal_piece, u8"<｜end▁of▁sentence｜>");
+  EXPECT_EQ(policy.markers.front().require_single_token, true);
+  EXPECT_EQ(policy.markers[2].require_single_token, false);
+  EXPECT_EQ(policy.data_roots.size(), 7u);
+  const auto prior = policy.configuration_source;
+  metadata.templates[0].text = Replace(source, "'## Tools'", "'## Functions'");
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_NE(policy.configuration_source, prior);
+  metadata.templates[0].text = source;
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  metadata.templates[0].text =
+      Replace(source, "message.reasoning_content", "message.thinking");
+  EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+  EXPECT_EQ(policy.configuration_source, prior);
+  metadata.templates[0].text =
+      Replace(source, "reasoning_effort|default('high')",
+              "reasoning_effort|default('low')");
+  ASSERT_TRUE(SelectChatPolicy(metadata, {}, &policy, &error)) << error;
+  EXPECT_NE(policy.configuration_source, prior);
+  metadata.templates[0].text =
+      Replace(source, "reasoning_effort|default('high')",
+              "reasoning_effort|default('medium')");
+  EXPECT_FALSE(SelectChatPolicy(metadata, {}, &policy, &error));
+}
 std::string Hex(std::string_view value) {
   const char *digits = "0123456789abcdef";
   std::string out;

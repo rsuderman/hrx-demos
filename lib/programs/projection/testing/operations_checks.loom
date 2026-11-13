@@ -16,20 +16,29 @@
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
 
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 2048 : index
+
 config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 262144 : index
+
 config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 2048 : index
+
 config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 262144 : index
+
 config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 2048 : index
+
 config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 262144 : index
+
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 2048 : index
+
 config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 262144 : index
+
 config.def @ggml.quantize_q8_1_x4.group_capacity = 524288 : index
 
 func.def @projection_test.init(%capacity0: index, %width0: index, %columns0: index, %tag0: index, %complex: i1, %active_count0: index, %input: buffer, %weight: buffer, %count: buffer) {
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 12)] : index
   %width = index.assume %width0 [range(%width0, 128, 17408)] : index
-  %columns = index.assume %columns0 [range(%columns0, 1, 4096)] : index
+  %columns = index.assume %columns0 [range(%columns0, 1, 131072)] : index
   %tag = index.assume %tag0 [range(%tag0, 8, 14)] : index
   %active_count = index.assume %active_count0 [range(%active_count0, 1, 9)] : index
   %zero = index.constant 0 : index
@@ -74,7 +83,9 @@ func.def @projection_test.init(%capacity0: index, %width0: index, %columns0: ind
         %scaled = scalar.mulf %f, %unit : f32
         %v = scalar.mulf %scaled, %rf : f32
         scf.yield %v : f32
-      } else { scf.yield %uniform : f32 }
+      } else {
+        scf.yield %uniform : f32
+      }
       view.store %value, %raw[%r, %k] : f32, view<[%capacity]x[%width]xf32>
     }
   }
@@ -116,11 +127,17 @@ func.def @projection_test.init(%capacity0: index, %width0: index, %columns0: ind
         }
       } else {
         scf.if %q6 {
-          scf.for %j = [%zero to %c128 step %one] { view.store %code33, %bytes[%j] : i8, view<[%block_bytes]xi8> }
+          scf.for %j = [%zero to %c128 step %one] {
+            view.store %code33, %bytes[%j] : i8, view<[%block_bytes]xi8>
+          }
           %b192 = index.constant 192 : index
           %b208 = index.constant 208 : index
-          scf.for %j = [%c128 to %b192 step %one] { view.store %codeaa, %bytes[%j] : i8, view<[%block_bytes]xi8> }
-          scf.for %j = [%b192 to %b208 step %one] { view.store %code1, %bytes[%j] : i8, view<[%block_bytes]xi8> }
+          scf.for %j = [%c128 to %b192 step %one] {
+            view.store %codeaa, %bytes[%j] : i8, view<[%block_bytes]xi8>
+          }
+          scf.for %j = [%b192 to %b208 step %one] {
+            view.store %code1, %bytes[%j] : i8, view<[%block_bytes]xi8>
+          }
           %dadd = index.constant 208 : offset
           %dorigin = index.add %base, %dadd : offset
           %d = buffer.view %weight[%dorigin] : buffer -> view<1xf16>
@@ -130,11 +147,17 @@ func.def @projection_test.init(%capacity0: index, %width0: index, %columns0: ind
           view.store %scale, %header[0] : f16, view<2xf16>
           view.store %quarter, %header[1] : f16, view<2xf16>
           %b16 = index.constant 16 : index
-          scf.for %j = [%four to %c12 step %one] { view.store %code1, %bytes[%j] : i8, view<[%block_bytes]xi8> }
-          scf.for %j = [%c12 to %b16 step %one] { view.store %code11, %bytes[%j] : i8, view<[%block_bytes]xi8> }
+          scf.for %j = [%four to %c12 step %one] {
+            view.store %code1, %bytes[%j] : i8, view<[%block_bytes]xi8>
+          }
+          scf.for %j = [%c12 to %b16 step %one] {
+            view.store %code11, %bytes[%j] : i8, view<[%block_bytes]xi8>
+          }
           %b48 = index.constant 48 : index
           %payload = scf.select %q5, %b48, %b16 : index
-          scf.for %j = [%payload to %block_bytes step %one] { view.store %code33, %bytes[%j] : i8, view<[%block_bytes]xi8> }
+          scf.for %j = [%payload to %block_bytes step %one] {
+            view.store %code33, %bytes[%j] : i8, view<[%block_bytes]xi8>
+          }
         }
       }
     }
@@ -157,7 +180,7 @@ func.def @projection_test.expected(%policy0: index, %rows0: index, %capacity0: i
   %rows = index.assume %rows0 [range(%rows0, 1, 12)] : index
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 12)] : index
   %width = index.assume %width0 [range(%width0, 128, 17408)] : index
-  %columns = index.assume %columns0 [range(%columns0, 1, 4096)] : index
+  %columns = index.assume %columns0 [range(%columns0, 1, 131072)] : index
   %tag = index.assume %tag0 [range(%tag0, 8, 14)] : index
   %begin = index.assume %begin0 [range(%begin0, 0, 1)] : index
   %count = index.assume %count0 [range(%count0, 1, 9)] : index
@@ -210,7 +233,9 @@ func.def @projection_test.expected(%policy0: index, %rows0: index, %capacity0: i
           view.store %d, %meta[%di] : f16, view<8xf16>
           view.store %sh, %meta[%si] : f16, view<8xf16>
         }
-        scf.for %j = [%payload to %c144 step %one] { view.store %code, %bytes[%j] : i8, view<144xi8> }
+        scf.for %j = [%payload to %c144 step %one] {
+          view.store %code, %bytes[%j] : i8, view<144xi8>
+        }
       }
       scf.for %c = [%zero to %columns step %one] {
         %m = index.rem %c, %four : index
@@ -265,9 +290,12 @@ kernel.def @projection_test.equal_bytes() {
   view.store %o, %result[1] : i32, view<2xi32>
   kernel.return
 }
-kernel.decl @ggml_quantize_q8_1_x4_f32(%rows:index,%width:index) launch(%capacity:index,%width:index,%input:buffer,%packed:buffer)
-kernel.decl @ggml_linear_q4k_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.def @actual.p1_q12_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width$245: index) launch(%capacity: index, %width$247: index, %input: buffer, %packed: buffer)
+
+kernel.decl @ggml_linear_q4k_q8_1_x4(%rows: index, %width$251: index, %cols$252: index) launch(%capacity: index, %width$254: index, %cols$255: index, %packed: buffer, %weight: buffer, %output: buffer)
+
+command.def @actual.p1_q12_k768_r3_n3() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 12 : index
   %rows = index.constant 3 : index
@@ -282,14 +310,15 @@ command.def @actual.p1_q12_k768_r3_n3() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q4k_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q4k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q12_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q12_k768_r3_n3(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 12 : index
   %rows = index.constant 3 : index
@@ -298,8 +327,8 @@ func.def @reference.p1_q12_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 3 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -307,8 +336,9 @@ func.def @reference.p1_q12_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q12_k768_r3_n3 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -320,7 +350,7 @@ check.scenario @p1_q12_k768_r3_n3 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<21680xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<21680xi8> -> tensor<21168xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<21168xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<21168xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -331,7 +361,7 @@ check.scenario @p1_q12_k768_r3_n3 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q12_k768_r3_n3,@reference.p1_q12_k768_r3_n3>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<21168xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q12_k768_r3_n3, @reference.p1_q12_k768_r3_n3>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<21168xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<21680xi8>
@@ -344,8 +374,10 @@ check.scenario @p1_q12_k768_r3_n3 {
   }
   check.return
 }
-kernel.decl @ggml_linear_q5k_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.def @actual.p1_q13_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+kernel.decl @ggml_linear_q5k_q8_1_x4(%rows: index, %width$324: index, %cols$325: index) launch(%capacity: index, %width$327: index, %cols$328: index, %packed: buffer, %weight: buffer, %output: buffer)
+
+command.def @actual.p1_q13_k768_r3_n3() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 13 : index
   %rows = index.constant 3 : index
@@ -360,14 +392,15 @@ command.def @actual.p1_q13_k768_r3_n3() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q5k_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q5k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q13_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q13_k768_r3_n3(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 13 : index
   %rows = index.constant 3 : index
@@ -376,8 +409,8 @@ func.def @reference.p1_q13_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 3 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -385,8 +418,9 @@ func.def @reference.p1_q13_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q13_k768_r3_n3 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -398,7 +432,7 @@ check.scenario @p1_q13_k768_r3_n3 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<26384xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<26384xi8> -> tensor<25872xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<25872xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<25872xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -409,7 +443,7 @@ check.scenario @p1_q13_k768_r3_n3 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q13_k768_r3_n3,@reference.p1_q13_k768_r3_n3>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<25872xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q13_k768_r3_n3, @reference.p1_q13_k768_r3_n3>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<25872xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<26384xi8>
@@ -422,8 +456,10 @@ check.scenario @p1_q13_k768_r3_n3 {
   }
   check.return
 }
-kernel.decl @ggml_linear_q6k_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.def @actual.p1_q14_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+kernel.decl @ggml_linear_q6k_q8_1_x4(%rows: index, %width$397: index, %cols$398: index) launch(%capacity: index, %width$400: index, %cols$401: index, %packed: buffer, %weight: buffer, %output: buffer)
+
+command.def @actual.p1_q14_k768_r3_n3() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %rows = index.constant 3 : index
@@ -438,14 +474,15 @@ command.def @actual.p1_q14_k768_r3_n3() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q14_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q14_k768_r3_n3(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %rows = index.constant 3 : index
@@ -454,8 +491,8 @@ func.def @reference.p1_q14_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 3 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -463,8 +500,9 @@ func.def @reference.p1_q14_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q14_k768_r3_n3 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -476,7 +514,7 @@ check.scenario @p1_q14_k768_r3_n3 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<31382xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<31382xi8> -> tensor<30870xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<30870xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<30870xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -487,7 +525,7 @@ check.scenario @p1_q14_k768_r3_n3 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q14_k768_r3_n3,@reference.p1_q14_k768_r3_n3>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<30870xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q14_k768_r3_n3, @reference.p1_q14_k768_r3_n3>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<30870xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<31382xi8>
@@ -500,8 +538,10 @@ check.scenario @p1_q14_k768_r3_n3 {
   }
   check.return
 }
-kernel.decl @ggml_linear_q8_0_q8_1_x4(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%packed:buffer,%weight:buffer,%output:buffer)
-command.def @actual.p1_q8_k768_r3_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+kernel.decl @ggml_linear_q8_0_q8_1_x4(%rows: index, %width$470: index, %cols$471: index) launch(%capacity: index, %width$473: index, %cols$474: index, %packed: buffer, %weight: buffer, %output: buffer)
+
+command.def @actual.p1_q8_k768_r3_n3() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 3 : index
@@ -516,14 +556,15 @@ command.def @actual.p1_q8_k768_r3_n3() launch(%count:buffer,%input:buffer,%weigh
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q8_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q8_k768_r3_n3(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 3 : index
@@ -532,8 +573,8 @@ func.def @reference.p1_q8_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer,
   %columns = index.constant 49 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 3 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -541,8 +582,9 @@ func.def @reference.p1_q8_k768_r3_n3(%count:buffer,%input:buffer,%weight:buffer,
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q8_k768_r3_n3 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -554,7 +596,7 @@ check.scenario @p1_q8_k768_r3_n3 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<40496xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<40496xi8> -> tensor<39984xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<39984xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<39984xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -565,7 +607,7 @@ check.scenario @p1_q8_k768_r3_n3 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q8_k768_r3_n3,@reference.p1_q8_k768_r3_n3>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<39984xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q8_k768_r3_n3, @reference.p1_q8_k768_r3_n3>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<39984xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<40496xi8>
@@ -578,9 +620,12 @@ check.scenario @p1_q8_k768_r3_n3 {
   }
   check.return
 }
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows:index,%width:index) launch(%capacity:index,%width:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%input:buffer,%packed:buffer)
-kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%weight:buffer,%output:buffer)
-command.def @actual.p0_q12_k768_r4_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows: index, %width$543: index) launch(%capacity: index, %width$545: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows: index, %width$553: index, %cols$554: index) launch(%capacity: index, %width$556: index, %cols$557: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %weight: buffer, %output: buffer)
+
+command.def @actual.p0_q12_k768_r4_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 4 : index
@@ -595,14 +640,15 @@ command.def @actual.p0_q12_k768_r4_n1() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows,%width](%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed0) : [index,index](index,index,index,i32,offset,buffer,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%rows,%width,%columns](%capacity,%width,%columns,%begin,%fixed,%count_origin,%count,%packed0,%weights,%output0) : [index,index,index](index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows, %width](%capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed0) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%rows, %width, %columns](%capacity, %width, %columns, %begin, %fixed, %count_origin, %count, %packed0, %weights, %output0) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p0_q12_k768_r4_n1(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p0_q12_k768_r4_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 4 : index
@@ -611,8 +657,8 @@ func.def @reference.p0_q12_k768_r4_n1(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 1 : index
   %count_value = index.constant 1 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -620,8 +666,9 @@ func.def @reference.p0_q12_k768_r4_n1(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p0_q12_k768_r4_n1 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -633,7 +680,7 @@ check.scenario @p0_q12_k768_r4_n1 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<21680xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<21680xi8> -> tensor<21168xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<21168xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<21168xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -644,7 +691,7 @@ check.scenario @p0_q12_k768_r4_n1 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p0_q12_k768_r4_n1,@reference.p0_q12_k768_r4_n1>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<21168xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p0_q12_k768_r4_n1, @reference.p0_q12_k768_r4_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<21168xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<21680xi8>
@@ -657,7 +704,8 @@ check.scenario @p0_q12_k768_r4_n1 {
   }
   check.return
 }
-command.def @actual.p0_q12_k768_r4_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p0_q12_k768_r4_n3() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 4 : index
@@ -672,14 +720,15 @@ command.def @actual.p0_q12_k768_r4_n3() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows,%width](%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed0) : [index,index](index,index,index,i32,offset,buffer,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%rows,%width,%columns](%capacity,%width,%columns,%begin,%fixed,%count_origin,%count,%packed0,%weights,%output0) : [index,index,index](index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows, %width](%capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed0) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%rows, %width, %columns](%capacity, %width, %columns, %begin, %fixed, %count_origin, %count, %packed0, %weights, %output0) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p0_q12_k768_r4_n3(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p0_q12_k768_r4_n3(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 4 : index
@@ -688,8 +737,8 @@ func.def @reference.p0_q12_k768_r4_n3(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 1 : index
   %count_value = index.constant 3 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -697,8 +746,9 @@ func.def @reference.p0_q12_k768_r4_n3(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p0_q12_k768_r4_n3 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -710,7 +760,7 @@ check.scenario @p0_q12_k768_r4_n3 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<21680xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<21680xi8> -> tensor<21168xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<21168xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<21168xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -721,7 +771,7 @@ check.scenario @p0_q12_k768_r4_n3 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p0_q12_k768_r4_n3,@reference.p0_q12_k768_r4_n3>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<21168xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p0_q12_k768_r4_n3, @reference.p0_q12_k768_r4_n3>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<21168xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<21680xi8>
@@ -734,8 +784,10 @@ check.scenario @p0_q12_k768_r4_n3 {
   }
   check.return
 }
-kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows:index,%width:index,%cols:index) launch(%capacity:index,%width:index,%cols:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%weight:buffer,%output:buffer)
-command.def @actual.p0_q14_k768_r4_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows: index, %width$694: index, %cols$695: index) launch(%capacity: index, %width$697: index, %cols$698: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %weight: buffer, %output: buffer)
+
+command.def @actual.p0_q14_k768_r4_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 4 : index
@@ -750,14 +802,15 @@ command.def @actual.p0_q14_k768_r4_n1() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows,%width](%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed0) : [index,index](index,index,index,i32,offset,buffer,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%rows,%width,%columns](%capacity,%width,%columns,%begin,%fixed,%count_origin,%count,%packed0,%weights,%output0) : [index,index,index](index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows, %width](%capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed0) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%rows, %width, %columns](%capacity, %width, %columns, %begin, %fixed, %count_origin, %count, %packed0, %weights, %output0) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p0_q14_k768_r4_n1(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p0_q14_k768_r4_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 4 : index
@@ -766,8 +819,8 @@ func.def @reference.p0_q14_k768_r4_n1(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 1 : index
   %count_value = index.constant 1 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -775,8 +828,9 @@ func.def @reference.p0_q14_k768_r4_n1(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p0_q14_k768_r4_n1 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -788,7 +842,7 @@ check.scenario @p0_q14_k768_r4_n1 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<31382xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<31382xi8> -> tensor<30870xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<30870xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<30870xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -799,7 +853,7 @@ check.scenario @p0_q14_k768_r4_n1 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p0_q14_k768_r4_n1,@reference.p0_q14_k768_r4_n1>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<30870xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p0_q14_k768_r4_n1, @reference.p0_q14_k768_r4_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<30870xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<31382xi8>
@@ -812,7 +866,8 @@ check.scenario @p0_q14_k768_r4_n1 {
   }
   check.return
 }
-command.def @actual.p0_q14_k768_r4_n3() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p0_q14_k768_r4_n3() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 4 : index
@@ -827,14 +882,15 @@ command.def @actual.p0_q14_k768_r4_n3() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows,%width](%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed0) : [index,index](index,index,index,i32,offset,buffer,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%rows,%width,%columns](%capacity,%width,%columns,%begin,%fixed,%count_origin,%count,%packed0,%weights,%output0) : [index,index,index](index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows, %width](%capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed0) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%rows, %width, %columns](%capacity, %width, %columns, %begin, %fixed, %count_origin, %count, %packed0, %weights, %output0) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p0_q14_k768_r4_n3(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p0_q14_k768_r4_n3(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 4 : index
@@ -843,8 +899,8 @@ func.def @reference.p0_q14_k768_r4_n3(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 49 : index
   %begin = index.constant 1 : index
   %count_value = index.constant 3 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -852,8 +908,9 @@ func.def @reference.p0_q14_k768_r4_n3(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p0_q14_k768_r4_n3 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(4) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -865,7 +922,7 @@ check.scenario @p0_q14_k768_r4_n3 {
     %input = check.tensor.view %input_owner offset(8) : tensor<3076xf32> -> tensor<3072xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<31382xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<31382xi8> -> tensor<30870xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<3072xf32>,tensor<30870xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<3072xf32>, tensor<30870xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<3968xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3968xi8> -> tensor<3456xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<200xf32>
@@ -876,7 +933,7 @@ check.scenario @p0_q14_k768_r4_n3 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<200xf32> -> tensor<196xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p0_q14_k768_r4_n3,@reference.p0_q14_k768_r4_n3>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<3072xf32>,tensor<30870xi8>,tensor<3456xi8>,tensor<3456xi8>,tensor<196xf32>,tensor<196xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p0_q14_k768_r4_n3, @reference.p0_q14_k768_r4_n3>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<3072xf32>, tensor<30870xi8>, tensor<3456xi8>, tensor<3456xi8>, tensor<196xf32>, tensor<196xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<3076xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<31382xi8>
@@ -889,7 +946,8 @@ check.scenario @p0_q14_k768_r4_n3 {
   }
   check.return
 }
-command.def @actual.p0_q12_k768_r12_n9() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p0_q12_k768_r12_n9() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 12 : index
@@ -904,14 +962,15 @@ command.def @actual.p0_q12_k768_r12_n9() launch(%count:buffer,%input:buffer,%wei
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows,%width](%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed0) : [index,index](index,index,index,i32,offset,buffer,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%rows,%width,%columns](%capacity,%width,%columns,%begin,%fixed,%count_origin,%count,%packed0,%weights,%output0) : [index,index,index](index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows, %width](%capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed0) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%rows, %width, %columns](%capacity, %width, %columns, %begin, %fixed, %count_origin, %count, %packed0, %weights, %output0) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p0_q12_k768_r12_n9(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p0_q12_k768_r12_n9(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 12 : index
   %rows = index.constant 12 : index
@@ -927,8 +986,9 @@ func.def @reference.p0_q12_k768_r12_n9(%count:buffer,%input:buffer,%weight:buffe
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p0_q12_k768_r12_n9 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(12) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -940,7 +1000,7 @@ check.scenario @p0_q12_k768_r12_n9 {
     %input = check.tensor.view %input_owner offset(8) : tensor<9220xf32> -> tensor<9216xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<21680xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<21680xi8> -> tensor<21168xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<9216xf32>,tensor<21168xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<9216xf32>, tensor<21168xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<10880xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<10880xi8> -> tensor<10368xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<592xf32>
@@ -959,7 +1019,7 @@ check.scenario @p0_q12_k768_r12_n9 {
     %p1_suffix = check.tensor.view %packed1_owner offset(10624) : tensor<10880xi8> -> tensor<256xi8>
     %o1_prefix = check.tensor.view %output1_owner offset(0) : tensor<592xf32> -> tensor<2xf32>
     %o1_suffix = check.tensor.view %output1_owner offset(2360) : tensor<592xf32> -> tensor<2xf32>
-    check.compare<@actual.p0_q12_k768_r12_n9,@reference.p0_q12_k768_r12_n9>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<9216xf32>,tensor<21168xi8>,tensor<10368xi8>,tensor<10368xi8>,tensor<588xf32>,tensor<588xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p0_q12_k768_r12_n9, @reference.p0_q12_k768_r12_n9>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<9216xf32>, tensor<21168xi8>, tensor<10368xi8>, tensor<10368xi8>, tensor<588xf32>, tensor<588xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<9220xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<21680xi8>
@@ -976,7 +1036,8 @@ check.scenario @p0_q12_k768_r12_n9 {
   }
   check.return
 }
-command.def @actual.p0_q14_k768_r12_n9() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p0_q14_k768_r12_n9() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 12 : index
@@ -991,14 +1052,15 @@ command.def @actual.p0_q14_k768_r12_n9() launch(%count:buffer,%input:buffer,%wei
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows,%width](%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed0) : [index,index](index,index,index,i32,offset,buffer,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%rows,%width,%columns](%capacity,%width,%columns,%begin,%fixed,%count_origin,%count,%packed0,%weights,%output0) : [index,index,index](index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%rows, %width](%capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed0) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%rows, %width, %columns](%capacity, %width, %columns, %begin, %fixed, %count_origin, %count, %packed0, %weights, %output0) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p0_q14_k768_r12_n9(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p0_q14_k768_r12_n9(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 0 : index
   %tag = index.constant 14 : index
   %rows = index.constant 12 : index
@@ -1014,8 +1076,9 @@ func.def @reference.p0_q14_k768_r12_n9(%count:buffer,%input:buffer,%weight:buffe
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p0_q14_k768_r12_n9 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(12) : index
     %width = check.literal value(768) : index
     %columns = check.literal value(49) : index
@@ -1027,7 +1090,7 @@ check.scenario @p0_q14_k768_r12_n9 {
     %input = check.tensor.view %input_owner offset(8) : tensor<9220xf32> -> tensor<9216xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<31382xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<31382xi8> -> tensor<30870xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<9216xf32>,tensor<30870xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<9216xf32>, tensor<30870xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<10880xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<10880xi8> -> tensor<10368xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<592xf32>
@@ -1046,7 +1109,7 @@ check.scenario @p0_q14_k768_r12_n9 {
     %p1_suffix = check.tensor.view %packed1_owner offset(10624) : tensor<10880xi8> -> tensor<256xi8>
     %o1_prefix = check.tensor.view %output1_owner offset(0) : tensor<592xf32> -> tensor<2xf32>
     %o1_suffix = check.tensor.view %output1_owner offset(2360) : tensor<592xf32> -> tensor<2xf32>
-    check.compare<@actual.p0_q14_k768_r12_n9,@reference.p0_q14_k768_r12_n9>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<9216xf32>,tensor<30870xi8>,tensor<10368xi8>,tensor<10368xi8>,tensor<588xf32>,tensor<588xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p0_q14_k768_r12_n9, @reference.p0_q14_k768_r12_n9>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<9216xf32>, tensor<30870xi8>, tensor<10368xi8>, tensor<10368xi8>, tensor<588xf32>, tensor<588xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<9220xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<31382xi8>
@@ -1063,7 +1126,8 @@ check.scenario @p0_q14_k768_r12_n9 {
   }
   check.return
 }
-command.def @actual.p1_q8_k128_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p1_q8_k128_r1_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 1 : index
@@ -1078,14 +1142,15 @@ command.def @actual.p1_q8_k128_r1_n1() launch(%count:buffer,%input:buffer,%weigh
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q8_k128_r1_n1(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q8_k128_r1_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 1 : index
@@ -1094,8 +1159,8 @@ func.def @reference.p1_q8_k128_r1_n1(%count:buffer,%input:buffer,%weight:buffer,
   %columns = index.constant 7 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 1 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -1103,8 +1168,9 @@ func.def @reference.p1_q8_k128_r1_n1(%count:buffer,%input:buffer,%weight:buffer,
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q8_k128_r1_n1 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(1) : index
     %width = check.literal value(128) : index
     %columns = check.literal value(7) : index
@@ -1116,7 +1182,7 @@ check.scenario @p1_q8_k128_r1_n1 {
     %input = check.tensor.view %input_owner offset(8) : tensor<132xf32> -> tensor<128xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<1464xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<1464xi8> -> tensor<952xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<128xf32>,tensor<952xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<128xf32>, tensor<952xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<656xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<656xi8> -> tensor<144xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<11xf32>
@@ -1127,7 +1193,7 @@ check.scenario @p1_q8_k128_r1_n1 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<11xf32> -> tensor<7xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q8_k128_r1_n1,@reference.p1_q8_k128_r1_n1>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<128xf32>,tensor<952xi8>,tensor<144xi8>,tensor<144xi8>,tensor<7xf32>,tensor<7xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q8_k128_r1_n1, @reference.p1_q8_k128_r1_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<128xf32>, tensor<952xi8>, tensor<144xi8>, tensor<144xi8>, tensor<7xf32>, tensor<7xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<132xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<1464xi8>
@@ -1140,7 +1206,8 @@ check.scenario @p1_q8_k128_r1_n1 {
   }
   check.return
 }
-command.def @actual.p1_q14_k17408_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p1_q14_k17408_r1_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %rows = index.constant 1 : index
@@ -1155,14 +1222,15 @@ command.def @actual.p1_q14_k17408_r1_n1() launch(%count:buffer,%input:buffer,%we
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q14_k17408_r1_n1(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q14_k17408_r1_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 14 : index
   %rows = index.constant 1 : index
@@ -1171,8 +1239,8 @@ func.def @reference.p1_q14_k17408_r1_n1(%count:buffer,%input:buffer,%weight:buff
   %columns = index.constant 7 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 1 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -1180,8 +1248,9 @@ func.def @reference.p1_q14_k17408_r1_n1(%count:buffer,%input:buffer,%weight:buff
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q14_k17408_r1_n1 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(1) : index
     %width = check.literal value(17408) : index
     %columns = check.literal value(7) : index
@@ -1193,7 +1262,7 @@ check.scenario @p1_q14_k17408_r1_n1 {
     %input = check.tensor.view %input_owner offset(8) : tensor<17412xf32> -> tensor<17408xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<100472xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<100472xi8> -> tensor<99960xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<17408xf32>,tensor<99960xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<17408xf32>, tensor<99960xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<20096xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<20096xi8> -> tensor<19584xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<11xf32>
@@ -1204,7 +1273,7 @@ check.scenario @p1_q14_k17408_r1_n1 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<11xf32> -> tensor<7xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q14_k17408_r1_n1,@reference.p1_q14_k17408_r1_n1>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<17408xf32>,tensor<99960xi8>,tensor<19584xi8>,tensor<19584xi8>,tensor<7xf32>,tensor<7xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q14_k17408_r1_n1, @reference.p1_q14_k17408_r1_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<17408xf32>, tensor<99960xi8>, tensor<19584xi8>, tensor<19584xi8>, tensor<7xf32>, tensor<7xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<17412xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<100472xi8>
@@ -1217,7 +1286,8 @@ check.scenario @p1_q14_k17408_r1_n1 {
   }
   check.return
 }
-command.def @actual.p1_q8_k1024_r1_n1() launch(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+command.def @actual.p1_q8_k1024_r1_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 1 : index
@@ -1232,14 +1302,15 @@ command.def @actual.p1_q8_k1024_r1_n1() launch(%count:buffer,%input:buffer,%weig
   %count_origin = index.constant 8 : offset
   %origin = index.constant 0 : offset
   %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
-  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%capacity,%width,%input,%packed0) : [index,index](index,index,buffer,buffer)
-  template.apply<@llm.projection.pack_input>(%policy,%rows,%capacity,%width,%begin,%fixed,%count_origin,%count,%input,%packed1) : (index,index,index,index,index,i32,offset,buffer,buffer,buffer)
-  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows,%width,%columns](%capacity,%width,%columns,%packed0,%weights,%output0) : [index,index,index](index,index,index,buffer,view<[%weight_bytes]xi8>,buffer)
-  template.apply<@llm.projection.project_packed>(%policy,%tag,%rows,%capacity,%width,%columns,%weight_bytes,%begin,%fixed,%count_origin,%count,%packed1,%weights,%output1) : (index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%weight_bytes]xi8>,buffer)
-  kernel.launch @projection_test.equal_bytes[](%packed_bytes,%output_bytes,%packed0,%packed1,%output0,%output1,%flags) : [](index,index,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q8_0_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
-func.def @reference.p1_q8_k1024_r1_n1(%count:buffer,%input:buffer,%weight:buffer,%packed0:buffer,%packed1:buffer,%output0:buffer,%output1:buffer,%flags:buffer) {
+
+func.def @reference.p1_q8_k1024_r1_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
   %policy = index.constant 1 : index
   %tag = index.constant 8 : index
   %rows = index.constant 1 : index
@@ -1248,8 +1319,8 @@ func.def @reference.p1_q8_k1024_r1_n1(%count:buffer,%input:buffer,%weight:buffer
   %columns = index.constant 4096 : index
   %begin = index.constant 0 : index
   %count_value = index.constant 1 : index
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed0,%output0) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
-  func.call @projection_test.expected(%policy,%rows,%capacity,%width,%columns,%tag,%begin,%count_value,%packed1,%output1) : (index,index,index,index,index,index,index,index,buffer,buffer) -> ()
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %ones = scalar.constant 1 : i32
   %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
@@ -1257,8 +1328,9 @@ func.def @reference.p1_q8_k1024_r1_n1(%count:buffer,%input:buffer,%weight:buffer
   view.store %ones, %flag_view[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @p1_q8_k1024_r1_n1 {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %capacity = check.literal value(1) : index
     %width = check.literal value(1024) : index
     %columns = check.literal value(4096) : index
@@ -1270,7 +1342,7 @@ check.scenario @p1_q8_k1024_r1_n1 {
     %input = check.tensor.view %input_owner offset(8) : tensor<1028xf32> -> tensor<1024xf32>
     %weight_owner = check.generate.fill value(-67) : tensor<4456960xi8>
     %weight = check.tensor.view %weight_owner offset(256) : tensor<4456960xi8> -> tensor<4456448xi8>
-    check.generate<@projection_test.init>(%capacity,%width,%columns,%tag,%complex,%count_value,%input,%weight,%count) : (index,index,index,index,i1,index,tensor<1024xf32>,tensor<4456448xi8>,tensor<3xi32>) -> ()
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<1024xf32>, tensor<4456448xi8>, tensor<3xi32>) -> ()
     %packed0_owner = check.generate.fill value(-77) : tensor<1664xi8>
     %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<1664xi8> -> tensor<1152xi8>
     %output0_owner = check.generate.fill value(-999.0) : tensor<4100xf32>
@@ -1281,7 +1353,7 @@ check.scenario @p1_q8_k1024_r1_n1 {
     %output1 = check.tensor.view %output1_owner offset(8) : tensor<4100xf32> -> tensor<4096xf32>
     %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
     %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
-    check.compare<@actual.p1_q8_k1024_r1_n1,@reference.p1_q8_k1024_r1_n1>(%count,%input,%weight,%packed0,%packed1,%output0,%output1,%flags) : (tensor<3xi32>,tensor<1024xf32>,tensor<4456448xi8>,tensor<1152xi8>,tensor<1152xi8>,tensor<4096xf32>,tensor<4096xf32>,tensor<2xi32>) -> () {
+    check.compare<@actual.p1_q8_k1024_r1_n1, @reference.p1_q8_k1024_r1_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<1024xf32>, tensor<4456448xi8>, tensor<1152xi8>, tensor<1152xi8>, tensor<4096xf32>, tensor<4096xf32>, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<1028xf32>
       check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<4456960xi8>
@@ -1290,6 +1362,326 @@ check.scenario @p1_q8_k1024_r1_n1 {
       check.expect.bitwise actual(%output0_owner) expected(%output0_owner) : tensor<4100xf32>
       check.expect.bitwise actual(%packed1_owner) expected(%packed1_owner) : tensor<1664xi8>
       check.expect.bitwise actual(%output1_owner) expected(%output1_owner) : tensor<4100xf32>
+    }
+  }
+  check.return
+}
+
+command.def @actual.p1_q14_k2560_r2_n2() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %rows = index.constant 2 : index
+  %capacity = index.constant 2 : index
+  %width = index.constant 2560 : index
+  %columns = index.constant 6144 : index
+  %weight_bytes = index.constant 12902400 : index
+  %begin = index.constant 0 : index
+  %packed_bytes = index.constant 5760 : index
+  %output_bytes = index.constant 49152 : index
+  %fixed = scalar.constant 2 : i32
+  %count_origin = index.constant 8 : offset
+  %origin = index.constant 0 : offset
+  %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @reference.p1_q14_k2560_r2_n2(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %rows = index.constant 2 : index
+  %capacity = index.constant 2 : index
+  %width = index.constant 2560 : index
+  %columns = index.constant 6144 : index
+  %begin = index.constant 0 : index
+  %count_value = index.constant 2 : index
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  %origin = index.constant 0 : offset
+  %ones = scalar.constant 1 : i32
+  %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
+  view.store %ones, %flag_view[0] : i32, view<2xi32>
+  view.store %ones, %flag_view[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @p1_q14_k2560_r2_n2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %capacity = check.literal value(2) : index
+    %width = check.literal value(2560) : index
+    %columns = check.literal value(6144) : index
+    %tag = check.literal value(14) : index
+    %count_value = check.literal value(2) : index
+    %complex = check.literal value(false) : i1
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %input_owner = check.generate.fill value(-101.0) : tensor<5124xf32>
+    %input = check.tensor.view %input_owner offset(8) : tensor<5124xf32> -> tensor<5120xf32>
+    %weight_owner = check.generate.fill value(-67) : tensor<12902912xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<12902912xi8> -> tensor<12902400xi8>
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<5120xf32>, tensor<12902400xi8>, tensor<3xi32>) -> ()
+    %packed0_owner = check.generate.fill value(-77) : tensor<6272xi8>
+    %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<6272xi8> -> tensor<5760xi8>
+    %output0_owner = check.generate.fill value(-999.0) : tensor<12292xf32>
+    %output0 = check.tensor.view %output0_owner offset(8) : tensor<12292xf32> -> tensor<12288xf32>
+    %packed1_owner = check.generate.fill value(-77) : tensor<6272xi8>
+    %packed1 = check.tensor.view %packed1_owner offset(256) : tensor<6272xi8> -> tensor<5760xi8>
+    %output1_owner = check.generate.fill value(-999.0) : tensor<12292xf32>
+    %output1 = check.tensor.view %output1_owner offset(8) : tensor<12292xf32> -> tensor<12288xf32>
+    %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
+    %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
+    check.compare<@actual.p1_q14_k2560_r2_n2, @reference.p1_q14_k2560_r2_n2>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<5120xf32>, tensor<12902400xi8>, tensor<5760xi8>, tensor<5760xi8>, tensor<12288xf32>, tensor<12288xf32>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<5124xf32>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<12902912xi8>
+      check.expect.bitwise actual(%flags_owner) expected(%flags_owner) : tensor<6xi32>
+      check.expect.bitwise actual(%packed0_owner) expected(%packed0_owner) : tensor<6272xi8>
+      check.expect.bitwise actual(%output0_owner) expected(%output0_owner) : tensor<12292xf32>
+      check.expect.bitwise actual(%packed1_owner) expected(%packed1_owner) : tensor<6272xi8>
+      check.expect.bitwise actual(%output1_owner) expected(%output1_owner) : tensor<12292xf32>
+    }
+  }
+  check.return
+}
+
+command.def @actual.p1_q12_k4096_r1_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %rows = index.constant 1 : index
+  %capacity = index.constant 1 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 2560 : index
+  %weight_bytes = index.constant 5898240 : index
+  %begin = index.constant 0 : index
+  %packed_bytes = index.constant 4608 : index
+  %output_bytes = index.constant 10240 : index
+  %fixed = scalar.constant 1 : i32
+  %count_origin = index.constant 8 : offset
+  %origin = index.constant 0 : offset
+  %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q4k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @reference.p1_q12_k4096_r1_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %rows = index.constant 1 : index
+  %capacity = index.constant 1 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 2560 : index
+  %begin = index.constant 0 : index
+  %count_value = index.constant 1 : index
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  %origin = index.constant 0 : offset
+  %ones = scalar.constant 1 : i32
+  %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
+  view.store %ones, %flag_view[0] : i32, view<2xi32>
+  view.store %ones, %flag_view[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @p1_q12_k4096_r1_n1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %capacity = check.literal value(1) : index
+    %width = check.literal value(4096) : index
+    %columns = check.literal value(2560) : index
+    %tag = check.literal value(12) : index
+    %count_value = check.literal value(1) : index
+    %complex = check.literal value(false) : i1
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %input_owner = check.generate.fill value(-101.0) : tensor<4100xf32>
+    %input = check.tensor.view %input_owner offset(8) : tensor<4100xf32> -> tensor<4096xf32>
+    %weight_owner = check.generate.fill value(-67) : tensor<5898752xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<5898752xi8> -> tensor<5898240xi8>
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<4096xf32>, tensor<5898240xi8>, tensor<3xi32>) -> ()
+    %packed0_owner = check.generate.fill value(-77) : tensor<5120xi8>
+    %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<5120xi8> -> tensor<4608xi8>
+    %output0_owner = check.generate.fill value(-999.0) : tensor<2564xf32>
+    %output0 = check.tensor.view %output0_owner offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %packed1_owner = check.generate.fill value(-77) : tensor<5120xi8>
+    %packed1 = check.tensor.view %packed1_owner offset(256) : tensor<5120xi8> -> tensor<4608xi8>
+    %output1_owner = check.generate.fill value(-999.0) : tensor<2564xf32>
+    %output1 = check.tensor.view %output1_owner offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
+    %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
+    check.compare<@actual.p1_q12_k4096_r1_n1, @reference.p1_q12_k4096_r1_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<4096xf32>, tensor<5898240xi8>, tensor<4608xi8>, tensor<4608xi8>, tensor<2560xf32>, tensor<2560xf32>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4100xf32>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<5898752xi8>
+      check.expect.bitwise actual(%flags_owner) expected(%flags_owner) : tensor<6xi32>
+      check.expect.bitwise actual(%packed0_owner) expected(%packed0_owner) : tensor<5120xi8>
+      check.expect.bitwise actual(%output0_owner) expected(%output0_owner) : tensor<2564xf32>
+      check.expect.bitwise actual(%packed1_owner) expected(%packed1_owner) : tensor<5120xi8>
+      check.expect.bitwise actual(%output1_owner) expected(%output1_owner) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.def @actual.p1_q14_k4096_r1_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %rows = index.constant 1 : index
+  %capacity = index.constant 1 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 2560 : index
+  %weight_bytes = index.constant 8601600 : index
+  %begin = index.constant 0 : index
+  %packed_bytes = index.constant 4608 : index
+  %output_bytes = index.constant 10240 : index
+  %fixed = scalar.constant 1 : i32
+  %count_origin = index.constant 8 : offset
+  %origin = index.constant 0 : offset
+  %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @reference.p1_q14_k4096_r1_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %rows = index.constant 1 : index
+  %capacity = index.constant 1 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 2560 : index
+  %begin = index.constant 0 : index
+  %count_value = index.constant 1 : index
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  %origin = index.constant 0 : offset
+  %ones = scalar.constant 1 : i32
+  %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
+  view.store %ones, %flag_view[0] : i32, view<2xi32>
+  view.store %ones, %flag_view[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @p1_q14_k4096_r1_n1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %capacity = check.literal value(1) : index
+    %width = check.literal value(4096) : index
+    %columns = check.literal value(2560) : index
+    %tag = check.literal value(14) : index
+    %count_value = check.literal value(1) : index
+    %complex = check.literal value(false) : i1
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %input_owner = check.generate.fill value(-101.0) : tensor<4100xf32>
+    %input = check.tensor.view %input_owner offset(8) : tensor<4100xf32> -> tensor<4096xf32>
+    %weight_owner = check.generate.fill value(-67) : tensor<8602112xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<8602112xi8> -> tensor<8601600xi8>
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<4096xf32>, tensor<8601600xi8>, tensor<3xi32>) -> ()
+    %packed0_owner = check.generate.fill value(-77) : tensor<5120xi8>
+    %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<5120xi8> -> tensor<4608xi8>
+    %output0_owner = check.generate.fill value(-999.0) : tensor<2564xf32>
+    %output0 = check.tensor.view %output0_owner offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %packed1_owner = check.generate.fill value(-77) : tensor<5120xi8>
+    %packed1 = check.tensor.view %packed1_owner offset(256) : tensor<5120xi8> -> tensor<4608xi8>
+    %output1_owner = check.generate.fill value(-999.0) : tensor<2564xf32>
+    %output1 = check.tensor.view %output1_owner offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
+    %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
+    check.compare<@actual.p1_q14_k4096_r1_n1, @reference.p1_q14_k4096_r1_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<4096xf32>, tensor<8601600xi8>, tensor<4608xi8>, tensor<4608xi8>, tensor<2560xf32>, tensor<2560xf32>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4100xf32>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<8602112xi8>
+      check.expect.bitwise actual(%flags_owner) expected(%flags_owner) : tensor<6xi32>
+      check.expect.bitwise actual(%packed0_owner) expected(%packed0_owner) : tensor<5120xi8>
+      check.expect.bitwise actual(%output0_owner) expected(%output0_owner) : tensor<2564xf32>
+      check.expect.bitwise actual(%packed1_owner) expected(%packed1_owner) : tensor<5120xi8>
+      check.expect.bitwise actual(%output1_owner) expected(%output1_owner) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.def @actual.p1_q14_k2560_r1_n1() launch(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %rows = index.constant 1 : index
+  %capacity = index.constant 1 : index
+  %width = index.constant 2560 : index
+  %columns = index.constant 131072 : index
+  %weight_bytes = index.constant 275251200 : index
+  %begin = index.constant 0 : index
+  %packed_bytes = index.constant 2880 : index
+  %output_bytes = index.constant 524288 : index
+  %fixed = scalar.constant 1 : i32
+  %count_origin = index.constant 8 : offset
+  %origin = index.constant 0 : offset
+  %weights = buffer.view %weight[%origin] : buffer -> view<[%weight_bytes]xi8>
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%capacity, %width, %input, %packed0) : [index, index](index, index, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %count_origin, %count, %input, %packed1) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%rows, %width, %columns](%capacity, %width, %columns, %packed0, %weights, %output0) : [index, index, index](index, index, index, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %columns, %weight_bytes, %begin, %fixed, %count_origin, %count, %packed1, %weights, %output1) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @projection_test.equal_bytes(%packed_bytes, %output_bytes, %packed0, %packed1, %output0, %output1, %flags) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @reference.p1_q14_k2560_r1_n1(%count: buffer, %input: buffer, %weight: buffer, %packed0: buffer, %packed1: buffer, %output0: buffer, %output1: buffer, %flags: buffer) {
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %rows = index.constant 1 : index
+  %capacity = index.constant 1 : index
+  %width = index.constant 2560 : index
+  %columns = index.constant 131072 : index
+  %begin = index.constant 0 : index
+  %count_value = index.constant 1 : index
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed0, %output0) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  func.call @projection_test.expected(%policy, %rows, %capacity, %width, %columns, %tag, %begin, %count_value, %packed1, %output1) : (index, index, index, index, index, index, index, index, buffer, buffer)
+  %origin = index.constant 0 : offset
+  %ones = scalar.constant 1 : i32
+  %flag_view = buffer.view %flags[%origin] : buffer -> view<2xi32>
+  view.store %ones, %flag_view[0] : i32, view<2xi32>
+  view.store %ones, %flag_view[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @p1_q14_k2560_r1_n1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %capacity = check.literal value(1) : index
+    %width = check.literal value(2560) : index
+    %columns = check.literal value(131072) : index
+    %tag = check.literal value(14) : index
+    %count_value = check.literal value(1) : index
+    %complex = check.literal value(false) : i1
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %input_owner = check.generate.fill value(-101.0) : tensor<2564xf32>
+    %input = check.tensor.view %input_owner offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %weight_owner = check.generate.fill value(-67) : tensor<275251712xi8>
+    %weight = check.tensor.view %weight_owner offset(256) : tensor<275251712xi8> -> tensor<275251200xi8>
+    check.generate<@projection_test.init>(%capacity, %width, %columns, %tag, %complex, %count_value, %input, %weight, %count) : (index, index, index, index, i1, index, tensor<2560xf32>, tensor<275251200xi8>, tensor<3xi32>) -> ()
+    %packed0_owner = check.generate.fill value(-77) : tensor<3392xi8>
+    %packed0 = check.tensor.view %packed0_owner offset(256) : tensor<3392xi8> -> tensor<2880xi8>
+    %output0_owner = check.generate.fill value(-999.0) : tensor<131076xf32>
+    %output0 = check.tensor.view %output0_owner offset(8) : tensor<131076xf32> -> tensor<131072xf32>
+    %packed1_owner = check.generate.fill value(-77) : tensor<3392xi8>
+    %packed1 = check.tensor.view %packed1_owner offset(256) : tensor<3392xi8> -> tensor<2880xi8>
+    %output1_owner = check.generate.fill value(-999.0) : tensor<131076xf32>
+    %output1 = check.tensor.view %output1_owner offset(8) : tensor<131076xf32> -> tensor<131072xf32>
+    %flags_owner = check.generate.fill value(-99) : tensor<6xi32>
+    %flags = check.tensor.view %flags_owner offset(8) : tensor<6xi32> -> tensor<2xi32>
+    check.compare<@actual.p1_q14_k2560_r1_n1, @reference.p1_q14_k2560_r1_n1>(%count, %input, %weight, %packed0, %packed1, %output0, %output1, %flags) : (tensor<3xi32>, tensor<2560xf32>, tensor<275251200xi8>, tensor<2880xi8>, tensor<2880xi8>, tensor<131072xf32>, tensor<131072xf32>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<2564xf32>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<275251712xi8>
+      check.expect.bitwise actual(%flags_owner) expected(%flags_owner) : tensor<6xi32>
+      check.expect.bitwise actual(%packed0_owner) expected(%packed0_owner) : tensor<3392xi8>
+      check.expect.bitwise actual(%output0_owner) expected(%output0_owner) : tensor<131076xf32>
+      check.expect.bitwise actual(%packed1_owner) expected(%packed1_owner) : tensor<3392xi8>
+      check.expect.bitwise actual(%output1_owner) expected(%output1_owner) : tensor<131076xf32>
     }
   }
   check.return

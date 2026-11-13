@@ -1,0 +1,35 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+kernel.decl @llm.decoder.split_qkv(%rows: index, %qwidth$1: index, %kvwidth$2: index) launch(%qwidth$3: index, %kvwidth$4: index, %count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer)
+
+command.def @split.actual0() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %rows = index.constant 3 : index
+  %q = index.constant 4096 : index
+  %kv = index.constant 1024 : index
+  kernel.launch @llm.decoder.split_qkv[%rows, %q, %kv](%q, %kv, %count, %input, %query, %key, %value) : [index, index, index](index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @split.actual1() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %rows = index.constant 3 : index
+  %q = index.constant 4096 : index
+  %kv = index.constant 1024 : index
+  kernel.launch @llm.decoder.split_qkv[%rows, %q, %kv](%q, %kv, %count, %input, %query, %key, %value) : [index, index, index](index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @split.actual2() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %rows = index.constant 3 : index
+  %q = index.constant 4096 : index
+  %kv = index.constant 1024 : index
+  kernel.launch @llm.decoder.split_qkv[%rows, %q, %kv](%q, %kv, %count, %input, %query, %key, %value) : [index, index, index](index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @split.actual3() launch(%count: buffer, %input: buffer, %query: buffer, %key: buffer, %value: buffer) {
+  %rows = index.constant 3 : index
+  %q = index.constant 512 : index
+  %kv = index.constant 256 : index
+  kernel.launch @llm.decoder.split_qkv[%rows, %q, %kv](%q, %kv, %count, %input, %query, %key, %value) : [index, index, index](index, index, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}

@@ -1,0 +1,61 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load("//build_tools:loom_merge.bzl", "loom_merge")
+
+package(default_visibility = ["//visibility:public"])
+
+[loom_merge(
+    name = "provider_" + format,
+    testonly = True,
+    srcs = [
+        "programs.loom",
+        "//lib/kernels/attention:raw_rows.loom",
+        "//lib/kernels/decoder:implementation_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "raw_" + format + "_test",
+    srcs = [
+        "checks.loom",
+        ":provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_merge(
+    name = "geometry_provider_" + format,
+    testonly = True,
+    srcs = [
+        "geometry_programs.loom",
+        "//lib/kernels/attention:raw_rows.loom",
+        "//lib/kernels/decoder:implementation_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "geometry_" + format + "_test",
+    srcs = [
+        "geometry_checks.loom",
+        ":geometry_provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]

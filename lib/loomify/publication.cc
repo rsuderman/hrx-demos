@@ -24,6 +24,12 @@ bool SelectSourceProfile(PublicationLayout layout,
   if (!eos || !ReadTokenIdentity(text, *eos, &identity, error))
     return Fail(error, "publication requires declared EOS identity");
   switch (layout) {
+  case PublicationLayout::kEos:
+    if (identity.piece == u8"<｜end▁of▁sentence｜>") {
+      *profile = {{identity.piece}, 0, 0};
+      return true;
+    }
+    break;
   case PublicationLayout::kThreeStops:
     if (identity.piece == "<|eot_id|>") {
       *profile = {{"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"}, 2, 2};
@@ -87,6 +93,9 @@ bool EmitSlotConfiguration(PublicationLayout layout, std::string_view prefix,
                            PublicationTokenFacts *facts, std::string *error) {
   std::vector<std::string_view> keys;
   switch (layout) {
+  case PublicationLayout::kEos:
+    keys = {"eos_id"};
+    break;
   case PublicationLayout::kThreeStops:
     keys = {"end_text_id", "end_message_id", "end_turn_id"};
     break;
@@ -144,6 +153,7 @@ bool DeriveSourcePublication(FILE *file, PublicationLayout layout,
   case PublicationLayout::kThreeStops:
   case PublicationLayout::kTextAndTurn:
   case PublicationLayout::kEosAndTurn:
+  case PublicationLayout::kEos:
     break;
   default:
     return Fail(error, "unsupported numerical publication layout");

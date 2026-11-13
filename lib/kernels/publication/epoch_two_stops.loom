@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: MIT
 // Shared fixed-epoch publication; caller supplies source-derived stops.
 func.decl @llm.publication.map_two_stops(%token: i32, %first_stop: i32, %second_stop: i32, %terminal: i32) -> (i32)
-template.decl @llm.publication.epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
-template.def<@llm.publication.epoch_two_stops> device @llm_publication_epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer) {
+
+func.decl @llm.publication.map_one_stop(%token: i32, %source_stop: i32, %terminal: i32) -> (i32)
+
+template.decl @llm.publication.epoch_packet(%two: i1, %first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
+
+template.def<@llm.publication.epoch_packet> device @llm_publication_epoch_packet(%two: i1, %first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer) {
   %origin = index.constant 0 : offset
   %descriptor_origin = index.constant 12 : offset
   %eos_origin = index.constant 2060 : offset
@@ -20,9 +24,32 @@ template.def<@llm.publication.epoch_two_stops> device @llm_publication_epoch_two
     %winner = view.load %private[0] : view<4xi32> -> i32
     %terminal = buffer.view %epoch[%eos_origin] : buffer -> view<1xi32>
     %eos = view.load %terminal[0] : view<1xi32> -> i32
-    %token = func.call @llm.publication.map_two_stops(%winner, %first, %second, %eos) : (i32, i32, i32, i32) -> (i32)
+    %token = scf.if %two -> (i32) {
+      %mapped = func.call @llm.publication.map_two_stops(%winner, %first, %second, %eos) : (i32, i32, i32, i32) -> (i32)
+      scf.yield %mapped : i32
+    } else {
+      %mapped = func.call @llm.publication.map_one_stop(%winner, %first, %eos) : (i32, i32, i32) -> (i32)
+      scf.yield %mapped : i32
+    }
     %output = buffer.view %output_ids[%origin] : buffer -> view<16xi32>
     view.store %token, %output[%slot] : i32, view<16xi32>
   }
+  template.return
+}
+
+template.decl @llm.publication.epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
+
+template.def<@llm.publication.epoch_two_stops> device @llm_publication_epoch_two_stops(%first: i32, %second: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer) {
+  %two = scalar.constant true : i1
+  template.apply<@llm.publication.epoch_packet>(%two, %first, %second, %epoch, %selected_ids, %output_ids) : (i1, i32, i32, buffer, buffer, buffer)
+  template.return
+}
+
+template.decl @llm.publication.epoch_one_stop(%source_stop: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer)
+
+template.def<@llm.publication.epoch_one_stop> device @llm_publication_epoch_one_stop(%source_stop: i32, %epoch: buffer, %selected_ids: buffer, %output_ids: buffer) {
+  %two = scalar.constant false : i1
+  %unused = scalar.constant 0 : i32
+  template.apply<@llm.publication.epoch_packet>(%two, %source_stop, %unused, %epoch, %selected_ids, %output_ids) : (i1, i32, i32, buffer, buffer, buffer)
   template.return
 }

@@ -1,0 +1,14 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+kernel.decl @llm.attention.prepare_qk_raw_h256(%rows: index, %heads: index) launch(%capacity: index, %rope_width: index, %step: f32, %origin: offset, %epoch: buffer, %input: buffer, %output: buffer)
+
+command.def @raw.partial() launch(%epoch: buffer, %input: buffer, %output: buffer) {
+  %rows = index.constant 2 : index
+  %heads = index.constant 1 : index
+  %capacity = index.constant 1024 : index
+  %rope = index.constant 64 : index
+  %step = scalar.constant -0.48202963969994922 : f32
+  %origin = index.constant 0 : offset
+  kernel.launch @llm.attention.prepare_qk_raw_h256[%rows, %heads](%capacity, %rope, %step, %origin, %epoch, %input, %output) : [index, index](index, index, f32, offset, buffer, buffer, buffer)
+  command.return
+}

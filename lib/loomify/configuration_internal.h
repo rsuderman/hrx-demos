@@ -113,14 +113,16 @@ struct Producer {
   bool Tensor(const std::vector<model::TensorBinding> &bindings,
               const std::string &role, uint64_t in, uint64_t out,
               std::initializer_list<uint32_t> tags,
-              std::optional<uint32_t> layer = std::nullopt) {
+              std::optional<uint32_t> layer = std::nullopt,
+              uint32_t expected_rank = 0) {
     std::string key;
     if (!model || !model::ExpectedTensorName(*model, role, layer, &key))
       return Fail(error, "unsupported tensor role/scope: " + role);
     const auto *t = Role(bindings, role);
     if (!t)
       return Fail(error, "requires exactly one tensor role: " + role);
-    if (t->name != key || t->rank != (out == 1 ? 1u : 2u) ||
+    if (t->name != key ||
+        t->rank != (expected_rank ? expected_rank : (out == 1 ? 1u : 2u)) ||
         t->normalized_extents !=
             std::array<int64_t, 4>{int64_t(in), int64_t(out), 1, 1} ||
         (tags.size() &&

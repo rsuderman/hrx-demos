@@ -7,7 +7,10 @@ load("//build_tools:loom_merge.bzl", "loom_merge")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["ffn_facts.loom"])
+exports_files([
+    "ffn_facts.loom",
+    "fixture_helpers.py",
+])
 
 _SOURCES = [
     "//lib/platforms/amdgpu/gfx11:targets.loom",

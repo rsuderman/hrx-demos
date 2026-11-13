@@ -46,7 +46,7 @@ bool Utf8(std::string_view value) {
   return true;
 }
 bool Quoted(std::string_view source, size_t begin, std::string *value,
-            size_t *end) {
+            size_t *end, bool multiline = false) {
   if (begin >= source.size() || (source[begin] != '\'' && source[begin] != '"'))
     return false;
   const char quote = source[begin];
@@ -60,7 +60,7 @@ bool Quoted(std::string_view source, size_t begin, std::string *value,
       *end = i + 1;
       return true;
     }
-    if (static_cast<unsigned char>(c) < 32)
+    if (static_cast<unsigned char>(c) < 32 && !(multiline && c == '\n'))
       return false;
     if (c == '\\') {
       if (++i == source.size())
@@ -106,7 +106,7 @@ bool Tags(std::string_view value, std::vector<std::string> *tags) {
   return true;
 }
 bool AddSlot(std::string_view source, const char *name, std::string_view anchor,
-             size_t quote_offset, std::vector<Slot> *slots) {
+             size_t quote_offset, std::vector<Slot> *slots, bool multiline) {
   const auto found = source.find(anchor);
   if (found == std::string_view::npos ||
       source.find(anchor, found + 1) != std::string_view::npos)
@@ -114,7 +114,8 @@ bool AddSlot(std::string_view source, const char *name, std::string_view anchor,
   Slot slot;
   slot.name = name;
   slot.begin = found + quote_offset;
-  if (!Quoted(source, slot.begin, &slot.original, &slot.end))
+  slot.multiline = multiline;
+  if (!Quoted(source, slot.begin, &slot.original, &slot.end, multiline))
     return false;
   slots->push_back(std::move(slot));
   return true;
@@ -133,7 +134,7 @@ bool Capture(std::string_view expected, std::string_view actual,
       return false;
     std::string value;
     size_t end = 0;
-    if (!Quoted(actual, cursor, &value, &end))
+    if (!Quoted(actual, cursor, &value, &end, slot.multiline))
       return false;
     std::vector<std::string> original_tags, actual_tags;
     if (!Tags(slot.original, &original_tags) || !Tags(value, &actual_tags) ||
