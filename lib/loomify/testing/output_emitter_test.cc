@@ -350,7 +350,8 @@ struct NativeOutput {
 // Serve.
 std::optional<NativeOutput> RunNativeOutput(const OutputFixture &fixture,
                                             std::string_view request,
-                                            bool bytecode) {
+                                            bool bytecode,
+                                            int response_chunk_size = 0) {
   namespace fs = std::filesystem;
   const auto root =
       fs::path(Required("TEST_SRCDIR")) / Required("TEST_WORKSPACE");
@@ -548,8 +549,12 @@ std::optional<NativeOutput> RunNativeOutput(const OutputFixture &fixture,
              tokenizer_path = write("tokenizer.json", tokenizer);
   const auto response_path = write("response.txt", fixture.response);
   const std::vector<std::string> arguments{
-      checker, "--control=" + control, "--tokenizer=" + tokenizer_path,
-      "--request=" + request_path, "--response=" + response_path};
+      checker,
+      "--control=" + control,
+      "--tokenizer=" + tokenizer_path,
+      "--request=" + request_path,
+      "--response=" + response_path,
+      "--response_chunk_size=" + std::to_string(response_chunk_size)};
   std::vector<char *> argv;
   for (const auto &argument : arguments)
     argv.push_back(const_cast<char *>(argument.c_str()));
@@ -745,8 +750,15 @@ TEST_P(OutputEmitterTest, BoundedMarkersUtf8AndTerminalToolSuffix) {
          "<inv");
 }
 
-TEST_P(OutputEmitterTest, OptionalOpenRemainsReasoningWhenAbsent) {
-  Expect(Scanner("<reason>", "</reason>", "<invoke>", 0, 3, 0, 2, 5, 2),
+TEST_P(OutputEmitterTest, OptionalOpenRequiresExplicitReasoningFrame) {
+  Expect(Scanner("<reason>", "</reason>", "<invoke>", 0, 3, 0, 1, 5, 1),
+         "plain", "plain");
+  Expect(Scanner("<reason>", "</reason>", "<invoke>", 0, 3, 0, 1, 5, 1),
+         "<reaX", "<reaX");
+  Expect(Scanner("<reason>", "</reason>", "<invoke>", 0, 3, 1, 1, 4, 1), "<rea",
+         "<rea");
+  // An already-open reasoning prefix remains reasoning without a new marker.
+  Expect(Scanner("<reason>", "</reason>", "<invoke>", 0, 2, 0, 2, 5, 2),
          "plain", "plain");
   Expect(Scanner("<reason>", "</reason>", "<invoke>", 0, 3, 0, 0, 0, 3), "<rea",
          "");
@@ -783,7 +795,7 @@ TEST_P(OutputEmitterTest, EveryMarkerAndUtf8SplitPreservesCursorAndFinalTail) {
     int64_t initial, visible, final_state, complete_end, complete_state;
   };
   for (const auto &marker :
-       {Marker{"<reason>", 3, 2, 2, 8, 4}, Marker{"</reason>", 2, 2, 2, 9, 5},
+       {Marker{"<reason>", 3, 1, 1, 8, 4}, Marker{"</reason>", 2, 2, 2, 9, 5},
         Marker{"<invoke>", 1, 1, 1, 0, 1}}) {
     for (size_t size = 1; size < marker.bytes.size(); ++size) {
       SCOPED_TRACE(std::string(marker.bytes) +
@@ -816,6 +828,48 @@ TEST_P(OutputEmitterTest, EveryMarkerAndUtf8SplitPreservesCursorAndFinalTail) {
     }
     Expect(Scanner("", "", "", 1, 1, 0, 1, 1 + codepoint.size(), 1),
            "a" + std::string(codepoint), codepoint);
+  }
+}
+
+TEST_P(OutputEmitterTest, NeutralPrefixPreservesExplicitFramingAndCheckpoint) {
+  // A neutral generation prefix must not invent reasoning around plain output.
+  // The same source can still render explicitly framed assistant reasoning.
+  constexpr std::string_view source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}{{ '<reply>' }}"
+      "{% if m.reasoning_content %}{{ '<reason>' + m.reasoning_content + '</reason>' }}{% endif %}"
+      "{{ m.content }}{{ '</reply>' }}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<reply>' }}{% endif %}";
+  constexpr std::string_view request =
+      R"({"messages":[{"role":"user","content":"a"}]})";
+  struct Case {
+    const char *response;
+    const char *content;
+    const char *reasoning;
+    const char *checkpoint;
+  };
+  for (const auto &test : {Case{"plain", "plain", "", "<reply>plain</reply>"},
+                           Case{"<reason>why</reason>plain", "plain", "why",
+                                "<reply><reason>why</reason>plain</reply>"},
+                           Case{"<reaX", "<reaX", "", "<reply><reaX</reply>"},
+                           Case{"<rea", "<rea", "", "<reply><rea</reply>"}}) {
+    SCOPED_TRACE(test.response);
+    OutputFixture program;
+    std::string error;
+    ASSERT_TRUE(OutputProgram(source, test.response, &program, &error))
+        << error;
+    for (int chunk_size : {0, 1}) {
+      SCOPED_TRACE(chunk_size);
+      const auto result =
+          RunNativeOutput(program, request, GetParam(), chunk_size);
+      ASSERT_TRUE(result.has_value());
+      ASSERT_EQ(result->exit, 0) << result->error;
+      const auto report =
+          iree_make_string_view(result->output.data(), result->output.size());
+      EXPECT_EQ(JsonString(report, "prompt"), "<reply>");
+      EXPECT_EQ(JsonString(report, "content"), test.content);
+      EXPECT_EQ(JsonString(report, "reasoning_content"), test.reasoning);
+      EXPECT_EQ(JsonString(report, "checkpoint"), test.checkpoint);
+    }
   }
 }
 
@@ -1261,7 +1315,8 @@ TEST_P(OutputEmitterTest,
   }
 }
 
-TEST_P(OutputEmitterTest, ActualModelOpenerPrefixAndFirstOutputShareStartup) {
+TEST_P(OutputEmitterTest,
+       ActualSourcePrefixesAndResponseOpenersHaveDistinctStartup) {
   const auto root = std::filesystem::path(Required("TEST_SRCDIR")) /
                     Required("TEST_WORKSPACE");
   std::ifstream file(root / "lib/text/qwen3/templates/5da44855.jinja");
@@ -1272,10 +1327,16 @@ TEST_P(OutputEmitterTest, ActualModelOpenerPrefixAndFirstOutputShareStartup) {
   const auto option = request.find(disabled);
   ASSERT_NE(option, std::string::npos);
   request.replace(option, disabled.size(), "\"enable_thinking\":true");
+  // This actual source's thinking=true generation suffix is neutral. Only an
+  // opening marker in the response establishes reasoning; a closing marker
+  // cannot retroactively turn the preceding unframed bytes into reasoning.
   for (
-      const auto *response :
-      {"<think>\nreason</think>\n\nanswer<tool_call>{\"name\":\"查找-name.点\",\"arguments\":{\"text\":\"hello\"}}</tool_call>",
-       "reason</think>\n\nanswer<tool_call>{\"name\":\"查找-name.点\",\"arguments\":{\"text\":\"hello\"}}</tool_call>"}) {
+      const auto &[response, expected] :
+      {std::pair<const char *, const char *>{
+           "<think>\nreason</think>\n\nanswer<tool_call>{\"name\":\"查找-name.点\",\"arguments\":{\"text\":\"hello\"}}</tool_call>",
+           R"({"content":"answer","reasoning":"reason","calls":[{"type":"function","function":{"name":"查找-name.点","arguments":"{\"text\":\"hello\"}"}}]})"},
+       {"reason</think>\n\nanswer<tool_call>{\"name\":\"查找-name.点\",\"arguments\":{\"text\":\"hello\"}}</tool_call>",
+        R"({"content":"reason</think>\n\nanswer","reasoning":"","calls":[{"type":"function","function":{"name":"查找-name.点","arguments":"{\"text\":\"hello\"}"}}]})"}}) {
     SCOPED_TRACE(response);
     OutputFixture program;
     std::string error;
@@ -1283,10 +1344,25 @@ TEST_P(OutputEmitterTest, ActualModelOpenerPrefixAndFirstOutputShareStartup) {
     ASSERT_TRUE(
         CheckPromptPrefix(source, "<|im_start|>assistant\n", &program, &error))
         << error;
-    Expect(
-        program, request,
-        R"({"content":"answer","reasoning":"reason","calls":[{"type":"function","function":{"name":"查找-name.点","arguments":"{\"text\":\"hello\"}"}}]})");
+    Expect(program, request, expected);
   }
+  // A different actual source opens reasoning in its prompt. A close-only
+  // response must still close that already-open frame and expose final text.
+  std::ifstream opened_file(root / "lib/text/spark/templates/93d6aa90.jinja");
+  ASSERT_TRUE(opened_file.good());
+  const std::string opened_source((std::istreambuf_iterator<char>(opened_file)),
+                                  {});
+  OutputFixture opened_program;
+  std::string error;
+  ASSERT_TRUE(OutputProgram(opened_source, "reason</think>answer",
+                            &opened_program, &error))
+      << error;
+  ASSERT_TRUE(CheckPromptPrefix(opened_source,
+                                "<｜start▁of▁sentence｜><|Bot|><think>",
+                                &opened_program, &error))
+      << error;
+  Expect(opened_program, request,
+         R"({"content":"answer","reasoning":"reason","calls":[]})");
 }
 
 TEST_P(OutputEmitterTest,

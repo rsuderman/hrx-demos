@@ -1,6 +1,8 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.pack_input(%policy: index, %rows: index, %capacity: index, %width: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %tag: index, %rows: index, %capacity: index, %width: index, %columns: index, %bytes: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer)
 
 config.decl @spark2_5.model.hidden_size : index
 
@@ -25,10 +27,11 @@ config.decl @spark2_5.attention.cache_base : offset
 config.decl @spark2_5.attention.map_origin : offset
 
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index)
+func.decl pure @loomify.config.layer_attention_gate(%layer: index) -> (index, index)
 
 func.decl pure @loomify.config.layer_rotary(%layer: index) -> (index, index, f32)
 
-template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
+template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
 kernel.decl @llm.attention.prepare_qk_raw_h256(%rows: index, %heads: index) launch(%capacity: index, %rope_width: index, %rope_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %output: buffer)
 
@@ -55,8 +58,8 @@ command.def @loomify.spark2_5.attention(%layer: index, %rows: index, %control_or
   %qkvt, %ot, %qkvb, %ob = func.call pure @loomify.config.layer_attention(%layer) : (index) -> (index, index, index, index)
   %qkv_weight = command.parameter %parameters, "blk.{}.attn_qkv.weight"[%layer] : view<[%qkvb]xi8>
   %ow = command.parameter %parameters, "blk.{}.attn_output.weight"[%layer] : view<[%ob]xi8>
-  %gate_weight_elements = index.mul %hidden, %qh : index
-  %gate_weight = command.parameter %parameters, "blk.{}.attn_gate.weight"[%layer] : view<[%qh]x[%hidden]xf32>
+  %gt, %gb = func.call pure @loomify.config.layer_attention_gate(%layer) : (index) -> (index, index)
+  %gate_weight = command.parameter %parameters, "blk.{}.attn_gate.weight"[%layer] : view<[%gb]xi8>
   %q_elements = index.mul %rows, %qwidth : index
   %q_bytes = index.scale %q_elements, %word : index, offset -> offset
   %q = buffer.alloca<global> align(256) %q_bytes : buffer
@@ -84,9 +87,21 @@ command.def @loomify.spark2_5.attention(%layer: index, %rows: index, %control_or
   %qkv_elements = index.mul %rows, %qkvwidth : index
   %qkv_bytes = index.scale %qkv_elements, %word : index, offset -> offset
   %qkv = buffer.alloca<global> align(256) %qkv_bytes : buffer
-  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %qkvwidth, %qkvt, %qkvb, %count, %normalized, %qkv_weight, %qkv) : (index, index, index, index, index, buffer, buffer, view<[%qkvb]xi8>, buffer)
+  // Expose the same canonical QKV packing for the independently tagged gate.
+  %zero = index.constant 0 : index
+  %canonical = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %block = index.constant 128 : index
+  %packet = index.constant 144 : offset
+  %input_elements = index.mul %rows, %hidden : index
+  %groups = index.div %input_elements, %block : index
+  %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%canonical, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %qkvt, %rows, %rows, %hidden, %qkvwidth, %qkvb, %zero, %dynamic, %origin, %count, %packed, %qkv_weight, %qkv) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%qkvb]xi8>, buffer)
   kernel.launch @llm.decoder.split_qkv[%rows, %qwidth, %kv](%qwidth, %kv, %count, %qkv, %q, %k, %v) : [index, index, index](index, index, buffer, buffer, buffer, buffer, buffer)
-  template.apply<@llm.projection.f32_rows>(%rows, %hidden, %qh, %count, %normalized, %gate_weight, %gate) : (index, index, index, buffer, buffer, view<[%qh]x[%hidden]xf32>, buffer)
+  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %rows, %hidden, %qh, %gt, %gb, %count, %normalized, %packed, %gate_weight, %gate) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%gb]xi8>, buffer)
   kernel.launch @llm.attention.prepare_qk_raw_h256[%rows, %qh](%capacity, %rope_width, %rope_step, %control_origin, %epoch, %q, %query) : [index, index](index, index, f32, offset, buffer, buffer, buffer)
   kernel.launch @llm.attention.prepare_qk_raw_h256[%rows, %kh](%capacity, %rope_width, %rope_step, %control_origin, %epoch, %k, %key) : [index, index](index, index, f32, offset, buffer, buffer, buffer)
   kernel.launch @llm.decoder.publish_kv_h256[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)

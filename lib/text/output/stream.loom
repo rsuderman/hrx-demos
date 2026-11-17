@@ -174,7 +174,9 @@ func.def public @text.output_scan(%response: buffer, %previous: i64, %state: i64
       %kind, %end, %next = scf.if %wait -> (i64, offset, i64) {
         scf.yield %zero, %start, %three : i64, offset, i64
       } else {
-        %k, %e, %s = func.call @output_stream.scan(%response, %start, %two, %phase, %tool, %close) : (buffer, offset, i64, i32, buffer, buffer) -> (i64, offset, i64)
+        // A neutral source prefix has not opened reasoning. Only a matched
+        // opening marker above may select it; unframed bytes are content.
+        %k, %e, %s = func.call @output_stream.scan(%response, %start, %one, %phase, %tool, %close) : (buffer, offset, i64, i32, buffer, buffer) -> (i64, offset, i64)
         scf.yield %k, %e, %s : i64, offset, i64
       }
       scf.yield %kind, %end, %next : i64, offset, i64

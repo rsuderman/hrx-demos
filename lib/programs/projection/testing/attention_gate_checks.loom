@@ -1,0 +1,148 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// First gate witness: independently encoded Q4 logical weights and exact logits.
+template.decl @llm.projection.pack_input(%policy: index, %rows: index, %capacity: index, %width: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %width: index, %heads: index, %tag: index, %bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer)
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 16 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 16 : index
+
+func.def @gate.init(%input: buffer, %weight: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %twelve = index.constant 12 : index
+  %sixteen = index.constant 16 : index
+  %blockbytes = index.constant 144 : index
+  %width = index.constant 2048 : index
+  %blocks = index.constant 8 : index
+  %x = buffer.view %input[%origin] : buffer -> view<2048xf32>
+  %xvalue = scalar.constant 0.031005859375 : f32
+  scf.for %k = [%zero to %width step %one] {
+    view.store %xvalue, %x[%k] : f32, view<2048xf32>
+  }
+  %stride = index.constant 144 : offset
+  %rowstride = index.constant 1152 : offset
+  %dvalue = scalar.constant 0.0009765625 : f16
+  %dminvalue = scalar.constant 0.0 : f16
+  %qs = scalar.constant 17 : i8
+  scf.for %h = [%zero to %sixteen step %one] {
+    %scale = index.add %h, %one : index
+    %low = index.rem %scale, %sixteen : index
+    %high = index.div %scale, %sixteen : index
+    %si32 = index.cast %scale : index to i32
+    %lo32 = index.cast %low : index to i32
+    %hi32 = index.cast %high : index to i32
+    %shift = scalar.constant 6 : i32
+    %hi_bits = scalar.shli %hi32, %shift : i32
+    // The upper scale bits for groups4..7 live in the first four scale bytes;
+    // bytes4..7 of the scale array hold min0..3, which remain zero here.
+    %scale_bits = scalar.ori %si32, %hi_bits : i32
+    %si = scalar.trunci %scale_bits : i32 to i8
+    %lo = scalar.trunci %lo32 : i32 to i8
+    %min = scalar.constant 0 : i8
+    %rowbase = index.scale %h, %rowstride : index, offset -> offset
+    scf.for %b = [%zero to %blocks step %one] {
+      %add = index.scale %b, %stride : index, offset -> offset
+      %base = index.add %rowbase, %add : offset
+      %bytes = buffer.view %weight[%base] : buffer -> view<144xi8>
+      %halves = buffer.view %weight[%base] : buffer -> view<2xf16>
+      view.store %dvalue, %halves[0] : f16, view<2xf16>
+      view.store %dminvalue, %halves[1] : f16, view<2xf16>
+      scf.for %j = [%four to %eight step %one] {
+        view.store %si, %bytes[%j] : i8, view<144xi8>
+      }
+      scf.for %j = [%eight to %twelve step %one] {
+        view.store %min, %bytes[%j] : i8, view<144xi8>
+      }
+      scf.for %j = [%twelve to %sixteen step %one] {
+        view.store %lo, %bytes[%j] : i8, view<144xi8>
+      }
+      scf.for %j = [%sixteen to %blockbytes step %one] {
+        view.store %qs, %bytes[%j] : i8, view<144xi8>
+      }
+    }
+  }
+  func.return
+}
+
+command.def @gate.actual() launch(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %one = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %fixed = scalar.constant -1 : i32
+  %width = index.constant 2048 : index
+  %heads = index.constant 16 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  %w = buffer.view %weight[%origin] : buffer -> view<[%bytes]xi8>
+  template.apply<@llm.projection.pack_input>(%one, %one, %one, %width, %zero, %fixed, %origin, %count, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.canonical_rows_prepacked>(%one, %one, %width, %heads, %tag, %bytes, %count, %input, %packed, %w, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  command.return
+}
+
+func.def @gate.expected(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %unit = scalar.constant 0.06201171875 : f32
+  %out = buffer.view %output[%origin] : buffer -> view<16xf32>
+  scf.for %h = [%zero to %heads step %one] {
+    %i = index.add %h, %one : index
+    %i32 = index.cast %i : index to i32
+    %factor = scalar.uitofp %i32 : i32 to f32
+    %logit = scalar.mulf %unit, %factor : f32
+    view.store %logit, %out[%h] : f32, view<16xf32>
+  }
+  func.return
+}
+
+check.scenario @q4_gate_2048_by_16 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2052xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<2816xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2052xf32> -> tensor<2048xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<2816xi8> -> tensor<2304xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %p_before = check.tensor.view %ps offset(0) : tensor<2816xi8> -> tensor<256xi8>
+    %p_after = check.tensor.view %ps offset(2560) : tensor<2816xi8> -> tensor<256xi8>
+    check.generate<@gate.init>(%x, %w) : (tensor<2048xf32>, tensor<18432xi8>) -> ()
+    check.compare<@gate.actual, @gate.expected>(%x, %w, %p, %count, %y) : (tensor<2048xf32>, tensor<18432xi8>, tensor<2304xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2052xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%p_before) expected(%p_before) : tensor<256xi8>
+      check.expect.bitwise actual(%p_after) expected(%p_after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+// Unused product bounds keep the owned complete provider closure explicit.
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

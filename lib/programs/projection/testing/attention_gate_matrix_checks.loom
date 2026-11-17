@@ -1,0 +1,1769 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Independent dyadic block/endpoint anchors and raw F32 count semantics.
+template.decl @llm.projection.pack_input(%policy: index, %rows: index, %capacity: index, %width: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %width: index, %heads: index, %tag: index, %bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer)
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 340 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 17 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 16 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index
+
+func.def @gate.matrix.init(%rows: index, %width: index, %active: index, %tag: index, %pattern: index, %input: buffer, %weight: buffer, %count: buffer) {
+  %z = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %twelve = index.constant 12 : index
+  %heads = index.constant 16 : index
+  %b256 = index.constant 256 : index
+  %b144 = index.constant 144 : index
+  %origin = index.constant 0 : offset
+  %last = index.sub %width, %one : index
+  %zero_f = scalar.constant 0.0 : f32
+  %one_f = scalar.constant 1.0 : f32
+  %xunit = scalar.constant 0.031005859375 : f32
+  %rawunit = scalar.constant 0.001953125 : f32
+  %nanbits = scalar.constant 2143289344 : i32
+  %nan = scalar.bitcast %nanbits : i32 to f32
+  %f32 = index.cmp eq, %tag, %z : index
+  %sparse = index.cmp eq, %pattern, %two : index
+  %x = buffer.view %input[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  scf.for %r = [%z to %rows step %one] {
+    %next = index.add %r, %one : index
+    %ri = index.cast %next : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %value = scalar.mulf %rf, %xunit : f32
+    %negative = scalar.subf %zero_f, %value : f32
+    %rawlast = scalar.mulf %rf, %rawunit : f32
+    %live = index.cmp ult, %r, %active : index
+    scf.for %k = [%z to %width step %one] {
+      %first = index.cmp eq, %k, %z : index
+      %end = index.cmp eq, %k, %last : index
+      %tail = scf.select %end, %negative, %zero_f : f32
+      %pair = scf.select %first, %value, %tail : f32
+      %quant = scf.select %sparse, %pair, %value : f32
+      %rtail = scf.select %end, %rawlast, %zero_f : f32
+      %raw = scf.select %first, %one_f, %rtail : f32
+      %defined = scf.select %f32, %raw, %quant : f32
+      %inactive = scf.select %f32, %nan, %zero_f : f32
+      %v = scf.select %live, %defined, %inactive : f32
+      view.store %v, %x[%r, %k] : f32, view<[%rows]x[%width]xf32>
+    }
+  }
+  %control = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %n = index.cast %active : index to i32
+  view.store %n, %control[0] : i32, view<3xi32>
+  scf.if %f32 {
+    %w = buffer.view %weight[%origin] : buffer -> view<16x[%width]xf32>
+    %unit = scalar.constant 0.0625 : f32
+    scf.for %h = [%z to %heads step %one] {
+      %next = index.add %h, %one : index
+      %hi = index.cast %next : index to i32
+      %hf = scalar.uitofp %hi : i32 to f32
+      %value = scalar.mulf %hf, %unit : f32
+      scf.for %k = [%z to %width step %one] {
+        %end = index.cmp eq, %k, %last : index
+        %v = scf.select %end, %value, %zero_f : f32
+        view.store %v, %w[%h, %k] : f32, view<16x[%width]xf32>
+      }
+    }
+  } else {
+    %blocks = index.div %width, %b256 : index
+    %stride = index.constant 144 : offset
+    %rowbytes = index.scale %blocks, %stride : index, offset -> offset
+    %dunit = scalar.constant 0.0009765625 : f32
+    %min = scalar.constant 0 : i8
+    %min16 = scalar.constant 0.0 : f16
+    %code = scalar.constant 17 : i8
+    %shift = scalar.constant 6 : i32
+    scf.for %h = [%z to %heads step %one] {
+      %scale = index.add %h, %one : index
+      %low = index.rem %scale, %heads : index
+      %high = index.div %scale, %heads : index
+      %si = index.cast %scale : index to i32
+      %loi = index.cast %low : index to i32
+      %hii = index.cast %high : index to i32
+      %hibits = scalar.shli %hii, %shift : i32
+      %all = scalar.ori %si, %hibits : i32
+      %sbyte = scalar.trunci %all : i32 to i8
+      %lbyte = scalar.trunci %loi : i32 to i8
+      %rowbase = index.scale %h, %rowbytes : index, offset -> offset
+      scf.for %b = [%z to %blocks step %one] {
+        %bi = index.add %b, %one : index
+        %b32 = index.cast %bi : index to i32
+        %bf = scalar.uitofp %b32 : i32 to f32
+        %d32 = scalar.mulf %bf, %dunit : f32
+        %d16 = scalar.fptrunc %d32 : f32 to f16
+        %add = index.scale %b, %stride : index, offset -> offset
+        %base = index.add %rowbase, %add : offset
+        %bytes = buffer.view %weight[%base] : buffer -> view<144xi8>
+        %halves = buffer.view %weight[%base] : buffer -> view<2xf16>
+        view.store %d16, %halves[0] : f16, view<2xf16>
+        view.store %min16, %halves[1] : f16, view<2xf16>
+        scf.for %j = [%four to %eight step %one] {
+          view.store %sbyte, %bytes[%j] : i8, view<144xi8>
+        }
+        scf.for %j = [%eight to %twelve step %one] {
+          view.store %min, %bytes[%j] : i8, view<144xi8>
+        }
+        scf.for %j = [%twelve to %heads step %one] {
+          view.store %lbyte, %bytes[%j] : i8, view<144xi8>
+        }
+        scf.for %j = [%heads to %b144 step %one] {
+          view.store %code, %bytes[%j] : i8, view<144xi8>
+        }
+      }
+    }
+  }
+  func.return
+}
+
+command.def @gate.matrix.project(%rows: index, %width: index, %tag: index, %bytes: index) launch(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %z = index.constant 0 : index
+  %one = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %origin = index.constant 0 : offset
+  %fixed = scalar.constant -1 : i32
+  %quantized = index.cmp ne, %tag, %z : index
+  scf.if %quantized {
+    template.apply<@llm.projection.pack_input>(%one, %rows, %rows, %width, %z, %fixed, %origin, %count, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  }
+  %w = buffer.view %weight[%origin] : buffer -> view<[%bytes]xi8>
+  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %rows, %width, %heads, %tag, %bytes, %count, %input, %packed, %w, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  command.return
+}
+
+func.def @gate.matrix.expected(%rows: index, %active: index, %unit: f32, %output: buffer) {
+  %z = index.constant 0 : index
+  %one = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %origin = index.constant 0 : offset
+  %zero_f = scalar.constant 0.0 : f32
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x16xf32>
+  scf.for %r = [%z to %rows step %one] {
+    %next = index.add %r, %one : index
+    %ri = index.cast %next : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %live = index.cmp ult, %r, %active : index
+    scf.for %h = [%z to %heads step %one] {
+      %hi = index.add %h, %one : index
+      %h32 = index.cast %hi : index to i32
+      %hf = scalar.uitofp %h32 : i32 to f32
+      %a = scalar.mulf %rf, %hf : f32
+      %b = scalar.mulf %a, %unit : f32
+      %v = scf.select %live, %b, %zero_f : f32
+      view.store %v, %out[%r, %h] : f32, view<[%rows]x16xf32>
+    }
+  }
+  func.return
+}
+
+func.def @init.gate_2048_t1_n1_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t1_n1_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 131072 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t1_n1_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t1_n1_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2052xf32>
+    %ws = check.generate.fill value(91) : tensor<131584xi8>
+    %ps = check.generate.fill value(83) : tensor<2816xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2052xf32> -> tensor<2048xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<131584xi8> -> tensor<131072xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<2816xi8> -> tensor<2304xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<2816xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(2560) : tensor<2816xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t1_n1_q0_p0>(%x, %w, %n) : (tensor<2048xf32>, tensor<131072xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t1_n1_q0_p0, @expected.gate_2048_t1_n1_q0_p0>(%x, %w, %p, %n, %y) : (tensor<2048xf32>, tensor<131072xi8>, tensor<2304xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2052xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<131584xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n3_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 3 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n3_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 131072 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n3_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 3 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n3_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<131584xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<131584xi8> -> tensor<131072xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n3_q0_p0>(%x, %w, %n) : (tensor<6144xf32>, tensor<131072xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n3_q0_p0, @expected.gate_2048_t3_n3_q0_p0>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<131072xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<131584xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n1_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n1_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 131072 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n1_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n1_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<131584xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<131584xi8> -> tensor<131072xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n1_q0_p0>(%x, %w, %n) : (tensor<6144xf32>, tensor<131072xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n1_q0_p0, @expected.gate_2048_t3_n1_q0_p0>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<131072xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<131584xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n0_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 0 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n0_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 131072 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n0_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 0 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n0_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<131584xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<131584xi8> -> tensor<131072xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n0_q0_p0>(%x, %w, %n) : (tensor<6144xf32>, tensor<131072xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n0_q0_p0, @expected.gate_2048_t3_n0_q0_p0>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<131072xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<131584xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t17_n1_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t17_n1_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 131072 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t17_n1_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t17_n1_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<34820xf32>
+    %ws = check.generate.fill value(91) : tensor<131584xi8>
+    %ps = check.generate.fill value(83) : tensor<39680xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<276xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<34820xf32> -> tensor<34816xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<131584xi8> -> tensor<131072xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<39680xi8> -> tensor<39168xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<276xf32> -> tensor<272xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<39680xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(39424) : tensor<39680xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t17_n1_q0_p0>(%x, %w, %n) : (tensor<34816xf32>, tensor<131072xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t17_n1_q0_p0, @expected.gate_2048_t17_n1_q0_p0>(%x, %w, %p, %n, %y) : (tensor<34816xf32>, tensor<131072xi8>, tensor<39168xi8>, tensor<3xi32>, tensor<272xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<34820xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<131584xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<276xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t1_n1_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t1_n1_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t1_n1_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.279052734375 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t1_n1_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2052xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<2816xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2052xf32> -> tensor<2048xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<2816xi8> -> tensor<2304xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<2816xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(2560) : tensor<2816xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t1_n1_q12_p1>(%x, %w, %n) : (tensor<2048xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t1_n1_q12_p1, @expected.gate_2048_t1_n1_q12_p1>(%x, %w, %p, %n, %y) : (tensor<2048xf32>, tensor<18432xi8>, tensor<2304xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2052xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n3_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 3 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n3_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n3_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 3 : index
+  %unit = scalar.constant 0.279052734375 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n3_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n3_q12_p1>(%x, %w, %n) : (tensor<6144xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n3_q12_p1, @expected.gate_2048_t3_n3_q12_p1>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<18432xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n1_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n1_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n1_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.279052734375 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n1_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n1_q12_p1>(%x, %w, %n) : (tensor<6144xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n1_q12_p1, @expected.gate_2048_t3_n1_q12_p1>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<18432xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n0_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 0 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n0_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n0_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 0 : index
+  %unit = scalar.constant 0.279052734375 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n0_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n0_q12_p1>(%x, %w, %n) : (tensor<6144xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n0_q12_p1, @expected.gate_2048_t3_n0_q12_p1>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<18432xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t17_n1_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t17_n1_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t17_n1_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.279052734375 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t17_n1_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<34820xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<39680xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<276xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<34820xf32> -> tensor<34816xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<39680xi8> -> tensor<39168xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<276xf32> -> tensor<272xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<39680xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(39424) : tensor<39680xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t17_n1_q12_p1>(%x, %w, %n) : (tensor<34816xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t17_n1_q12_p1, @expected.gate_2048_t17_n1_q12_p1>(%x, %w, %p, %n, %y) : (tensor<34816xf32>, tensor<18432xi8>, tensor<39168xi8>, tensor<3xi32>, tensor<272xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<34820xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<276xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t1_n1_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t1_n1_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t1_n1_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant -0.00021195411682128906 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t1_n1_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2052xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<2816xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2052xf32> -> tensor<2048xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<2816xi8> -> tensor<2304xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<2816xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(2560) : tensor<2816xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t1_n1_q12_p2>(%x, %w, %n) : (tensor<2048xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t1_n1_q12_p2, @expected.gate_2048_t1_n1_q12_p2>(%x, %w, %p, %n, %y) : (tensor<2048xf32>, tensor<18432xi8>, tensor<2304xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2052xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n3_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 3 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n3_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n3_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 3 : index
+  %unit = scalar.constant -0.00021195411682128906 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n3_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n3_q12_p2>(%x, %w, %n) : (tensor<6144xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n3_q12_p2, @expected.gate_2048_t3_n3_q12_p2>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<18432xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n1_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n1_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n1_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant -0.00021195411682128906 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n1_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n1_q12_p2>(%x, %w, %n) : (tensor<6144xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n1_q12_p2, @expected.gate_2048_t3_n1_q12_p2>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<18432xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t3_n0_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 0 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t3_n0_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t3_n0_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 0 : index
+  %unit = scalar.constant -0.00021195411682128906 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t3_n0_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<6148xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<7424xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<6148xf32> -> tensor<6144xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<7424xi8> -> tensor<6912xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<7424xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(7168) : tensor<7424xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t3_n0_q12_p2>(%x, %w, %n) : (tensor<6144xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t3_n0_q12_p2, @expected.gate_2048_t3_n0_q12_p2>(%x, %w, %p, %n, %y) : (tensor<6144xf32>, tensor<18432xi8>, tensor<6912xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<6148xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2048_t17_n1_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2048 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2048_t17_n1_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2048 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 18432 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2048_t17_n1_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant -0.00021195411682128906 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2048_t17_n1_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<34820xf32>
+    %ws = check.generate.fill value(91) : tensor<18944xi8>
+    %ps = check.generate.fill value(83) : tensor<39680xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<276xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<34820xf32> -> tensor<34816xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<18944xi8> -> tensor<18432xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<39680xi8> -> tensor<39168xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<276xf32> -> tensor<272xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<39680xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(39424) : tensor<39680xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2048_t17_n1_q12_p2>(%x, %w, %n) : (tensor<34816xf32>, tensor<18432xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2048_t17_n1_q12_p2, @expected.gate_2048_t17_n1_q12_p2>(%x, %w, %p, %n, %y) : (tensor<34816xf32>, tensor<18432xi8>, tensor<39168xi8>, tensor<3xi32>, tensor<272xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<34820xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<18944xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<276xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t1_n1_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t1_n1_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 163840 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t1_n1_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t1_n1_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2564xf32>
+    %ws = check.generate.fill value(91) : tensor<164352xi8>
+    %ps = check.generate.fill value(83) : tensor<3392xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<164352xi8> -> tensor<163840xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<3392xi8> -> tensor<2880xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<3392xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(3136) : tensor<3392xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t1_n1_q0_p0>(%x, %w, %n) : (tensor<2560xf32>, tensor<163840xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t1_n1_q0_p0, @expected.gate_2560_t1_n1_q0_p0>(%x, %w, %p, %n, %y) : (tensor<2560xf32>, tensor<163840xi8>, tensor<2880xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2564xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<164352xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n3_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 3 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n3_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 163840 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n3_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 3 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n3_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<164352xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<164352xi8> -> tensor<163840xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n3_q0_p0>(%x, %w, %n) : (tensor<7680xf32>, tensor<163840xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n3_q0_p0, @expected.gate_2560_t3_n3_q0_p0>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<163840xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<164352xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n1_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n1_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 163840 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n1_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n1_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<164352xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<164352xi8> -> tensor<163840xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n1_q0_p0>(%x, %w, %n) : (tensor<7680xf32>, tensor<163840xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n1_q0_p0, @expected.gate_2560_t3_n1_q0_p0>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<163840xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<164352xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n0_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 0 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n0_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 163840 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n0_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 0 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n0_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<164352xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<164352xi8> -> tensor<163840xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n0_q0_p0>(%x, %w, %n) : (tensor<7680xf32>, tensor<163840xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n0_q0_p0, @expected.gate_2560_t3_n0_q0_p0>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<163840xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<164352xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t17_n1_q0_p0(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 0 : index
+  %p = index.constant 0 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t17_n1_q0_p0() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 0 : index
+  %bytes = index.constant 163840 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t17_n1_q0_p0(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.0001220703125 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t17_n1_q0_p0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<43524xf32>
+    %ws = check.generate.fill value(91) : tensor<164352xi8>
+    %ps = check.generate.fill value(83) : tensor<49472xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<276xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<43524xf32> -> tensor<43520xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<164352xi8> -> tensor<163840xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<49472xi8> -> tensor<48960xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<276xf32> -> tensor<272xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<49472xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(49216) : tensor<49472xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t17_n1_q0_p0>(%x, %w, %n) : (tensor<43520xf32>, tensor<163840xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t17_n1_q0_p0, @expected.gate_2560_t17_n1_q0_p0>(%x, %w, %p, %n, %y) : (tensor<43520xf32>, tensor<163840xi8>, tensor<48960xi8>, tensor<3xi32>, tensor<272xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<43524xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<164352xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<276xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t1_n1_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t1_n1_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t1_n1_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.42633056640625 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t1_n1_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2564xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<3392xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<3392xi8> -> tensor<2880xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<3392xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(3136) : tensor<3392xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t1_n1_q12_p1>(%x, %w, %n) : (tensor<2560xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t1_n1_q12_p1, @expected.gate_2560_t1_n1_q12_p1>(%x, %w, %p, %n, %y) : (tensor<2560xf32>, tensor<23040xi8>, tensor<2880xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2564xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n3_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 3 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n3_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n3_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 3 : index
+  %unit = scalar.constant 0.42633056640625 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n3_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n3_q12_p1>(%x, %w, %n) : (tensor<7680xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n3_q12_p1, @expected.gate_2560_t3_n3_q12_p1>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<23040xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n1_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n1_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n1_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.42633056640625 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n1_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n1_q12_p1>(%x, %w, %n) : (tensor<7680xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n1_q12_p1, @expected.gate_2560_t3_n1_q12_p1>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<23040xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n0_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 0 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n0_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n0_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 0 : index
+  %unit = scalar.constant 0.42633056640625 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n0_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n0_q12_p1>(%x, %w, %n) : (tensor<7680xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n0_q12_p1, @expected.gate_2560_t3_n0_q12_p1>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<23040xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t17_n1_q12_p1(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 1 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t17_n1_q12_p1() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t17_n1_q12_p1(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant 0.42633056640625 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t17_n1_q12_p1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<43524xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<49472xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<276xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<43524xf32> -> tensor<43520xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<49472xi8> -> tensor<48960xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<276xf32> -> tensor<272xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<49472xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(49216) : tensor<49472xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t17_n1_q12_p1>(%x, %w, %n) : (tensor<43520xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t17_n1_q12_p1, @expected.gate_2560_t17_n1_q12_p1>(%x, %w, %p, %n, %y) : (tensor<43520xf32>, tensor<23040xi8>, tensor<48960xi8>, tensor<3xi32>, tensor<272xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<43524xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<276xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t1_n1_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t1_n1_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t1_n1_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 1 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant -0.00027251243591308594 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t1_n1_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<2564xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<3392xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<20xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<3392xi8> -> tensor<2880xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<20xf32> -> tensor<16xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<3392xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(3136) : tensor<3392xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t1_n1_q12_p2>(%x, %w, %n) : (tensor<2560xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t1_n1_q12_p2, @expected.gate_2560_t1_n1_q12_p2>(%x, %w, %p, %n, %y) : (tensor<2560xf32>, tensor<23040xi8>, tensor<2880xi8>, tensor<3xi32>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<2564xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<20xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n3_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 3 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n3_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n3_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 3 : index
+  %unit = scalar.constant -0.00027251243591308594 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n3_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n3_q12_p2>(%x, %w, %n) : (tensor<7680xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n3_q12_p2, @expected.gate_2560_t3_n3_q12_p2>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<23040xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n1_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n1_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n1_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant -0.00027251243591308594 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n1_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n1_q12_p2>(%x, %w, %n) : (tensor<7680xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n1_q12_p2, @expected.gate_2560_t3_n1_q12_p2>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<23040xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t3_n0_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 0 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t3_n0_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t3_n0_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 3 : index
+  %active = index.constant 0 : index
+  %unit = scalar.constant -0.00027251243591308594 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t3_n0_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<7684xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<9152xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<52xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<9152xi8> -> tensor<8640xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<52xf32> -> tensor<48xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<9152xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(8896) : tensor<9152xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t3_n0_q12_p2>(%x, %w, %n) : (tensor<7680xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t3_n0_q12_p2, @expected.gate_2560_t3_n0_q12_p2>(%x, %w, %p, %n, %y) : (tensor<7680xf32>, tensor<23040xi8>, tensor<8640xi8>, tensor<3xi32>, tensor<48xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<7684xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<52xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}
+
+func.def @init.gate_2560_t17_n1_q12_p2(%x: buffer, %w: buffer, %count: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2560 : index
+  %active = index.constant 1 : index
+  %tag = index.constant 12 : index
+  %p = index.constant 2 : index
+  func.call @gate.matrix.init(%r, %k, %active, %tag, %p, %x, %w, %count) : (index, index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @actual.gate_2560_t17_n1_q12_p2() launch(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %k = index.constant 2560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 23040 : index
+  command.launch @gate.matrix.project[%r, %k, %tag, %bytes](%x, %w, %p, %n, %y) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @expected.gate_2560_t17_n1_q12_p2(%x: buffer, %w: buffer, %p: buffer, %n: buffer, %y: buffer) {
+  %r = index.constant 17 : index
+  %active = index.constant 1 : index
+  %unit = scalar.constant -0.00027251243591308594 : f32
+  func.call @gate.matrix.expected(%r, %active, %unit, %y) : (index, index, f32, buffer)
+  func.return
+}
+
+check.scenario @case.gate_2560_t17_n1_q12_p2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %xs = check.generate.fill value(-77.0) : tensor<43524xf32>
+    %ws = check.generate.fill value(91) : tensor<23552xi8>
+    %ps = check.generate.fill value(83) : tensor<49472xi8>
+    %ys = check.generate.fill value(-99.0) : tensor<276xf32>
+    %n = check.generate.fill value(0) : tensor<3xi32>
+    %x = check.tensor.view %xs offset(8) : tensor<43524xf32> -> tensor<43520xf32>
+    %w = check.tensor.view %ws offset(256) : tensor<23552xi8> -> tensor<23040xi8>
+    %p = check.tensor.view %ps offset(256) : tensor<49472xi8> -> tensor<48960xi8>
+    %y = check.tensor.view %ys offset(8) : tensor<276xf32> -> tensor<272xf32>
+    %before = check.tensor.view %ps offset(0) : tensor<49472xi8> -> tensor<256xi8>
+    %after = check.tensor.view %ps offset(49216) : tensor<49472xi8> -> tensor<256xi8>
+    check.generate<@init.gate_2560_t17_n1_q12_p2>(%x, %w, %n) : (tensor<43520xf32>, tensor<23040xi8>, tensor<3xi32>) -> ()
+    check.compare<@actual.gate_2560_t17_n1_q12_p2, @expected.gate_2560_t17_n1_q12_p2>(%x, %w, %p, %n, %y) : (tensor<43520xf32>, tensor<23040xi8>, tensor<48960xi8>, tensor<3xi32>, tensor<272xf32>) -> () {
+      check.expect.bitwise actual(%xs) expected(%xs) : tensor<43524xf32>
+      check.expect.bitwise actual(%ws) expected(%ws) : tensor<23552xi8>
+      check.expect.bitwise actual(%ys) expected(%ys) : tensor<276xf32>
+      check.expect.bitwise actual(%n) expected(%n) : tensor<3xi32>
+      check.expect.bitwise actual(%before) expected(%before) : tensor<256xi8>
+      check.expect.bitwise actual(%after) expected(%after) : tensor<256xi8>
+    }
+  }
+  check.return
+}

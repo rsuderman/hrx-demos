@@ -268,3 +268,21 @@ cc_binary(
         "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
+
+cc_binary(
+    name = "emit_attention_gate_layers",
+    testonly = True,
+    srcs = ["emit_attention_gate_layers.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/architectures/lfm3:layer_fixture",
+        "//lib/architectures/spark2_5:layer_fixture",
+        "//lib/platforms/amdgpu/gfx11:targets",
+    ],
+    deps = [
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)

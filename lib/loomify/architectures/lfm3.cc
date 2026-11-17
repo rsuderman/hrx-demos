@@ -42,7 +42,7 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
       !p.Tensor(m.globals, "output_norm", E, 1, {0}) ||
       !p.Tensor(m.globals, "rope_frequencies", H / 2, 1, {0}))
     return false;
-  std::vector<std::vector<uint64_t>> info, attention, ffn, conv;
+  std::vector<std::vector<uint64_t>> info, attention, attention_gate, ffn, conv;
   uint64_t na = 0, nc = 0;
   double localbase = 0;
   for (size_t i = 0; i < m.layers.size(); ++i) {
@@ -75,6 +75,7 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
         return false;
       info.push_back({1, nc++, 0});
       attention.push_back(std::vector<uint64_t>(8, 0));
+      attention_gate.push_back({0, 0});
       conv.push_back(
           {in.storage_tag, in.weight_bytes, out.storage_tag, out.weight_bytes});
     } else if (l.kind == model::LayerKind::kAttention) {
@@ -91,13 +92,21 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
       CanonicalProjectionFacts q, k, v, o;
       if (!p.Tensor(l.tensors, "query_norm", H, 1, {0}, l.index) ||
           !p.Tensor(l.tensors, "key_norm", H, 1, {0}, l.index) ||
-          !p.Tensor(l.tensors, "attention_gate", E, QH, {0}, l.index) ||
+          !p.Tensor(l.tensors, "attention_gate", E, QH, {}, l.index, 2) ||
           !p.CanonicalProjection(l.tensors, "query", E, Q, l.index, &q) ||
           !p.CanonicalProjection(l.tensors, "key", E, KV, l.index, &k) ||
           !p.CanonicalProjection(l.tensors, "value", E, KV, l.index, &v) ||
           !p.CanonicalProjection(l.tensors, "attention_output", Q, E, l.index,
                                  &o))
         return false;
+      const auto &gate = *Role(l.tensors, "attention_gate");
+      if (gate.storage_type != 0) {
+        CanonicalProjectionFacts checked;
+        if (!CheckCanonicalProjection(gate, E, QH, &checked, error))
+          return false;
+        p.Projection(gate, E, QH);
+      }
+      attention_gate.push_back({gate.storage_type, gate.byte_size});
       info.push_back({0, na++, l.attention_window});
       conv.push_back(std::vector<uint64_t>(4, 0));
       attention.push_back({q.storage_tag, k.storage_tag, v.storage_tag,
@@ -154,6 +163,7 @@ bool EmitLfm3(const model::ModelDescriptor &m, const std::string &asset,
   p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_info", info);
   p.Lookup("loomify.config.layer_attention", attention);
+  p.Lookup("loomify.config.layer_attention_gate", attention_gate);
   p.Lookup("loomify.config.layer_ffn", ffn);
   p.Lookup("loomify.config.layer_conv", conv);
   p.facts.source = p.text.str();

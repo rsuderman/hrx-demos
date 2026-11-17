@@ -338,6 +338,154 @@ TEST(SparkConfiguration,
         DeriveConfiguration(m, "fixture.gguf", {8, 1024}, &facts, &error));
   }
 }
+TEST(SparkConfiguration, AttentionGateRetainsPerLayerF32AndQ4Facts) {
+  auto c = testing::Spark25Catalog(2560, 3, 16, 4, 10240, true);
+  model::ModelDescriptor m;
+  std::string error;
+  ASSERT_TRUE(model::LoadModelDescriptor(c, &m, &error)) << error;
+  auto gate = [](model::ModelDescriptor &m) -> model::TensorRecord & {
+    for (auto &binding : m.layers.at(0).tensors)
+      if (binding.role == "attention_gate")
+        return binding.tensor;
+    std::abort();
+  };
+  auto &q4 = gate(m);
+  q4.storage_type = 12;
+  ASSERT_TRUE(
+      model::EncodedTensorByteSize(12, m.embedding_width, 16, &q4.byte_size));
+  ConfigurationFacts facts;
+  ASSERT_TRUE(DeriveConfiguration(m, "fixture.gguf", {3, 256}, &facts, &error))
+      << error;
+  const auto start = facts.source.find(
+      "func.def public pure inline @loomify.config.layer_attention_gate");
+  ASSERT_NE(start, std::string::npos);
+  const auto lookup =
+      facts.source.substr(start, facts.source.find("\n}\n", start) - start);
+  EXPECT_NE(lookup.find("index.constant 12 : index"), std::string::npos);
+  EXPECT_NE(lookup.find("index.constant " + std::to_string(q4.byte_size) +
+                        " : index"),
+            std::string::npos);
+  EXPECT_NE(lookup.find("index.constant " +
+                        std::to_string(4 * m.embedding_width * 16) +
+                        " : index"),
+            std::string::npos);
+  auto bound = std::find_if(
+      facts.parameters.begin(), facts.parameters.end(),
+      [](const auto &p) { return p.role == "attention_gate" && p.layer == 0; });
+  ASSERT_NE(bound, facts.parameters.end());
+  EXPECT_EQ(bound->tensor.storage_type, 12u);
+  EXPECT_EQ(bound->tensor.byte_size, q4.byte_size);
+  for (int mutation = 0; mutation < 5; ++mutation) {
+    auto bad = m;
+    auto &t = gate(bad);
+    if (mutation == 0) {
+      t.storage_type =
+          1; // Valid F16 extent, unsupported canonical gate format.
+      ASSERT_TRUE(
+          model::EncodedTensorByteSize(1, m.embedding_width, 16, &t.byte_size));
+    }
+    if (mutation == 1)
+      t.rank = 1;
+    if (mutation == 2)
+      t.normalized_extents[1]++;
+    if (mutation == 3)
+      t.byte_size++;
+    if (mutation == 4)
+      t.absolute_offset = uint64_t(INT64_MAX);
+    ConfigurationFacts rejected;
+    rejected.source = "preserve";
+    EXPECT_FALSE(
+        DeriveConfiguration(bad, "fixture.gguf", {3, 256}, &rejected, &error));
+    EXPECT_EQ(rejected.source, "preserve");
+    EXPECT_TRUE(rejected.parameters.empty());
+  }
+}
+
+TEST(SparkConfiguration,
+     AttentionGateUsesExistingProjectionFormatsAndCapacities) {
+  for (uint32_t tag : {0u, 6u, 8u, 12u, 13u, 14u}) {
+    SCOPED_TRACE(tag);
+    auto c = testing::Spark25Catalog(2560, 3, 16, 4, 10240, true);
+    model::ModelDescriptor m;
+    std::string error;
+    ASSERT_TRUE(model::LoadModelDescriptor(c, &m, &error)) << error;
+    // Make each added format exclusive to the selected gate, so its exact
+    // capacity proves gate sizing instead of inheriting a larger sibling role.
+    if (tag != 0 && tag != 12) {
+      auto use_q4 = [&](model::TensorRecord &tensor) {
+        if (tensor.storage_type != tag)
+          return;
+        tensor.storage_type = 12;
+        ASSERT_TRUE(model::EncodedTensorByteSize(
+            12, tensor.normalized_extents[0], tensor.normalized_extents[1],
+            &tensor.byte_size));
+      };
+      for (auto &other : m.layers)
+        for (auto &binding : other.tensors)
+          if (binding.role != "attention_gate")
+            use_q4(binding.tensor);
+      // Preserve the tied embedding/output alias while isolating projection
+      // capacity.
+      for (auto &binding : m.globals)
+        if (binding.role == "output" || binding.role == "token_embedding")
+          use_q4(binding.tensor);
+    }
+    auto &layer = m.layers.at(0);
+    for (auto &binding : layer.tensors) {
+      if (binding.role != "attention_gate")
+        continue;
+      binding.tensor.storage_type = tag;
+      ASSERT_TRUE(model::EncodedTensorByteSize(tag, m.embedding_width, 16,
+                                               &binding.tensor.byte_size));
+    }
+    ConfigurationFacts facts;
+    ASSERT_TRUE(
+        DeriveConfiguration(m, "fixture.gguf", {3, 256}, &facts, &error))
+        << error;
+    auto bound = std::find_if(
+        facts.parameters.begin(), facts.parameters.end(), [](const auto &p) {
+          return p.role == "attention_gate" && p.layer == 0;
+        });
+    ASSERT_NE(bound, facts.parameters.end());
+    EXPECT_EQ(bound->tensor.storage_type, tag);
+    const uint64_t block_values =
+        tag == 0 ? 1 : (tag == 6 || tag == 8 ? 32 : 256);
+    const uint64_t block_bytes = tag == 0    ? 4
+                                 : tag == 6  ? 22
+                                 : tag == 8  ? 34
+                                 : tag == 12 ? 144
+                                 : tag == 13 ? 176
+                                             : 210;
+    EXPECT_EQ(bound->tensor.byte_size,
+              m.embedding_width / block_values * 16 * block_bytes);
+    const auto start = facts.source.find(
+        "func.def public pure inline @loomify.config.layer_attention_gate");
+    ASSERT_NE(start, std::string::npos);
+    const auto lookup =
+        facts.source.substr(start, facts.source.find("\n}\n", start) - start);
+    EXPECT_NE(lookup.find("index.constant " + std::to_string(tag) + " : index"),
+              std::string::npos);
+    EXPECT_NE(lookup.find("index.constant " +
+                          std::to_string(bound->tensor.byte_size) + " : index"),
+              std::string::npos);
+    // Gate-only formats require sixteen outputs instead of unused default1.
+    if (tag != 0 && tag != 12) {
+      const std::string encoding = tag == 6    ? "q5_0"
+                                   : tag == 8  ? "q8_0"
+                                   : tag == 13 ? "q5k"
+                                               : "q6k";
+      EXPECT_NE(facts.source.find("config.def @ggml.linear_" + encoding +
+                                  "_q8_1_x4.output_capacity = 16 : index"),
+                std::string::npos);
+    }
+    // Other attention layers retain their raw F32 format and exact byte range.
+    EXPECT_NE(lookup.find("index.constant " +
+                          std::to_string(4 * m.embedding_width * 16) +
+                          " : index"),
+              std::string::npos);
+  }
+}
+
 #ifdef LOOMIFY_SPARK_REAL_ASSETS
 TEST(SparkConfiguration, ActualPinnedHeaderPreservesFactsAndAllBindings) {
   const auto *path = std::getenv("LOOMIFY_TEST_SPARK_GGUF");

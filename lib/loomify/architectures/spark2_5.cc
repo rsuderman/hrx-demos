@@ -38,7 +38,7 @@ bool EmitSpark25(const model::ModelDescriptor &m, const std::string &asset,
       !p.CanonicalProjection(m.globals, "output", E, V, {}, &output) ||
       !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
-  std::vector<std::vector<uint64_t>> attention, ffn;
+  std::vector<std::vector<uint64_t>> attention, attention_gate, ffn;
   std::vector<LayerRotaryFacts> rotary;
   for (size_t i = 0; i < m.layers.size(); ++i) {
     const auto &l = m.layers[i];
@@ -63,11 +63,19 @@ bool EmitSpark25(const model::ModelDescriptor &m, const std::string &asset,
                                &qkv) ||
         !p.CanonicalProjection(l.tensors, "attention_output", Q, E, l.index,
                                &o) ||
-        !p.Tensor(l.tensors, "attention_gate", E, QH, {0}, l.index, 2) ||
+        !p.Tensor(l.tensors, "attention_gate", E, QH, {}, l.index, 2) ||
         !p.CanonicalProjection(l.tensors, "ffn_gate", E, F, l.index, &g) ||
         !p.CanonicalProjection(l.tensors, "ffn_up", E, F, l.index, &u) ||
         !p.CanonicalProjection(l.tensors, "ffn_down", F, E, l.index, &d))
       return false;
+    const auto &gate = *Role(l.tensors, "attention_gate");
+    if (gate.storage_type != 0) {
+      CanonicalProjectionFacts checked;
+      if (!CheckCanonicalProjection(gate, E, QH, &checked, error))
+        return false;
+      p.Projection(gate, E, QH);
+    }
+    attention_gate.push_back({gate.storage_type, gate.byte_size});
     attention.push_back(
         {qkv.storage_tag, o.storage_tag, qkv.weight_bytes, o.weight_bytes});
     ffn.push_back({F, g.storage_tag, u.storage_tag, d.storage_tag,
@@ -109,6 +117,7 @@ bool EmitSpark25(const model::ModelDescriptor &m, const std::string &asset,
                         s.context_capacity, pool, base, 2048);
   p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_attention", attention);
+  p.Lookup("loomify.config.layer_attention_gate", attention_gate);
   p.Lookup("loomify.config.layer_ffn", ffn);
   p.LayerRotaryLookup(rotary);
   p.facts.source = p.text.str();

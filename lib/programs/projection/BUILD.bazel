@@ -16,6 +16,9 @@ filegroup(
     srcs = [
         "projection.loom",
         "rows.loom",
+        "//lib/kernels/elementwise:ffn_launches.loom",
+        "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
         "//lib/kernels/epoch:active_rows.loom",
         "//lib/kernels/projection:block32_launch.loom",
         "//lib/kernels/projection:block32_sources",

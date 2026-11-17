@@ -77,3 +77,24 @@ loom_checks(
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
     provider_name = "provider",
 )
+
+loom_checks(
+    name = "attention_gate",
+    checks = ["attention_gate_checks.loom"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+)
+
+loom_checks(
+    name = "attention_gate_matrix",
+    checks = ["attention_gate_matrix_checks.loom"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+)
+
+loom_checks(
+    name = "attention_gate_formats",
+    checks = ["attention_gate_formats_checks.loom"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+)
