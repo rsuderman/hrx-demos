@@ -151,6 +151,14 @@ protected:
     plan.implementations[0].implementation_id = "retained-q4-implementation";
     plan.implementations[0].roots.resize(1);
   }
+  void Gated() {
+    Pair();
+    invocation.kernel_symbol = "llm.projection.q4k_swiglu";
+    auto up = invocation.arguments[4];
+    up.value.buffer.byte_offset = 2000;
+    invocation.arguments.insert(invocation.arguments.begin() + 5, up);
+    invocation.command.argument_count = invocation.arguments.size();
+  }
   void WriteWeights() {
     std::ofstream file(plan.source_asset, std::ios::binary | std::ios::trunc);
     file.write("metadata", 8);
@@ -165,6 +173,44 @@ protected:
   Invocation invocation;
   std::vector<uint8_t> weights;
 };
+
+TEST_F(ProjectionInputsTest, GatedProjectionKeepsBothExactWeightSources) {
+  Gated();
+  PreparedCase prepared;
+  std::string error;
+  ASSERT_EQ(PreparationStatus::kReady,
+            PrepareProjectionCase(plan, invocation, 10000, &prepared, &error))
+      << error;
+  ASSERT_EQ(2u, prepared.weight_sources.size());
+  EXPECT_EQ("selected.matrix.weight", prepared.weight_sources[0].key);
+  EXPECT_EQ("selected.up.weight", prepared.weight_sources[1].key);
+  EXPECT_EQ(8u, prepared.weight_sources[0].source_offset);
+  EXPECT_EQ(440u, prepared.weight_sources[1].source_offset);
+  ASSERT_EQ(4u, prepared.buffer_extents.size());
+  EXPECT_EQ((std::vector<uint64_t>{1, 256, 3}), prepared.source_workloads);
+  const auto *root =
+      FindInputRoot(prepared.roots, invocation.arguments[4].value.buffer);
+  ASSERT_NE(root, nullptr);
+  const auto begin = root->original_byte_offset;
+  EXPECT_EQ(0x33, root->bytes[1000 - begin + 16]);
+  EXPECT_EQ(0x44, root->bytes[2000 - begin + 16]);
+}
+
+TEST_F(ProjectionInputsTest, GatedProjectionValidatesTheSecondMatrix) {
+  Gated();
+  PreparedCase prepared;
+  std::string error;
+  plan.model.layers[0].tensors[1].tensor.storage_type = 14;
+  EXPECT_EQ(PreparationStatus::kFailure,
+            PrepareProjectionCase(plan, invocation, 10000, &prepared, &error));
+  plan.model.layers[0].tensors[1].tensor.storage_type = 12;
+  EXPECT_EQ(PreparationStatus::kUnsupported,
+            PrepareProjectionCase(plan, invocation, 1, &prepared, &error));
+  weights[432 + 1] = 0x7C;
+  WriteWeights();
+  EXPECT_EQ(PreparationStatus::kFailure,
+            PrepareProjectionCase(plan, invocation, 10000, &prepared, &error));
+}
 
 TEST_F(ProjectionInputsTest, UsesExactTensorAndPreservesAliasesAndCapacity) {
   PreparedCase prepared;

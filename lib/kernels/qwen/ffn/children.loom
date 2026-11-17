@@ -11,6 +11,8 @@ kernel.decl @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size:
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
+template.decl @llm.ffn.swiglu_packed(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %ffn_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %activated: buffer)
+
 template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
 template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
@@ -39,12 +41,7 @@ template.def<@llm.ffn.gate_up_decode> @llm_ffn_canonical_gate_up_decode(%hidden_
   %projection_fixed_count = scalar.constant 1 : i32
   %token_count = index.constant 1 : index
   %tag = template.apply<@llm.ffn.canonical_tag>(%ffn_gate_is_q4, %ffn_gate_is_q6) : (i1, i1) -> (index)
-  %ffn_bytes = index.cast %shape_ffn_row_bytes : index to offset
-  %ffn_gate = buffer.alloca<global> align(256) %ffn_bytes : buffer
-  %ffn_up = buffer.alloca<global> align(256) %ffn_bytes : buffer
-  template.apply<@llm.projection.project_packed>(%policy, %tag, %token_count, %token_count, %hidden_size, %ffn_size, %shape_ffn_gate_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %post_normalized_q8, %post_normalized_q8, %ffn_gate_weight, %ffn_gate) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer)
-  template.apply<@llm.projection.project_packed>(%policy, %tag, %token_count, %token_count, %hidden_size, %ffn_size, %shape_ffn_gate_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %post_normalized_q8, %post_normalized_q8, %ffn_up_weight, %ffn_up) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer)
-  kernel.launch @llm_ffn_swiglu_f32_decode[%ffn_size](%ffn_size, %ffn_gate, %ffn_up, %swiglu) : [index](index, buffer, buffer, buffer)
+  template.apply<@llm.ffn.swiglu_packed>(%policy, %token_count, %token_count, %hidden_size, %ffn_size, %tag, %tag, %shape_ffn_gate_weight_bytes, %shape_ffn_gate_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %post_normalized_q8, %post_normalized_q8, %ffn_gate_weight, %ffn_up_weight, %swiglu) : (index, index, index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer)
   template.return
 }
 
@@ -52,15 +49,10 @@ template.def<@llm.ffn.gate_up_prefill> @llm_ffn_canonical_gate_up_prefill(%hidde
   %policy = index.constant 1 : index
   %projection_fixed_count = scalar.constant -1 : i32
   %tag = template.apply<@llm.ffn.canonical_tag>(%ffn_gate_is_q4, %ffn_gate_is_q6) : (i1, i1) -> (index)
-  %ffn_bytes = index.cast %shape_ffn_capacity_bytes : index to offset
-  %ffn_gate = buffer.alloca<global> align(256) %ffn_bytes : buffer
-  %ffn_up = buffer.alloca<global> align(256) %ffn_bytes : buffer
   %packed_bytes = index.cast %shape_hidden_q8_capacity_bytes : index to offset
   %generic_normalized_q8 = buffer.alloca<global> align(256) %packed_bytes : buffer
   template.apply<@llm.projection.pack_input>(%policy, %token_count, %token_capacity, %hidden_size, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %control, %post_normalized, %generic_normalized_q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  template.apply<@llm.projection.project_packed>(%policy, %tag, %token_count, %token_capacity, %hidden_size, %ffn_size, %shape_ffn_gate_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %control, %generic_normalized_q8, %ffn_gate_weight, %ffn_gate) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer)
-  template.apply<@llm.projection.project_packed>(%policy, %tag, %token_count, %token_capacity, %hidden_size, %ffn_size, %shape_ffn_gate_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %control, %generic_normalized_q8, %ffn_up_weight, %ffn_up) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer)
-  kernel.launch @llm_ffn_swiglu_f32_prefill[%token_count, %ffn_size](%ffn_size, %token_capacity, %ffn_gate, %ffn_up, %swiglu) : [index, index](index, index, buffer, buffer, buffer)
+  template.apply<@llm.ffn.swiglu_packed>(%policy, %token_count, %token_capacity, %hidden_size, %ffn_size, %tag, %tag, %shape_ffn_gate_weight_bytes, %shape_ffn_gate_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %control, %generic_normalized_q8, %ffn_gate_weight, %ffn_up_weight, %swiglu) : (index, index, index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer)
   template.return
 }
 

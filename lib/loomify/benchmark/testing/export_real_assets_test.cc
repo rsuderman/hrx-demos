@@ -225,14 +225,35 @@ TEST_F(BenchmarkExportRealTest, PartialBundleProjectsCompleteOriginInventory) {
   options.max_case_input_bytes = UINT64_C(64) * 1024 * 1024;
   options.allow_partial = true;
   options.generator_identity = "test-generator";
-  options.sequence_pairs = {{{"p0/c182", "p0/c183"}}};
   options.output = directory_ / "partial";
   ExportResult result;
   std::string error;
+  // Short canonical gate/up pairs are fused. Exercise the explicit sequence
+  // exporter on the maintained longer-row path, where both leaves still exist.
+  workload_.phase = "prefill";
+  workload_.token_capacity = workload_.active_tokens = 32;
+  workload_.history_tokens = 0;
   Plan plan;
   ASSERT_TRUE(BuildBenchmarkPlan(gguf_, workload_, library_root_, context_,
                                  workspace_, &plan, &error))
       << error;
+  for (size_t i = 0; i + 1 < plan.invocations.size(); ++i) {
+    const auto &gate = plan.invocations[i];
+    const auto &up = plan.invocations[i + 1];
+    if (gate.kernel_symbol != "ggml_linear_q4k_q8_1_x4" ||
+        up.kernel_symbol != gate.kernel_symbol ||
+        gate.program_ordinal != up.program_ordinal ||
+        up.command_ordinal != gate.command_ordinal + 1)
+      continue;
+    const auto *parameter = FindBenchmarkParameter(
+        plan, gate, gate.arguments[4].value.buffer, 2064384, &error);
+    if (!parameter ||
+        parameter->key.find(".ffn_gate.weight") == std::string::npos)
+      continue;
+    options.sequence_pairs = {{{gate.invocation_id, up.invocation_id}}};
+    break;
+  }
+  ASSERT_EQ(1u, options.sequence_pairs.size());
   for (const auto &id : options.sequence_pairs[0]) {
     const auto invocation = std::find_if(
         plan.invocations.begin(), plan.invocations.end(),
@@ -246,7 +267,7 @@ TEST_F(BenchmarkExportRealTest, PartialBundleProjectsCompleteOriginInventory) {
     EXPECT_EQ(invocation->arguments[2].value.scalar_bits, 3584u);
     const auto &grid = invocation->command.payload.dispatch.workgroup_count;
     EXPECT_EQ(grid[0], 448u);
-    EXPECT_EQ(grid[1], 1u);
+    EXPECT_EQ(grid[1], 32u);
     EXPECT_EQ(grid[2], 1u);
   }
   ASSERT_TRUE(Export(options, &result, &error)) << error;
@@ -273,10 +294,17 @@ TEST_F(BenchmarkExportRealTest, PartialBundleProjectsCompleteOriginInventory) {
   ASSERT_EQ(inventory.sequence_occurrences.size(), 1u);
   const auto &occurrence = inventory.sequence_occurrences[0];
   EXPECT_EQ(occurrence.program_ordinal, 0u);
-  EXPECT_EQ(occurrence.command_begin, 182u);
-  EXPECT_EQ(occurrence.command_end, 184u);
+  const auto selected_origin =
+      std::find_if(plan.invocations.begin(), plan.invocations.end(),
+                   [&](const Invocation &value) {
+                     return value.invocation_id == options.sequence_pairs[0][0];
+                   });
+  ASSERT_NE(selected_origin, plan.invocations.end());
+  EXPECT_EQ(occurrence.command_begin, selected_origin->command_ordinal);
+  EXPECT_EQ(occurrence.command_end, selected_origin->command_ordinal + 2);
   EXPECT_EQ(occurrence.covered_invocation_ids,
-            (std::vector<std::string>{"p0/c182", "p0/c183"}));
+            (std::vector<std::string>{options.sequence_pairs[0][0],
+                                      options.sequence_pairs[0][1]}));
   const auto sequence =
       std::find_if(inventory.cases.begin(), inventory.cases.end(),
                    [&](const ReportCase &value) {

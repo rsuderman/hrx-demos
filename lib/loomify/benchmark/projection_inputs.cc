@@ -68,11 +68,13 @@ struct Recipe {
   uint32_t storage_type;
   uint64_t block_values, block_bytes, scale_offset, scale_count, max_width;
   bool controls, quantizer;
+  bool gated = false;
 };
 struct ProjectionLayout {
   const Recipe *recipe = nullptr;
   PreparedCase inputs;
   const model::TensorRecord *tensor = nullptr;
+  const model::TensorRecord *up_tensor = nullptr;
   size_t input_argument = 0;
   uint64_t capacity = 0, width = 0, output_bytes = 0, weight_bytes = 0;
   bool dynamic_count = false;
@@ -85,6 +87,8 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
                                          std::string *error) {
   static constexpr Recipe recipes[] = {
       {"ggml_linear_q4k_q8_1_x4", 12, 256, 144, 0, 2, 32768, false, false},
+      {"llm.projection.q4k_swiglu", 12, 256, 144, 0, 2, 32768, false, false,
+       true},
       {"ggml_linear_q5k_q8_1_x4", 13, 256, 176, 0, 2, 32768, false, false},
       {"ggml_linear_q6k_q8_1_x4", 14, 256, 210, 208, 1, 17408, false, false},
       {"ggml_linear_q8_0_q8_1_x4", 8, 32, 34, 0, 1, 32768, false, false},
@@ -106,7 +110,9 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
     return Fail(error, "prepared projection case output is required");
   const size_t dimensions = recipe->quantizer ? 2 : 3;
   const size_t input_argument = dimensions + (recipe->controls ? 4 : 0);
-  const size_t count = input_argument + (recipe->quantizer ? 2 : 3);
+  const size_t count = input_argument + (recipe->quantizer ? 2
+                                         : recipe->gated   ? 4
+                                                           : 3);
   if (invocation.command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
       invocation.program_ordinal >= plan.programs.size() ||
       invocation.arguments.size() != count ||
@@ -172,21 +178,30 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
           : columns * (width / recipe->block_values) * recipe->block_bytes;
   const model::TensorRecord *tensor = nullptr;
   const Parameter *parameter = nullptr;
-  if (!recipe->quantizer) {
-    const auto weight = buffer(input_argument + 1);
+  const model::TensorRecord *up_tensor = nullptr;
+  for (size_t member = 0;
+       !recipe->quantizer && member < (recipe->gated ? 2u : 1u); ++member) {
+    const auto weight = buffer(input_argument + 1 + member);
     parameter =
         FindBenchmarkParameter(plan, invocation, weight, weight_bytes, error);
     if (!parameter)
       return PreparationStatus::kFailure;
-    tensor = FindBenchmarkTensor(plan, parameter->key);
+    const auto *selected_tensor = FindBenchmarkTensor(plan, parameter->key);
+    if (member == 0)
+      tensor = selected_tensor;
+    else
+      up_tensor = selected_tensor;
     if (weight.role != LOOMC_CMD_BUFFER_ROLE_FIXED ||
         weight.byte_offset != parameter->byte_offset ||
-        parameter->byte_length != weight_bytes || !tensor ||
-        tensor->storage_type != recipe->storage_type || tensor->rank != 2 ||
-        tensor->normalized_extents[0] != static_cast<int64_t>(width) ||
-        tensor->normalized_extents[1] != static_cast<int64_t>(columns) ||
-        tensor->normalized_extents[2] != 1 ||
-        tensor->normalized_extents[3] != 1 || tensor->byte_size != weight_bytes)
+        parameter->byte_length != weight_bytes || !selected_tensor ||
+        selected_tensor->storage_type != recipe->storage_type ||
+        selected_tensor->rank != 2 ||
+        selected_tensor->normalized_extents[0] != static_cast<int64_t>(width) ||
+        selected_tensor->normalized_extents[1] !=
+            static_cast<int64_t>(columns) ||
+        selected_tensor->normalized_extents[2] != 1 ||
+        selected_tensor->normalized_extents[3] != 1 ||
+        selected_tensor->byte_size != weight_bytes)
       return Fail(
           error,
           "projection requires the exact selected GGUF quantized matrix");
@@ -226,14 +241,21 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
     count_binding.byte_length = 4;
   }
   prepared.buffer_extents.push_back({input, input_bytes, 4});
-  if (parameter) {
+  for (size_t member = 0; parameter && member < (recipe->gated ? 2u : 1u);
+       ++member) {
+    const auto ref = buffer(input_argument + 1 + member);
+    const auto *selected = member ? up_tensor : tensor;
+    const auto *weight_parameter =
+        FindBenchmarkParameter(plan, invocation, ref, weight_bytes, error);
+    if (!weight_parameter)
+      return PreparationStatus::kFailure;
     prepared.buffer_extents.push_back(
-        {buffer(input_argument + 1), weight_bytes,
-         std::max<uint64_t>(4, parameter->minimum_alignment)});
+        {ref, weight_bytes,
+         std::max<uint64_t>(4, weight_parameter->minimum_alignment)});
     prepared.representative_weight_spans.push_back(
         prepared.buffer_extents.back());
-    prepared.weight_sources = {
-        {tensor->name, tensor->absolute_offset, weight_bytes}};
+    prepared.weight_sources.push_back(
+        {selected->name, selected->absolute_offset, weight_bytes});
   }
   prepared.buffer_extents.push_back({output, output_bytes, 4});
   // Nonnegative fixed counts bypass the native count view entirely. Retain its
@@ -244,17 +266,10 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
     for (size_t j = i + 1; j < prepared.buffer_extents.size(); ++j)
       if (Overlaps(prepared.buffer_extents[i], prepared.buffer_extents[j]))
         return Fail(error, "quantized recipe requires disjoint argument spans");
-  *out = {recipe,
-          std::move(prepared),
-          tensor,
-          input_argument,
-          capacity,
-          width,
-          output_bytes,
-          weight_bytes,
-          dynamic_count,
-          count_binding,
-          std::move(count_bytes)};
+  *out = {recipe,        std::move(prepared), tensor,
+          up_tensor,     input_argument,      capacity,
+          width,         output_bytes,        weight_bytes,
+          dynamic_count, count_binding,       std::move(count_bytes)};
   return PreparationStatus::kReady;
 }
 PreparationStatus AllocateProjectionRoots(uint64_t max_input_bytes,
@@ -295,9 +310,12 @@ PreparationStatus FillProjectionInputs(const Plan &plan,
       !SetInputBytes(output, std::vector<uint8_t>(output_bytes, 0xA5),
                      &prepared.roots, error))
     return PreparationStatus::kFailure;
-  if (tensor) {
-    const auto weight = invocation.arguments[input_argument + 1].value.buffer;
-    if (!SetTensorInput(weight, plan.source_asset, tensor->absolute_offset,
+  for (size_t member = 0; tensor && member < (recipe->gated ? 2u : 1u);
+       ++member) {
+    const auto *selected = member ? layout.up_tensor : tensor;
+    const auto weight =
+        invocation.arguments[input_argument + 1 + member].value.buffer;
+    if (!SetTensorInput(weight, plan.source_asset, selected->absolute_offset,
                         weight_bytes, &prepared.roots, error))
       return PreparationStatus::kFailure;
     const auto *root = FindInputRoot(prepared.roots, weight);

@@ -23,11 +23,16 @@ h.emit(
     "template.decl @llm.ffn.canonical_swiglu(%rows: index, %hidden: index, %ffn: index, %gt: index, %ut: index, %dt: index, %gb: index, %ub: index, %db: index, %count: buffer, %input: buffer, %gate: view<[%gb]xi8>, %up: view<[%ub]xi8>, %down: view<[%db]xi8>, %output: buffer)\n"
 )
 for case, (E, F, U, D) in enumerate(
-    ((1024, 512, 13, 14), (2560, 10240, 13, 12), (2560, 10240, 14, 14))
+    (
+        (1024, 512, 12, 14),
+        (1024, 512, 13, 14),
+        (2560, 10240, 13, 12),
+        (2560, 10240, 14, 14),
+    )
 ):
     R = 3
     G = E * F // 256 * 144
-    UB = E * F // 256 * {13: 176, 14: 210}[U]
+    UB = E * F // 256 * {12: 144, 13: 176, 14: 210}[U]
     DB = E * F // 256 * {12: 144, 14: 210}[D]
     initial, _, sums = h.ffn_anchors(R, E, F)
     result = [[h.f32(sums[r][k] - initial[r][k]) for k in range(4)] for r in range(R)]

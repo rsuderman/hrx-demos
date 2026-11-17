@@ -194,18 +194,51 @@ TEST_F(ElementwiseInputsTest, ActiveFfnPreservesRowAndCountOrigins) {
   const auto residual = Buffer(1, 128, 32768);
   const auto invocation =
       Invoke("llm_ffn_residual_add_f32_prefill_active",
-             {Index(8), Index(2), Offset(16), Buffer(0, 0, 20), residual,
-              Buffer(2, 0, 32768), residual},
+             {Index(1024), Index(8), Index(2), Offset(16), Buffer(0, 0, 20),
+              residual, Buffer(2, 0, 32768), residual},
              1, 8);
   PreparedCase prepared;
   Ready(invocation, &prepared);
-  EXPECT_EQ(ReadWord(prepared, invocation.arguments[3].value.buffer, 16), 3);
+  EXPECT_EQ(ReadWord(prepared, invocation.arguments[4].value.buffer, 16), 3);
   ASSERT_EQ(prepared.resets.size(), 1);
   EXPECT_EQ(prepared.resets[0].target.byte_offset, 128 + 2 * 1024 * 4);
   EXPECT_EQ(prepared.resets[0].target.byte_length, 3 * 1024 * 4);
   EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{8, 1024}));
-  EXPECT_EQ(prepared.source_argument_types[2], "offset");
-  EXPECT_EQ(invocation.arguments[2].value.scalar_bits, 16);
+  EXPECT_EQ(prepared.source_argument_types[3], "offset");
+  EXPECT_EQ(invocation.arguments[3].value.scalar_bits, 16);
+}
+
+TEST_F(ElementwiseInputsTest,
+       ActiveFfnResidualTailResetsOnlySelectedLaunchedRows) {
+  plan.model.embedding_width = 4096;
+  const uint64_t width = 1536;
+  const auto residual = Buffer(1, 128, 8 * width * 4);
+  const auto invocation =
+      Invoke("llm_ffn_residual_add_f32_prefill_active",
+             {Index(width), Index(8), Index(2), Offset(16), Buffer(0, 0, 20),
+              residual, Buffer(2, 64, 8 * width * 4), residual},
+             2, 4);
+  PreparedCase prepared;
+  Ready(invocation, &prepared);
+  EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{4, width}));
+  EXPECT_EQ(prepared.source_argument_types,
+            (std::vector<std::string>{"index", "index", "index", "offset",
+                                      "buffer", "buffer", "buffer", "buffer"}));
+  EXPECT_EQ(ReadWord(prepared, invocation.arguments[4].value.buffer, 16), 3);
+  ASSERT_EQ(prepared.buffer_extents.size(), 4);
+  EXPECT_EQ(prepared.buffer_extents[0].byte_length, 20);
+  for (size_t i = 1; i < prepared.buffer_extents.size(); ++i)
+    EXPECT_EQ(prepared.buffer_extents[i].byte_length, 8 * width * 4);
+  ASSERT_EQ(prepared.resets.size(), 1);
+  const auto &reset = prepared.resets[0];
+  EXPECT_EQ(reset.target.byte_offset, 128 + 2 * width * 4);
+  // Count3 extends beyond launch4 at origin2: only rows2 and3 execute.
+  EXPECT_EQ(reset.target.byte_length, 2 * width * 4);
+  const auto *root = FindInputRoot(prepared.roots, reset.target);
+  ASSERT_NE(root, nullptr);
+  EXPECT_TRUE(std::equal(reset.seed.bytes.begin(), reset.seed.bytes.end(),
+                         root->bytes.begin() + 2 * width * 4));
+  EXPECT_EQ(prepared.reset_policy, "copy_seed_each_invocation");
 }
 
 TEST_F(ElementwiseInputsTest, GatingVariantsKeepOperationWorkloadsAndPackets) {
@@ -234,12 +267,16 @@ TEST_F(ElementwiseInputsTest, GatingVariantsKeepOperationWorkloadsAndPackets) {
 TEST_F(ElementwiseInputsTest,
        DecodeAndOrdinaryResidualVariantsSharePreparation) {
   plan.workload.active_tokens = 1;
-  for (const char *name :
-       {"qwen38_residual_add_f32_decode", "llm_ffn_residual_add_f32_decode"}) {
+  const auto residual_input = Buffer(0, 0, 4096);
+  for (const auto &invocation :
+       {Invoke("qwen38_residual_add_f32_decode",
+               {residual_input, Buffer(1, 0, 4096), residual_input}, 1, 1),
+        Invoke(
+            "llm_ffn_residual_add_f32_decode",
+            {Index(1024), residual_input, Buffer(1, 0, 4096), residual_input},
+            1, 1)}) {
     PreparedCase prepared;
-    const auto residual = Buffer(0, 0, 4096);
-    Ready(Invoke(name, {residual, Buffer(1, 0, 4096), residual}, 1, 1),
-          &prepared);
+    Ready(invocation, &prepared);
     ASSERT_EQ(prepared.resets.size(), 1);
     EXPECT_EQ(prepared.resets[0].target.byte_length, 4096);
   }
@@ -252,11 +289,122 @@ TEST_F(ElementwiseInputsTest,
   EXPECT_EQ(gate.source_workloads, (std::vector<uint64_t>{256}));
   PreparedCase residual;
   Ready(Invoke("llm_ffn_residual_add_f32_prefill",
-               {Index(8), Buffer(0, 0, 32768), Buffer(1, 0, 32768),
+               {Index(1024), Index(8), Buffer(0, 0, 32768), Buffer(1, 0, 32768),
                 Buffer(2, 0, 32768)},
                1, 8),
         &residual);
   EXPECT_EQ(residual.source_workloads, (std::vector<uint64_t>{8, 1024}));
+}
+
+TEST_F(ElementwiseInputsTest, FfnResidualTailsUseLogicalWidthAndLaunchedRows) {
+  // Neither the model width nor the rounded grid describes the row stride.
+  plan.model.embedding_width = 4096;
+  plan.workload.active_tokens = 1;
+  for (uint64_t width : {1024, 1536, 2560}) {
+    for (bool prefill : {false, true}) {
+      SCOPED_TRACE(::testing::Message() << width << "/prefill=" << prefill);
+      const uint64_t capacity = prefill ? 8 : 1;
+      const uint64_t launched = prefill ? 3 : 1;
+      const uint64_t bytes = capacity * width * 4;
+      const auto lhs = Buffer(0, 64, bytes);
+      const auto rhs = Buffer(1, 128, bytes);
+      const auto output = prefill ? rhs : lhs;
+      const uint32_t groups = (width + 1023) / 1024;
+      const auto invocation =
+          prefill ? Invoke("llm_ffn_residual_add_f32_prefill",
+                           {Index(width), Index(capacity), lhs, rhs, output},
+                           groups, launched)
+                  : Invoke("llm_ffn_residual_add_f32_decode",
+                           {Index(width), lhs, rhs, output}, groups, launched);
+      PreparedCase prepared;
+      Ready(invocation, &prepared);
+      EXPECT_EQ(prepared.source_workloads,
+                prefill ? (std::vector<uint64_t>{launched, width})
+                        : (std::vector<uint64_t>{width}));
+      EXPECT_EQ(prepared.source_argument_types,
+                prefill ? (std::vector<std::string>{"index", "index", "buffer",
+                                                    "buffer", "buffer"})
+                        : (std::vector<std::string>{"index", "buffer", "buffer",
+                                                    "buffer"}));
+      ASSERT_EQ(prepared.buffer_extents.size(), 3);
+      for (const auto &extent : prepared.buffer_extents)
+        EXPECT_EQ(extent.byte_length, bytes);
+      ASSERT_EQ(prepared.resets.size(), 1);
+      const auto &reset = prepared.resets.front();
+      EXPECT_EQ(reset.target.root_index, output.value.buffer.root_index);
+      EXPECT_EQ(reset.target.byte_offset, output.value.buffer.byte_offset);
+      EXPECT_EQ(reset.target.byte_length, launched * width * 4);
+      EXPECT_EQ(reset.seed.bytes.size(), launched * width * 4);
+      const auto *root = FindInputRoot(prepared.roots, reset.target);
+      ASSERT_NE(root, nullptr);
+      // A partial tile does not allocate/reset a padded 2048/3072-wide row.
+      EXPECT_EQ(root->bytes.size(), bytes);
+      EXPECT_TRUE(std::equal(reset.seed.bytes.begin(), reset.seed.bytes.end(),
+                             root->bytes.begin()));
+      EXPECT_NE(ReadWord(prepared, reset.target) & 0x7F800000u, 0x7F800000u);
+      EXPECT_EQ(prepared.reset_policy, "copy_seed_each_invocation");
+    }
+  }
+}
+
+TEST_F(ElementwiseInputsTest,
+       FfnResidualDecodeStageKeepsCapacity512ButResetsOneRow) {
+  plan.workload.token_capacity = plan.workload.active_tokens = 1;
+  const uint64_t bytes = 512 * 1024 * 4;
+  const auto residual = Buffer(0, 0, bytes);
+  const auto invocation = Invoke(
+      "llm_ffn_residual_add_f32_prefill",
+      {Index(1024), Index(512), residual, Buffer(6, 4194560, bytes), residual},
+      1, 1);
+  PreparedCase prepared;
+  ASSERT_EQ(
+      PrepareElementwiseCase(plan, invocation, 8 << 20, &prepared, &error),
+      PreparationStatus::kReady)
+      << error;
+  EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{1, 1024}));
+  ASSERT_EQ(prepared.buffer_extents.size(), 3);
+  for (const auto &extent : prepared.buffer_extents)
+    EXPECT_EQ(extent.byte_length, bytes);
+  ASSERT_EQ(prepared.resets.size(), 1);
+  EXPECT_EQ(prepared.resets[0].target.byte_length, 1024 * 4);
+  EXPECT_EQ(prepared.resets[0].seed.bytes.size(), 1024 * 4);
+}
+
+TEST_F(ElementwiseInputsTest, FfnResidualRejectsStaleAbiAndMismatchedTailGrid) {
+  const auto lhs = Buffer(0, 0, 49152);
+  const auto rhs = Buffer(1, 0, 49152);
+  const auto out = Buffer(2, 0, 49152);
+  for (const auto &invocation :
+       {Invoke("llm_ffn_residual_add_f32_decode", {lhs, rhs, out}, 1, 1),
+        Invoke("llm_ffn_residual_add_f32_prefill", {Index(8), lhs, rhs, out}, 1,
+               1),
+        Invoke("llm_ffn_residual_add_f32_prefill",
+               {Index(1536), Index(8), lhs, rhs, out}, 1, 1),
+        Invoke("llm_ffn_residual_add_f32_prefill",
+               {Index(1536), Index(8), lhs, rhs, out}, 3, 1),
+        Invoke("llm_ffn_residual_add_f32_prefill",
+               {Index(1537), Index(8), lhs, rhs, out}, 2, 1),
+        Invoke("llm_ffn_residual_add_f32_prefill",
+               {Index(1536), Index(0), lhs, rhs, out}, 2, 1),
+        Invoke("llm_ffn_residual_add_f32_prefill",
+               {Index(1536), Index(2), lhs, rhs, out}, 2, 3),
+        Invoke("llm_ffn_residual_add_f32_decode", {Index(1536), lhs, rhs, out},
+               2, 2),
+        Invoke(
+            "llm_ffn_residual_add_f32_prefill_active",
+            {Index(8), Index(2), Offset(16), Buffer(3, 0, 20), lhs, rhs, out},
+            1, 8),
+        Invoke("llm_ffn_residual_add_f32_prefill_active",
+               {Index(1536), Index(8), Index(2), Offset(16), Buffer(3, 0, 20),
+                lhs, rhs, out},
+               1, 8)}) {
+    PreparedCase prepared;
+    prepared.setup_recipe_id = "retained";
+    EXPECT_EQ(
+        PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+        PreparationStatus::kFailure);
+    EXPECT_EQ(prepared.setup_recipe_id, "retained");
+  }
 }
 
 TEST_F(ElementwiseInputsTest, NonTileWidthResidualUsesModelGeometry) {

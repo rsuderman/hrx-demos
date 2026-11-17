@@ -313,8 +313,7 @@ PreparationStatus PrepareElementwiseCase(const Plan &plan,
     layout.workloads = {grid[1]};
     if (layout.width % 1024 || grid[0] != layout.width / 1024)
       return Fail(error, "residual prefill width differs from selected grid");
-  } else if (name == "qwen38_residual_add_f32_decode" ||
-             name == "llm_ffn_residual_add_f32_decode") {
+  } else if (name == "qwen38_residual_add_f32_decode") {
     layout.types = {"buffer", "buffer", "buffer"};
     if (!Signature(invocation, layout.types) || grid[1] != 1)
       return Fail(error, "residual decode native ABI/grid differs");
@@ -322,17 +321,28 @@ PreparationStatus PrepareElementwiseCase(const Plan &plan,
     layout.width = uint64_t(grid[0]) * 1024;
     layout.activations = {0, 1};
     layout.output = 2;
-    if (name == "llm_ffn_residual_add_f32_decode")
-      layout.workloads = {layout.width};
-  } else if (name == "llm_ffn_residual_add_f32_prefill") {
-    layout.types = {"index", "buffer", "buffer", "buffer"};
+  } else if (name == "llm_ffn_residual_add_f32_decode" ||
+             name == "llm_ffn_residual_add_f32_prefill") {
+    const bool prefill = name == "llm_ffn_residual_add_f32_prefill";
+    layout.types =
+        prefill
+            ? std::vector<std::string>{"index", "index", "buffer", "buffer",
+                                       "buffer"}
+            : std::vector<std::string>{"index", "buffer", "buffer", "buffer"};
     if (!Signature(invocation, layout.types))
       return Fail(error, "FFN residual native ABI differs");
-    layout.capacity = scalar(0);
-    layout.width = uint64_t(grid[0]) * 1024;
-    layout.activations = {1, 2};
-    layout.output = 3;
-    layout.workloads = {grid[1], layout.width};
+    // The ceiling grid includes tail lanes. The launch ABI carries the true
+    // row stride; grid.y is the launched row count, not the buffer capacity.
+    layout.width = scalar(0);
+    layout.capacity = prefill ? scalar(1) : 1;
+    if (layout.width < 1024 || layout.width > 32768 || layout.width % 256 ||
+        grid[0] != (layout.width + 1023) / 1024 || (!prefill && grid[1] != 1))
+      return Fail(error, "FFN residual width/rows differ from source grid");
+    const size_t first_buffer = prefill ? 2 : 1;
+    layout.activations = {first_buffer, first_buffer + 1};
+    layout.output = first_buffer + 2;
+    layout.workloads = prefill ? std::vector<uint64_t>{grid[1], layout.width}
+                               : std::vector<uint64_t>{layout.width};
   } else if (name == "llm.decoder.residual" || bias) {
     layout.types = {"index", "buffer", "buffer", "buffer"};
     if (!Signature(invocation, layout.types))
@@ -395,21 +405,24 @@ PreparationStatus PrepareElementwiseCase(const Plan &plan,
     if (layout.width % 1024 || grid[0] != layout.width / 1024)
       return Fail(error, "attention residual width differs from selected grid");
   } else if (name == "llm_ffn_residual_add_f32_prefill_active") {
-    layout.types = {"index",  "index",  "offset", "buffer",
-                    "buffer", "buffer", "buffer"};
+    layout.types = {"index",  "index",  "index",  "offset",
+                    "buffer", "buffer", "buffer", "buffer"};
     if (!Signature(invocation, layout.types))
       return Fail(error, "active residual native ABI differs");
-    layout.capacity = scalar(0);
-    layout.width = uint64_t(grid[0]) * 1024;
-    layout.read_begin = scalar(1);
-    if (scalar(1) >= layout.capacity ||
-        plan.workload.active_tokens > layout.capacity - scalar(1))
+    layout.width = scalar(0);
+    layout.capacity = scalar(1);
+    if (layout.width < 1024 || layout.width > 32768 || layout.width % 256 ||
+        grid[0] != (layout.width + 1023) / 1024)
+      return Fail(error, "active residual width differs from source grid");
+    layout.read_begin = scalar(2);
+    if (scalar(2) >= layout.capacity ||
+        plan.workload.active_tokens > layout.capacity - scalar(2))
       return Unsupported(error,
                          "active residual count exceeds selected row span");
     layout.counts = {
-        {3, scalar(2), {static_cast<uint32_t>(plan.workload.active_tokens)}}};
-    layout.activations = {4, 5};
-    layout.output = 6;
+        {4, scalar(3), {static_cast<uint32_t>(plan.workload.active_tokens)}}};
+    layout.activations = {5, 6};
+    layout.output = 7;
     layout.workloads = {grid[1], layout.width};
   } else if (name == "llm_ffn_swiglu_f32_decode") {
     layout.types = {"index", "buffer", "buffer", "buffer"};
