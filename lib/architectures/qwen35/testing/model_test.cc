@@ -26,6 +26,7 @@
 #include <functional>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -616,6 +617,128 @@ protected:
     loomc_compiler_release(compiler);
     loomc_target_profile_release(profile);
   }
+  Module MaterializeGates(const model::ModelDescriptor &facts, uint64_t tokens,
+                          const char *provider) {
+    ConfigurationFacts configuration;
+    std::string error;
+    EXPECT_TRUE(DeriveConfiguration(facts, "immutable-gguf", {tokens, 128},
+                                    &configuration, &error))
+        << error;
+    loomc_module_t *module = nullptr;
+    EXPECT_TRUE(LinkConfiguredProducts(
+        context, workspace, configuration.source,
+        {root + "/lib/architectures/qwen35/" + provider,
+         root + "/lib/platforms/amdgpu/gfx11/targets.loombc",
+         root +
+             "/lib/platforms/amdgpu/gfx11/attention_h256_implementation.loombc"},
+        {"generated.qwen_epoch"}, true, &module, &error))
+        << error;
+    return Module(module, loomc_module_release);
+  }
+  void InspectGdnGateInputs(loomc_module_t *module,
+                            const model::ModelDescriptor &facts) {
+    loomc_module_t *raw = nullptr;
+    ASSERT_TRUE(Ok(
+        loomc_module_clone(module, workspace, loomc_allocator_system(), &raw)));
+    Module expanded(raw, loomc_module_release);
+    Pass(expanded.get(), "inline-callables,canonicalize");
+    loomc_module_interop_view_t view{};
+    loomc_result_t *result = nullptr;
+    ASSERT_TRUE(Ok(loomc_module_get_interop_view(
+        expanded.get(), loomc_allocator_system(), &view, &result)));
+    ASSERT_TRUE(result && loomc_result_succeeded(result))
+        << Diagnostics(result);
+    loomc_result_release(result);
+    const auto *definition = Definition(view.module, "generated.qwen_epoch");
+    ASSERT_TRUE(definition && loom_command_def_isa(definition));
+    struct Projection {
+      std::string kernel;
+      loom_value_id_t normalized, count, output;
+    };
+    std::map<std::string, Projection> projections;
+    std::map<loom_value_id_t, loom_value_id_t> packed_inputs;
+    std::set<loom_value_id_t> normalized_outputs;
+    std::vector<const loom_op_t *> recurrences;
+    Walk(loom_command_def_body(definition), [&](const loom_op_t *op) {
+      if (!loom_kernel_launch_isa(op))
+        return;
+      const auto kernel = Text(
+          view.module,
+          view.module->symbols.entries[loom_kernel_launch_callee(op).symbol_id]
+              .name_id);
+      const auto args = loom_kernel_launch_arguments(op);
+      if (kernel == "qwen38_rmsnorm_f32_prefill") {
+        ASSERT_EQ(args.count, 5u);
+        normalized_outputs.insert(args.values[4]);
+      } else if (kernel == "ggml_quantize_q8_1_x4_f32") {
+        ASSERT_EQ(args.count, 4u);
+        packed_inputs.emplace(args.values[3], args.values[2]);
+      } else if (kernel == "qwen38_gdn_recurrent_spans") {
+        recurrences.push_back(op);
+      }
+      if (args.count != 6 || (kernel != "llm.projection.f32_rows_kernel" &&
+                              kernel.find("ggml_linear_") != 0))
+        return;
+      const auto *weight =
+          loom_value_def_op(loom_module_value(view.module, args.values[4]));
+      ASSERT_TRUE(weight && loom_command_parameter_isa(weight));
+      auto name = Text(view.module, loom_command_parameter_pattern(weight));
+      const auto substitutions = loom_command_parameter_substitutions(weight);
+      for (size_t i = 0; i < substitutions.count; ++i) {
+        const auto position = name.find("{}");
+        ASSERT_NE(position, std::string::npos);
+        name.replace(
+            position, 2,
+            std::to_string(Constant(view.module, substitutions.values[i])));
+      }
+      // Recover the original activation producer through the actual packer
+      // operand. F32 projections must bypass this map entirely.
+      auto normalized = args.values[3];
+      if (kernel != "llm.projection.f32_rows_kernel") {
+        auto packed = packed_inputs.find(normalized);
+        ASSERT_NE(packed, packed_inputs.end()) << name << kernel;
+        normalized = packed->second;
+      } else {
+        EXPECT_EQ(packed_inputs.count(normalized), 0u) << name;
+        EXPECT_EQ(normalized_outputs.count(normalized), 1u) << name;
+      }
+      projections.emplace(
+          name, Projection{kernel, normalized, args.values[2], args.values[5]});
+    });
+    size_t ordinal = 0;
+    for (const auto &layer : facts.layers) {
+      if (layer.kind != model::LayerKind::kGatedDeltaNet)
+        continue;
+      ASSERT_LT(ordinal, recurrences.size());
+      const auto recurrent =
+          loom_kernel_launch_arguments(recurrences[ordinal++]);
+      ASSERT_EQ(recurrent.count, 11u);
+      const auto prefix = "blk." + std::to_string(layer.index) + ".";
+      const auto qkv = projections.find(prefix + "attn_qkv.weight");
+      ASSERT_NE(qkv, projections.end());
+      for (const char *role : {"alpha", "beta"}) {
+        const auto binding = std::find_if(
+            layer.tensors.begin(), layer.tensors.end(),
+            [&](const auto &binding) { return binding.role == role; });
+        ASSERT_NE(binding, layer.tensors.end());
+        const auto actual = projections.find(binding->tensor.name);
+        ASSERT_NE(actual, projections.end());
+        SCOPED_TRACE(binding->tensor.name);
+        const auto &projection = actual->second;
+        if (binding->tensor.storage_type == 0) {
+          EXPECT_EQ(projection.kernel, "llm.projection.f32_rows_kernel");
+          EXPECT_EQ(projection.count, recurrent.values[0]);
+        } else {
+          EXPECT_EQ(binding->tensor.storage_type, 13u);
+          EXPECT_EQ(projection.kernel, "ggml_linear_q5k_q8_1_x4");
+        }
+        EXPECT_EQ(projection.normalized, qkv->second.normalized);
+        EXPECT_EQ(projection.output,
+                  recurrent.values[std::string(role) == "alpha" ? 5 : 6]);
+      }
+    }
+    EXPECT_EQ(ordinal, recurrences.size());
+  }
   loomc_target_environment_t *environment = nullptr;
   loomc_context_t *context = nullptr;
   loomc_workspace_t *workspace = nullptr;
@@ -667,7 +790,39 @@ TEST_F(QwenModelTest, CompleteSequenceSurvivesBothProviderEncodings) {
     Pass(module.get(), "canonicalize,unroll-scf-for,canonicalize");
     InspectCalls(module.get(), facts, 4);
     InspectParameters(module.get(), facts);
-    Compile(module.get());
+    const bool f32_gates = std::any_of(
+        facts.layers.front().tensors.begin(),
+        facts.layers.front().tensors.end(), [](const auto &binding) {
+          return binding.role == "alpha" && binding.tensor.storage_type == 0;
+        });
+    if (f32_gates) {
+      auto materialized = MaterializeGates(facts, 4, name);
+      ASSERT_TRUE(materialized);
+      InspectGdnGateInputs(materialized.get(), facts);
+      Compile(materialized.get());
+    } else {
+      Compile(module.get());
+    }
+  }
+}
+TEST_F(QwenModelTest, F32GdnGatesSelectOriginalNormalizedInputsIndependently) {
+  model::ModelDescriptor original;
+  std::string error;
+  ASSERT_TRUE(testing::LoadAlternatingQwenFixture(&original, nullptr, &error))
+      << error;
+  for (const auto &[alpha, beta] :
+       std::vector<std::pair<uint32_t, uint32_t>>{{0, 0}, {0, 13}, {13, 0}}) {
+    SCOPED_TRACE(std::to_string(alpha) + "/" + std::to_string(beta));
+    const auto facts = testing::WithGdnGateFormats(original, alpha, beta);
+    for (const char *provider :
+         {"implementation_text.loom", "implementation.loombc"}) {
+      SCOPED_TRACE(provider);
+      auto module = MaterializeGates(facts, 3, provider);
+      ASSERT_TRUE(module);
+      InspectGdnGateInputs(module.get(), facts);
+      if (alpha == beta)
+        Compile(module.get());
+    }
   }
 }
 TEST_F(QwenModelTest, AlteredScalarDataReachesAllGdnConsumers) {

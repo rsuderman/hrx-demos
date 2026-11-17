@@ -1,0 +1,523 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Structured exact inputs distinguish raw F32 routing from packed activations.
+// The oracle uses two nonzero positions, not a second matrix reduction.
+template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %width: index, %columns: index, %tag: index, %bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer)
+
+template.decl @llm.projection.pack_input(%policy: index, %rows: index, %capacity: index, %width: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.projection.project_packed(%policy: index, %tag: index, %rows: index, %capacity: index, %width: index, %columns: index, %bytes: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer)
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 4 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 3 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 4 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 3 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 4 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 3 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 4 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 3 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 4 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 3 : index
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 8 : index
+
+func.def @routed.active(%rows: index, %count: buffer) -> (index) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %zero32 = scalar.constant 0 : i32
+  %packet = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %n32 = view.load %packet[0] : view<3xi32> -> i32
+  %n = index.cast %n32 : i32 to index
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %fits = index.cmp ule, %n, %rows : index
+  %valid = scalar.andi %positive, %fits : i1
+  %active = scf.select %valid, %n, %zero : index
+  func.return %active : index
+}
+
+func.def @routed.init(%rows: index, %capacity: index, %width: index, %columns: index, %input: buffer, %weight: buffer, %count: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %last = index.sub %width, %one : index
+  %zero_f = scalar.constant 0.0 : f32
+  %one_f = scalar.constant 1.0 : f32
+  %nan_bits = scalar.constant 2143289344 : i32
+  %nan = scalar.bitcast %nan_bits : i32 to f32
+  %active = func.call @routed.active(%rows, %count) : (index, buffer) -> (index)
+  %x = buffer.view %input[%origin] : buffer -> view<[%capacity]x[%width]xf32>
+  %w = buffer.view %weight[%origin] : buffer -> view<[%columns]x[%width]xf32>
+  scf.for %r = [%zero to %capacity step %one] {
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %a = scalar.addf %rf, %one_f : f32
+    %next = scalar.addf %a, %one_f : f32
+    %b = scalar.subf %zero_f, %next : f32
+    %live = index.cmp ult, %r, %active : index
+    scf.for %k = [%zero to %width step %one] {
+      %first = index.cmp eq, %k, %zero : index
+      %end = index.cmp eq, %k, %last : index
+      %tail = scf.select %end, %b, %zero_f : f32
+      %defined = scf.select %first, %a, %tail : f32
+      %value = scf.select %live, %defined, %nan : f32
+      view.store %value, %x[%r, %k] : f32, view<[%capacity]x[%width]xf32>
+    }
+  }
+  scf.for %c = [%zero to %columns step %one] {
+    %ci = index.cast %c : index to i32
+    %cf = scalar.uitofp %ci : i32 to f32
+    %a = scalar.addf %cf, %one_f : f32
+    %mod = index.rem %c, %three : index
+    %mi = index.cast %mod : index to i32
+    %mf = scalar.uitofp %mi : i32 to f32
+    %b = scalar.subf %mf, %one_f : f32
+    scf.for %k = [%zero to %width step %one] {
+      %first = index.cmp eq, %k, %zero : index
+      %end = index.cmp eq, %k, %last : index
+      %tail = scf.select %end, %b, %zero_f : f32
+      %value = scf.select %first, %a, %tail : f32
+      view.store %value, %w[%c, %k] : f32, view<[%columns]x[%width]xf32>
+    }
+  }
+  func.return
+}
+
+func.def @routed.expected(%rows: index, %columns: index, %count: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %one_f = scalar.constant 1.0 : f32
+  %active = func.call @routed.active(%rows, %count) : (index, buffer) -> (index)
+  %y = buffer.view %output[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  scf.for %r = [%zero to %rows step %one] {
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %a = scalar.addf %rf, %one_f : f32
+    %b = scalar.addf %a, %one_f : f32
+    %live = index.cmp ult, %r, %active : index
+    scf.for %c = [%zero to %columns step %one] {
+      %ci = index.cast %c : index to i32
+      %cf = scalar.uitofp %ci : i32 to f32
+      %ca = scalar.addf %cf, %one_f : f32
+      %mod = index.rem %c, %three : index
+      %mi = index.cast %mod : index to i32
+      %mf = scalar.uitofp %mi : i32 to f32
+      %cb = scalar.subf %mf, %one_f : f32
+      %first = scalar.mulf %a, %ca : f32
+      %tail = scalar.mulf %b, %cb : f32
+      %sum = scalar.subf %first, %tail : f32
+      %value = scf.select %live, %sum, %zero_f : f32
+      view.store %value, %y[%r, %c] : f32, view<[%rows]x[%columns]xf32>
+    }
+  }
+  func.return
+}
+
+command.def @routed.f32(%rows: index, %capacity: index, %width: index, %columns: index) launch(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %zero = index.constant 0 : index
+  %four = index.constant 4 : index
+  %origin = index.constant 0 : offset
+  %elements = index.mul %width, %columns : index
+  %bytes = index.mul %elements, %four : index
+  %w = buffer.view %weight[%origin] : buffer -> view<[%bytes]xi8>
+  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %capacity, %width, %columns, %zero, %bytes, %count, %input, %packed, %w, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  command.return
+}
+
+func.def @routed.init_small(%input: buffer, %weight: buffer, %count: buffer) {
+  %rows = index.constant 3 : index
+  %capacity = index.constant 5 : index
+  %width = index.constant 7 : index
+  %columns = index.constant 5 : index
+  func.call @routed.init(%rows, %capacity, %width, %columns, %input, %weight, %count) : (index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @routed.actual_small() launch(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %capacity = index.constant 5 : index
+  %width = index.constant 7 : index
+  %columns = index.constant 5 : index
+  command.launch @routed.f32[%rows, %capacity, %width, %columns](%input, %weight, %packed, %count, %output) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @routed.expected_small(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %columns = index.constant 5 : index
+  func.call @routed.expected(%rows, %columns, %count, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @routed.init_single(%input: buffer, %weight: buffer, %count: buffer) {
+  %rows = index.constant 1 : index
+  %capacity = index.constant 4 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 32 : index
+  func.call @routed.init(%rows, %capacity, %width, %columns, %input, %weight, %count) : (index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @routed.actual_single() launch(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %capacity = index.constant 4 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 32 : index
+  command.launch @routed.f32[%rows, %capacity, %width, %columns](%input, %weight, %packed, %count, %output) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @routed.expected_single(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %columns = index.constant 32 : index
+  func.call @routed.expected(%rows, %columns, %count, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @routed.init_partial(%input: buffer, %weight: buffer, %count: buffer) {
+  %rows = index.constant 17 : index
+  %capacity = index.constant 32 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 32 : index
+  func.call @routed.init(%rows, %capacity, %width, %columns, %input, %weight, %count) : (index, index, index, index, buffer, buffer, buffer)
+  func.return
+}
+
+command.def @routed.actual_partial() launch(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 17 : index
+  %capacity = index.constant 32 : index
+  %width = index.constant 4096 : index
+  %columns = index.constant 32 : index
+  command.launch @routed.f32[%rows, %capacity, %width, %columns](%input, %weight, %packed, %count, %output) : [index, index, index, index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @routed.expected_partial(%input: buffer, %weight: buffer, %packed: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 17 : index
+  %columns = index.constant 32 : index
+  func.call @routed.expected(%rows, %columns, %count, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+check.scenario @routed_f32_nonsquare {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<35xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<35xf32>
+    %packed = check.generate.fill value(12345.0) : tensor<35xf32>
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<33xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<33xf32> -> tensor<25xf32>
+    check.generate<@routed.init_small>(%input, %weight, %count) : (tensor<35xf32>, tensor<35xf32>, tensor<3xi32>) -> ()
+    check.compare<@routed.actual_small, @routed.expected_small>(%input, %weight, %packed, %count, %output) : (tensor<35xf32>, tensor<35xf32>, tensor<35xf32>, tensor<3xi32>, tensor<25xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<33xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<35xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<35xf32>
+      check.expect.bitwise actual(%packed) expected(%packed) : tensor<35xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @routed_f32_ornith_decode {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<16384xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<131072xf32>
+    %packed = check.generate.fill value(12345.0) : tensor<16384xf32>
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<136xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<136xf32> -> tensor<128xf32>
+    check.generate<@routed.init_single>(%input, %weight, %count) : (tensor<16384xf32>, tensor<131072xf32>, tensor<3xi32>) -> ()
+    check.compare<@routed.actual_single, @routed.expected_single>(%input, %weight, %packed, %count, %output) : (tensor<16384xf32>, tensor<131072xf32>, tensor<16384xf32>, tensor<3xi32>, tensor<128xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<136xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<16384xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<131072xf32>
+      check.expect.bitwise actual(%packed) expected(%packed) : tensor<16384xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @routed_f32_ornith_partial_capacity {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<131072xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<131072xf32>
+    %packed = check.generate.fill value(12345.0) : tensor<131072xf32>
+    %count = check.generate.fill value(3) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<1032xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<1032xf32> -> tensor<1024xf32>
+    check.generate<@routed.init_partial>(%input, %weight, %count) : (tensor<131072xf32>, tensor<131072xf32>, tensor<3xi32>) -> ()
+    check.compare<@routed.actual_partial, @routed.expected_partial>(%input, %weight, %packed, %count, %output) : (tensor<131072xf32>, tensor<131072xf32>, tensor<131072xf32>, tensor<3xi32>, tensor<1024xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<1032xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<131072xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<131072xf32>
+      check.expect.bitwise actual(%packed) expected(%packed) : tensor<131072xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @routed_f32_empty {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<35xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<35xf32>
+    %packed = check.generate.fill value(12345.0) : tensor<35xf32>
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<33xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<33xf32> -> tensor<25xf32>
+    check.generate<@routed.init_small>(%input, %weight, %count) : (tensor<35xf32>, tensor<35xf32>, tensor<3xi32>) -> ()
+    check.compare<@routed.actual_small, @routed.expected_small>(%input, %weight, %packed, %count, %output) : (tensor<35xf32>, tensor<35xf32>, tensor<35xf32>, tensor<3xi32>, tensor<25xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<33xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<35xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<35xf32>
+      check.expect.bitwise actual(%packed) expected(%packed) : tensor<35xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @routed_f32_negative_count {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<35xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<35xf32>
+    %packed = check.generate.fill value(12345.0) : tensor<35xf32>
+    %count = check.generate.fill value(-1) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<33xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<33xf32> -> tensor<25xf32>
+    check.generate<@routed.init_small>(%input, %weight, %count) : (tensor<35xf32>, tensor<35xf32>, tensor<3xi32>) -> ()
+    check.compare<@routed.actual_small, @routed.expected_small>(%input, %weight, %packed, %count, %output) : (tensor<35xf32>, tensor<35xf32>, tensor<35xf32>, tensor<3xi32>, tensor<25xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<33xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<35xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<35xf32>
+      check.expect.bitwise actual(%packed) expected(%packed) : tensor<35xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @routed_f32_count_past_launch {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<35xf32>
+    %weight = check.generate.fill value(-33.0) : tensor<35xf32>
+    %packed = check.generate.fill value(12345.0) : tensor<35xf32>
+    %count = check.generate.fill value(4) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<33xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<33xf32> -> tensor<25xf32>
+    check.generate<@routed.init_small>(%input, %weight, %count) : (tensor<35xf32>, tensor<35xf32>, tensor<3xi32>) -> ()
+    check.compare<@routed.actual_small, @routed.expected_small>(%input, %weight, %packed, %count, %output) : (tensor<35xf32>, tensor<35xf32>, tensor<35xf32>, tensor<3xi32>, tensor<25xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<33xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<35xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<35xf32>
+      check.expect.bitwise actual(%packed) expected(%packed) : tensor<35xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+// Both encodings represent W[c,k]=c+1. Q5_K uses d=c+1, dmin=0,
+// all eight subscales1, all low nibbles1 and all high bits0. Q8_0
+// uses d=c+1 and signed codes1. X[r,k]=127*(r+1) packs exactly.
+func.def @routed.quant_init(%tag: index, %input: buffer, %weight: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %twelve = index.constant 12 : index
+  %sixteen = index.constant 16 : index
+  %b32 = index.constant 32 : index
+  %b34 = index.constant 34 : index
+  %b48 = index.constant 48 : index
+  %b176 = index.constant 176 : index
+  %width = index.constant 256 : index
+  %origin = index.constant 0 : offset
+  %one_f = scalar.constant 1.0 : f32
+  %amax = scalar.constant 127.0 : f32
+  %byte0 = scalar.constant 0 : i8
+  %byte1 = scalar.constant 1 : i8
+  %nibbles = scalar.constant 17 : i8
+  %q8 = index.cmp eq, %tag, %eight : index
+  %block_width = scf.select %q8, %b32, %width : index
+  %block_bytes = scf.select %q8, %b34, %b176 : index
+  %blocks = index.div %width, %block_width : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %stride = index.cast %block_bytes : index to offset
+  %row_stride = index.cast %row_bytes : index to offset
+  %x = buffer.view %input[%origin] : buffer -> view<4x256xf32>
+  scf.for %r = [%zero to %four step %one] {
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %factor = scalar.addf %rf, %one_f : f32
+    %value = scalar.mulf %factor, %amax : f32
+    scf.for %k = [%zero to %width step %one] {
+      view.store %value, %x[%r, %k] : f32, view<4x256xf32>
+    }
+  }
+  scf.for %c = [%zero to %three step %one] {
+    %ci = index.cast %c : index to i32
+    %cf = scalar.uitofp %ci : i32 to f32
+    %scale32 = scalar.addf %cf, %one_f : f32
+    %scale = scalar.fptrunc %scale32 : f32 to f16
+    %row_base = index.scale %c, %row_stride : index, offset -> offset
+    scf.for %b = [%zero to %blocks step %one] {
+      %add = index.scale %b, %stride : index, offset -> offset
+      %base = index.add %row_base, %add : offset
+      %bytes = buffer.view %weight[%base] : buffer -> view<[%block_bytes]xi8>
+      scf.for %j = [%zero to %block_bytes step %one] {
+        view.store %byte0, %bytes[%j] : i8, view<[%block_bytes]xi8>
+      }
+      %d = buffer.view %weight[%base] : buffer -> view<1xf16>
+      view.store %scale, %d[0] : f16, view<1xf16>
+      scf.if %q8 {
+        scf.for %j = [%two to %block_bytes step %one] {
+          view.store %byte1, %bytes[%j] : i8, view<[%block_bytes]xi8>
+        }
+      } else {
+        scf.for %j = [%four to %eight step %one] {
+          view.store %byte1, %bytes[%j] : i8, view<[%block_bytes]xi8>
+        }
+        scf.for %j = [%twelve to %sixteen step %one] {
+          view.store %byte1, %bytes[%j] : i8, view<[%block_bytes]xi8>
+        }
+        scf.for %j = [%b48 to %block_bytes step %one] {
+          view.store %nibbles, %bytes[%j] : i8, view<[%block_bytes]xi8>
+        }
+      }
+    }
+  }
+  func.return
+}
+
+command.def @routed.quantized(%tag: index, %bytes: index) launch(%input: buffer, %weight: buffer, %packed: buffer, %ignored_raw: buffer, %count: buffer, %output: buffer, %direct: buffer) {
+  %rows = index.constant 3 : index
+  %capacity = index.constant 4 : index
+  %width = index.constant 256 : index
+  %columns = index.constant 3 : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %w = buffer.view %weight[%origin] : buffer -> view<[%bytes]xi8>
+  template.apply<@llm.projection.pack_input>(%one, %rows, %capacity, %width, %zero, %dynamic, %origin, %count, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %capacity, %width, %columns, %tag, %bytes, %count, %ignored_raw, %packed, %w, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%one, %tag, %rows, %capacity, %width, %columns, %bytes, %zero, %dynamic, %origin, %count, %packed, %w, %direct) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%bytes]xi8>, buffer)
+  command.return
+}
+
+func.def @routed.quant_expected(%input: buffer, %weight: buffer, %packed: buffer, %ignored_raw: buffer, %count: buffer, %output: buffer, %direct: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %origin = index.constant 0 : offset
+  %one_f = scalar.constant 1.0 : f32
+  %unit = scalar.constant 32512.0 : f32
+  %y = buffer.view %output[%origin] : buffer -> view<3x3xf32>
+  %old = buffer.view %direct[%origin] : buffer -> view<3x3xf32>
+  scf.for %r = [%zero to %three step %one] {
+    %ri = index.cast %r : index to i32
+    %rf = scalar.uitofp %ri : i32 to f32
+    %a = scalar.addf %rf, %one_f : f32
+    scf.for %c = [%zero to %three step %one] {
+      %ci = index.cast %c : index to i32
+      %cf = scalar.uitofp %ci : i32 to f32
+      %b = scalar.addf %cf, %one_f : f32
+      %factor = scalar.mulf %a, %b : f32
+      %value = scalar.mulf %unit, %factor : f32
+      view.store %value, %y[%r, %c] : f32, view<3x3xf32>
+      view.store %value, %old[%r, %c] : f32, view<3x3xf32>
+    }
+  }
+  func.return
+}
+
+func.def @routed.init_q5(%input: buffer, %weight: buffer) {
+  %tag = index.constant 13 : index
+  func.call @routed.quant_init(%tag, %input, %weight) : (index, buffer, buffer)
+  func.return
+}
+
+command.def @routed.actual_q5() launch(%input: buffer, %weight: buffer, %packed: buffer, %ignored_raw: buffer, %count: buffer, %output: buffer, %direct: buffer) {
+  %tag = index.constant 13 : index
+  %bytes = index.constant 528 : index
+  command.launch @routed.quantized[%tag, %bytes](%input, %weight, %packed, %ignored_raw, %count, %output, %direct) : [index, index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @routed.init_q8(%input: buffer, %weight: buffer) {
+  %tag = index.constant 8 : index
+  func.call @routed.quant_init(%tag, %input, %weight) : (index, buffer, buffer)
+  func.return
+}
+
+command.def @routed.actual_q8() launch(%input: buffer, %weight: buffer, %packed: buffer, %ignored_raw: buffer, %count: buffer, %output: buffer, %direct: buffer) {
+  %tag = index.constant 8 : index
+  %bytes = index.constant 816 : index
+  command.launch @routed.quantized[%tag, %bytes](%input, %weight, %packed, %ignored_raw, %count, %output, %direct) : [index, index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+check.scenario @routed_q5_preserves_packed {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<1024xf32>
+    %weight = check.generate.fill value(-33) : tensor<528xi8>
+    %packed = check.generate.fill value(-91) : tensor<1152xi8>
+    %ignored_raw = check.generate.fill value(12345.0) : tensor<1024xf32>
+    %count = check.generate.fill value(3) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<20xf32>
+    %direct_owner = check.generate.fill value(-555.0) : tensor<20xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<20xf32> -> tensor<12xf32>
+    %direct = check.tensor.view %direct_owner offset(16) : tensor<20xf32> -> tensor<12xf32>
+    check.generate<@routed.init_q5>(%input, %weight) : (tensor<1024xf32>, tensor<528xi8>) -> ()
+    check.compare<@routed.actual_q5, @routed.quant_expected>(%input, %weight, %packed, %ignored_raw, %count, %output, %direct) : (tensor<1024xf32>, tensor<528xi8>, tensor<1152xi8>, tensor<1024xf32>, tensor<3xi32>, tensor<12xf32>, tensor<12xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<20xf32>
+      check.expect.bitwise actual(%direct_owner) expected(%direct_owner) : tensor<20xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1024xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<528xi8>
+      check.expect.bitwise actual(%ignored_raw) expected(%ignored_raw) : tensor<1024xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @routed_q8_preserves_packed {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-77.0) : tensor<1024xf32>
+    %weight = check.generate.fill value(-33) : tensor<816xi8>
+    %packed = check.generate.fill value(-91) : tensor<1152xi8>
+    %ignored_raw = check.generate.fill value(12345.0) : tensor<1024xf32>
+    %count = check.generate.fill value(3) : tensor<3xi32>
+    %owner = check.generate.fill value(-555.0) : tensor<20xf32>
+    %direct_owner = check.generate.fill value(-555.0) : tensor<20xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<20xf32> -> tensor<12xf32>
+    %direct = check.tensor.view %direct_owner offset(16) : tensor<20xf32> -> tensor<12xf32>
+    check.generate<@routed.init_q8>(%input, %weight) : (tensor<1024xf32>, tensor<816xi8>) -> ()
+    check.compare<@routed.actual_q8, @routed.quant_expected>(%input, %weight, %packed, %ignored_raw, %count, %output, %direct) : (tensor<1024xf32>, tensor<816xi8>, tensor<1152xi8>, tensor<1024xf32>, tensor<3xi32>, tensor<12xf32>, tensor<12xf32>) -> () {
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<20xf32>
+      check.expect.bitwise actual(%direct_owner) expected(%direct_owner) : tensor<20xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1024xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<816xi8>
+      check.expect.bitwise actual(%ignored_raw) expected(%ignored_raw) : tensor<1024xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }
+  }
+  check.return
+}

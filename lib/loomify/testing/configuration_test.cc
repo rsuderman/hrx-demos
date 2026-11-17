@@ -850,6 +850,34 @@ TEST_F(ConfigurationNativeTest, PlainLlamaMixedLayerLookupsRoundTrip) {
     CheckLookupTuples(context, workspace, testing::LlamaPlainModelFacts(), true,
                       bytecode);
 }
+TEST_F(ConfigurationNativeTest, GdnGateFormatsReachLookupsIndependently) {
+  for (const auto &[alpha, beta] :
+       std::vector<std::pair<uint32_t, uint32_t>>{{0, 0}, {0, 13}, {13, 0}}) {
+    SCOPED_TRACE(std::to_string(alpha) + "/" + std::to_string(beta));
+    const auto descriptor =
+        testing::WithGdnGateFormats(testing::QwenModelFacts(), alpha, beta);
+    for (bool bytecode : {false, true})
+      CheckLookupTuples(context, workspace, descriptor, false, bytecode);
+  }
+}
+TEST(ConfigurationFactsTest, MalformedF32GdnGateExtentPreservesOutput) {
+  for (const char *role : {"alpha", "beta"}) {
+    auto descriptor =
+        testing::WithGdnGateFormats(testing::QwenModelFacts(), 0, 0);
+    auto &bindings = descriptor.layers[0].tensors;
+    auto found = std::find_if(bindings.begin(), bindings.end(),
+                              [&](const auto &b) { return b.role == role; });
+    ASSERT_NE(found, bindings.end());
+    found->tensor.byte_size -= 4;
+    ConfigurationFacts facts;
+    facts.source = "unchanged";
+    std::string error;
+    EXPECT_FALSE(
+        DeriveConfiguration(descriptor, "fixture", {}, &facts, &error));
+    EXPECT_EQ(facts.source, "unchanged");
+    EXPECT_FALSE(error.empty());
+  }
+}
 // Resolve and fold real config consumers through the public native linker. The
 // bitcast keeps exact F32 rounding observable after a source/bytecode
 // roundtrip.
@@ -976,6 +1004,54 @@ TEST_F(ConfigurationNativeTest, GeneratedNumericalScalarsReachLinkedConsumers) {
   }
 }
 #ifdef LOOMIFY_CONFIGURATION_REAL_ASSETS
+TEST_F(ConfigurationNativeTest, OrnithHeadersPreserveEveryF32GdnGateTuple) {
+  for (const char *variable :
+       {"LOOMIFY_TEST_ORNITH_10_GGUF", "LOOMIFY_TEST_ORNITH_15_GGUF"}) {
+    SCOPED_TRACE(variable);
+    const char *path = std::getenv(variable);
+    ASSERT_NE(path, nullptr)
+        << "exact immutable Ornith asset required; no download/substitution";
+    std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"),
+                                                       std::fclose);
+    ASSERT_TRUE(file);
+    ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
+    model::GgufCatalog catalog;
+    model::ModelDescriptor descriptor;
+    std::string error;
+    ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+    ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error))
+        << error;
+    ASSERT_EQ(descriptor.family, "qwen35");
+    ASSERT_EQ(descriptor.embedding_width, 4096u);
+    ASSERT_EQ(descriptor.layers.size(), 32u);
+    ConfigurationFacts configuration;
+    ASSERT_TRUE(DeriveConfiguration(descriptor, path, {17, 128}, &configuration,
+                                    &error))
+        << error;
+    size_t alpha_count = 0, beta_count = 0;
+    for (const auto &binding : configuration.parameters) {
+      if (binding.role != "alpha" && binding.role != "beta")
+        continue;
+      if (binding.role == "alpha")
+        ++alpha_count;
+      else
+        ++beta_count;
+      const auto *original = model::FindTensor(catalog, binding.tensor.name);
+      ASSERT_NE(original, nullptr);
+      EXPECT_EQ(binding.tensor.storage_type, 0u);
+      EXPECT_EQ(binding.tensor.byte_size, 524288u);
+      EXPECT_EQ(binding.tensor.normalized_extents,
+                (std::array<int64_t, 4>{4096, 32, 1, 1}));
+      EXPECT_EQ(binding.tensor.absolute_offset, original->absolute_offset);
+      EXPECT_EQ(binding.tensor.byte_size, original->byte_size);
+      EXPECT_EQ(binding.tensor.storage_type, original->storage_type);
+    }
+    EXPECT_EQ(alpha_count, 24u);
+    EXPECT_EQ(beta_count, 24u);
+    for (bool bytecode : {false, true})
+      CheckLookupTuples(context, workspace, descriptor, false, bytecode);
+  }
+}
 TEST_F(ConfigurationNativeTest,
        HyperclovaxHeaderPreservesEveryRangeAndMixedTuple) {
   const char *path = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");

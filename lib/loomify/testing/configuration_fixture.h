@@ -222,5 +222,39 @@ inline model::ModelDescriptor QwenModelFacts(bool large = false) {
   }
   return f;
 }
+// Reencode only the selected GDN roles, leaving every other fixture binding
+// intact. New ranges follow the original tensors so changing an encoding never
+// creates overlapping parameter storage.
+inline model::ModelDescriptor WithGdnGateFormats(model::ModelDescriptor model,
+                                                 uint32_t alpha,
+                                                 uint32_t beta) {
+  uint64_t next = 0;
+  auto extent = [&](const auto &bindings) {
+    for (const auto &binding : bindings) {
+      const auto end =
+          binding.tensor.absolute_offset + binding.tensor.byte_size;
+      if (end > next)
+        next = end;
+    }
+  };
+  extent(model.globals);
+  for (const auto &layer : model.layers)
+    extent(layer.tensors);
+  for (auto &layer : model.layers)
+    for (auto &binding : layer.tensors) {
+      if (binding.role != "alpha" && binding.role != "beta")
+        continue;
+      auto &tensor = binding.tensor;
+      tensor.storage_type = binding.role == "alpha" ? alpha : beta;
+      if (!model::EncodedTensorByteSize(
+              tensor.storage_type, tensor.normalized_extents[0],
+              tensor.normalized_extents[1], &tensor.byte_size))
+        std::abort();
+      next = (next + 255) / 256 * 256;
+      tensor.absolute_offset = next;
+      next += tensor.byte_size;
+    }
+  return model;
+}
 } // namespace hrx::loomify_gguf::testing
 #endif

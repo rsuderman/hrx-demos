@@ -60,9 +60,10 @@ struct Input {
   int output_limit = 262144;
   bool expected = true;
   int columns = 49;
+  bool prepacked_rows = false;
 };
 std::vector<Input> Inputs() {
-  return {
+  std::vector<Input> cases = {
       {"canonical_q4"},
       {"canonical_q5", 1, 13, 768, 1, 4, 25872},
       {"canonical_q6", 1, 14, 768, 1, 4, 30870},
@@ -100,7 +101,38 @@ std::vector<Input> Inputs() {
       {"bad_capacity", 1, 12, 768, 4, 1, 21168, 524288, 262144, false},
       {"bad_packed_capacity", 1, 12, 768, 1, 4, 21168, 1, 262144, false},
       {"bad_output_capacity", 1, 12, 768, 1, 4, 21168, 524288, 48, false},
+      {"packed_f32_ornith_rejected", 1, 0, 4096, 17, 512, 524288, 524288,
+       262144, false, 32},
   };
+  auto routed = [&](const char *name, int tag, int width, int columns, int rows,
+                    int capacity, int bytes, bool expected) {
+    Input input;
+    input.name = name;
+    input.tag = tag;
+    input.width = width;
+    input.columns = columns;
+    input.rows = rows;
+    input.capacity = capacity;
+    input.bytes = bytes;
+    input.expected = expected;
+    input.prepacked_rows = true;
+    cases.push_back(input);
+  };
+  routed("routed_f32_ornith", 0, 4096, 32, 17, 512, 524288, true);
+  routed("routed_f32_nonsquare", 0, 7, 5, 3, 5, 140, true);
+  routed("routed_q5_preserved", 13, 4096, 32, 17, 512, 90112, true);
+  routed("routed_q8_preserved", 8, 4096, 32, 17, 512, 139264, true);
+  routed("routed_f32_short_weights", 0, 4096, 32, 17, 512, 524284, false);
+  routed("routed_f32_long_weights", 0, 4096, 32, 17, 512, 524292, false);
+  routed("routed_f16_rejected", 1, 4096, 32, 17, 512, 262144, false);
+  routed("routed_bad_tag", 99, 4096, 32, 17, 512, 524288, false);
+  routed("routed_f32_zero_rows", 0, 4096, 32, 0, 512, 524288, false);
+  routed("routed_f32_large_capacity", 0, 4096, 32, 17, 513, 524288, false);
+  routed("routed_f32_small_capacity", 0, 4096, 32, 17, 16, 524288, false);
+  routed("routed_f32_zero_width", 0, 0, 32, 17, 512, 4, false);
+  routed("routed_f32_large_width", 0, 32769, 32, 17, 512, 4194432, false);
+  routed("routed_f32_large_output", 0, 4096, 32769, 17, 512, 536887296, false);
+  return cases;
 }
 using Case = std::tuple<Input, bool>;
 class ProjectionMaterializationTest : public ::testing::TestWithParam<Case> {};
@@ -136,6 +168,9 @@ TEST_P(ProjectionMaterializationTest,
   ASSERT_TRUE(stream);
   std::ostringstream source;
   source << stream.rdbuf();
+  if (input.prepacked_rows)
+    source
+        << "template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %raw: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n";
   for (const char *format : {"q4k", "q5k", "q6k", "q8_0", "q5_0"})
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 2048 : index\n"
@@ -159,10 +194,16 @@ TEST_P(ProjectionMaterializationTest,
   source
       << "  %origin = index.constant 0 : offset\n"
       << "  %fixed = scalar.constant 1 : i32\n"
-      << "  %weight = buffer.view %weights[%origin] : buffer -> view<[%bytes]xi8>\n"
-      << "  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %origin, %count, %raw, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)\n"
-      << "  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %cols, %bytes, %begin, %fixed, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%bytes]xi8>, buffer)\n"
-      << "  command.return\n}\n";
+      << "  %weight = buffer.view %weights[%origin] : buffer -> view<[%bytes]xi8>\n";
+  if (input.prepacked_rows) {
+    source
+        << "  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %capacity, %width, %cols, %tag, %bytes, %count, %raw, %packed, %weight, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)\n";
+  } else {
+    source
+        << "  template.apply<@llm.projection.pack_input>(%policy, %rows, %capacity, %width, %begin, %fixed, %origin, %count, %raw, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)\n"
+        << "  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %width, %cols, %bytes, %begin, %fixed, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%bytes]xi8>, buffer)\n";
+  }
+  source << "  command.return\n}\n";
   std::string error;
   loomc_module_t *raw_module = nullptr;
   const auto product =

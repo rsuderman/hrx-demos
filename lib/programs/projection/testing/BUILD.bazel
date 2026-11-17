@@ -70,3 +70,10 @@ loom_provider_checks(
         "//lib/programs/projection:rows.loom",
     ],
 )
+
+loom_checks(
+    name = "routed_rows",
+    checks = ["routed_rows_checks.loom"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+)
