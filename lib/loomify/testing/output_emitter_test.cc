@@ -201,6 +201,8 @@ bool OutputProgram(std::string_view source, std::string_view response,
   output.source += R"(
 func.decl @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer)
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+func.decl @text.json_quote(%text: buffer) -> (buffer)
 func.decl @text.request_environment(%request: buffer, %operation: i32) -> (buffer)
 func.def public @test.output_callbacks(%request: buffer) -> (buffer) {
   %response = global.load @test.response : buffer
@@ -679,14 +681,20 @@ protected:
   void Expect(const GeneratedInputRenderer &product, std::string_view response,
               std::string_view expected) {
     std::unique_ptr<PreparedTemplate> prepared;
-    std::string error, result;
+    std::string error;
     const auto root = (std::filesystem::path(Required("TEST_SRCDIR")) /
                        Required("TEST_WORKSPACE"))
                           .string();
     ASSERT_TRUE(PreparedTemplate::Prepare(
         product, root, Required("TEST_TMPDIR"), GetParam(), &prepared, &error))
         << error;
-    ASSERT_TRUE(prepared->Render(response, &result, &error)) << error;
+    Expect(*prepared, response, expected);
+  }
+
+  void Expect(PreparedTemplate &prepared, std::string_view response,
+              std::string_view expected) {
+    std::string error, result;
+    ASSERT_TRUE(prepared.Render(response, &result, &error)) << error;
     EXPECT_EQ(result, expected);
   }
 };
@@ -836,23 +844,6 @@ TEST_P(OutputEmitterTest, SourceDerivedJsonEnvelopeAndMemberNames) {
   EXPECT_EQ(tools.name_field, "operation");
   EXPECT_EQ(tools.arguments_field, "inputs");
   auto product = JsonParser(tools);
-  Expect(
-      product,
-      R"(<invoke>{"operation":"lookup","inputs":{"x":1.2500e+02,"s":"</invoke>"}}</invoke>)",
-      R"([{"type":"function","function":{"name":"lookup","arguments":"{\"x\":1.2500e+02,\"s\":\"</invoke>\"}"}}])");
-  Expect(
-      product,
-      R"(<invoke>{"operation":"lookup","inputs":{"s":"a\"</invoke>b"}}</invoke>)",
-      R"([{"type":"function","function":{"name":"lookup","arguments":"{\"s\":\"a\\\"</invoke>b\"}"}}])");
-  Expect(product, "<invoke>{", "[]");
-  Expect(product, "", "[]");
-  Expect(
-      product,
-      R"(<invoke>{"operation":"lookup","inputs":{}}</invoke><invoke>{"operation":"lookup","inputs":{"x":2}}</invoke>)",
-      R"([{"type":"function","function":{"name":"lookup","arguments":"{}"}},{"type":"function","function":{"name":"lookup","arguments":"{\"x\":2}"}}])");
-  Expect(
-      product, R"(<invoke>{"operation":"lookup","inputs":"{}"}</invoke>)",
-      R"([{"type":"function","function":{"name":"lookup","arguments":"\"{}\""}}])");
   std::unique_ptr<PreparedTemplate> prepared;
   std::string error, result = "unchanged";
   const auto root = (std::filesystem::path(Required("TEST_SRCDIR")) /
@@ -861,6 +852,23 @@ TEST_P(OutputEmitterTest, SourceDerivedJsonEnvelopeAndMemberNames) {
   ASSERT_TRUE(PreparedTemplate::Prepare(product, root, Required("TEST_TMPDIR"),
                                         GetParam(), &prepared, &error))
       << error;
+  Expect(
+      *prepared,
+      R"(<invoke>{"operation":"lookup","inputs":{"x":1.2500e+02,"s":"</invoke>"}}</invoke>)",
+      R"([{"type":"function","function":{"name":"lookup","arguments":"{\"x\":1.2500e+02,\"s\":\"</invoke>\"}"}}])");
+  Expect(
+      *prepared,
+      R"(<invoke>{"operation":"lookup","inputs":{"s":"a\"</invoke>b"}}</invoke>)",
+      R"([{"type":"function","function":{"name":"lookup","arguments":"{\"s\":\"a\\\"</invoke>b\"}"}}])");
+  Expect(*prepared, "<invoke>{", "[]");
+  Expect(*prepared, "", "[]");
+  Expect(
+      *prepared,
+      R"(<invoke>{"operation":"lookup","inputs":{}}</invoke><invoke>{"operation":"lookup","inputs":{"x":2}}</invoke>)",
+      R"([{"type":"function","function":{"name":"lookup","arguments":"{}"}},{"type":"function","function":{"name":"lookup","arguments":"{\"x\":2}"}}])");
+  Expect(
+      *prepared, R"(<invoke>{"operation":"lookup","inputs":"{}"}</invoke>)",
+      R"([{"type":"function","function":{"name":"lookup","arguments":"\"{}\""}}])");
   for (
       const auto *bad :
       {R"(<invoke>{"name":"lookup","arguments":{}}</invoke>)",

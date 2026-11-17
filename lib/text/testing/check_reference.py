@@ -16,7 +16,7 @@ import tempfile
 sys.dont_write_bytecode = True
 assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
 assert not os.environ.get("PYTHONPATH") and not os.environ.get("PYTHONHOME")
-from render_reference import PINNED, load_adapter
+from reference import PINNED, load_adapter
 
 
 def transport_request(row, name):

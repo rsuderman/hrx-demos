@@ -3,6 +3,7 @@
 #include "lib/loomify/template_analysis_internal.h"
 
 #include "lib/loomify/template_probe_runner.h"
+#include "lib/loomify/text/jinja/emission.h"
 #include "lib/loomify/text/jinja/source_template.h"
 #include <algorithm>
 #include <cstdint>
@@ -17,23 +18,7 @@
 
 namespace hrx::loomify_gguf::jinja::internal {
 using Assignment = std::map<std::vector<std::string>, std::string>;
-std::string Quote(std::string_view text) {
-  constexpr char hex[] = "0123456789abcdef";
-  std::string result = "\"";
-  for (unsigned char c : text) {
-    if (c == '"' || c == '\\') {
-      result += '\\';
-      result += static_cast<char>(c);
-    } else if (c < 32) {
-      result += "\\u00";
-      result += hex[c >> 4];
-      result += hex[c & 15];
-    } else {
-      result += static_cast<char>(c);
-    }
-  }
-  return result + '"';
-}
+std::string Quote(std::string_view text) { return QuoteJsonString(text); }
 
 std::string Json(const Object &object) {
   std::string result = "{";
@@ -1726,20 +1711,6 @@ bool TurnObservesArgumentString(const TurnParts &parts,
   }
   return false;
 }
-std::string TurnHex(std::string_view bytes) {
-  constexpr char hex[] = "0123456789abcdef";
-  std::string result;
-  for (unsigned char c : bytes) {
-    result += hex[c >> 4];
-    result += hex[c & 15];
-  }
-  return result;
-}
-void TurnLiteral(const std::string &name, std::string_view bytes,
-                 std::string *out) {
-  *out +=
-      "global.rodata.def @" + name + " = bytes(\"" + TurnHex(bytes) + "\")\n";
-}
 // Compute only source control facts. Value-producing macros retain their full
 // bodies; removing their output would change assignments and branch truth.
 bool TurnNodesSame(const std::vector<Node> &a, const std::vector<Node> &b) {
@@ -2156,8 +2127,8 @@ bool internal::EmitTextTurnControls(const SourceTemplate &unit,
       return false;
     turns.push_back(turn.entrypoint);
     products.push_back(std::move(turn));
-    TurnLiteral("turn.generation." + std::to_string(id),
-                format.generation_prefix, &code);
+    AppendBufferLiteral("turn.generation." + std::to_string(id),
+                        format.generation_prefix, &code);
     if (format.tools.kind != TextToolKind::None ||
         format.historical_single_call || !format.tools.call_body.empty()) {
       if (format.historical_single_call) {
@@ -2225,11 +2196,12 @@ bool internal::EmitTextTurnControls(const SourceTemplate &unit,
     return false;
   const auto reflow_entry = reflow.entrypoint;
   products.push_back(std::move(reflow));
-  TurnLiteral("turn.assistant_key", assistant_binding, &code);
-  TurnLiteral("turn.formatted_tools_key", formatted_tools_binding, &code);
-  TurnLiteral("turn.ordinal_key", ordinal_binding, &code);
-  TurnLiteral("turn.call_header", formatter_header, &code);
-  TurnLiteral("turn.call_suffix", formatter_suffix, &code);
+  AppendBufferLiteral("turn.assistant_key", assistant_binding, &code);
+  AppendBufferLiteral("turn.formatted_tools_key", formatted_tools_binding,
+                      &code);
+  AppendBufferLiteral("turn.ordinal_key", ordinal_binding, &code);
+  AppendBufferLiteral("turn.call_header", formatter_header, &code);
+  AppendBufferLiteral("turn.call_suffix", formatter_suffix, &code);
   code += R"(
 func.decl @text.json_quote(%value: buffer) -> (buffer)
 func.decl @text.input_set_member(%object: buffer, %key: buffer, %value: buffer) -> (buffer)

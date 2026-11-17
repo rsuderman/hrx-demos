@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/text/jinja/compiler.h"
+#include "lib/loomify/text/jinja/emission.h"
 #include "lib/loomify/text/jinja/source_template.h"
 
 #include <algorithm>
@@ -67,17 +68,6 @@ struct Loop {
   std::string position;
   std::string count;
 };
-
-std::string Hex(std::string_view value) {
-  constexpr char digits[] = "0123456789abcdef";
-  std::string result;
-  result.reserve(value.size() * 2);
-  for (unsigned char byte : value) {
-    result += digits[byte >> 4];
-    result += digits[byte & 15];
-  }
-  return result;
-}
 
 enum class LoweringProduct {
   Renderer,
@@ -169,8 +159,7 @@ public:
       return false;
     GeneratedInputRenderer result;
     for (const auto &[bytes, name] : literals_)
-      result.source +=
-          "global.rodata.def @" + name + " = bytes(\"" + Hex(bytes) + "\")\n";
+      internal::AppendBufferLiteral(name, bytes, &result.source);
     for (const auto &[name, declaration] : declarations_)
       result.source += declaration + "\n";
     result.source += body_.str();

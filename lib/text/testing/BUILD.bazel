@@ -27,12 +27,14 @@ filegroup(
     name = "reference_tools",
     testonly = True,
     srcs = [
-        "render_reference.py",
+        "reference.py",
         "check_reference.py",
         "reference-requirements.txt",
     ],
     visibility = ["//visibility:public"],
 )
+
+exports_files(["reference.py"])
 
 iree_cc_library(
     name = "selected_policy",
@@ -63,7 +65,6 @@ iree_cc_library(
     deps = [
         "//lib/loomify:native_linking",
         "//lib/loomify:template_analysis",
-        "//lib/loomify:template_qualification",
         "//lib/loomify:token_policy",
         "//lib/loomify/text/jinja:compiler",
         "//lib/loomify/text/jinja:request_emitter",

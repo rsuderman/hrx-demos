@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/text/jinja/output_emitter.h"
+#include "lib/loomify/text/jinja/emission.h"
 #include "lib/loomify/text/jinja/format_analysis.h"
 
 #include <cstdint>
@@ -8,19 +9,7 @@
 
 namespace hrx::loomify_gguf::jinja {
 namespace {
-std::string Hex(std::string_view value) {
-  constexpr char digits[] = "0123456789abcdef";
-  std::string result;
-  for (unsigned char c : value) {
-    result += digits[c >> 4];
-    result += digits[c & 15];
-  }
-  return result;
-}
-void Literal(std::string_view name, std::string_view value, std::string *out) {
-  *out += "global.rodata.def @" + std::string(name) + " = bytes(\"" +
-          Hex(value) + "\")\n";
-}
+using internal::AppendBufferLiteral;
 bool Fail(std::string_view name, std::string message, size_t offset,
           Diagnostic *diagnostic) {
   if (diagnostic) {
@@ -237,7 +226,7 @@ private:
   void Line(const std::string &line) { body_ += "  " + line + "\n"; }
   std::string Buffer(std::string_view value) {
     const auto name = prefix_ + ".constant." + std::to_string(next_++);
-    Literal(name, value, &constants_);
+    AppendBufferLiteral(name, value, &constants_);
     const auto result = Fresh();
     Line(result + " = global.load @" + name + " : buffer");
     return result;
@@ -284,7 +273,7 @@ bool EmitOutputParser(std::string_view source_name,
   if (analysis.alternatives.size() > (uint64_t{1} << 32))
     return Fail(source_name, "output format identity exceeds its state field",
                 0, diagnostic);
-  bool has_tagged = false;
+  bool has_tagged = false, any_ambiguous = false;
   for (const auto &format : analysis.alternatives) {
     const auto &wire = format.tools.json_argument_wire;
     const size_t offset =
@@ -315,6 +304,7 @@ bool EmitOutputParser(std::string_view source_name,
     }
     has_tagged |= format.tools.kind == TextToolKind::TaggedNamed ||
                   format.tools.kind == TextToolKind::TaggedKeyValue;
+    any_ambiguous |= format.ambiguous_bare_json_tools;
   }
   const auto &tools = analysis.alternatives.front().tools;
   for (size_t i = 1; i < analysis.alternatives.size(); ++i) {
@@ -330,10 +320,13 @@ bool EmitOutputParser(std::string_view source_name,
   }
   GeneratedInputRenderer generated;
   generated.entrypoint = "output_next";
-  generated.helper_requirements = {
-      "lib/text/common/strings.loom", "lib/text/common/json.loom",
-      "lib/text/output/stream.loom", "lib/text/output/json_calls.loom",
-      "lib/text/output/schema.loom"};
+  generated.helper_requirements = {"lib/text/common/strings.loom",
+                                   "lib/text/common/json.loom",
+                                   "lib/text/output/stream.loom"};
+  if (tools.kind != TextToolKind::None || any_ambiguous) {
+    generated.helper_requirements.push_back("lib/text/output/json_calls.loom");
+    generated.helper_requirements.push_back("lib/text/output/schema.loom");
+  }
   if (has_tagged) {
     generated.helper_requirements.push_back(
         "lib/text/output/tagged_calls.loom");
@@ -342,7 +335,13 @@ bool EmitOutputParser(std::string_view source_name,
   source = R"(
 func.decl @text.output_check(%condition: i1)
 func.decl @text.output_scan(%response: buffer, %previous: i64, %state: i64, %phase: i32, %open: buffer, %close: buffer, %tool: buffer, %after_open: buffer, %after_close: buffer) -> (i64, i64, i64, i64)
+)";
+  if (tools.kind == TextToolKind::JsonEnvelope)
+    source += R"(
 func.decl @output_json.parse_json_calls(%schemas: buffer, %response: buffer, %open: buffer, %close: buffer, %name: buffer, %arguments: buffer, %json_arguments: i1) -> (buffer)
+)";
+  if (any_ambiguous)
+    source += R"(
 func.decl @output_json.has_requested_tools(%environment: buffer) -> (i1)
 )";
   if (has_tagged)
@@ -365,18 +364,20 @@ func.decl @output_tagged.finish(%schemas: buffer, %xml: buffer, %check_calls: i1
   for (size_t i = 0; i < analysis.alternatives.size(); ++i) {
     const auto &f = analysis.alternatives[i];
     const auto prefix = "generated_output." + std::to_string(i) + ".";
-    Literal(prefix + "open", f.reasoning_open, &source);
-    Literal(prefix + "close", f.reasoning_close, &source);
-    Literal(prefix + "after_open", f.reasoning_after_open, &source);
-    Literal(prefix + "after_close", f.reasoning_after_close, &source);
-    Literal(prefix + "tool", f.tools.open, &source);
+    AppendBufferLiteral(prefix + "open", f.reasoning_open, &source);
+    AppendBufferLiteral(prefix + "close", f.reasoning_close, &source);
+    AppendBufferLiteral(prefix + "after_open", f.reasoning_after_open, &source);
+    AppendBufferLiteral(prefix + "after_close", f.reasoning_after_close,
+                        &source);
+    AppendBufferLiteral(prefix + "tool", f.tools.open, &source);
   }
   if (tools.kind == TextToolKind::JsonEnvelope) {
-    Literal("generated_output.parser.open", tools.open, &source);
-    Literal("generated_output.parser.close", tools.close, &source);
-    Literal("generated_output.parser.name", tools.name_field, &source);
-    Literal("generated_output.parser.arguments", tools.arguments_field,
-            &source);
+    AppendBufferLiteral("generated_output.parser.open", tools.open, &source);
+    AppendBufferLiteral("generated_output.parser.close", tools.close, &source);
+    AppendBufferLiteral("generated_output.parser.name", tools.name_field,
+                        &source);
+    AppendBufferLiteral("generated_output.parser.arguments",
+                        tools.arguments_field, &source);
   } else if (has_tagged) {
     source += TaggedEmitter(0, tools.tagged,
                             tools.kind == TextToolKind::TaggedKeyValue)
@@ -384,25 +385,32 @@ func.decl @output_tagged.finish(%schemas: buffer, %xml: buffer, %check_calls: i1
   }
   source += R"(
 func.def public @text.output_check_environment(%environment: buffer, %format: i64) {
+)";
+  if (any_ambiguous) {
+    source += R"(
   %false = scalar.constant false : i1
   %requested = func.call @output_json.has_requested_tools(%environment) : (buffer) -> (i1)
 )";
-  std::string ambiguous = "%false";
-  for (size_t i = 0; i < analysis.alternatives.size(); ++i) {
-    if (!analysis.alternatives[i].ambiguous_bare_json_tools)
-      continue;
-    const auto n = std::to_string(i);
-    source += "  %id" + n + " = scalar.constant " + n + " : i64\n";
+    std::string ambiguous = "%false";
+    for (size_t i = 0; i < analysis.alternatives.size(); ++i) {
+      if (!analysis.alternatives[i].ambiguous_bare_json_tools)
+        continue;
+      const auto n = std::to_string(i);
+      source += "  %id" + n + " = scalar.constant " + n + " : i64\n";
+      source +=
+          "  %same" + n + " = scalar.cmpi eq, %format, %id" + n + " : i64\n";
+      source += "  %ambiguous" + n + " = scalar.ori " + ambiguous + ", %same" +
+                n + " : i1\n";
+      ambiguous = "%ambiguous" + n;
+    }
     source +=
-        "  %same" + n + " = scalar.cmpi eq, %format, %id" + n + " : i64\n";
-    source += "  %ambiguous" + n + " = scalar.ori " + ambiguous + ", %same" +
-              n + " : i1\n";
-    ambiguous = "%ambiguous" + n;
-  }
-  source += "  %unsupported = scalar.andi %requested, " + ambiguous + " : i1\n";
-  source += R"(
+        "  %unsupported = scalar.andi %requested, " + ambiguous + " : i1\n";
+    source += R"(
   %allowed = scalar.cmpi eq, %unsupported, %false : i1
   func.call @text.output_check(%allowed) : (i1)
+)";
+  }
+  source += R"(
   func.return
 }
 func.def public @text.output_initial(%format: i64, %startup: i64) -> (i64) {

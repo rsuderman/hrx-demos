@@ -56,32 +56,43 @@ protected:
                int candidate = 1, bool inspect_formatter = false,
                std::string_view response = "") {
     Diagnostic diagnostic;
-    TextFormatAnalysis analysis;
-    GeneratedInputRenderer renderer, selector, adaptation, adapters, output,
-        turn;
-    ASSERT_TRUE(
-        CompileChatTemplate(source, "completion.jinja", &renderer, &diagnostic))
-        << diagnostic.message;
-    ASSERT_TRUE(AnalyzeTextFormat(source, "completion.jinja", {}, &analysis,
-                                  &diagnostic))
-        << diagnostic.message;
-    ASSERT_TRUE(CompileTemplateSelector(source, "completion.jinja",
-                                        analysis.selector_template, &selector,
-                                        &diagnostic))
-        << diagnostic.message;
-    ASSERT_TRUE(CompileTemplateSelector(
-        source, "completion.jinja", analysis.adaptation_selector_template,
-        &adaptation, &diagnostic, TemplateSelectorKind::Adaptation))
-        << diagnostic.message;
-    ASSERT_TRUE(EmitRequestAdapters("completion.jinja", analysis, adaptation,
-                                    {}, {}, &adapters, &diagnostic))
-        << diagnostic.message;
-    ASSERT_TRUE(
-        EmitOutputParser("completion.jinja", analysis, &output, &diagnostic))
-        << diagnostic.message;
-    ASSERT_TRUE(EmitTextTurnControls(source, "completion.jinja", analysis, {},
-                                     &turn, &diagnostic))
-        << diagnostic.message;
+    // Request/response wrappers can differ while the source-owned controls are
+    // identical. Keep only this fixture's current product, not a shared cache.
+    if (controls_.source.empty() || source_ != source) {
+      TextFormatAnalysis analysis;
+      GeneratedInputRenderer renderer, selector, adaptation, adapters, output,
+          turn;
+      ASSERT_TRUE(CompileChatTemplate(source, "completion.jinja", &renderer,
+                                      &diagnostic))
+          << diagnostic.message;
+      ASSERT_TRUE(AnalyzeTextFormat(source, "completion.jinja", {}, &analysis,
+                                    &diagnostic))
+          << diagnostic.message;
+      ASSERT_TRUE(CompileTemplateSelector(source, "completion.jinja",
+                                          analysis.selector_template, &selector,
+                                          &diagnostic))
+          << diagnostic.message;
+      ASSERT_TRUE(CompileTemplateSelector(
+          source, "completion.jinja", analysis.adaptation_selector_template,
+          &adaptation, &diagnostic, TemplateSelectorKind::Adaptation))
+          << diagnostic.message;
+      ASSERT_TRUE(EmitRequestAdapters("completion.jinja", analysis, adaptation,
+                                      {}, {}, &adapters, &diagnostic))
+          << diagnostic.message;
+      ASSERT_TRUE(
+          EmitOutputParser("completion.jinja", analysis, &output, &diagnostic))
+          << diagnostic.message;
+      ASSERT_TRUE(EmitTextTurnControls(source, "completion.jinja", analysis, {},
+                                       &turn, &diagnostic))
+          << diagnostic.message;
+      GeneratedInputRenderer controls;
+      ASSERT_TRUE(CombineGeneratedTemplates(
+          {renderer, selector, adapters, output, turn}, renderer.entrypoint,
+          &controls, &diagnostic))
+          << diagnostic.message;
+      controls_ = std::move(controls);
+      source_ = source;
+    }
     GeneratedInputRenderer wrapper;
     wrapper.entrypoint = "test.complete";
     wrapper.helper_requirements = {"lib/text/generated_input/host.loom"};
@@ -129,8 +140,7 @@ func.def public @test.complete(%request: buffer) -> (buffer) {
     }
     GeneratedInputRenderer combined;
     ASSERT_TRUE(CombineGeneratedTemplates(
-        {renderer, selector, adapters, output, turn, wrapper},
-        wrapper.entrypoint, &combined, &diagnostic))
+        {controls_, wrapper}, wrapper.entrypoint, &combined, &diagnostic))
         << diagnostic.message;
     const auto root = (std::filesystem::path(Required("TEST_SRCDIR")) /
                        Required("TEST_WORKSPACE"))
@@ -148,6 +158,8 @@ func.def public @test.complete(%request: buffer) -> (buffer) {
       EXPECT_TRUE(prepared_->Render(request, &result, &error)) << error;
     return result;
   }
+  std::string source_;
+  GeneratedInputRenderer controls_;
   std::unique_ptr<PreparedTemplate> prepared_;
 };
 

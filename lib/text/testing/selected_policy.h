@@ -4,7 +4,6 @@
 #define HRX_SOLUTIONS_LIB_TEXT_TESTING_SELECTED_POLICY_H_
 #include "lib/loomify/linking.h"
 #include "lib/loomify/template_analysis.h"
-#include "lib/loomify/testing/template_qualification.h"
 #include "lib/loomify/text/jinja/output_emitter.h"
 #include "lib/loomify/text/jinja/request_emitter.h"
 #include "lib/loomify/token_policy.h"
@@ -45,7 +44,6 @@ inline bool BuildTextComponents(std::string_view source,
   jinja::Diagnostic diagnostic;
   jinja::GeneratedInputRenderer renderer, adapters, output, turn, combined;
   jinja::AnalyzedTemplate analyzed;
-  jinja::TemplateQualification qualification;
   const auto failure = [&]() {
     *error = diagnostic.source_name + ":" + std::to_string(diagnostic.line) +
              ":" + diagnostic.message;
@@ -59,9 +57,6 @@ inline bool BuildTextComponents(std::string_view source,
   if (!jinja::AnalyzeTemplate(source, source_name, renderer, globals,
                               {runfiles.string(), scratch, false}, &analyzed,
                               &diagnostic) ||
-      !jinja::QualifyTemplate(source, source_name, globals, analyzed,
-                              {runfiles.string(), scratch, false},
-                              &qualification, &diagnostic) ||
       !jinja::EmitRequestAdapters(source_name, analyzed.format,
                                   analyzed.adaptation_selector, globals,
                                   protected_names, &adapters, &diagnostic) ||

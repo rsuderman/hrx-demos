@@ -1,17 +1,20 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
-"""Independent original-Jinja compiler oracle; not a converter dependency."""
+"""Independent original-Jinja oracle for raw compiler and package fixtures."""
 
 import argparse
 import copy
 import hashlib
 import importlib.metadata
 import importlib.util
+import inspect
 import json
 import os
 from pathlib import Path
 import site
 import sys
+
+sys.dont_write_bytecode = True
 
 PINNED = {
     "transformers": "4.57.1",
@@ -23,7 +26,11 @@ PINNED = {
 
 def identity(path):
     data = path.read_bytes()
-    return {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    return {
+        "path": str(path.resolve()),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "bytes": len(data),
+    }
 
 
 def load_adapter(path):
@@ -51,7 +58,13 @@ def main():
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--check-native", type=Path)
+    parser.add_argument(
+        "--source-override",
+        action="store_true",
+        help="Explicit original/mutated GGUF template input for an adapter",
+    )
     args = parser.parse_args()
+    assert not args.source_override or args.adapter
     assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
     assert not os.environ.get("PYTHONPATH") and not os.environ.get("PYTHONHOME")
     versions = {key: importlib.metadata.version(key) for key in PINNED}
@@ -87,10 +100,14 @@ def main():
             )
         )
         return
-    original = args.template.read_text()
+    original_bytes = args.template.read_bytes()
+    original = original_bytes.decode("utf-8")
+    original_hash = hashlib.sha256(original_bytes).hexdigest()
     adapter = load_adapter(args.adapter) if args.adapter else None
-    if adapter:
-        assert hashlib.sha256(original.encode()).hexdigest() == adapter.TEMPLATE_SHA256
+    if adapter and not args.source_override:
+        assert (
+            original_hash == adapter.TEMPLATE_SHA256
+        ), "canonical template hash mismatch"
     cases = json.loads(args.cases.read_text())
     assert cases
     if not adapter:
@@ -101,16 +118,16 @@ def main():
             continue
         source = case.get("source", original)
         if "template_sha256" in case:
-            assert (
-                hashlib.sha256(original.encode()).hexdigest() == case["template_sha256"]
-            )
+            assert original_hash == case["template_sha256"]
         for mutation in case.get("mutations", []):
             count = mutation.get("occurrences", 1)
             assert source.count(mutation["find"]) == count, case["id"]
             source = source.replace(mutation["find"], mutation["replace"], count)
         if adapter:
             request = copy.deepcopy(case["request"])
-            messages, tools, kwargs = adapter.render_kwargs(case, False)
+            result = adapter.render_kwargs(case, args.source_override)
+            assert isinstance(result, tuple) and len(result) == 3
+            messages, tools, kwargs = result
             assert case["request"] == request, "adapter changed source request"
             recorded_kwargs = {
                 key: value
@@ -118,24 +135,22 @@ def main():
                 if not isinstance(value, jinja2.Undefined)
             }
             explicit_environment = dict(recorded_kwargs, messages=messages, tools=tools)
+            environment = dict(kwargs, messages=messages, tools=tools)
         else:
             explicit_environment = copy.deepcopy(case["environment"])
-        environment = copy.deepcopy(explicit_environment)
-        # HF installs a wall-clock default global. Explicit absence in the
-        # compiler contract overrides it, just as existing local oracle adapters
-        # do; otherwise fallback-date cases would depend on the machine clock.
-        environment["strftime_now"] = jinja2.Undefined(name="strftime_now")
-        # The compiler environment carries data, never Python callables. The
-        # independent oracle supplies exactly the finite deterministic intrinsic.
-        capability = environment.pop("__loomify_strftime_now", None)
-        if capability is not None:
-            assert capability["format"] == "%d %b %Y"
+            environment = copy.deepcopy(explicit_environment)
+            # Raw compiler fixtures carry data, never a wall-clock callable.
+            # Adapter fixtures retain their own explicit Undefined/default policy.
+            environment["strftime_now"] = jinja2.Undefined(name="strftime_now")
+            capability = environment.pop("__loomify_strftime_now", None)
+            if capability is not None:
+                assert capability["format"] == "%d %b %Y"
 
-            def supplied_date(format_string, binding=capability):
-                assert format_string == binding["format"]
-                return binding["result"]
+                def supplied_date(format_string, binding=capability):
+                    assert format_string == binding["format"]
+                    return binding["result"]
 
-            environment["strftime_now"] = supplied_date
+                environment["strftime_now"] = supplied_date
         row = {
             "id": (
                 f"{adapter.REVISION}:{case_index}:{case['id']}"
@@ -159,6 +174,7 @@ def main():
         if adapter:
             row.update(
                 revision=adapter.REVISION,
+                template_sha256=original_hash,
                 request=request,
                 kwargs=recorded_kwargs,
                 tools=tools,
@@ -191,8 +207,12 @@ def main():
                 row["native_error_contains"] = str(error)
         else:
             assert not case.get("error") and not case.get("error_contains"), case["id"]
+            data = rendered.encode("utf-8")
             row.update(
                 text=rendered,
+                utf8_hex=data.hex(),
+                bytes=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
                 token_ids=tokenizer.encode(rendered, add_special_tokens=False).ids,
             )
         if "native_error_contains" in case:
@@ -200,7 +220,7 @@ def main():
         rows.append(row)
     assert rows, "no selected cases"
     if adapter:
-        adapter.check_reference(rows, False)
+        adapter.check_reference(rows, args.source_override)
     assert not args.output.exists(), "output must be a fresh directory"
     args.output.mkdir(parents=True)
     (args.output / "reference.json").write_text(
@@ -208,14 +228,27 @@ def main():
     )
     manifest = {
         "versions": versions,
+        "python": sys.version,
         "interpreter": sys.executable,
+        "user_site": site.ENABLE_USER_SITE,
+        "revision": adapter.REVISION if adapter else None,
+        "helper": identity(
+            Path(inspect.getsourcefile(inspect.unwrap(_compile_jinja_template)))
+        ),
         "cases": identity(args.cases),
-        "template": identity(args.template),
+        "template": {
+            **identity(args.template),
+            "original_template_sha256": (
+                adapter.TEMPLATE_SHA256 if adapter else original_hash
+            ),
+            "override": args.source_override,
+        },
         "tokenizer": identity(args.tokenizer),
         "script": identity(Path(__file__)),
         "adapter": identity(args.adapter) if adapter else None,
         "rows": len(rows),
         "oracle_success_rows": sum("text" in row for row in rows),
+        "token_vector_rows": sum("token_ids" in row for row in rows),
         "exact_rows": sum(
             "text" in row
             and "native_unsupported" not in row

@@ -420,12 +420,12 @@ TEST_F(AssemblyContract, MissingGeneratedPackageDataIsRejected) {
     // dependencies are checked separately below.
     if (revision == 0) {
       const auto no_bos =
-          std::string("global.rodata.decl @request_adapters.global_value.0\n") +
-          WithoutDefinition(
-              Configuration(),
-              "global.rodata.def @request_adapters.global_value.0", false);
+          std::string("global.rodata.decl @request_adapters.globals\n") +
+          WithoutDefinition(Configuration(),
+                            "global.rodata.def @request_adapters.globals",
+                            false);
       ASSERT_FALSE(HasFailure());
-      EXPECT_NE(no_bos.find("global.load @request_adapters.global_value.0"),
+      EXPECT_NE(no_bos.find("global.load @request_adapters.globals"),
                 std::string::npos);
       AssertParses(Write("no_bos_global.loom", no_bos));
       ASSERT_FALSE(HasFatalFailure());
@@ -481,24 +481,24 @@ TEST_F(AssemblyContract, GemmaGeneratedDataIsRequiredByActualConsumers) {
   ASSERT_FALSE(HasFailure());
   Reject(no_identity, products_, "loomify.text.model_name");
   for (const char *symbol :
-       {"request_adapters.global_value.0", "loomify.tokens.vocabulary_size"}) {
+       {"request_adapters.globals", "loomify.tokens.vocabulary_size"}) {
     SCOPED_TRACE(symbol);
     auto missing = WithoutDefinition(
         Configuration(),
-        (std::string_view(symbol) == "request_adapters.global_value.0"
+        (std::string_view(symbol) == "request_adapters.globals"
              ? "global.rodata.def @"
              : "func.def public @") +
             std::string(symbol),
-        std::string_view(symbol) != "request_adapters.global_value.0");
-    if (std::string_view(symbol) == "request_adapters.global_value.0")
+        std::string_view(symbol) != "request_adapters.globals");
+    if (std::string_view(symbol) == "request_adapters.globals")
       missing = "global.rodata.decl @" + std::string(symbol) + "\n" + missing;
     ASSERT_FALSE(HasFailure());
-    if (std::string_view(symbol) == "request_adapters.global_value.0")
-      EXPECT_NE(missing.find("global.load @request_adapters.global_value.0"),
+    if (std::string_view(symbol) == "request_adapters.globals")
+      EXPECT_NE(missing.find("global.load @request_adapters.globals"),
                 std::string::npos);
     AssertParses(Write(std::string(symbol) + ".loom", missing));
     ASSERT_FALSE(HasFatalFailure());
-    if (std::string_view(symbol) == "request_adapters.global_value.0")
+    if (std::string_view(symbol) == "request_adapters.globals")
       RequireGlobalData(missing, "{\"bos_token\":\"<bos>\"}");
     else
       Reject(missing, products_, symbol);

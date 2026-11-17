@@ -65,7 +65,6 @@ filegroup(
 
 exports_files([
     "consumer.BUILD.bazel",
-    "reference.py",
     "cases.json",
     "c1_cases.json",
     "c2_cases.json",

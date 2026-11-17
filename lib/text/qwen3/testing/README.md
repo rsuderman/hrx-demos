@@ -2,7 +2,7 @@
 
 `render_cases.json` contains 40 independent-template inputs: the original 35
 cases and five native transport counterparts. The shared
-`../../testing/render_reference.py` driver, with this suite's explicit
+`../../testing/reference.py` driver, with this suite's explicit
 `reference_adapter.py` and `render_cases.json`, evaluates the actual selected
 GGUF template with pinned HF/Jinja helpers and tokenizer JSON. Expected bytes
 and token vectors are never captured from the Loom implementation.

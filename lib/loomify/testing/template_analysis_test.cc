@@ -37,20 +37,14 @@ TemplateAnalysisOptions Options(bool bytecode) {
 bool CompileAndAnalyze(std::string_view source, std::string_view name,
                        const TextFormatBindings &bindings,
                        const TemplateAnalysisOptions &options,
-                       AnalyzedTemplate *out, Diagnostic *diagnostic,
-                       TemplateQualification *qualification = nullptr) {
+                       AnalyzedTemplate *out, Diagnostic *diagnostic) {
   GeneratedInputRenderer input;
   AnalyzedTemplate result;
-  TemplateQualification report;
   if (!CompileChatTemplate(source, name, &input, diagnostic) ||
       !AnalyzeTemplate(source, name, input, bindings, options, &result,
-                       diagnostic) ||
-      !QualifyTemplate(source, name, bindings, result, options, &report,
                        diagnostic))
     return false;
   *out = std::move(result);
-  if (qualification)
-    *qualification = report;
   return true;
 }
 
@@ -482,16 +476,22 @@ TEST(TemplateAnalysisTest, ExecutesOwnedProductsAndCleansPreparedPrograms) {
 }
 
 TEST(TemplateAnalysisTest, PreparationFailurePreservesAllOwnedOutputs) {
+  GeneratedInputRenderer input;
   AnalyzedTemplate result;
-  result.renderer.source = "keep previous source";
+  Diagnostic diagnostic;
+  ASSERT_TRUE(
+      CompileChatTemplate(kPlain, "ordinary.jinja", &input, &diagnostic));
+  ASSERT_TRUE(AnalyzeTemplate(kPlain, "ordinary.jinja", input, {},
+                              Options(false), &result, &diagnostic))
+      << diagnostic.message;
+  const auto previous_source = result.renderer.source;
   TemplateQualification qualification;
   qualification.validated_probe_count = 101;
   auto options = Options(false);
   options.helper_root += "/missing-helper-root";
-  Diagnostic diagnostic;
-  EXPECT_FALSE(CompileAndAnalyze(kPlain, "ordinary.jinja", {}, options, &result,
-                                 &diagnostic, &qualification));
-  EXPECT_EQ(result.renderer.source, "keep previous source");
+  EXPECT_FALSE(QualifyTemplate(kPlain, "ordinary.jinja", {}, result, options,
+                               &qualification, &diagnostic));
+  EXPECT_EQ(result.renderer.source, previous_source);
   EXPECT_EQ(qualification.validated_probe_count, 101u);
   EXPECT_EQ(diagnostic.source_name, "ordinary.jinja");
   EXPECT_NE(diagnostic.message.find("prepare compiled template analysis"),
@@ -588,8 +588,11 @@ TEST(TemplateAnalysisTest, PlainCurrentSourceUsesExactNativeRecipe) {
     TemplateQualification qualification;
     Diagnostic diagnostic;
     ASSERT_TRUE(CompileAndAnalyze(source, path, globals, Options(bytecode),
-                                  &result, &diagnostic, &qualification))
+                                  &result, &diagnostic))
         << diagnostic.line << ':' << diagnostic.column << ':'
+        << diagnostic.message;
+    ASSERT_TRUE(QualifyTemplate(source, path, globals, result,
+                                Options(bytecode), &qualification, &diagnostic))
         << diagnostic.message;
     ASSERT_FALSE(result.format.alternatives.empty());
     for (const auto &format : result.format.alternatives) {
@@ -992,7 +995,21 @@ struct SourceCase {
   bool reasoning;
   int64_t effort_mask;
   int64_t effort_default;
+  const char *header;
+  const char *generation_prefix;
+  const char *suffix;
+  bool bare_json_tools = false;
 };
+
+bool HasLiteral(const std::vector<TextFormatPart> &parts,
+                std::string_view fragment) {
+  for (const auto &part : parts)
+    if ((part.capture == TextCapture::Literal &&
+         part.literal.find(fragment) != std::string::npos) ||
+        HasLiteral(part.body, fragment) || HasLiteral(part.otherwise, fragment))
+      return true;
+  return false;
+}
 
 class CurrentTemplateAnalysisTest : public testing::TestWithParam<SourceCase> {
 };
@@ -1013,17 +1030,59 @@ TEST_P(CurrentTemplateAnalysisTest, UsesActualCompiledProbes) {
     AnalyzedTemplate result;
     TemplateQualification qualification;
     Diagnostic diagnostic;
-    const bool analyzed =
-        CompileAndAnalyze(source, fixture.path, globals, Options(bytecode),
-                          &result, &diagnostic, &qualification);
+    const bool analyzed = CompileAndAnalyze(
+        source, fixture.path, globals, Options(bytecode), &result, &diagnostic);
     EXPECT_TRUE(analyzed) << diagnostic.line << ':' << diagnostic.column << ':'
                           << diagnostic.message;
     if (!analyzed)
       continue;
+    ASSERT_TRUE(QualifyTemplate(source, fixture.path, globals, result,
+                                Options(bytecode), &qualification, &diagnostic))
+        << diagnostic.message;
     EXPECT_GE(qualification.validated_probe_count, 2u);
     EXPECT_EQ(result.reasoning.enabled, fixture.reasoning);
     EXPECT_EQ(result.reasoning.effort_mask, fixture.effort_mask);
     EXPECT_EQ(result.reasoning.default_effort, fixture.effort_default);
+    bool saw_header = false, saw_reasoning = false, saw_tools = false;
+    for (const auto &format : result.format.alternatives) {
+      SCOPED_TRACE(format.assistant_header);
+      saw_header |= format.assistant_header == fixture.header;
+      EXPECT_EQ(format.frame_suffix, fixture.suffix);
+      EXPECT_FALSE(format.assistant_pattern.empty());
+      EXPECT_FALSE(format.evidence.empty());
+      if (!format.reasoning_open.empty() || !format.reasoning_close.empty()) {
+        EXPECT_TRUE(fixture.reasoning);
+        EXPECT_EQ(format.reasoning_open, "<think>");
+        EXPECT_EQ(format.reasoning_close, "</think>");
+        saw_reasoning = true;
+      }
+      if (format.tools.kind == TextToolKind::None)
+        continue;
+      saw_tools = true;
+      EXPECT_EQ(format.tools.kind, fixture.tools);
+      EXPECT_EQ(format.tools.open, "<tool_call>");
+      EXPECT_EQ(format.tools.close, "</tool_call>");
+      if (format.tools.kind == TextToolKind::JsonEnvelope) {
+        EXPECT_EQ(format.tools.name_field, "name");
+        EXPECT_EQ(format.tools.arguments_field, "arguments");
+        EXPECT_TRUE(format.tools.json_argument_wire.has_value());
+      } else if (format.tools.kind == TextToolKind::TaggedNamed) {
+        EXPECT_TRUE(HasLiteral(format.tools.call_body, "<function="));
+        EXPECT_TRUE(HasLiteral(format.tools.call_body, "<parameter="));
+      } else {
+        EXPECT_TRUE(HasLiteral(format.tools.call_body, "<arg_key>"));
+        EXPECT_TRUE(HasLiteral(format.tools.call_body, "<arg_value>"));
+      }
+    }
+    EXPECT_TRUE(saw_header) << fixture.header;
+    EXPECT_EQ(saw_reasoning, fixture.reasoning);
+    EXPECT_EQ(saw_tools, fixture.tools != TextToolKind::None);
+    EXPECT_EQ(std::any_of(result.format.alternatives.begin(),
+                          result.format.alternatives.end(),
+                          [](const TextFormatAlternative &format) {
+                            return format.ambiguous_bare_json_tools;
+                          }),
+              fixture.bare_json_tools);
     CheckContinuation(result, fixture.name, bytecode);
     std::unique_ptr<PreparedTemplate> selector;
     std::string error;
@@ -1031,25 +1090,23 @@ TEST_P(CurrentTemplateAnalysisTest, UsesActualCompiledProbes) {
                                           Options(bytecode).scratch_parent,
                                           bytecode, &selector, &error))
         << error;
-    int64_t id = -1, mode = -1;
-    ASSERT_TRUE(selector->SelectFormat(
-        "{\"bos_token\":\"<probe-bos>\",\"eos_token\":\"<probe-eos>\","
-        "\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],"
-        "\"add_generation_prompt\":true}",
-        &id, &mode, &error))
-        << error;
-    ASSERT_GE(id, 0);
-    ASSERT_LT(static_cast<size_t>(id), result.format.alternatives.size());
-    EXPECT_EQ(mode, fixture.default_startup);
-    const auto &tools = result.format.alternatives[id].tools;
-    EXPECT_EQ(tools.kind, fixture.tools);
-    if (fixture.tools != TextToolKind::None) {
-      EXPECT_EQ(tools.open, "<tool_call>");
-      EXPECT_EQ(tools.close, "</tool_call>");
-    }
-    if (fixture.tools == TextToolKind::JsonEnvelope) {
-      EXPECT_EQ(tools.name_field, "name");
-      EXPECT_EQ(tools.arguments_field, "arguments");
+    for (bool generation : {false, true}) {
+      SCOPED_TRACE(generation ? "generation" : "no generation");
+      int64_t id = -1, mode = -1;
+      const auto environment =
+          "{\"bos_token\":\"<probe-bos>\",\"eos_token\":\"<probe-eos>\","
+          "\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],"
+          "\"tools\":[],\"add_generation_prompt\":" +
+          std::string(generation ? "true}" : "false}");
+      ASSERT_TRUE(selector->SelectFormat(environment, &id, &mode, &error))
+          << error;
+      ASSERT_GE(id, 0);
+      ASSERT_LT(static_cast<size_t>(id), result.format.alternatives.size());
+      const auto &format = result.format.alternatives[id];
+      EXPECT_EQ(mode, generation ? fixture.default_startup : 0);
+      EXPECT_EQ(format.generation_prefix,
+                generation ? fixture.generation_prefix : "");
+      EXPECT_EQ(format.tools.kind, fixture.tools);
     }
   }
 }
@@ -1058,24 +1115,42 @@ INSTANTIATE_TEST_SUITE_P(
     CurrentSources, CurrentTemplateAnalysisTest,
     testing::Values(
         SourceCase{"Llama", "lib/text/llama/templates/5816fce1.jinja",
-                   TextToolKind::None, 0, false, 0, 0},
-        SourceCase{"Qwen08", "lib/text/qwen35/templates/7f0e5290.jinja",
-                   TextToolKind::TaggedNamed, 0, true, 0, 0},
+                   TextToolKind::None, 0, false, 0, 0,
+                   "<|start_header_id|>assistant<|end_header_id|>\n\n",
+                   "<|start_header_id|>assistant<|end_header_id|>\n\n",
+                   "<|eot_id|>", true},
+        SourceCase{
+            "Qwen08", "lib/text/qwen35/templates/7f0e5290.jinja",
+            TextToolKind::TaggedNamed, 0, true, 0, 0, "<|im_start|>assistant\n",
+            "<|im_start|>assistant\n<think>\n\n</think>\n\n", "<|im_end|>\n"},
         SourceCase{"Qwen27", "lib/text/qwen35/templates/c3cf9e34.jinja",
-                   TextToolKind::TaggedNamed, 1, true, 44, 5},
+                   TextToolKind::TaggedNamed, 1, true, 44, 5,
+                   "<|im_start|>assistant\n",
+                   "<|im_start|>assistant\n<think>\n", "<|im_end|>\n"},
         SourceCase{"Plain", "lib/text/plain_chatml/templates/58c1a1f0.jinja",
-                   TextToolKind::None, 0, false, 0, 0},
+                   TextToolKind::None, 0, false, 0, 0,
+                   "<|im_start|>assistant\n", "<|im_start|>assistant\n",
+                   "<|im_end|>\n"},
         SourceCase{"Qwen25", "lib/text/qwen25/templates/cd8e9439.jinja",
-                   TextToolKind::JsonEnvelope, 0, false, 0, 0},
+                   TextToolKind::JsonEnvelope, 0, false, 0, 0,
+                   "<|im_start|>assistant", "<|im_start|>assistant\n",
+                   "<|im_end|>\n"},
         SourceCase{"Qwen3", "lib/text/qwen3/templates/5da44855.jinja",
-                   TextToolKind::JsonEnvelope, 2, true, 0, 0},
+                   TextToolKind::JsonEnvelope, 2, true, 0, 0,
+                   "<|im_start|>assistant\n", "<|im_start|>assistant\n",
+                   "<|im_end|>\n"},
         SourceCase{"Gemma", "lib/text/gemma/templates/7de1c58e.jinja",
-                   TextToolKind::None, 0, false, 0, 0},
-        SourceCase{"Compact",
-                   "lib/text/compact_chatml/templates/f45005c5.jinja",
-                   TextToolKind::TaggedNamed, 1, true, 0, 0},
+                   TextToolKind::None, 0, false, 0, 0, "<start_of_turn>model\n",
+                   "<start_of_turn>model\n", "<end_of_turn>\n"},
+        SourceCase{
+            "Compact", "lib/text/compact_chatml/templates/f45005c5.jinja",
+            TextToolKind::TaggedNamed, 1, true, 0, 0, "<|im_start|>assistant\n",
+            "<|im_start|>assistant\n<think>", "<|im_end|>\n"},
         SourceCase{"Spark", "lib/text/spark/templates/93d6aa90.jinja",
-                   TextToolKind::TaggedKeyValue, 1, true, 20, 4}),
+                   TextToolKind::TaggedKeyValue, 1, true, 20, 4,
+                   "<｜start▁of▁sentence｜><|Bot|>",
+                   "<｜start▁of▁sentence｜><|Bot|><think>",
+                   "<｜end▁of▁sentence｜>"}),
     [](const testing::TestParamInfo<SourceCase> &info) {
       return info.param.name;
     });

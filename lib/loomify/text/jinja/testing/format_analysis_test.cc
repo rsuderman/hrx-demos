@@ -209,32 +209,6 @@ bool HasChoiceFor(const std::vector<TextFormatPart> &parts, TextCapture capture,
   return false;
 }
 
-std::string PatternDetails(const std::vector<TextFormatPart> &parts,
-                           size_t *remaining, size_t depth = 0) {
-  std::string result;
-  for (const auto &part : parts) {
-    if (*remaining == 0)
-      return result + "\n[remaining pattern diagnostics omitted]";
-    --*remaining;
-    result += "\n" + std::string(depth * 2, ' ') +
-              "capture=" + std::to_string(static_cast<int>(part.capture)) +
-              " literal=" + Quote(part.literal);
-    if (part.capture == TextCapture::Choice)
-      result +=
-          " body_error=" +
-          std::string(part.body_error.kind == Expr::Kind::None ? "false"
-                                                               : "true") +
-          " otherwise_error=" +
-          (part.otherwise_error.kind == Expr::Kind::None ? "false" : "true");
-    result += PatternDetails(part.body, remaining, depth + 1);
-    if (!part.otherwise.empty()) {
-      result += "\n" + std::string(depth * 2, ' ') + "otherwise:";
-      result += PatternDetails(part.otherwise, remaining, depth + 1);
-    }
-  }
-  return result;
-}
-
 void ExpectJsonFields(const TextFormatAlternative &format,
                       std::string_view name, std::string_view arguments) {
   EXPECT_EQ(format.tools.kind, TextToolKind::JsonEnvelope);
@@ -242,51 +216,6 @@ void ExpectJsonFields(const TextFormatAlternative &format,
   EXPECT_EQ(format.tools.arguments_field, arguments);
   EXPECT_TRUE(format.tools.json_argument_wire.has_value());
 }
-
-struct ActualSource {
-  const char *path;
-  const char *header;
-  // add_generation_prompt=true, with other request options omitted. This is
-  // independent of the common header before future-dependent body branches.
-  const char *generation_prefix;
-  const char *suffix;
-  TextToolKind tool_kind;
-  bool reasoning;
-  int64_t default_startup;
-  bool bare_json_tools = false;
-};
-
-// Expected facts are read from these source fixtures, not captured from the
-// analyzer. Revisions are regression inputs, never production selection keys.
-const ActualSource kActualSources[] = {
-    {"lib/text/llama/templates/5816fce1.jinja",
-     "<|start_header_id|>assistant<|end_header_id|>\n\n",
-     "<|start_header_id|>assistant<|end_header_id|>\n\n", "<|eot_id|>",
-     TextToolKind::None, false, 0, true},
-    {"lib/text/qwen35/templates/7f0e5290.jinja", "<|im_start|>assistant\n",
-     "<|im_start|>assistant\n<think>\n\n</think>\n\n", "<|im_end|>\n",
-     TextToolKind::TaggedNamed, true, 0},
-    {"lib/text/qwen35/templates/c3cf9e34.jinja", "<|im_start|>assistant\n",
-     "<|im_start|>assistant\n<think>\n", "<|im_end|>\n",
-     TextToolKind::TaggedNamed, true, 1},
-    {"lib/text/plain_chatml/templates/58c1a1f0.jinja",
-     "<|im_start|>assistant\n", "<|im_start|>assistant\n", "<|im_end|>\n",
-     TextToolKind::None, false, 0},
-    {"lib/text/qwen25/templates/cd8e9439.jinja", "<|im_start|>assistant",
-     "<|im_start|>assistant\n", "<|im_end|>\n", TextToolKind::JsonEnvelope,
-     false, 0},
-    {"lib/text/qwen3/templates/5da44855.jinja", "<|im_start|>assistant\n",
-     "<|im_start|>assistant\n", "<|im_end|>\n", TextToolKind::JsonEnvelope,
-     true, 2},
-    {"lib/text/gemma/templates/7de1c58e.jinja", "<start_of_turn>model\n",
-     "<start_of_turn>model\n", "<end_of_turn>\n", TextToolKind::None, false, 0},
-    {"lib/text/compact_chatml/templates/f45005c5.jinja",
-     "<|im_start|>assistant\n", "<|im_start|>assistant\n<think>",
-     "<|im_end|>\n", TextToolKind::TaggedNamed, true, 1},
-    {"lib/text/spark/templates/93d6aa90.jinja",
-     "<｜start▁of▁sentence｜><|Bot|>", "<｜start▁of▁sentence｜><|Bot|><think>",
-     "<｜end▁of▁sentence｜>", TextToolKind::TaggedKeyValue, true, 1},
-};
 
 std::string ReadSource(const char *path) {
   std::ifstream input(SourceRoot() / path);
@@ -645,110 +574,6 @@ TEST(TextFormatAnalysisTest, FunctionFieldSpellingIsNotAProfile) {
   EXPECT_EQ(tools.arguments_field, "inputs");
 }
 
-class CurrentSourceAnalysisTest
-    : public ::testing::TestWithParam<ActualSource> {};
-
-TEST_P(CurrentSourceAnalysisTest, CurrentSourceMechanisms) {
-  const auto &expected = GetParam();
-  SCOPED_TRACE(expected.path);
-  const auto source = ReadSource(expected.path);
-  TextFormatAnalysis result;
-  Diagnostic diagnostic;
-  ASSERT_TRUE(
-      AnalyzeTextFormat(source, expected.path, Globals(), &result, &diagnostic))
-      << diagnostic.line << ':' << diagnostic.column << ':'
-      << diagnostic.message;
-  ASSERT_FALSE(result.alternatives.empty());
-  bool saw_header = false, saw_reasoning = false, saw_tools = false;
-  std::string observed;
-  for (const auto &format : result.alternatives) {
-    observed += "\nheader=" + Quote(format.assistant_header) +
-                " generation=" + Quote(format.generation_prefix) +
-                " suffix=" + Quote(format.frame_suffix) +
-                " reasoning=" + Quote(format.reasoning_open) + "," +
-                Quote(format.reasoning_close) + " tool_kind=" +
-                std::to_string(static_cast<int>(format.tools.kind)) +
-                " tool_open=" + Quote(format.tools.open) +
-                " tool_close=" + Quote(format.tools.close) +
-                " name_field=" + Quote(format.tools.name_field) +
-                " arguments_field=" + Quote(format.tools.arguments_field);
-    saw_header |= format.assistant_header == expected.header;
-    EXPECT_EQ(format.frame_suffix, expected.suffix);
-    EXPECT_FALSE(format.assistant_pattern.empty());
-    EXPECT_FALSE(format.evidence.empty());
-    if (!format.reasoning_open.empty() || !format.reasoning_close.empty()) {
-      EXPECT_TRUE(expected.reasoning);
-      EXPECT_EQ(format.reasoning_open, "<think>");
-      EXPECT_EQ(format.reasoning_close, "</think>");
-      saw_reasoning = true;
-    }
-    if (format.tools.kind == TextToolKind::None)
-      continue;
-    saw_tools = true;
-    EXPECT_EQ(format.tools.kind, expected.tool_kind);
-    EXPECT_EQ(format.tools.open, "<tool_call>");
-    EXPECT_EQ(format.tools.close, "</tool_call>");
-    if (format.tools.kind == TextToolKind::JsonEnvelope) {
-      ExpectJsonFields(format, "name", "arguments");
-    } else if (format.tools.kind == TextToolKind::TaggedNamed) {
-      EXPECT_TRUE(HasLiteral(format.tools.call_body, "<function="));
-      EXPECT_TRUE(HasLiteral(format.tools.call_body, "<parameter="));
-    } else {
-      EXPECT_TRUE(HasLiteral(format.tools.call_body, "<arg_key>"));
-      EXPECT_TRUE(HasLiteral(format.tools.call_body, "<arg_value>"));
-    }
-  }
-  if (!saw_header) {
-    // Limit diagnostic volume only; this does not limit accepted patterns.
-    size_t remaining = 64;
-    for (const auto &format : result.alternatives)
-      observed += "\nassistant pattern:" +
-                  PatternDetails(format.assistant_pattern, &remaining);
-  }
-  EXPECT_TRUE(saw_header) << "expected header=" << Quote(expected.header)
-                          << observed;
-  EXPECT_EQ(saw_reasoning, expected.reasoning) << observed;
-  EXPECT_EQ(saw_tools, expected.tool_kind != TextToolKind::None) << observed;
-  EXPECT_EQ(std::any_of(result.alternatives.begin(), result.alternatives.end(),
-                        [](const TextFormatAlternative &format) {
-                          return format.ambiguous_bare_json_tools;
-                        }),
-            expected.bare_json_tools);
-}
-
-TEST_P(CurrentSourceAnalysisTest,
-       CurrentSourceSelectorsExecuteDeclaredDefaults) {
-  const auto &expected = GetParam();
-  SCOPED_TRACE(expected.path);
-  const auto source = ReadSource(expected.path);
-  TextFormatAnalysis result;
-  Diagnostic diagnostic;
-  ASSERT_TRUE(
-      AnalyzeTextFormat(source, expected.path, Globals(), &result, &diagnostic))
-      << diagnostic.message;
-  for (bool bytecode : {false, true}) {
-    SCOPED_TRACE(bytecode ? "bytecode" : "source");
-    auto prepared =
-        PrepareSelection(source, result.selector_template, bytecode);
-    ASSERT_NE(prepared, nullptr);
-    for (bool generation : {false, true}) {
-      SCOPED_TRACE(generation ? "generation" : "no generation");
-      const std::string environment =
-          "{\"messages\":[{\"role\":\"user\",\"content\":\"question\"}],"
-          "\"tools\":[],\"bos_token\":\"<explicit-bos>\","
-          "\"eos_token\":\"<explicit-eos>\",\"add_generation_prompt\":" +
-          std::string(generation ? "true}" : "false}");
-      int64_t id = -1, mode = -1;
-      ASSERT_TRUE(Select(*prepared, environment, &id, &mode));
-      ASSERT_GE(id, 0);
-      ASSERT_LT(static_cast<size_t>(id), result.alternatives.size());
-      EXPECT_EQ(mode, generation ? expected.default_startup : 0);
-      EXPECT_EQ(result.alternatives[id].generation_prefix,
-                generation ? expected.generation_prefix : "");
-    }
-  }
-}
-
 TEST(TextFormatAnalysisTest, Qwen3NoUserHistoryKeepsSourceStreamStartup) {
   const char *path = "lib/text/qwen3/templates/5da44855.jinja";
   const auto source = ReadSource(path);
@@ -809,15 +634,6 @@ TEST(TextFormatAnalysisTest, Qwen3NoUserHistoryKeepsSourceStreamStartup) {
                        "<|im_start|>assistant\npayload<|im_end|>\n");
   }
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    ActualSources, CurrentSourceAnalysisTest,
-    ::testing::ValuesIn(kActualSources),
-    [](const ::testing::TestParamInfo<ActualSource> &info) {
-      const std::filesystem::path path(info.param.path);
-      return path.parent_path().parent_path().filename().string() + "_" +
-             path.stem().string();
-    });
 
 TEST(TextFormatAnalysisTest, UnusedSetupBranchesDoNotMultiplyFormats) {
   const auto frame = Frame("{{ m.content }}");

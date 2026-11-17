@@ -201,7 +201,7 @@ and actual model lifecycle checks own those distinct boundaries. No private SDK
 visibility exception or copied native module is part of this testing contract.
 Actual-source XML and Hermes parser ledgers live in
 [generated output tests](../loomify/testing/output_emitter_test.cc).
-The [independent pinned reference runner](../text/testing/render_reference.py)
+The [independent pinned reference runner](../text/testing/reference.py)
 requires explicit local adapter, cases, immutable template/tokenizer and output
 paths; original-GGUF template input uses the explicit `--source-override` flag.
 The [generated component consumer](../text/testing/generated_adapter_consumer.BUILD.bazel)
@@ -432,7 +432,7 @@ lexical-preserving serializer.
 
 The [native proof consumer](../loomify/text/jinja/testing/consumer.BUILD.bazel)
 executes generated SOURCE and bytecode against the independent
-[Jinja reference](../loomify/text/jinja/testing/reference.py) and
+[Jinja reference](../text/testing/reference.py) and
 [cases](../loomify/text/jinja/testing/cases.json). Complete-template coverage includes
 Llama, plain ChatML, Qwen2.5, Qwen3, Qwen3.5, Gemma, Spark and LFM3, together with focused
 [arithmetic/item](../loomify/text/jinja/testing/c1_cases.json) and

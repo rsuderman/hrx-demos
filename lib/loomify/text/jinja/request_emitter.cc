@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/text/jinja/request_emitter.h"
+#include "lib/loomify/text/jinja/emission.h"
 #include "lib/loomify/text/jinja/format_analysis.h"
 
 #include <array>
@@ -9,21 +10,6 @@
 
 namespace hrx::loomify_gguf::jinja {
 namespace {
-std::string Hex(std::string_view value) {
-  constexpr char digits[] = "0123456789abcdef";
-  std::string result;
-  for (unsigned char c : value) {
-    result += digits[c >> 4];
-    result += digits[c & 15];
-  }
-  return result;
-}
-
-void Literal(std::string_view name, std::string_view value, std::string *out) {
-  *out += "global.rodata.def @" + std::string(name) + " = bytes(\"" +
-          Hex(value) + "\")\n";
-}
-
 bool Fail(std::string_view name, std::string message, Diagnostic *diagnostic) {
   if (diagnostic) {
     *diagnostic = Diagnostic{};
@@ -79,14 +65,9 @@ bool EmitRequestAdapters(std::string_view source_name,
   generated.protected_bindings.assign(protected_bindings.begin(),
                                       protected_bindings.end());
   auto &source = generated.source;
-  source += R"(
-func.decl @text.json_quote(%value: buffer) -> (buffer)
-func.decl @text.input_set_member(%object: buffer, %key: buffer, %value: buffer) -> (buffer)
-func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
-)";
   for (size_t i = 0; i < workers.size(); ++i)
-    Literal("request_adapters.worker." + std::to_string(i), workers[i],
-            &source);
+    internal::AppendBufferLiteral(
+        "request_adapters.worker." + std::to_string(i), workers[i], &source);
   source += R"(
 func.def public @text.request_worker_names() -> (buffer, buffer, buffer, buffer) {
   %message = global.load @request_adapters.worker.0 : buffer
@@ -97,64 +78,34 @@ func.def public @text.request_worker_names() -> (buffer, buffer, buffer, buffer)
 }
 )";
 
-  size_t index = 0;
+  std::string object = "{";
   for (const auto &[name, value] : globals.strings) {
-    Literal("request_adapters.global_key." + std::to_string(index), name,
-            &source);
-    Literal("request_adapters.global_value." + std::to_string(index), value,
-            &source);
-    ++index;
+    if (object.size() != 1)
+      object += ',';
+    object += internal::QuoteJsonString(name) + ':' +
+              internal::QuoteJsonString(value);
   }
+  object += '}';
+  std::string array = "[";
+  for (const auto &name : protected_bindings) {
+    if (array.size() != 1)
+      array += ',';
+    array += internal::QuoteJsonString(name);
+  }
+  array += ']';
+  internal::AppendBufferLiteral("request_adapters.globals", object, &source);
+  internal::AppendBufferLiteral("request_adapters.protected_names", array,
+                                &source);
   source += R"(
 func.def public @text.template_globals() -> (buffer) {
-  %initial = buffer.constant utf8("{}") : buffer
-)";
-  std::string object = "%initial";
-  for (size_t i = 0; i < globals.strings.size(); ++i) {
-    const auto suffix = std::to_string(i);
-    source += "  %key" + suffix +
-              " = global.load @request_adapters.global_key." + suffix +
-              " : buffer\n";
-    source += "  %value" + suffix +
-              " = global.load @request_adapters.global_value." + suffix +
-              " : buffer\n";
-    source += "  %quoted" + suffix + " = func.call @text.json_quote(%value" +
-              suffix + ") : (buffer) -> (buffer)\n";
-    source += "  %object" + suffix + " = func.call @text.input_set_member(" +
-              object + ", %key" + suffix + ", %quoted" + suffix +
-              ") : (buffer, buffer, buffer) -> (buffer)\n";
-    object = "%object" + suffix;
-  }
-  source += "  func.return " + object + " : buffer\n}\n";
-  index = 0;
-  for (const auto &name : protected_bindings)
-    Literal("request_adapters.protected." + std::to_string(index++), name,
-            &source);
-  source += R"(
+  %globals = global.load @request_adapters.globals : buffer
+  func.return %globals : buffer
+}
 func.def public @text.request_protected_names() -> (buffer) {
-  %initial = buffer.constant utf8("[") : buffer
-  %empty = buffer.constant utf8("") : buffer
-  %comma = buffer.constant utf8(",") : buffer
-  %close = buffer.constant utf8("]") : buffer
+  %names = global.load @request_adapters.protected_names : buffer
+  func.return %names : buffer
+}
 )";
-  std::string array = "%initial";
-  for (size_t i = 0; i < protected_bindings.size(); ++i) {
-    const auto suffix = std::to_string(i);
-    source += "  %name" + suffix +
-              " = global.load @request_adapters.protected." + suffix +
-              " : buffer\n";
-    source += "  %quoted" + suffix + " = func.call @text.json_quote(%name" +
-              suffix + ") : (buffer) -> (buffer)\n";
-    source +=
-        "  %array" + suffix + " = func.call @text.join8(" + array + ", " +
-        (i ? "%comma" : "%empty") + ", %quoted" + suffix +
-        ", %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)\n";
-    array = "%array" + suffix;
-  }
-  source +=
-      "  %result = func.call @text.join8(" + array +
-      ", %close, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)\n";
-  source += "  func.return %result : buffer\n}\n";
   GeneratedInputRenderer result;
   Diagnostic error;
   if (!CombineGeneratedTemplates({adaptation_selector, generated},

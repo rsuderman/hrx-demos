@@ -327,7 +327,24 @@ TEST_P(InputEnvironmentTest, EmitsAdaptersFromActualAnalyzedSourceAndBindings) {
       "{% endif %}{% endfor %}"
       "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
   TextFormatBindings globals;
-  globals.strings["bos_token"] = "<actual-binding>";
+  std::string binding = "quote\" slash\\ line\n café";
+  binding.push_back('\0');
+  binding += "tail";
+  globals.strings["bos_token"] = binding;
+  const auto expect_binding = [&](std::string_view environment) {
+    const auto encoded = Field(environment, "bos_token");
+    ASSERT_TRUE(encoded);
+    std::string decoded(encoded->size(), '\0');
+    iree_host_size_t length = 0;
+    const auto status = iree_json_unescape_string(
+        iree_make_string_view(encoded->data(), encoded->size()), decoded.size(),
+        decoded.data(), &length);
+    const bool ok = iree_status_is_ok(status);
+    iree_status_ignore(status);
+    ASSERT_TRUE(ok);
+    decoded.resize(length);
+    EXPECT_EQ(decoded, binding);
+  };
   TextFormatAnalysis analysis;
   Diagnostic diagnostic;
   ASSERT_TRUE(AnalyzeTextFormat(source, "plain-binding.jinja", globals,
@@ -341,7 +358,7 @@ TEST_P(InputEnvironmentTest, EmitsAdaptersFromActualAnalyzedSourceAndBindings) {
   PrepareAdapters(analysis, selector, globals, {"eos_token"});
   const auto result = Render(
       R"({"messages":[{"role":"assistant","content":null,"extra":"preserved"}],"model_options":{"new_control":false}})");
-  EXPECT_EQ(Field(result, "bos_token"), "<actual-binding>");
+  expect_binding(result);
   EXPECT_FALSE(Field(result, "eos_token"));
   EXPECT_FALSE(Field(result, "tools"));
   EXPECT_EQ(Field(result, "new_control"), "false");
@@ -364,7 +381,7 @@ TEST_P(InputEnvironmentTest, EmitsAdaptersFromActualAnalyzedSourceAndBindings) {
   const auto completed = Render(
       R"({"messages":[{"role":"assistant","content":null}],"add_generation_prompt":true,"model_options":{"add_generation_prompt":true}})");
   EXPECT_EQ(Field(completed, "add_generation_prompt"), "false");
-  EXPECT_EQ(Field(completed, "bos_token"), "<actual-binding>");
+  expect_binding(completed);
   EXPECT_FALSE(Field(completed, "eos_token"));
 }
 
