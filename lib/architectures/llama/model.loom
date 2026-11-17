@@ -4,7 +4,7 @@ config.decl @llama.model.head_size : index
 
 template.decl @loomify.llama.model_layout(%hidden: index, %head: index, %vocabulary: index)
 
-template.def<@loomify.llama.model_layout> @loomify_llama_model_layout(%hidden: index, %head: index, %vocabulary: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), eq(%head, 128), range(%vocabulary, 1, 128256)] {
+template.def<@loomify.llama.model_layout> @loomify_llama_model_layout(%hidden: index, %head: index, %vocabulary: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), eq(%head, 128), range(%vocabulary, 1, 262144)] {
   template.return
 }
 

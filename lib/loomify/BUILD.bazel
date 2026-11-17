@@ -70,6 +70,7 @@ iree_cc_library(
         "//lib/architectures/llama:__pkg__",
         "//lib/architectures/qwen3:__pkg__",
         "//lib/architectures/lfm3:__pkg__",
+        "//lib/architectures/lfm2:__pkg__",
         "//lib/architectures/spark2_5:__pkg__",
         "//lib/architectures/qwen2:__pkg__",
         "//lib/architectures/qwen35:__pkg__",
@@ -157,6 +158,38 @@ cc_test(
     deps = [
         ":configuration",
         "//lib/loomify/testing:spark2_5_fixture",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "lfm2_configuration_test",
+    srcs = ["//lib/loomify/testing:lfm2_configuration_test.cc"],
+    copts = ["-std=c++17"],
+    deps = [
+        ":configuration",
+        "//lib/loomify/testing:lfm2_fixture",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "lfm2_real_assets_test",
+    srcs = ["//lib/loomify/testing:lfm2_configuration_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/architectures/lfm2:implementation",
+        "//lib/platforms/amdgpu/gfx11:targets",
+    ],
+    defines = ["LOOMIFY_LFM2_REAL_ASSETS=1"],
+    linkstatic = True,
+    tags = ["manual"],
+    deps = [
+        ":configuration",
+        ":gguf_model_builder",
+        "//lib/loomify/testing:lfm2_fixture",
+        "@hrx_system//loom/binding/c:interop",
+        "@hrx_system//loom/binding/c/target/amdgpu",
         "@googletest//:gtest_main",
     ],
 )

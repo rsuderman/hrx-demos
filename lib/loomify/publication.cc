@@ -32,6 +32,12 @@ bool SelectSourceProfile(PublicationLayout layout,
     }
     break;
   case PublicationLayout::kThreeStops:
+    // A declared single sentence EOS occupies all three existing numerical
+    // slots. The kernel ORs these comparisons, so aliases add no stop IDs.
+    if (identity.piece == "</s>") {
+      *profile = {{identity.piece, identity.piece, identity.piece}, 0, 0};
+      return true;
+    }
     if (identity.piece == "<|eot_id|>") {
       *profile = {{"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"}, 2, 2};
       return true;

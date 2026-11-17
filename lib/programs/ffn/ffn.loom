@@ -13,7 +13,7 @@ template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: 
 // Geometry follows existing row kernels; projection operations own their
 // encoding-specific width, capacity and byte-count contracts.
 template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index)
-template.def<@loomify.ffn.admit> @loomify_ffn_admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), range(%ffn, 256, 32768), multiple_of(%ffn, 256), range(%profile, 0, 1), range(%gate_tag, 12, 14), range(%down_tag, 12, 14)] {
+template.def<@loomify.ffn.admit> @loomify_ffn_admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), range(%ffn, 256, 32768), multiple_of(%ffn, 256), range(%profile, 0, 1), range(%gate_tag, 12, 14), range(%down_tag, 12, 14)] {
   template.return
 }
 
@@ -52,7 +52,8 @@ template.def<@loomify.ffn> @loomify_ffn(%hidden: index, %ffn: index, %rows: inde
     template.apply<@llm.ffn.gate_up_decode>(%hidden, %ffn, %generic, %compat, %gate_q4, %gate_q6, %gate_bytes, %ffn_row_bytes, %gate, %up, %packed, %swiglu) : (index, index, i1, i1, i1, i1, index, index, view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, buffer, buffer)
     template.apply<@llm.ffn.down_decode>(%hidden, %ffn, %generic, %compat, %down_q4, %down_q6, %down_bytes, %ffn_row_bytes, %hidden_row_bytes, %down, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, view<[%down_bytes]xi8>, buffer, buffer)
   } else {
-    // rows is both launch capacity and schedule; count selects the active prefix.
+    // rows is both launch capacity and schedule. Compatible profile0 gates
+    // updates by count; canonical profile1 computes all static rows.
     template.apply<@llm.ffn.gate_up_prefill>(%hidden, %ffn, %generic, %compat, %gate_q4, %gate_q6, %rows, %rows, %rows, %zero, %origin, %no_m4, %zero, %ffn_bytes, %gate_bytes, %hidden_bytes, %hidden_bytes, %gate, %up, %normalized, %count, %swiglu) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, buffer, buffer, buffer)
     template.apply<@llm.ffn.down_prefill>(%hidden, %ffn, %generic, %compat, %down_q4, %down_q6, %rows, %rows, %zero, %origin, %no_m4, %ffn_bytes, %down_bytes, %hidden_bytes, %down, %count, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%down_bytes]xi8>, buffer, buffer, buffer)
   }

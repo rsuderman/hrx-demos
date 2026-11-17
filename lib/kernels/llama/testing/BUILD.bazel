@@ -214,3 +214,30 @@ _PLAIN_PROOFS = {
     "text",
     "bc",
 ]]
+
+# Actual MiniCPM E1536/Q2048/KV256 contracts, paired provider representations.
+[loom_merge(
+    name = "minicpm_geometry_" + format,
+    testonly = True,
+    srcs = _NUMERICAL + [
+        "minicpm_geometry_programs.loom",
+        "//lib/programs/llama:attention.loom",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "minicpm_geometry_" + format + "_execution_test",
+    srcs = [
+        "minicpm_geometry_checks.loom",
+        ":minicpm_geometry_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]

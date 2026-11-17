@@ -1,0 +1,47 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Whole-chunk admission for this family. The maintained per-row attention
+// predicate does not reject a chunk whose last row crosses logical capacity.
+// Read packet/count only; write disjoint scratch with matching checked counts.
+kernel.def @loomify.lfm2.validate_chunk(%rows: index, %capacity: index) {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%rows0: index, %capacity0: index, %origin: offset, %count: buffer, %epoch: buffer, %checked_count: buffer, %checked_epoch: buffer) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %capacity = index.assume %capacity0 [range(%capacity0, 1, 128000)] : index
+  %zero = index.constant 0 : offset
+  %counts = buffer.view %count[%zero] : buffer -> view<3xi32>
+  %source = buffer.view %epoch[%origin] : buffer -> view<5xi32>
+  %target_count = buffer.view %checked_count[%zero] : buffer -> view<3xi32>
+  %target = buffer.view %checked_epoch[%origin] : buffer -> view<5xi32>
+  %n32 = view.load %source[0] : view<5xi32> -> i32
+  %base32 = view.load %source[1] : view<5xi32> -> i32
+  %count32 = view.load %counts[0] : view<3xi32> -> i32
+  %zero32 = scalar.constant 0 : i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %nonnegative = scalar.cmpi sge, %base32, %zero32 : i32
+  %matching = scalar.cmpi eq, %count32, %n32 : i32
+  %n = index.cast %n32 : i32 to index
+  %base = index.cast %base32 : i32 to index
+  %end = index.add %base, %n : index
+  %fits_rows = index.cmp ule, %n, %rows : index
+  %fits_context = index.cmp ule, %end, %capacity : index
+  %a = scalar.andi %positive, %nonnegative : i1
+  %b = scalar.andi %matching, %fits_rows : i1
+  %c = scalar.andi %a, %b : i1
+  %valid = scalar.andi %c, %fits_context : i1
+  %safe_n = scf.select %valid, %n32, %zero32 : i32
+  %safe_base = scf.select %valid, %base32, %zero32 : i32
+  view.store %safe_n, %target_count[0] : i32, view<3xi32>
+  view.store %zero32, %target_count[1] : i32, view<3xi32>
+  view.store %zero32, %target_count[2] : i32, view<3xi32>
+  view.store %safe_n, %target[0] : i32, view<5xi32>
+  view.store %safe_base, %target[1] : i32, view<5xi32>
+  %begin = view.load %source[2] : view<5xi32> -> i32
+  %out = view.load %source[3] : view<5xi32> -> i32
+  %flags = view.load %source[4] : view<5xi32> -> i32
+  view.store %begin, %target[2] : i32, view<5xi32>
+  view.store %out, %target[3] : i32, view<5xi32>
+  view.store %flags, %target[4] : i32, view<5xi32>
+  kernel.return
+}

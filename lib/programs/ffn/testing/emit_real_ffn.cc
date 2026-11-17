@@ -66,8 +66,10 @@ int main(int argc, char **argv) {
                                  &workspace)))
     return 1;
   std::vector<std::string> names;
-  for (int layer :
-       family == "llama" ? std::vector<int>{0, 1, 3} : std::vector<int>{0, 1})
+  for (int layer : family == "llama" ? std::vector<int>{0, 1, 3}
+                                     : (descriptor.embedding_width == 2560
+                                            ? std::vector<int>{0, 4}
+                                            : std::vector<int>{0, 1}))
     for (const char *phase : {"prefill", "decode"})
       names.push_back("real." + family + ".ffn.layer" + std::to_string(layer) +
                       "." + phase);

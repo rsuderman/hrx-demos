@@ -59,6 +59,8 @@ for name, hidden, intermediate, compatible, down_tags in [
     ("canonical", 2048, 4096, False, (13, 14)),
     ("compatible", 3072, 6144, True, (12, 14)),
     ("same_hidden", 1024, 4096, False, (13, 14)),
+    ("qwen4", 2560, 9216, False, (12, 14)),
+    ("minicpm", 1536, 4608, True, (12, 14)),
 ]:
     h.out.clear()
     h.emit(HEADER)
@@ -105,8 +107,13 @@ command.decl @loomify.{family}.ffn(%layer: index, %phase: index, %rows: index) l
     )
     checks = [HEADER]
     for layer, down_tag in enumerate(down_tags):
-        for rows in (1, 3):
+        cases = [(1, 1), (3, 3)]
+        if name in ("qwen4", "minicpm"):
+            cases += [(3, 1), (3, 0)]
+        for rows, active in cases:
             suffix = f"{name}_q{down_tag}_rows{rows}"
+            if active != rows:
+                suffix += f"_active{active}"
             body = (
                 h.prefix()
                 + h.weight_body(12, hidden, "gate", "gate", "g")
@@ -123,17 +130,28 @@ command.decl @loomify.{family}.ffn(%layer: index, %phase: index, %rows: index) l
                 initial = (-1 if r % 2 else 1) * (r + 1)
                 body += f"    %initial{r} = scalar.constant {float(initial)} : f32\n    view.store %initial{r}, %residual_view[{r}, %channel] : f32, view<{rows}x{hidden}xf32>\n"
             body += "  }\n  scf.if %is_zero {\n    %control = buffer.view %count[%origin] : buffer -> view<3xi32>\n"
-            body += f"    %n = scalar.constant {rows} : i32\n    %z = scalar.constant 0 : i32\n    view.store %n, %control[0] : i32, view<3xi32>\n    view.store %z, %control[1] : i32, view<3xi32>\n    view.store %z, %control[2] : i32, view<3xi32>\n  }}\n"
+            body += f"    %n = scalar.constant {active} : i32\n    %z = scalar.constant 0 : i32\n    view.store %n, %control[0] : i32, view<3xi32>\n    view.store %z, %control[1] : i32, view<3xi32>\n    view.store %z, %control[2] : i32, view<3xi32>\n  }}\n"
             h.kernel(
                 "test.init." + suffix,
                 intermediate,
                 "%gate: buffer, %up: buffer, %down: buffer, %gamma: buffer, %residual: buffer, %count: buffer",
                 body,
             )
+            # Canonical policy1 processes every static row; compatible policy0
+            # gates residual updates by N. Count-insensitivity is intentional.
+            computed = active if compatible else rows
             expected = h.prefix() + h.store_pattern(
-                rows, hidden, "residual", anchors(rows, hidden, intermediate), "final"
+                rows,
+                hidden,
+                "residual",
+                anchors(computed, hidden, intermediate)
+                + [
+                    [float((-1 if r % 2 else 1) * (r + 1))] * 4
+                    for r in range(computed, rows)
+                ],
+                "final",
             )
-            expected += f"  scf.if %is_zero {{\n    %control = buffer.view %count[%origin] : buffer -> view<3xi32>\n    %n = scalar.constant {rows} : i32\n    %z = scalar.constant 0 : i32\n    view.store %n, %control[0] : i32, view<3xi32>\n    view.store %z, %control[1] : i32, view<3xi32>\n    view.store %z, %control[2] : i32, view<3xi32>\n  }}\n"
+            expected += f"  scf.if %is_zero {{\n    %control = buffer.view %count[%origin] : buffer -> view<3xi32>\n    %n = scalar.constant {active} : i32\n    %z = scalar.constant 0 : i32\n    view.store %n, %control[0] : i32, view<3xi32>\n    view.store %z, %control[1] : i32, view<3xi32>\n    view.store %z, %control[2] : i32, view<3xi32>\n  }}\n"
             h.kernel(
                 "test.expected." + suffix,
                 intermediate,

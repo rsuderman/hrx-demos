@@ -1,0 +1,191 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+// Fixture wiring calls maintained operations; E and Q are deliberately unequal.
+config.def @llama.model.hidden_size = 1536 : index
+
+config.def @llama.model.query_heads = 16 : index
+
+config.def @llama.model.kv_heads = 2 : index
+
+config.def @llama.model.head_size = 128 : index
+
+config.def @llama.model.kv_size = 256 : index
+
+config.def @llama.model.layer_count = 2 : index
+
+config.def @llama.model.attention_scale = 0.088388347648318447 : f32
+
+config.def @llama.attention.cache_capacity = 128 : index
+
+config.def @llama.attention.pool_capacity = 128 : index
+
+kernel.decl @llama32_attention_rows(%tokens: index) launch(%layer: index, %base: offset, %kind: index, %origin: offset, %begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llama32_attention_residual(%tokens: index) launch(%kind: index, %origin: offset, %begin: index, %control: buffer, %projected: buffer, %residual: buffer)
+
+command.def public @minicpm.attention() launch(%control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %layer = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %cache_base = index.constant 16 : offset
+  kernel.launch @llama32_attention_rows[%rows](%layer, %cache_base, %zero, %origin, %zero, %origin, %control, %map, %query, %cache, %output) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @minicpm.residual() launch(%control: buffer, %source: buffer, %residual: buffer) {
+  %rows = index.constant 3 : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  kernel.launch @llama32_attention_residual[%rows](%zero, %origin, %zero, %control, %source, %residual) : [index](index, offset, index, buffer, buffer, buffer)
+  command.return
+}
+
+config.def @llama.model.rms_epsilon = 9.9999999999999995e-07 : f32
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 130560 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 130560 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 3 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 3 : index
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : index
+
+config.def @qwen38.greedy_argmax.output_capacity = 130560 : index
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
+
+command.def public @minicpm.head() launch(%input: buffer, %count: buffer, %gamma: buffer, %weight: buffer, %token: buffer) {
+  %rows = index.constant 3 : index
+  %hidden = index.constant 1536 : index
+  %vocab = index.constant 130560 : index
+  %bytes = index.constant 164505600 : index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %tag = index.constant 14 : index
+  %g = buffer.view %gamma[%origin] : buffer -> view<[%hidden]xf32>
+  %w = buffer.view %weight[%origin] : buffer -> view<[%bytes]xi8>
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %origin, %hidden, %vocab, %bytes, %zero, %tag, %input, %count, %g, %w, %token) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%bytes]xi8>, buffer)
+  command.return
+}
+
+template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocab: index, %tag: index, %bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
+command.def public @minicpm.embedding() launch(%epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer) {
+  %rows = index.constant 3 : index
+  %hidden = index.constant 1536 : index
+  %vocab = index.constant 130560 : index
+  %tag = index.constant 12 : index
+  %bytes = index.constant 112803840 : index
+  %origin = index.constant 0 : offset
+  %w = buffer.view %weight[%origin] : buffer -> view<[%bytes]xi8>
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%hidden]xf32>
+  template.apply<@llm.embedding.epoch_f32>(%rows, %hidden, %vocab, %tag, %bytes, %epoch, %count, %ids, %w, %out) : (index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, view<[%rows]x[%hidden]xf32>)
+  command.return
+}
+
+config.def @llama.model.has_rope_frequencies = 0 : index
+
+config.def @llama.model.rotary_step = 0.78584611610100508 : f32
+
+config.def @llama.attention.cache_base = 16 : offset
+
+config.def @llama.attention.map_origin = 0 : offset
+
+func.def public pure inline @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index) {
+  %tag = index.constant 12 : index
+  %wide = index.constant 1769472 : index
+  %narrow = index.constant 221184 : index
+  func.return %tag, %tag, %tag, %tag, %wide, %narrow, %narrow, %wide : index, index, index, index, index, index, index, index
+}
+
+command.decl @loomify.llama.attention(%layer: index, %phase: index, %rows: index, %origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer)
+
+// The fixture initializes borrowed parameters in-place, then calls the ACTUAL
+// maintained E→Q/K/V→RoPE→GQA→Q→E→residual command without reproducing it.
+kernel.def @minicpm.composed_weights() {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%q: buffer, %k: buffer, %v: buffer, %o: buffer) {
+  %origin = index.constant 0 : offset
+  %wide = index.constant 1769472 : index
+  %narrow = index.constant 221184 : index
+  %step = index.constant 256 : index
+  %lane = kernel.workitem.id<x> : index
+  %zero = index.constant 0 : index
+  %zero_byte = scalar.constant 0 : i8
+  %qw = buffer.view %q[%origin] : buffer -> view<1769472xi8>
+  %kw = buffer.view %k[%origin] : buffer -> view<221184xi8>
+  %vw = buffer.view %v[%origin] : buffer -> view<221184xi8>
+  %ow = buffer.view %o[%origin] : buffer -> view<1769472xi8>
+  scf.for %i = [%lane to %wide step %step] {
+    view.store %zero_byte, %qw[%i] : i8, view<1769472xi8>
+    view.store %zero_byte, %ow[%i] : i8, view<1769472xi8>
+  }
+  scf.for %i = [%lane to %narrow step %step] {
+    view.store %zero_byte, %kw[%i] : i8, view<221184xi8>
+    view.store %zero_byte, %vw[%i] : i8, view<221184xi8>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %writer = index.cmp eq, %lane, %zero : index
+  scf.if %writer {
+    // Input0 projects to Q head15/lane0, K head1/lane0, V head1/lane127.
+    // Each is1/128, so input127/254 gives exactly127/128 and254/128.
+    %q_base = index.constant 1658880 : offset
+    %k_base = index.constant 110592 : offset
+    %v_base = index.constant 220320 : offset
+    %qd = buffer.view %q[%q_base] : buffer -> view<1xf16>
+    %kd = buffer.view %k[%k_base] : buffer -> view<1xf16>
+    %vd = buffer.view %v[%v_base] : buffer -> view<1xf16>
+    %delta = scalar.constant 0.0078125 : f16
+    view.store %delta, %qd[%zero] : f16, view<1xf16>
+    view.store %delta, %kd[%zero] : f16, view<1xf16>
+    view.store %delta, %vd[%zero] : f16, view<1xf16>
+    %scale = scalar.constant 1 : i8
+    view.store %scale, %qw[1658884] : i8, view<1769472xi8>
+    view.store %scale, %qw[1658896] : i8, view<1769472xi8>
+    view.store %scale, %kw[110596] : i8, view<221184xi8>
+    view.store %scale, %kw[110608] : i8, view<221184xi8>
+    view.store %scale, %vw[220324] : i8, view<221184xi8>
+    view.store %scale, %vw[220336] : i8, view<221184xi8>
+    // O row1535, column2047: block7/group7/last high nibble.
+    %o_base = index.constant 1769328 : offset
+    %od = buffer.view %o[%o_base] : buffer -> view<1xf16>
+    %one_half = scalar.constant 1.0 : f16
+    view.store %one_half, %od[%zero] : f16, view<1xf16>
+    view.store %scale, %ow[1769343] : i8, view<1769472xi8>
+    %high_nibble = scalar.constant 16 : i8
+    view.store %high_nibble, %ow[1769471] : i8, view<1769472xi8>
+  }
+  kernel.return
+}
+
+command.def public @minicpm.composed_attention() launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) {
+  %q = command.parameter %parameters, "blk.0.attn_q.weight" : view<1769472xi8>
+  %k = command.parameter %parameters, "blk.0.attn_k.weight" : view<221184xi8>
+  %v = command.parameter %parameters, "blk.0.attn_v.weight" : view<221184xi8>
+  %o = command.parameter %parameters, "blk.0.attn_output.weight" : view<1769472xi8>
+  kernel.launch @minicpm.composed_weights(%q, %k, %v, %o) : (view<1769472xi8>, view<221184xi8>, view<221184xi8>, view<1769472xi8>)
+  %zero = index.constant 0 : index
+  %rows = index.constant 3 : index
+  %origin = index.constant 0 : offset
+  command.launch @loomify.llama.attention[%zero, %zero, %rows, %origin](%parameters, %normalized, %residual, %count, %control, %map, %cache) : [index, index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+// The complete shared projection closure declares all formats. As in
+// Producer::ProjectionCapacities, unused formats receive minimal capacities.
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

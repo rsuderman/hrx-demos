@@ -36,3 +36,42 @@ command.def public @validated.qwen.attention3_t3() launch(%parameters:buffer,%re
   command.launch @qwen38_attention_layer_prefill[%three,%three,%three,%zero,%zero,%one](%parameters,%residual,%state,%control,%capture,%rows) : [index,index,index,index,index,index](buffer,buffer,buffer,buffer,buffer,buffer)
   command.return
 }
+
+// True ordinals select both projection metadata and persistent layer slots.
+// Raw-buffer callers allocate guarded state through each selected ordinal.
+command.def public @validated.qwen.gdn4() launch(%parameters:buffer,%residual:buffer,%state:buffer,%control:buffer,%capture:buffer,%rows:buffer) {
+  %t = index.constant 1 : index
+  %one = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %layer = index.constant 4 : index
+  %ordinal = index.constant 3 : index
+  command.launch @qwen38_gdn_layer_prefill[%t,%t,%layer,%ordinal,%zero,%one](%parameters,%residual,%state,%control,%capture,%rows) : [index,index,index,index,index,index](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.return
+}
+command.def public @validated.qwen.gdn4_t3() launch(%parameters:buffer,%residual:buffer,%state:buffer,%control:buffer,%capture:buffer,%rows:buffer) {
+  %t = index.constant 3 : index
+  %one = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %layer = index.constant 4 : index
+  %ordinal = index.constant 3 : index
+  command.launch @qwen38_gdn_layer_prefill[%t,%t,%layer,%ordinal,%zero,%one](%parameters,%residual,%state,%control,%capture,%rows) : [index,index,index,index,index,index](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.return
+}
+command.def public @validated.qwen.attention19() launch(%parameters:buffer,%residual:buffer,%state:buffer,%control:buffer,%capture:buffer,%rows:buffer) {
+  %t = index.constant 1 : index
+  %one = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %layer = index.constant 19 : index
+  %ordinal = index.constant 4 : index
+  command.launch @qwen38_attention_layer_prefill[%t,%t,%layer,%ordinal,%zero,%one](%parameters,%residual,%state,%control,%capture,%rows) : [index,index,index,index,index,index](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.return
+}
+command.def public @validated.qwen.attention19_t3() launch(%parameters:buffer,%residual:buffer,%state:buffer,%control:buffer,%capture:buffer,%rows:buffer) {
+  %t = index.constant 3 : index
+  %one = index.constant 1 : index
+  %zero = index.constant 0 : index
+  %layer = index.constant 19 : index
+  %ordinal = index.constant 4 : index
+  command.launch @qwen38_attention_layer_prefill[%t,%t,%layer,%ordinal,%zero,%one](%parameters,%residual,%state,%control,%capture,%rows) : [index,index,index,index,index,index](buffer,buffer,buffer,buffer,buffer,buffer)
+  command.return
+}

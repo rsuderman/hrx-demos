@@ -770,6 +770,41 @@ TEST_F(QwenModelTest, CompleteSequenceSurvivesBothProviderEncodings) {
   ASSERT_TRUE(model::LoadModelDescriptor(catalog, &facts, &extraction_error))
       << extraction_error;
   ASSERT_EQ(facts.family, "qwen35");
+  if (facts.embedding_width == 2560) {
+    ASSERT_EQ(facts.layers.size(), 32u);
+    EXPECT_EQ(facts.vocabulary_size, 248320u);
+    EXPECT_TRUE(facts.output_tied_to_embedding);
+    ASSERT_TRUE(facts.ssm);
+    EXPECT_EQ(facts.ssm->convolution_history_elements, 24576u);
+    EXPECT_EQ(facts.ssm->recurrent_state_elements, 524288u);
+    const std::set<uint32_t> q6_down{0,  1,  2,  3,  6,  9,  12, 15,
+                                     18, 21, 24, 27, 28, 29, 30, 31};
+    const std::set<uint32_t> q6_value{3, 7, 11, 15, 27};
+    uint32_t attention = 0, recurrent = 0;
+    for (const auto &layer : facts.layers) {
+      EXPECT_EQ(layer.feed_forward_width, 9216u);
+      EXPECT_EQ(layer.query_heads, 16u);
+      EXPECT_EQ(layer.kv_heads, 4u);
+      if (layer.index % 4 == 3) {
+        EXPECT_EQ(layer.kind, model::LayerKind::kAttention);
+        EXPECT_EQ(layer.attention_ordinal, attention++);
+      } else {
+        EXPECT_EQ(layer.kind, model::LayerKind::kGatedDeltaNet);
+        EXPECT_EQ(layer.recurrent_ordinal, recurrent++);
+      }
+      for (const auto &binding : layer.tensors) {
+        SCOPED_TRACE(binding.tensor.name);
+        if (binding.role == "ffn_down")
+          EXPECT_EQ(binding.tensor.storage_type,
+                    q6_down.count(layer.index) ? 14u : 12u);
+        if (binding.role == "value")
+          EXPECT_EQ(binding.tensor.storage_type,
+                    q6_value.count(layer.index) ? 14u : 12u);
+      }
+    }
+    EXPECT_EQ(attention, 8u);
+    EXPECT_EQ(recurrent, 24u);
+  }
 #endif
   ConfigurationSettings settings;
   settings.token_capacity = 4;

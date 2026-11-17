@@ -1,0 +1,209 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Curated from LiquidAI/LFM2.5-24B-A2B Loom publication
+// 041a75a44c335efe401cb59c2bbd8a7b4de74ed6, program/llm.loom SHA256
+// 4ccd4b2f38b235024a6333accfacdc2813fe8c7bda662642223bfaa4a00fdd2e:
+// g_sc_conv (16487..16607), g_sc_commit (16610..16686).
+// Retains ordered F32 FMA, B*X, C output gate and oldest-first history.
+// Replaces only legacy spans/origins with maintained count/epoch byte origins.
+// Compute must complete before commit overwrites history. No buffer aliases.
+func.def public inline @llm.convolution.shortconv3_control(%rows: index, %control_origin: offset, %count: buffer, %epoch: buffer) -> (i1, index, i1) {
+  %origin = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %counts = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %descriptor = buffer.view %epoch[%control_origin] : buffer -> view<5xi32>
+  %n32 = view.load %counts[0] : view<3xi32> -> i32
+  %en32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %base32 = view.load %descriptor[1] : view<5xi32> -> i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %same = scalar.cmpi eq, %n32, %en32 : i32
+  %nonnegative = scalar.cmpi sge, %base32, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %fits = index.cmp ule, %n, %rows : index
+  %a = scalar.andi %positive, %same : i1
+  %b = scalar.andi %nonnegative, %fits : i1
+  %valid = scalar.andi %a, %b : i1
+  %fresh = scalar.cmpi eq, %base32, %zero32 : i32
+  func.return %valid, %n, %fresh : i1, index, i1
+}
+
+kernel.def @llm.convolution.shortconv3_compute(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  %blocks = index.constant 8 : index
+  kernel.launch.config workgroups(%rows, %blocks, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%rows0: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %bcx: buffer, %weight: buffer, %state: buffer, %out: buffer) {
+  %tokens = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %token0 = kernel.workgroup.id<x> : index
+  %token = index.assume %token0 [range(%token0, 0, 511), lt(%token0, %tokens)] : index
+  %block = kernel.workgroup.id<y> : index
+  %lane = kernel.workitem.id<x> : index
+  %threads = index.constant 256 : index
+  %block_start = index.mul %block, %threads : index
+  %ch0 = index.add %block_start, %lane : index
+  %ch = index.assume %ch0 [range(%ch0, 0, 2047)] : index
+  %zero = index.constant 0 : offset
+  %zero_f = scalar.constant 0.0 : f32
+  %valid, %length, %fresh = func.call @llm.convolution.shortconv3_control(%tokens, %control_origin, %count, %epoch) : (index, offset, buffer, buffer) -> (i1, index, i1)
+  %inside = index.cmp ult, %token, %length : index
+  %go = scalar.andi %valid, %inside : i1
+  %out_view = buffer.view %out[%zero] : buffer -> view<[%tokens]x2048xf32>
+  scf.if %go {
+    %hist_view = buffer.view %state[%history_origin] : buffer -> view<2x2048xf32>
+    %bcx_view = buffer.view %bcx[%zero] : buffer -> view<[%tokens]x3x2048xf32>
+    %w_view = buffer.view %weight[%zero] : buffer -> view<2048x3xf32>
+    %w0 = view.load %w_view[%ch, 0] : view<2048x3xf32> -> f32
+    %back0 = index.constant 2 : index
+    %has0 = index.cmp uge, %token, %back0 : index
+    %x0 = scf.if %has0 -> (f32) {
+      %src0 = index.sub %token, %back0 : index
+      %bsrc0 = index.assume %src0 [lt(%src0, %tokens)] : index
+      %bb0 = view.load %bcx_view[%bsrc0, 0, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %xx0 = view.load %bcx_view[%bsrc0, 2, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %v0 = scalar.mulf %bb0, %xx0 : f32
+      scf.yield %v0 : f32
+    } else {
+      %h0 = scf.if %fresh -> (f32) {
+        scf.yield %zero_f : f32
+      } else {
+        %hk0a = index.constant 0 : index
+        %hk0b = index.add %hk0a, %token : index
+        %hk0 = index.assume %hk0b [range(%hk0b, 0, 1)] : index
+        %hv0 = view.load %hist_view[%hk0, %ch] : view<2x2048xf32> -> f32
+        scf.yield %hv0 : f32
+      }
+      scf.yield %h0 : f32
+    }
+    %acc0 = scalar.fmaf %w0, %x0, %zero_f : f32
+    %w1 = view.load %w_view[%ch, 1] : view<2048x3xf32> -> f32
+    %back1 = index.constant 1 : index
+    %has1 = index.cmp uge, %token, %back1 : index
+    %x1 = scf.if %has1 -> (f32) {
+      %src1 = index.sub %token, %back1 : index
+      %bsrc1 = index.assume %src1 [lt(%src1, %tokens)] : index
+      %bb1 = view.load %bcx_view[%bsrc1, 0, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %xx1 = view.load %bcx_view[%bsrc1, 2, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %v1 = scalar.mulf %bb1, %xx1 : f32
+      scf.yield %v1 : f32
+    } else {
+      %h1 = scf.if %fresh -> (f32) {
+        scf.yield %zero_f : f32
+      } else {
+        %hk1a = index.constant 1 : index
+        %hk1b = index.add %hk1a, %token : index
+        %hk1 = index.assume %hk1b [range(%hk1b, 0, 1)] : index
+        %hv1 = view.load %hist_view[%hk1, %ch] : view<2x2048xf32> -> f32
+        scf.yield %hv1 : f32
+      }
+      scf.yield %h1 : f32
+    }
+    %acc1 = scalar.fmaf %w1, %x1, %acc0 : f32
+    %w2 = view.load %w_view[%ch, 2] : view<2048x3xf32> -> f32
+    %back2 = index.constant 0 : index
+    %has2 = index.cmp uge, %token, %back2 : index
+    %x2 = scf.if %has2 -> (f32) {
+      %src2 = index.sub %token, %back2 : index
+      %bsrc2 = index.assume %src2 [lt(%src2, %tokens)] : index
+      %bb2 = view.load %bcx_view[%bsrc2, 0, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %xx2 = view.load %bcx_view[%bsrc2, 2, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %v2 = scalar.mulf %bb2, %xx2 : f32
+      scf.yield %v2 : f32
+    } else {
+      %h2 = scf.if %fresh -> (f32) {
+        scf.yield %zero_f : f32
+      } else {
+        %hk2a = index.constant 2 : index
+        %hk2b = index.add %hk2a, %token : index
+        %hk2 = index.assume %hk2b [range(%hk2b, 0, 1)] : index
+        %hv2 = view.load %hist_view[%hk2, %ch] : view<2x2048xf32> -> f32
+        scf.yield %hv2 : f32
+      }
+      scf.yield %h2 : f32
+    }
+    %acc2 = scalar.fmaf %w2, %x2, %acc1 : f32
+    %cc = view.load %bcx_view[%token, 1, %ch] : view<[%tokens]x3x2048xf32> -> f32
+    %y = scalar.mulf %cc, %acc2 : f32
+    view.store %y, %out_view[%token, %ch] : f32, view<[%tokens]x2048xf32>
+  } else {
+    view.store %zero_f, %out_view[%token, %ch] : f32, view<[%tokens]x2048xf32>
+  }
+  kernel.return
+}
+
+kernel.def @llm.convolution.shortconv3_commit(%rows0: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  %blocks = index.constant 8 : index
+  kernel.launch.config workgroups(%one, %blocks, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%rows0: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %bcx: buffer, %state: buffer) {
+  %tokens = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %block = kernel.workgroup.id<y> : index
+  %lane = kernel.workitem.id<x> : index
+  %threads = index.constant 256 : index
+  %block_start = index.mul %block, %threads : index
+  %ch0 = index.add %block_start, %lane : index
+  %ch = index.assume %ch0 [range(%ch0, 0, 2047)] : index
+  %zero = index.constant 0 : offset
+  %zero_i = index.constant 0 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %valid, %length, %fresh = func.call @llm.convolution.shortconv3_control(%tokens, %control_origin, %count, %epoch) : (index, offset, buffer, buffer) -> (i1, index, i1)
+  scf.if %valid {
+    %old_view = buffer.view %state[%history_origin] : buffer -> view<2x2048xf32>
+    %new_view = buffer.view %state[%history_origin] : buffer -> view<2x2048xf32>
+    %bcx_view = buffer.view %bcx[%zero] : buffer -> view<[%tokens]x3x2048xf32>
+    %need0 = index.constant 2 : index
+    %has0 = index.cmp uge, %length, %need0 : index
+    %val0 = scf.if %has0 -> (f32) {
+      %off0a = index.add %zero_i, %length : index
+      %src0 = index.sub %off0a, %need0 : index
+      %bsrc0 = index.assume %src0 [lt(%src0, %tokens)] : index
+      %bb0 = view.load %bcx_view[%bsrc0, 0, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %xx0 = view.load %bcx_view[%bsrc0, 2, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %v0 = scalar.mulf %bb0, %xx0 : f32
+      scf.yield %v0 : f32
+    } else {
+      %o0 = scf.if %fresh -> (f32) {
+        scf.yield %zero_f : f32
+      } else {
+        %hk0a = index.constant 0 : index
+        %hk0b = index.add %hk0a, %length : index
+        %hk0 = index.assume %hk0b [range(%hk0b, 0, 1)] : index
+        %hv0 = view.load %old_view[%hk0, %ch] : view<2x2048xf32> -> f32
+        scf.yield %hv0 : f32
+      }
+      scf.yield %o0 : f32
+    }
+    %need1 = index.constant 1 : index
+    %has1 = index.cmp uge, %length, %need1 : index
+    %val1 = scf.if %has1 -> (f32) {
+      %off1a = index.add %zero_i, %length : index
+      %src1 = index.sub %off1a, %need1 : index
+      %bsrc1 = index.assume %src1 [lt(%src1, %tokens)] : index
+      %bb1 = view.load %bcx_view[%bsrc1, 0, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %xx1 = view.load %bcx_view[%bsrc1, 2, %ch] : view<[%tokens]x3x2048xf32> -> f32
+      %v1 = scalar.mulf %bb1, %xx1 : f32
+      scf.yield %v1 : f32
+    } else {
+      %o1 = scf.if %fresh -> (f32) {
+        scf.yield %zero_f : f32
+      } else {
+        %hk1a = index.constant 1 : index
+        %hk1b = index.add %hk1a, %length : index
+        %hk1 = index.assume %hk1b [range(%hk1b, 0, 1)] : index
+        %hv1 = view.load %old_view[%hk1, %ch] : view<2x2048xf32> -> f32
+        scf.yield %hv1 : f32
+      }
+      scf.yield %o1 : f32
+    }
+    view.store %val0, %new_view[0, %ch] : f32, view<2x2048xf32>
+    view.store %val1, %new_view[1, %ch] : f32, view<2x2048xf32>
+  }
+  kernel.return
+}
+
+command.def @llm.convolution.shortconv3(%rows: index, %history_origin: offset, %control_origin: offset) launch(%count: buffer, %epoch: buffer, %bcx: buffer, %weight: buffer, %state: buffer, %out: buffer) where [range(%rows, 1, 512)] {
+  kernel.launch @llm.convolution.shortconv3_compute[%rows](%rows, %history_origin, %control_origin, %count, %epoch, %bcx, %weight, %state, %out) : [index](index, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @llm.convolution.shortconv3_commit[%rows](%rows, %history_origin, %control_origin, %count, %epoch, %bcx, %state) : [index](index, offset, offset, buffer, buffer, buffer, buffer)
+  command.return
+}

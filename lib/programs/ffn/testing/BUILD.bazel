@@ -155,12 +155,17 @@ _CAPABILITY_CANONICAL = [
 [loom_merge(
     name = "capability_" + name + "_" + format,
     testonly = True,
-    srcs = ["capability_" + name + "_programs.loom"] + _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if name == "compatible" else _CAPABILITY_CANONICAL),
+    srcs = ["capability_" + name + "_programs.loom"] + _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if name in [
+        "compatible",
+        "minicpm",
+    ] else _CAPABILITY_CANONICAL),
     output_format = format,
 ) for name in [
     "canonical",
     "compatible",
     "same_hidden",
+    "qwen4",
+    "minicpm",
 ] for format in [
     "text",
     "bc",
@@ -178,6 +183,8 @@ _CAPABILITY_CANONICAL = [
     "canonical",
     "compatible",
     "same_hidden",
+    "qwen4",
+    "minicpm",
 ] for format in [
     "text",
     "bc",
@@ -190,7 +197,10 @@ exports_files(["capability_fixtures.py"])
 [loom_merge(
     name = "capability_" + name + "_provider_" + format,
     testonly = True,
-    srcs = _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if name == "compatible" else _CAPABILITY_CANONICAL),
+    srcs = _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if name in [
+        "compatible",
+        "minicpm",
+    ] else _CAPABILITY_CANONICAL),
     output_format = format,
 ) for name in [
     "canonical",

@@ -134,3 +134,40 @@ genrule(
     "text",
     "bc",
 ]]
+
+genrule(
+    name = "h64_reference_data",
+    srcs = [
+        "h64_reference.py",
+        "reference.py",
+    ],
+    outs = ["h64_reference_data.loom"],
+    cmd = "python3 $(location h64_reference.py) $@",
+)
+
+[loom_merge(
+    name = "h64_provider_" + format,
+    testonly = True,
+    srcs = [
+        "h64_programs.loom",
+        ":h64_reference_data",
+        "//lib/kernels/decoder:implementation_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "h64_" + format + "_test",
+    srcs = [
+        "h64_checks.loom",
+        ":h64_provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]

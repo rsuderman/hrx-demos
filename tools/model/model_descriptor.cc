@@ -151,9 +151,11 @@ bool ExpectedTensorName(const ModelDescriptor &m, std::string_view role,
   if (!layer) {
     if (role == "token_embedding")
       suffix = "token_embd.weight";
-    else if (role == "output_norm")
-      suffix = "output_norm.weight";
-    else if (role == "output")
+    else if (role == "output_norm") {
+      suffix = architecture->extra_tensor_name(role, false);
+      if (!suffix)
+        suffix = "output_norm.weight";
+    } else if (role == "output")
       suffix =
           m.output_tied_to_embedding ? "token_embd.weight" : "output.weight";
   } else {

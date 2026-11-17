@@ -42,3 +42,35 @@ exports_files([
     "gemma3_reference.py",
     "gemma3_reference_data.loom",
 ])
+
+[loom_merge(
+    name = "tail_provider_" + format,
+    testonly = True,
+    srcs = [
+        "tail_programs.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/kernels/qwen:common/layer_decode.loom",
+        "//lib/kernels/qwen:common/layer_prefill.loom",
+        "//lib/kernels/normalization:rmsnorm_row.loom",
+        "//lib/kernels/elementwise:ffn_launches.loom",
+        "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "tail_" + format + "_test",
+    srcs = [
+        "tail_checks.loom",
+        ":tail_provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]

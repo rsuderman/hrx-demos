@@ -32,3 +32,30 @@ package(default_visibility = ["//visibility:public"])
     "text",
     "bc",
 ]]
+
+[loom_merge(
+    name = "shortconv3_provider_" + format,
+    testonly = True,
+    srcs = [
+        "shortconv3_programs.loom",
+        "//lib/kernels/convolution:shortconv3.loom",
+        "//lib/kernels/decoder:implementation_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "shortconv3_" + format + "_test",
+    srcs = [
+        "shortconv3_checks.loom",
+        ":shortconv3_provider_" + format,
+    ],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]

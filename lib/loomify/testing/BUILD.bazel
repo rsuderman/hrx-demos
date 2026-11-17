@@ -24,6 +24,7 @@ exports_files(
         "qwen2_fixture.h",
         "qwen2_configuration_test.cc",
         "lfm3_configuration_test.cc",
+        "lfm2_configuration_test.cc",
         "spark2_5_configuration_test.cc",
         "component_configuration_test.cc",
     ],
@@ -38,6 +39,18 @@ iree_cc_library(
     visibility = [
         "//lib/loomify:__pkg__",
         "//lib/architectures/spark2_5:__pkg__",
+    ],
+    deps = ["//tools/model:model_descriptor"],
+)
+
+iree_cc_library(
+    name = "lfm2_fixture",
+    testonly = True,
+    hdrs = ["lfm2_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/lfm2:__pkg__",
     ],
     deps = ["//tools/model:model_descriptor"],
 )

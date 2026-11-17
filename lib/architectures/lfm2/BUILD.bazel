@@ -1,0 +1,80 @@
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:model_assembly.bzl", "ordinary_products")
+load("//lib/architectures:assemblies.bzl", "assembly")
+
+package(default_visibility = ["//visibility:public"])
+
+ordinary_products(assembly("lfm2"))
+
+exports_files([
+    "model.loom",
+])
+
+loom_merge(
+    name = "layer_fixture",
+    testonly = True,
+    srcs = [
+        ":implementation",
+        "testing/layer_roots.loom",
+    ],
+)
+
+cc_test(
+    name = "materialization_test",
+    srcs = ["testing/materialization_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        ":layer_fixture",
+        "//lib/platforms/amdgpu/gfx11:targets",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//lib/loomify/testing:lfm2_fixture",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "prepare_test",
+    srcs = ["testing/prepare_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        ":ordinary_prepare_source",
+        ":prepare_library",
+        "//lib/serving:ordinary_prepare.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/serving/testing:ordinary_prepare_harness",
+        "//lib/loomify/testing:lfm2_fixture",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_binary(
+    name = "emit_layer_validation",
+    testonly = True,
+    srcs = ["testing/emit_layer_validation.cc"],
+    cxxopts = ["-std=c++17"],
+    data = [
+        ":layer_fixture",
+        "//lib/platforms/amdgpu/gfx11:targets",
+    ],
+    deps = [
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//tools/model:model_descriptor",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)
+
+exports_files(["testing/run_layer_validation.py"])

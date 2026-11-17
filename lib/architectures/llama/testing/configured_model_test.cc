@@ -538,6 +538,72 @@ protected:
   loomc_workspace_t *workspace = nullptr;
   std::string root;
 };
+TEST_F(ConfiguredLlamaModelTest, MiniCpmIndependentAttentionGeometry) {
+  auto descriptor =
+      testing::LlamaModelFacts(1536, 130560, 4608, 24, 16, 12, false, false);
+  descriptor.rms_epsilon = 1e-6;
+  descriptor.rope.base = 5000000;
+  descriptor.training_context = 131072;
+  uint64_t offset = 4096;
+  auto rebind = [&](model::TensorBinding &binding) {
+    auto &t = binding.tensor;
+    const auto a = uint64_t(t.normalized_extents[0]);
+    const auto b = uint64_t(t.normalized_extents[1]);
+    t.byte_size = t.storage_type == 0
+                      ? a * b * 4
+                      : a / 256 * b * (t.storage_type == 12 ? 144 : 210);
+    t.absolute_offset = offset;
+    offset += (t.byte_size + 255) / 256 * 256;
+  };
+  for (auto &binding : descriptor.globals)
+    rebind(binding);
+  for (auto &layer : descriptor.layers) {
+    layer.kv_heads = 2;
+    for (auto &binding : layer.tensors) {
+      auto &t = binding.tensor;
+      if (binding.role == "query")
+        t.normalized_extents[1] = 2048;
+      if (binding.role == "key" || binding.role == "value")
+        t.normalized_extents[1] = 256;
+      if (binding.role == "attention_output")
+        t.normalized_extents[0] = 2048;
+      if (binding.role == "query" || binding.role == "key")
+        t.storage_type = 12;
+      if (binding.role == "value" || binding.role == "ffn_down")
+        t.storage_type = layer.index % 2 ? 12 : 14;
+      rebind(binding);
+    }
+  }
+  for (bool text : {false, true})
+    Build(descriptor, 3, false, text);
+}
+TEST_F(ConfiguredLlamaModelTest, RealMiniCpmNumericalModel) {
+  const char *path = std::getenv("LOOMIFY_TEST_MINICPM_GGUF");
+  if (!path)
+    GTEST_SKIP() << "requires explicit immutable MiniCPM GGUF gate";
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"),
+                                                     &std::fclose);
+  ASSERT_TRUE(file);
+  ASSERT_EQ(std::setvbuf(file.get(), nullptr, _IONBF, 0), 0);
+  model::ModelDescriptor descriptor;
+  model::GgufCatalog catalog;
+  std::string error;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error))
+      << error;
+  ASSERT_EQ(descriptor.family, "llama");
+  ASSERT_EQ(descriptor.layers.size(), 24u);
+  ASSERT_EQ(descriptor.embedding_width, 1536u);
+  ASSERT_EQ(descriptor.vocabulary_size, 130560u);
+  ASSERT_FALSE(descriptor.output_tied_to_embedding);
+  for (const auto &layer : descriptor.layers) {
+    EXPECT_EQ(layer.query_heads, 16u);
+    EXPECT_EQ(layer.kv_heads, 2u);
+    EXPECT_EQ(layer.feed_forward_width, 4608u);
+  }
+  for (bool text : {false, true})
+    Build(descriptor, 17, true, text);
+}
 TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndEpochRoot) {
   const char *path = std::getenv("LOOMIFY_TEST_GGUF");
   if (!path)

@@ -20,7 +20,7 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   const uint64_t H = m.key_head_width;
   uint64_t Q, KV;
   if (!E || !V || !QH || !KH || QH % KH || !H || H != m.value_head_width ||
-      !Product(QH, H, &Q) || Q != E || !Product(KH, H, &KV) ||
+      !Product(QH, H, &Q) || !Product(KH, H, &KV) ||
       !PositiveF32(m.rms_epsilon) || !PositiveF32(m.rope.base) ||
       m.rope.base < 1 || m.ssm || m.rope.width != H ||
       m.rope.scaling_factor != 1 ||
@@ -73,10 +73,10 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
     p.Projection(up, E, F);
     p.Projection(down, F, E);
     if (!p.Tensor(l.tensors, "input_norm", E, 1, {0}, l.index) ||
-        !p.Tensor(l.tensors, "query", E, E, {}, l.index) ||
+        !p.Tensor(l.tensors, "query", E, Q, {}, l.index) ||
         !p.Tensor(l.tensors, "key", E, KV, {}, l.index) ||
         !p.Tensor(l.tensors, "value", E, KV, {}, l.index) ||
-        !p.Tensor(l.tensors, "attention_output", E, E, {}, l.index))
+        !p.Tensor(l.tensors, "attention_output", Q, E, {}, l.index))
       return false;
     const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
                &v = *Role(l.tensors, "value"),
@@ -84,16 +84,17 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
     attention.push_back({q.storage_type, k.storage_type, v.storage_type,
                          o.storage_type, q.byte_size, k.byte_size, v.byte_size,
                          o.byte_size});
-    p.Projection(q, E, E);
+    p.Projection(q, E, Q);
     p.Projection(k, E, KV);
     p.Projection(v, E, KV);
-    p.Projection(o, E, E);
+    p.Projection(o, Q, E);
   }
   p.Index("loomify.ffn.profile", 0);
   const auto history = std::max<uint64_t>(s.token_capacity, 129);
   const auto pool = (s.context_capacity + 63) / 64 * 64;
   p.Index("llama.model.history_capacity", history);
   p.Index("llama.model.hidden_size", E);
+  p.Index("llama.model.query_size", Q);
   p.Index("llama.model.vocabulary_size", m.vocabulary_size);
   p.Index("llama.model.layer_count", m.layers.size());
   p.Index("llama.model.embedding_storage_type",

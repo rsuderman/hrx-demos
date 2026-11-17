@@ -1,0 +1,42 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+config.decl @lfm2.model.rms_epsilon : f32
+
+kernel.decl @llm.decoder.output_norm_last(%capacity$1: index, %width$2: index) launch(%capacity$3: index, %width$4: index, %begin: index, %origin: offset, %epsilon: f32, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
+
+template.def<@llm.output.norm_last> @loomify_lfm2_output_norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer) {
+  %epsilon = config.get @lfm2.model.rms_epsilon : f32
+  kernel.launch @llm.decoder.output_norm_last[%capacity, %hidden](%capacity, %hidden, %begin, %origin, %epsilon, %control, %input, %gamma, %output) : [index, index](index, index, index, offset, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  template.return
+}
+
+template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
+
+command.def @loomify.lfm2.head(%rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer, %selected_ids: buffer) {
+  %zero = index.constant 0 : index
+  %zero_offset = index.constant 0 : offset
+  %hidden = config.get @lfm2.model.hidden_size : index
+  %vocab = config.get @lfm2.model.vocabulary_size : index
+  %output_bytes = config.get @lfm2.model.output_weight_bytes : index
+  %gamma = command.parameter %parameters, "token_embd_norm.weight" : view<[%hidden]xf32>
+  %tie = config.get @lfm2.model.tied_output : index
+  %tied = index.cmp ne, %tie, %zero : index
+  %weight = scf.if %tied -> (view<[%output_bytes]xi8>) {
+    %shared = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
+    scf.yield %shared : view<[%output_bytes]xi8>
+  } else {
+    %separate = command.parameter %parameters, "output.weight" : view<[%output_bytes]xi8>
+    scf.yield %separate : view<[%output_bytes]xi8>
+  }
+  %policy = index.constant 1 : index
+  %output_tag = config.get @lfm2.model.output_tag : index
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %policy, %output_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
+  command.return
+}
+config.decl @lfm2.model.hidden_size : index
+config.decl @lfm2.model.vocabulary_size : index
+config.decl @lfm2.model.output_weight_bytes : index
+config.decl @lfm2.model.output_tag : index
+config.decl @lfm2.model.tied_output : index

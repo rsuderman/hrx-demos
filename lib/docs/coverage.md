@@ -111,9 +111,21 @@ config capacities still apply. Model/FFN wrappers may impose narrower bounds.
 
 ## Composed programs and architecture-owned pieces
 
+The complete FFN admits hidden widths1024..32768 in multiples256, intersected
+with each selected projection's bounds. Compatible/profile0 and canonical/profile1
+packing recipes remain distinct. The [capability fixtures](../programs/ffn/testing/BUILD.bazel)
+include E1536/F4608 with compatible Q4/Q6 down and E2560/F9216 with canonical
+Q4/Q6 down, including partial and empty counts. Canonical FFN arithmetic defines
+all statically launched rows of private scratch regardless of active count;
+compatible FFN preserves inactive rows. Active-count guards on persistent state
+and KV writes remain separate from private scratch semantics.
+Shared residual launchers carry the exact
+logical width separately from their ceiling1024-channel grid; [tail fixtures](../kernels/elementwise/testing/BUILD.bazel)
+exercise widths1024/1536/2560/3072, multiple rows, input aliases and guards.
+
 | Piece | Source/build entrypoint | Reuse boundary and existing tests |
 |---|---|---|
-| Shared complete FFN | [ffn.loom](../programs/ffn/ffn.loom), [interface](../programs/ffn/interface.loom), [BUILD](../programs/ffn/BUILD.bazel) | Pre-RMS, gate/up, SwiGLU, down and residual composition. Hidden1024..32768 multiple1024; FFN256..32768 multiple256; rows1..512, decode one row. Format/profile and gate/up identity constraints are in the implementation. It is not an arbitrary-activation/post-norm block. [Native/capability/real-FFN fixtures](../programs/ffn/testing/BUILD.bazel). |
+| Shared complete FFN | [ffn.loom](../programs/ffn/ffn.loom), [interface](../programs/ffn/interface.loom), [BUILD](../programs/ffn/BUILD.bazel) | Pre-RMS, gate/up, SwiGLU, down and residual composition. Hidden1024..32768 multiple256; FFN256..32768 multiple256; rows1..512, decode one row. Format/profile and gate/up identity constraints are in the implementation. It is not an arbitrary-activation/post-norm block. [Native/capability/real-FFN fixtures](../programs/ffn/testing/BUILD.bazel). |
 | Canonical mixed-format SwiGLU: `llm.ffn.canonical_swiglu` | [canonical_swiglu.loom](../programs/ffn/canonical_swiglu.loom), [BUILD](../programs/ffn/BUILD.bazel) | Gate/up/down select independent actual tags through canonical row projection; owns gate/up/activation scratch. R normalized input/count/weights; W down output. Callers define inactive input rows and own RMS/postnorm/residual placement; LFM3 and Spark retain distinct layer ordering. Rows1..512, FFN256..32768 multiple256, subject to each projection's encoding/input bound above. [Independent mixed-format SOURCE/BC cases](../programs/ffn/testing/spark/BUILD.bazel). |
 | Last-active greedy head: `llm.output.last_greedy` | [Composition](../programs/output/last_greedy.loom), [BUILD](../programs/output/BUILD.bazel) | Calls the supplied `llm.output.norm_last` hook, explicit packing policy and weight tag, then partial/reduced argmax. Existing Llama/Qwen2/Qwen3 callers retain compatible Q6_K; LFM3 uses canonical Q5_K; Spark supplies generated output tags and tied/untied bindings with canonical policy. R count/input/gamma/weight; W normalized scratch/private selected token. Llama and Qwen3 supply their own norm hooks and caller-owned scratch. This is not a head for every encoding or normalization. [Llama head](../programs/llama/output.loom), [Qwen3 head](../programs/qwen3/output.loom), [Llama head checks](../kernels/llama/testing/output_checks.loom). |
 | Llama blocks | [attention/layer/output/FFN adapter](../programs/llama/BUILD.bazel), [provider closure](../kernels/llama/BUILD.bazel) | Maintained Llama ordering, native cache/packet bindings and numerical policies. The selected embedding tag admits Q4_K/Q6_K; the Q6_K last-row head binds tied or independent output from descriptor facts. Adjacent H128 RoPE uses the actual frequency tensor when present and unit divisors for ordinary RoPE otherwise. Layer format lookups preserve mixed Q4_K/Q6_K projections. No checkpoint-expanded sequence or separate branded numerical architecture. [Layer/model/preparation fixtures](../architectures/llama/BUILD.bazel), [configuration cases](../loomify/testing/configuration_test.cc). Availability and bounded execution are separate from independent full-model fidelity. |
@@ -266,6 +278,59 @@ canonical short-row matrix route. Common ordinary preparation is maintained in
 supplying facts. Hardware-specific matrix scheduling is not GGUF configuration.
 
 ## Qualification boundaries
+
+### Numerical coverage extensions
+
+The Llama composition keeps hidden, query and KV widths independent. Its
+[mapper](../loomify/architectures/llama.cc) binds E-to-Q projections and Q-to-E
+output projections; the attention program allocates and addresses query rows
+using Q. MiniCPM5's ordinary Llama GGUF is a witness at E1536/Q2048/KV256,
+F4608 and vocabulary130560, without brand-specific scaling. The
+[model fixtures](../architectures/llama/testing/configured_model_test.cc) and
+[geometry fixtures](../kernels/llama/testing/BUILD.bazel) cover these dimensions,
+compatible FFN tails and high-ID gather/greedy selection.
+For ordinary Llama GGUFs declaring `</s>` as their single EOS, numerical
+publication resolves that source identity and aliases the existing three stop
+slots to it. No token ID is fixed, and this does not admit a chat template or
+tokenizer policy. [Publication and builder tests](../loomify/testing/BUILD.bazel)
+cover relocated IDs, invalid source metadata and numerical-only configuration.
+
+Qwen35 retains its H256/GDN sequence while admitting hidden widths in
+multiples256, subject to each projection's bounds. Its E2560/F9216/32-layer
+[model witness](../architectures/qwen35/testing/model_test.cc) checks mixed
+V/down tags and compact state ordinals; the
+[block emitter](../architectures/qwen35/testing/emit_block_validation.cc) exposes
+isolated GDN and attention roots with their actual per-layer weights.
+GDN first-advance reads the caller-prepared clean anchor and writes the selected
+destination; subsequent advances read that destination. Position0 alone does
+not clear an aliased anchor. Reset tests keep the destination dirty while
+providing a separate clean anchor and require fresh-equivalent logical state.
+
+The [three-tap convolution](../kernels/convolution/shortconv3.loom) curates the
+existing LFM2 pipeline's B/C/X compute and history commit. It reads B/C/X,
+weights and selected history, writes the output, then updates only two history
+rows at the supplied byte origin. Fresh position0 ignores old history; inactive
+or invalid packets never commit history. [SOURCE/BC fixtures](../kernels/convolution/testing/BUILD.bazel)
+exercise split chunks, reset, malformed packets and guards. New
+[H64 row wrappers](../kernels/decoder/rows.loom) reuse head RMS, NeoX rotary,
+F16 native64-page publication and plain causal attention. Their
+[fixtures](../kernels/decoder/testing/BUILD.bazel) use Q32/KV8, boundary positions,
+page63/64 and invalid-packet no-mutation checks.
+
+The [LFM2 descriptor](../../tools/model/architectures/lfm2.cc),
+[mapper](../loomify/architectures/lfm2.cc) and
+[model](../architectures/lfm2/model.loom) assemble these pieces with ordinary
+embedding, canonical projection/FFN and a tied Q6 head. The final stored gamma
+comes from `token_embd_norm.weight`, after all layers. Attention and convolution
+use separate compact state ordinals. A family packet guard rejects invalid whole
+chunks before either history or KV writes. [Configuration tests](../loomify/testing/lfm2_configuration_test.cc)
+cover actual role/shape facts, and the [layer runner](../architectures/lfm2/testing/run_layer_validation.py)
+uses reflected parameter bindings and runtime-generated sparse weights for
+independent mixer/FFN/state and gamma-sensitive head checks. LFM2 and LFM2.5
+share a numerical recipe; their actual GGUF weights remain independent inputs.
+
+These are numerical construction and staged execution interfaces. They do not
+enable new chat-template policies or establish independent whole-model fidelity.
 
 ### Spark configuration and bounded execution
 

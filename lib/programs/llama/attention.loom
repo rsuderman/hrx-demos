@@ -5,6 +5,8 @@ template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index,
 // Maintained decoder attention sequence. Numerical providers own arithmetic,
 // active-row guards, mapped cache addressing and precision-policy selection.
 config.decl @llama.model.hidden_size : index
+config.decl @llama.model.query_heads : index
+config.decl @llama.model.head_size : index
 config.decl @llama.model.kv_size : index
 config.decl @llama.attention.cache_base : offset
 config.decl @llama.attention.map_origin : offset
@@ -20,6 +22,9 @@ kernel.decl @llama32_unit_rope_factors() launch(%factors: buffer)
 
 command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @llama.model.hidden_size : index
+  %q_heads = config.get @llama.model.query_heads : index
+  %head_size = config.get @llama.model.head_size : index
+  %q_size = index.mul %q_heads, %head_size : index
   %kv = config.get @llama.model.kv_size : index
   %cache_base = config.get @llama.attention.cache_base : offset
   %map_origin = config.get @llama.attention.map_origin : offset
@@ -49,22 +54,26 @@ command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index,
   %block = index.constant 128 : index
   %packed_block = index.constant 144 : offset
   %hidden_elements = index.mul %rows, %hidden : index
+  %q_elements = index.mul %rows, %q_size : index
   %kv_elements = index.mul %rows, %kv : index
   %hidden_bytes = index.scale %hidden_elements, %four : index, offset -> offset
+  %q_storage_bytes = index.scale %q_elements, %four : index, offset -> offset
   %kv_bytes = index.scale %kv_elements, %four : index, offset -> offset
   %packed_blocks = index.div %hidden_elements, %block : index
   %packed_bytes = index.scale %packed_blocks, %packed_block : index, offset -> offset
+  %q_packed_blocks = index.div %q_elements, %block : index
+  %q_packed_bytes = index.scale %q_packed_blocks, %packed_block : index, offset -> offset
   %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
-  %q = buffer.alloca<global> align(256) %hidden_bytes : buffer
+  %q = buffer.alloca<global> align(256) %q_storage_bytes : buffer
   %k = buffer.alloca<global> align(256) %kv_bytes : buffer
   %v = buffer.alloca<global> align(256) %kv_bytes : buffer
-  %query = buffer.alloca<global> align(256) %hidden_bytes : buffer
-  %attended = buffer.alloca<global> align(256) %hidden_bytes : buffer
-  %attention_packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  %query = buffer.alloca<global> align(256) %q_storage_bytes : buffer
+  %attended = buffer.alloca<global> align(256) %q_storage_bytes : buffer
+  %attention_packed = buffer.alloca<global> align(256) %q_packed_bytes : buffer
   %projected = buffer.alloca<global> align(256) %hidden_bytes : buffer
   // Projection count is the layer's private snapshot, including during decode.
   template.apply<@llm.projection.pack_input>(%zero, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  template.apply<@llm.projection.project_packed>(%zero, %q_tag, %rows, %rows, %hidden, %hidden, %q_bytes, %zero, %dynamic, %origin, %count, %packed, %q_weight, %q) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%q_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%zero, %q_tag, %rows, %rows, %hidden, %q_size, %q_bytes, %zero, %dynamic, %origin, %count, %packed, %q_weight, %q) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%q_bytes]xi8>, buffer)
   template.apply<@llm.projection.project_packed>(%zero, %k_tag, %rows, %rows, %hidden, %kv, %k_bytes, %zero, %dynamic, %origin, %count, %packed, %k_weight, %k) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%k_bytes]xi8>, buffer)
   template.apply<@llm.projection.project_packed>(%zero, %v_tag, %rows, %rows, %hidden, %kv, %v_bytes, %zero, %dynamic, %origin, %count, %packed, %v_weight, %v) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%v_bytes]xi8>, buffer)
   // Position-bearing operations retain the original runtime control packet.
@@ -72,8 +81,8 @@ command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index,
   kernel.launch @llama32_publish_kv[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %factors, %k, %v, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<64xf32>, buffer, buffer, buffer)
   // Publication precedes causal consumption; the provider clears inactive rows.
   kernel.launch @llama32_attention_rows[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %query, %cache, %attended) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
-  template.apply<@llm.projection.pack_input>(%zero, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %attended, %attention_packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  template.apply<@llm.projection.project_packed>(%zero, %o_tag, %rows, %rows, %hidden, %hidden, %o_bytes, %zero, %dynamic, %origin, %count, %attention_packed, %o_weight, %projected) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%o_bytes]xi8>, buffer)
+  template.apply<@llm.projection.pack_input>(%zero, %rows, %rows, %q_size, %zero, %dynamic, %origin, %count, %attended, %attention_packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%zero, %o_tag, %rows, %rows, %q_size, %hidden, %o_bytes, %zero, %dynamic, %origin, %count, %attention_packed, %o_weight, %projected) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%o_bytes]xi8>, buffer)
   kernel.launch @llama32_attention_residual[%rows](%phase, %control_origin, %zero, %control, %projected, %residual) : [index](index, offset, index, buffer, buffer, buffer)
   command.return
 }

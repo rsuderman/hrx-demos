@@ -28,7 +28,7 @@ protected:
   void Open(bool missing_stop = false, bool bad_template = true,
             bool chatml = false, std::string terminal = {}, bool gemma = false,
             bool qwen3 = false, bool qwen2 = false, bool plain = false,
-            bool duplicate_stop = false) {
+            bool duplicate_stop = false, bool duplicate_terminal = false) {
     pieces = {"a",
               "<|begin_of_text|>",
               "<|end_of_text|>",
@@ -57,6 +57,8 @@ protected:
                 "<|other|>"};
     if (duplicate_stop)
       pieces.push_back(pieces[2]);
+    if (duplicate_terminal)
+      pieces.push_back(pieces[4]);
     std::string bytes = "GGUF";
     Number(bytes, 3, 4);
     Number(bytes, 0, 8);
@@ -294,6 +296,47 @@ TEST_F(TokenPolicyTest,
       role.id = 2;
   EXPECT_FALSE(
       DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_EQ(facts->configuration_source, "prior");
+}
+TEST_F(TokenPolicyTest, SingleSentenceEosAliasesExistingNumericalSlots) {
+  // EOS is deliberately relocated to4; missing unrelated3-stop piece is legal.
+  Open(true, true, false, "</s>");
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error))
+      << error;
+  ASSERT_TRUE(facts);
+  ASSERT_EQ(facts->raw_stops.size(), 3u);
+  EXPECT_EQ(facts->terminal_index, 0u);
+  for (const auto &stop : facts->raw_stops) {
+    EXPECT_EQ(stop.id, 4);
+    EXPECT_EQ(stop.piece, "</s>");
+  }
+  EXPECT_EQ(facts->configuration_source,
+            "config.def @llama.publication.end_text_id = 4 : i32\n"
+            "config.def @llama.publication.end_message_id = 4 : i32\n"
+            "config.def @llama.publication.end_turn_id = 4 : i32\n");
+}
+TEST_F(TokenPolicyTest, SingleSentenceEosRejectsInvalidOrDuplicateIdentities) {
+  std::optional<PublicationTokenFacts> facts =
+      PublicationTokenFacts{{{77, "prior"}}, 0, "prior"};
+  Open(false, true, false, "</s>");
+  text.token_pieces.erase(4);
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_EQ(facts->configuration_source, "prior");
+  Open(false, true, false, "</s>");
+  for (auto &role : text.tokens)
+    if (role.source_key == "tokenizer.ggml.eos_token_id")
+      role.id = 2;
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_EQ(facts->configuration_source, "prior");
+  Open(false, true, false, "</s>", false, false, false, false, false, true);
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_NE(error.find("invalid publication piece"), std::string::npos)
+      << error;
   EXPECT_EQ(facts->configuration_source, "prior");
 }
 TEST_F(TokenPolicyTest, MissingRequiredPublicationPiecePreservesOutput) {

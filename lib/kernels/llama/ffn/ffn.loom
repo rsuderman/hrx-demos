@@ -39,23 +39,22 @@ kernel.def @llm_ffn_swiglu_f32_prefill_active(%token_count: index, %ffn_size: in
   kernel.return
 }
 
-// Complete 1024-channel tiles make device width equal grid_x*1024. Deriving
-// it from the grid preserves vector4 bounds through neutral launch composition.
+// Tail workgroups retain the true logical width for row strides and vector4 guards.
 
-kernel.decl @llm_ffn_residual_add_f32_decode(%hidden_size: index) launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+kernel.decl @llm_ffn_residual_add_f32_decode(%hidden_size: index) launch(%hidden_size: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
 kernel.def @llm_ffn_residual_add_f32_prefill_active(%token_count: index, %hidden_size: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
   %unit = index.constant 1 : index
   %channels_per_group = index.constant 1024 : index
-  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024)] : index
-  %workgroup_count = index.div %bounded_hidden_size, %channels_per_group : index
+  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 256)] : index
+  %rounding = index.constant 1023 : index
+  %rounded_hidden = index.add %bounded_hidden_size, %rounding : index
+  %workgroup_count = index.div %rounded_hidden, %channels_per_group : index
   %workgroup_size = index.constant 256 : index
   kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
-} launch(%token_count: index, %row_origin: index, %count_origin: offset, %count: buffer, %lhs: buffer, %rhs: buffer, %output: buffer) {
-  %width_groups = kernel.workgroup.count<x> : index
-  %width_per_group = index.constant 1024 : index
-  %hidden_size = index.mul %width_groups, %width_per_group : index
+} launch(%hidden_size0: index, %token_count: index, %row_origin: index, %count_origin: offset, %count: buffer, %lhs: buffer, %rhs: buffer, %output: buffer) {
+  %hidden_size = index.assume %hidden_size0 [range(%hidden_size0, 1024, 32768), multiple_of(%hidden_size0, 256)] : index
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
   %token0 = kernel.workgroup.id<y> : index
   %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
@@ -87,7 +86,7 @@ template.def<@llm.ffn.compatible_down> @llm_ffn_compatible_down_14(%q4: i1, %q6:
   template.return %tag : index
 }
 
-template.def<@llm.ffn.gate_up_decode> @llm_ffn_compatible_gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1), eq(%ffn_gate_is_q4, 1), eq(%ffn_gate_is_q6, 0)] {
+template.def<@llm.ffn.gate_up_decode> @llm_ffn_compatible_gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 256), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1), eq(%ffn_gate_is_q4, 1), eq(%ffn_gate_is_q6, 0)] {
   %policy = index.constant 0 : index
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
@@ -103,7 +102,7 @@ template.def<@llm.ffn.gate_up_decode> @llm_ffn_compatible_gate_up_decode(%hidden
   template.return
 }
 
-template.def<@llm.ffn.gate_up_prefill> @llm_ffn_compatible_gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1), eq(%ffn_gate_is_q4, 1), eq(%ffn_gate_is_q6, 0), eq(%uses_m4, 0)] {
+template.def<@llm.ffn.gate_up_prefill> @llm_ffn_compatible_gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 256), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1), eq(%ffn_gate_is_q4, 1), eq(%ffn_gate_is_q6, 0), eq(%uses_m4, 0)] {
   %policy = index.constant 0 : index
   %projection_fixed_count = scalar.constant -1 : i32
   %tag = index.constant 12 : index
@@ -119,7 +118,7 @@ template.def<@llm.ffn.gate_up_prefill> @llm_ffn_compatible_gate_up_prefill(%hidd
   template.return
 }
 
-template.def<@llm.ffn.down_decode> @llm_ffn_compatible_down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1)] {
+template.def<@llm.ffn.down_decode> @llm_ffn_compatible_down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 256), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1)] {
   %policy = index.constant 0 : index
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
@@ -132,11 +131,11 @@ template.def<@llm.ffn.down_decode> @llm_ffn_compatible_down_decode(%hidden_size:
   %swiglu_q8 = buffer.alloca<global> align(256) %ffn_bytes : buffer
   template.apply<@llm.projection.pack_input>(%policy, %token_count, %token_count, %ffn_size, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %swiglu, %swiglu, %swiglu_q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
   template.apply<@llm.projection.project_packed>(%policy, %tag, %token_count, %token_count, %ffn_size, %hidden_size, %shape_ffn_down_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %swiglu, %swiglu_q8, %ffn_down_weight, %ffn_output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_down_weight_bytes]xi8>, buffer)
-  kernel.launch @llm_ffn_residual_add_f32_decode[%hidden_size](%residual, %ffn_output, %residual) : [index](buffer, buffer, buffer)
+  kernel.launch @llm_ffn_residual_add_f32_decode[%hidden_size](%hidden_size, %residual, %ffn_output, %residual) : [index](index, buffer, buffer, buffer)
   template.return
 }
 
-template.def<@llm.ffn.down_prefill> @llm_ffn_compatible_down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1), eq(%uses_m4, 0)] {
+template.def<@llm.ffn.down_prefill> @llm_ffn_compatible_down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer) where [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 256), range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256), eq(%use_generic_quantized_projections, 1), eq(%use_mmvq_compat, 1), eq(%uses_m4, 0)] {
   %policy = index.constant 0 : index
   %projection_fixed_count = scalar.constant -1 : i32
   %tag = template.apply<@llm.ffn.compatible_down>(%ffn_down_is_q4, %ffn_down_is_q6) : (i1, i1) -> (index)
@@ -146,6 +145,6 @@ template.def<@llm.ffn.down_prefill> @llm_ffn_compatible_down_prefill(%hidden_siz
   %swiglu_q8 = buffer.alloca<global> align(256) %ffn_bytes : buffer
   template.apply<@llm.projection.pack_input>(%policy, %token_count, %token_capacity, %ffn_size, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %control, %swiglu, %swiglu_q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
   template.apply<@llm.projection.project_packed>(%policy, %tag, %token_count, %token_capacity, %ffn_size, %hidden_size, %shape_ffn_down_weight_bytes, %projection_row_origin, %projection_fixed_count, %projection_count_origin, %control, %swiglu_q8, %ffn_down_weight, %ffn_output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_down_weight_bytes]xi8>, buffer)
-  kernel.launch @llm_ffn_residual_add_f32_prefill_active[%token_count, %hidden_size](%token_capacity, %projection_row_origin, %projection_count_origin, %control, %residual, %ffn_output, %residual) : [index, index](index, index, offset, buffer, buffer, buffer, buffer)
+  kernel.launch @llm_ffn_residual_add_f32_prefill_active[%token_count, %hidden_size](%hidden_size, %token_capacity, %projection_row_origin, %projection_count_origin, %control, %residual, %ffn_output, %residual) : [index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
   template.return
 }

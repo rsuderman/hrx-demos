@@ -1,0 +1,478 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+command.decl @shortconv3.actual() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
+command.decl @shortconv3.chunked() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
+command.decl @shortconv3.reset_replay() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
+func.def @shortconv3.expected(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %history_origin = index.constant 16 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %rows = index.constant 8 : index
+  %width = index.constant 2048 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %zero32 = scalar.constant 0 : i32
+  %counts = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %descriptor = buffer.view %epoch[%origin] : buffer -> view<5xi32>
+  %n32 = view.load %counts[0] : view<3xi32> -> i32
+  %en32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %base = view.load %descriptor[1] : view<5xi32> -> i32
+  %fresh = scalar.cmpi eq, %base, %zero32 : i32
+  %positive = scalar.cmpi sgt, %n32, %zero32 : i32
+  %same = scalar.cmpi eq, %n32, %en32 : i32
+  %nonnegative = scalar.cmpi sge, %base, %zero32 : i32
+  %n = index.cast %n32 : i32 to index
+  %fits = index.cmp ule, %n, %rows : index
+  %a = scalar.andi %positive, %same : i1
+  %b = scalar.andi %nonnegative, %fits : i1
+  %valid = scalar.andi %a, %b : i1
+  %bcx = buffer.view %input[%origin] : buffer -> view<8x3x2048xf32>
+  %weights = buffer.view %weight[%origin] : buffer -> view<2048x3xf32>
+  %history = buffer.view %state[%history_origin] : buffer -> view<2x2048xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<8x2048xf32>
+  scf.for %channel = [%zero to %width step %one] {
+    %old0, %old1 = scf.if %valid -> (f32, f32) {
+      %h0, %h1 = scf.if %fresh -> (f32, f32) {
+        scf.yield %zero_f, %zero_f : f32, f32
+      } else {
+        %v0 = view.load %history[0, %channel] : view<2x2048xf32> -> f32
+        %v1 = view.load %history[1, %channel] : view<2x2048xf32> -> f32
+        scf.yield %v0, %v1 : f32, f32
+      }
+      scf.yield %h0, %h1 : f32, f32
+    } else {
+      scf.yield %zero_f, %zero_f : f32, f32
+    }
+    %next0, %next1 = scf.for %row = [%zero to %rows step %one](%h0 = %old0 : f32, %h1 = %old1 : f32) -> (f32, f32) {
+      %inside = index.cmp ult, %row, %n : index
+      %live = scalar.andi %valid, %inside : i1
+      %n0, %n1 = scf.if %live -> (f32, f32) {
+        %b = view.load %bcx[%row, 0, %channel] : view<8x3x2048xf32> -> f32
+        %c = view.load %bcx[%row, 1, %channel] : view<8x3x2048xf32> -> f32
+        %x = view.load %bcx[%row, 2, %channel] : view<8x3x2048xf32> -> f32
+        %u = scalar.mulf %b, %x : f32
+        %w0 = view.load %weights[%channel, 0] : view<2048x3xf32> -> f32
+        %w1 = view.load %weights[%channel, 1] : view<2048x3xf32> -> f32
+        %w2 = view.load %weights[%channel, 2] : view<2048x3xf32> -> f32
+        %a0 = scalar.fmaf %w0, %h0, %zero_f : f32
+        %a1 = scalar.fmaf %w1, %h1, %a0 : f32
+        %a2 = scalar.fmaf %w2, %u, %a1 : f32
+        %value = scalar.mulf %c, %a2 : f32
+        view.store %value, %out[%row, %channel] : f32, view<8x2048xf32>
+        scf.yield %h1, %u : f32, f32
+      } else {
+        view.store %zero_f, %out[%row, %channel] : f32, view<8x2048xf32>
+        scf.yield %h0, %h1 : f32, f32
+      }
+      scf.yield %n0, %n1 : f32, f32
+    }
+    scf.if %valid {
+      view.store %next0, %history[0, %channel] : f32, view<2x2048xf32>
+      view.store %next1, %history[1, %channel] : f32, view<2x2048xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @shortconv3.n1_base0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %epoch = check.generate.iota offset(1) step(-1) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n1_base37 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(1) : tensor<3xi32>
+    %epoch = check.generate.iota offset(1) step(36) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n2_base0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %epoch = check.generate.iota offset(2) step(-2) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n2_base37 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %epoch = check.generate.iota offset(2) step(35) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n3_base0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(3) : tensor<3xi32>
+    %epoch = check.generate.iota offset(3) step(-3) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n3_base37 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(3) : tensor<3xi32>
+    %epoch = check.generate.iota offset(3) step(34) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n8_base0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(8) : tensor<3xi32>
+    %epoch = check.generate.iota offset(8) step(-8) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.n8_base37 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(8) : tensor<3xi32>
+    %epoch = check.generate.iota offset(8) step(29) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.empty {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %epoch = check.generate.iota offset(0) step(37) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.negative {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(-1) : tensor<3xi32>
+    %epoch = check.generate.iota offset(-1) step(38) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.oversized {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(9) : tensor<3xi32>
+    %epoch = check.generate.iota offset(9) step(28) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.mismatch {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %epoch = check.generate.iota offset(3) step(34) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.negative_base {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(2) : tensor<3xi32>
+    %epoch = check.generate.iota offset(2) step(-3) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.actual, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.chunked_fresh {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(8) : tensor<3xi32>
+    %epoch = check.generate.iota offset(8) step(-8) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.chunked, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.chunked_append {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(8) : tensor<3xi32>
+    %epoch = check.generate.iota offset(8) step(29) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.chunked, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @shortconv3.reset_replay.full_equivalence {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.generate.fill value(8) : tensor<3xi32>
+    %epoch = check.generate.iota offset(8) step(-8) : tensor<5xi32>
+    %input = check.generate.iota offset(0.25) step(1.52587890625e-05) : tensor<8x3x2048xf32>
+    %weight = check.generate.iota offset(-0.375) step(0.0001220703125) : tensor<2048x3xf32>
+    %state = check.generate.iota offset(-777.0) step(0.00048828125) : tensor<4104xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %out = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@shortconv3.reset_replay, @shortconv3.expected>(%count, %epoch, %input, %weight, %state, %out) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x3xf32>, tensor<4104xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%state) expected(%state) : tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x3xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<5xi32>
+    }
+  }
+  check.return
+}

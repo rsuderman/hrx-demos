@@ -25,15 +25,17 @@ bool Ok(loomc_status_t status) {
 }
 } // namespace
 int main(int argc, char **argv) {
+  const bool four_billion =
+      argc == 5 && std::string(argv[4]) == "--four-billion";
   const bool attention_partial =
       argc == 5 && std::string(argv[4]) == "--attention-partial";
   const bool partial =
       attention_partial ||
       (argc == 5 && std::string(argv[4]) == "--partial-active");
-  if (argc != 4 && !partial) {
+  if (argc != 4 && !partial && !four_billion) {
     std::fprintf(
         stderr,
-        "usage: emitter LIBRARY_ROOT GGUF OUTPUT_DIRECTORY [--partial-active | --attention-partial]\n");
+        "usage: emitter LIBRARY_ROOT GGUF OUTPUT_DIRECTORY [--partial-active | --attention-partial | --four-billion]\n");
     return 1;
   }
   std::filesystem::create_directories(argv[3]);
@@ -50,9 +52,15 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "%s\n", error.c_str());
     return 1;
   }
+  if (four_billion && descriptor.embedding_width != 2560) {
+    std::fprintf(stderr,
+                 "--four-billion requires the bounded hidden2560 fixture\n");
+    return 1;
+  }
   ConfigurationFacts config;
-  if (!DeriveConfiguration(descriptor, argv[2], {partial ? 3u : 1u, 64},
-                           &config, &error)) {
+  if (!DeriveConfiguration(descriptor, argv[2],
+                           {(partial || four_billion) ? 3u : 1u, 64}, &config,
+                           &error)) {
     std::fprintf(stderr, "%s\n", error.c_str());
     return 1;
   }
@@ -77,6 +85,11 @@ int main(int argc, char **argv) {
     roots = {"validated.qwen.gdn0", "validated.qwen.gdn0_t3"};
   if (attention_partial)
     roots = {"validated.qwen.attention3", "validated.qwen.attention3_t3"};
+  if (four_billion)
+    roots = {"validated.qwen.gdn0",        "validated.qwen.gdn0_t3",
+             "validated.qwen.gdn4",        "validated.qwen.gdn4_t3",
+             "validated.qwen.attention3",  "validated.qwen.attention3_t3",
+             "validated.qwen.attention19", "validated.qwen.attention19_t3"};
   auto product = (std::filesystem::path(argv[1]) /
                   "lib/architectures/qwen35/block_fixture.loombc")
                      .string();
@@ -108,6 +121,7 @@ int main(int argc, char **argv) {
   // Test allocation geometry from the admitted descriptor. No alternate
   // production configuration or model sequence is emitted by this fixture.
   if (!descriptor.ssm || (descriptor.embedding_width != 1024 &&
+                          descriptor.embedding_width != 2560 &&
                           descriptor.embedding_width != 5120))
     return 1;
   const uint64_t history = 4 * descriptor.ssm->convolution_history_elements;
@@ -132,7 +146,8 @@ int main(int argc, char **argv) {
   if (attention_partial)
     layout << ",\"attention_width\":" << attention_width;
   layout << ",\"bindings\":{";
-  for (uint32_t layer : {0u, 3u}) {
+  for (uint32_t layer : (four_billion ? std::vector<uint32_t>{0u, 3u, 4u, 19u}
+                                      : std::vector<uint32_t>{0u, 3u})) {
     if (layer)
       layout << ",";
     layout << "\"" << layer << "\":[";

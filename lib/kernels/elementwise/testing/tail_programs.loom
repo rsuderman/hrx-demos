@@ -1,0 +1,224 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Exact-width launch witnesses; independent scalar references live in checks.
+command.def public retain @tail_1024_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1024 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %out) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1024_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1024 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %lhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1024_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1024 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %rhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1024_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1024 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %out) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1024_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1024 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %lhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1024_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1024 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %rhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1536_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1536 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %out) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1536_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1536 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %lhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1536_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1536 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %rhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1536_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1536 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %out) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1536_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1536 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %lhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_1536_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 1536 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %rhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_2560_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %out) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_2560_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %lhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_2560_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %rhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_2560_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %out) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_2560_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %lhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_2560_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %rhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_3072_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 3072 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %out) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_3072_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 3072 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %lhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_3072_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 3072 : index
+  %r = index.constant 1 : index
+  kernel.launch @llm_ffn_residual_add_f32_decode[%w](%w, %lhs, %rhs, %rhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_3072_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 3072 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %out) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_3072_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 3072 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %lhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @tail_3072_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 3072 : index
+  %r = index.constant 3 : index
+  kernel.launch @llm_ffn_residual_add_f32_prefill[%r, %w](%w, %r, %lhs, %rhs, %rhs) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+kernel.decl @llm_ffn_residual_add_f32_decode(%hidden_size$120: index) launch(%hidden_size$121: index, %lhs: buffer, %rhs: buffer, %out: buffer)
+
+kernel.decl @llm_ffn_residual_add_f32_prefill(%rows$125: index, %hidden_size$126: index) launch(%hidden_size$127: index, %rows$128: index, %lhs: buffer, %rhs: buffer, %out: buffer)
+
+command.def public retain @qwen_tail_2560_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 1 : index
+  kernel.launch @qwen38_residual_add_f32_decode(%lhs, %rhs, %out) : (buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @qwen_tail_2560_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 1 : index
+  kernel.launch @qwen38_residual_add_f32_decode(%lhs, %rhs, %lhs) : (buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @qwen_tail_2560_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 1 : index
+  kernel.launch @qwen38_residual_add_f32_decode(%lhs, %rhs, %rhs) : (buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @qwen_tail_2560_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 3 : index
+  kernel.launch @qwen38_residual_add_f32_prefill[%r](%r, %lhs, %rhs, %out) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @qwen_tail_2560_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 3 : index
+  kernel.launch @qwen38_residual_add_f32_prefill[%r](%r, %lhs, %rhs, %lhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public retain @qwen_tail_2560_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %w = index.constant 2560 : index
+  %r = index.constant 3 : index
+  kernel.launch @qwen38_residual_add_f32_prefill[%r](%r, %lhs, %rhs, %rhs) : [index](index, buffer, buffer, buffer)
+  command.return
+}
+
+config.def @qwen.model.hidden_size = 2560 : index
+
+config.def @qwen.model.hidden_divisor = 2560.0 : f32
+
+kernel.decl @qwen38_residual_add_f32_decode() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+kernel.decl @qwen38_residual_add_f32_prefill(%rows$167: index) launch(%rows$168: index, %lhs: buffer, %rhs: buffer, %out: buffer)

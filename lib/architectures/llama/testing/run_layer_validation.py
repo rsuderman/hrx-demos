@@ -50,12 +50,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ("emitted", "gguf", "reflector", "runner", "output", "gpu-lock"):
         parser.add_argument("--" + flag, required=True, type=Path)
+    parser.add_argument(
+        "--fixture", choices=("llama3b", "minicpm1b"), default="llama3b"
+    )
     args = parser.parse_args()
     assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
     assert sys.byteorder == "little"
     assert not os.environ.get("PYTHONPATH") and not os.environ.get("PYTHONHOME")
     args.output.mkdir(parents=True, exist_ok=True)
     geometry = json.loads((args.emitted / "layout.json").read_text())
+    assert geometry["fixture"] == args.fixture
+    hidden, kv_width = geometry["hidden"], geometry["kv"]
+    assert (hidden, kv_width) == (
+        {"llama3b": (3072, 1024), "minicpm1b": (1536, 256)}[args.fixture]
+    )
     env = dict(os.environ, PYTHONNOUSERSITE="1", PARAMETER_GGUF=str(args.gguf))
     modules = {"configured": args.emitted / "configured_layer.loombc"}
     record = {
@@ -117,14 +125,14 @@ def main():
                         "sha256": digest.hexdigest(),
                     }
                 )
-        assert len(payloads) == 10, payloads
+        assert len(payloads) == (9 if args.fixture == "minicpm1b" else 10), payloads
         # Exact reflected roots can order bindings differently. Both artifacts
-        # must still resolve the same ten original nonzero tensor byte ranges.
+        # must resolve the exact selected fixture tensor byte ranges.
         banks[key] = (fd, length, payloads)
         return banks[key]
 
     residual = array.array(
-        "f", (0.01 + (i % 1024) * 0.000001 for i in range(17 * 3072 + 64))
+        "f", (0.01 + (i % 1024) * 0.000001 for i in range(17 * hidden + 64))
     ).tobytes()
     initial_cache = bytes([0, 52]) * ((geometry["cache_bytes"] + 256) // 2)
     initial_map = bytearray([91]) * (geometry["map_bytes"] + 64)
@@ -225,21 +233,27 @@ check.scenario @layer_validation {{
             output_residual = load(capture / "product0_call0_after_arg1.npy")
             output_cache = load(capture / "product0_call0_after_arg4.npy")
             assert (
-                output_residual[active * 3072 * 4 :] == residual[active * 3072 * 4 :]
+                output_residual[active * hidden * 4 :]
+                == residual[active * hidden * 4 :]
             ), label
             values = array.array("f")
-            values.frombytes(output_residual[: active * 3072 * 4])
+            values.frombytes(output_residual[: active * hidden * 4])
             assert all(math.isfinite(value) for value in values), label
             assert (
-                output_residual[: active * 3072 * 4] != residual[: active * 3072 * 4]
+                output_residual[: active * hidden * 4]
+                != residual[: active * hidden * 4]
             ), label
             permitted = []
-            stride = geometry["pool"] * 1024 * 2
+            stride = geometry["pool"] * kv_width * 2
             for plane in (2 * layer, 2 * layer + 1):
                 for position in range(base, base + active):
                     physical = block_map[position // 64] * 64 + position % 64
-                    origin = geometry["cache_base"] + plane * stride + physical * 2048
-                    permitted.append((origin, origin + 2048))
+                    origin = (
+                        geometry["cache_base"]
+                        + plane * stride
+                        + physical * kv_width * 2
+                    )
+                    permitted.append((origin, origin + kv_width * 2))
             cursor = 0
             for begin, end in sorted(permitted):
                 assert output_cache[cursor:begin] == before_cache[cursor:begin], (

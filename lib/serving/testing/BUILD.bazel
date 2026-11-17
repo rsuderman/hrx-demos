@@ -10,6 +10,7 @@ iree_cc_library(
     visibility = [
         "//lib/architectures/llama:__pkg__",
         "//lib/architectures/lfm3:__pkg__",
+        "//lib/architectures/lfm2:__pkg__",
         "//lib/architectures/spark2_5:__pkg__",
         "//lib/architectures/gemma3:__pkg__",
         "//lib/architectures/qwen3:__pkg__",

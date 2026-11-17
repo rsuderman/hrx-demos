@@ -38,7 +38,7 @@ kernel.def target(@llm.platform.attention.llama_rows.wave32) @llama32_attention_
   %q_heads = config.get @llama.model.query_heads : index
   %kv_heads = config.get @llama.model.kv_heads : index
   %head_size = config.get @llama.model.head_size : index
-  %q_width = config.get @llama.model.hidden_size : index
+  %q_width = index.mul %q_heads, %head_size : index
   %kv_width = config.get @llama.model.kv_size : index
   %layers = config.get @llama.model.layer_count : index
   %layer = index.assume %layer0 [lt(%layer0, %layers)] : index
@@ -125,7 +125,9 @@ kernel.def target(@llm.platform.attention.llama_rows.wave32) @llama32_attention_
   %tokens = index.assume %token_capacity0 [range(%token_capacity0, 1, 512)] : index
   %hidden = config.get @llama.model.hidden_size : index
   %tile = index.constant 1024 : index
-  %groups = index.div %hidden, %tile : index
+  %rounding = index.constant 1023 : index
+  %rounded = index.add %hidden, %rounding : index
+  %groups = index.div %rounded, %tile : index
   %threads = index.constant 256 : index
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%groups, %tokens, %one) workgroup_size(%threads, %one, %one) : index

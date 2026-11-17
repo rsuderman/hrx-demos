@@ -14,7 +14,7 @@ template.decl @loomify.qwen.model_layout(%hidden: index, %head: index, %query_he
 // The convolution primitive's K-channel assumptions start at 2048, requiring
 // sixteen 128-wide key heads. Its two 256-lane V slabs cover the admitted
 // value-head bound (48 * 128 / 16 = 384 channels per key head).
-template.def<@loomify.qwen.model_layout> @loomify_qwen_model_layout(%hidden: index, %head: index, %query_heads: index, %kv_heads: index, %vocabulary: index, %state_width: index, %key_heads: index, %value_heads: index, %taps: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), eq(%head, 256), range(%query_heads, 1, 24), range(%kv_heads, 1, 4), range(%vocabulary, 1, 262144), eq(%state_width, 128), eq(%key_heads, 16), range(%value_heads, 1, 48), eq(%taps, 4)] {
+template.def<@loomify.qwen.model_layout> @loomify_qwen_model_layout(%hidden: index, %head: index, %query_heads: index, %kv_heads: index, %vocabulary: index, %state_width: index, %key_heads: index, %value_heads: index, %taps: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), eq(%head, 256), range(%query_heads, 1, 24), range(%kv_heads, 1, 4), range(%vocabulary, 1, 262144), eq(%state_width, 128), eq(%key_heads, 16), range(%value_heads, 1, 48), eq(%taps, 4)] {
   template.return
 }
 template.decl @loomify.qwen.embedding_encoding(%tag: index)

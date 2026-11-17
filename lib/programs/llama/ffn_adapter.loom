@@ -27,7 +27,7 @@ command.def public @loomify.llama.ffn(%layer: index, %phase: index, %rows: index
 }
 
 template.decl @loomify.ffn.normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer)
-template.def<@loomify.ffn.normalize> @loomify_llama_ffn_normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 1024), range(%rows, 1, 512), range(%phase, 0, 1)] {
+template.def<@loomify.ffn.normalize> @loomify_llama_ffn_normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), range(%rows, 1, 512), range(%phase, 0, 1)] {
   %begin = index.constant 0 : index
   %origin = index.constant 0 : offset
   kernel.launch @llama32_rmsnorm_active_f32[%rows](%rows, %begin, %origin, %count, %input, %gamma, %normalized) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
@@ -35,7 +35,7 @@ template.def<@loomify.ffn.normalize> @loomify_llama_ffn_normalize(%hidden: index
 }
 
 template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer)
-template.def<@loomify.ffn.pack_input> @loomify_llama_ffn_pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer) where [eq(%rows, 1), range(%input_size, 1024, 32768), multiple_of(%input_size, 1024)] {
+template.def<@loomify.ffn.pack_input> @loomify_llama_ffn_pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer) where [eq(%rows, 1), range(%input_size, 1024, 32768), multiple_of(%input_size, 256)] {
   %begin = index.constant 0 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32

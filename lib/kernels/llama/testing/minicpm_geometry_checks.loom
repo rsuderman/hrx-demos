@@ -1,0 +1,383 @@
+// Copyright 2026 AMD ROCm™ Software
+// SPDX-License-Identifier: MIT
+command.decl @minicpm.attention() launch(%control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+command.decl @minicpm.residual() launch(%control: buffer, %source: buffer, %residual: buffer)
+
+// Uniform zero-Q/K attention at positions63/64: distinct KV head constants
+// expose GQA grouping; output uses Q2048 stride while residual uses E1536.
+func.def @minicpm.initialize(%control: buffer, %map: buffer, %cache: buffer) {
+  %origin = index.constant 0 : offset
+  %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %mapping = buffer.view %map[%origin] : buffer -> view<2xi32>
+  %arena_origin = index.constant 16 : offset
+  %arena = buffer.view %cache[%arena_origin] : buffer -> view<4x128x256xf16>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %rows = index.constant 128 : index
+  %width = index.constant 256 : index
+  %head_width = index.constant 128 : index
+  %active = scalar.constant 2 : i32
+  %base = scalar.constant 63 : i32
+  %zero_i = scalar.constant 0 : i32
+  %one_i = scalar.constant 1 : i32
+  view.store %active, %ctl[%zero] : i32, view<3xi32>
+  view.store %base, %ctl[%one] : i32, view<3xi32>
+  view.store %one_i, %mapping[%zero] : i32, view<2xi32>
+  view.store %zero_i, %mapping[%one] : i32, view<2xi32>
+  %first = scalar.constant 1.0 : f16
+  %second = scalar.constant 3.0 : f16
+  scf.for %row = [%zero to %rows step %one] {
+    scf.for %column = [%zero to %width step %one] {
+      %h0 = index.cmp ult, %column, %head_width : index
+      %value = scf.select %h0, %first, %second : f16
+      view.store %value, %arena[%three, %row, %column] : f16, view<4x128x256xf16>
+    }
+  }
+  func.return
+}
+
+func.def @minicpm.attention_expected(%control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %output[%origin] : buffer -> view<3x2048xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %width = index.constant 2048 : index
+  %split = index.constant 1024 : index
+  %first = scalar.constant 1.0 : f32
+  %second = scalar.constant 3.0 : f32
+  %inactive = scalar.constant 0.0 : f32
+  scf.for %row = [%zero to %three step %one] {
+    scf.for %column = [%zero to %width step %one] {
+      %h0 = index.cmp ult, %column, %split : index
+      %active = index.cmp ult, %row, %two : index
+      %value = scf.select %h0, %first, %second : f32
+      %expected = scf.select %active, %value, %inactive : f32
+      view.store %expected, %out[%row, %column] : f32, view<3x2048xf32>
+    }
+  }
+  func.return
+}
+
+func.def @minicpm.residual_expected(%control: buffer, %source: buffer, %residual: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %residual[%origin] : buffer -> view<3x1536xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %width = index.constant 1536 : index
+  %expected = scalar.constant 3.0 : f32
+  scf.for %row = [%zero to %two step %one] {
+    scf.for %column = [%zero to %width step %one] {
+      view.store %expected, %out[%row, %column] : f32, view<3x1536xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @minicpm_independent_query_stride {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(0) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<2xi32>
+    %query = check.generate.fill value(0.0) : tensor<6144xf32>
+    %cache = check.generate.fill value(0.0) : tensor<131088xf16>
+    %out_storage = check.generate.fill value(-7.0) : tensor<6176xf32>
+    %out = check.tensor.view %out_storage offset(64) : tensor<6176xf32> -> tensor<6144xf32>
+    %prefix = check.tensor.view %out_storage offset(0) : tensor<6176xf32> -> tensor<16xf32>
+    %suffix = check.tensor.view %out_storage offset(24640) : tensor<6176xf32> -> tensor<16xf32>
+    check.generate<@minicpm.initialize>(%control, %map, %cache) : (tensor<3xi32>, tensor<2xi32>, tensor<131088xf16>) -> ()
+    check.compare<@minicpm.attention, @minicpm.attention_expected>(%control, %map, %query, %cache, %out) : (tensor<3xi32>, tensor<2xi32>, tensor<6144xf32>, tensor<131088xf16>, tensor<6144xf32>) -> () {
+      check.expect.approximate actual(%out) expected(%out) atol(0.0040000000000000001) rtol(0.001) nan(same) : tensor<6144xf32>, tensor<6144xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<2xi32>
+      check.expect.bitwise actual(%query) expected(%query) : tensor<6144xf32>
+      check.expect.bitwise actual(%cache) expected(%cache) : tensor<131088xf16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @minicpm_residual_tail_and_inactive_stride {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %control = check.generate.fill value(0) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<2xi32>
+    %cache = check.generate.fill value(0.0) : tensor<131088xf16>
+    check.generate<@minicpm.initialize>(%control, %map, %cache) : (tensor<3xi32>, tensor<2xi32>, tensor<131088xf16>) -> ()
+    %source = check.generate.fill value(1.0) : tensor<4608xf32>
+    %storage = check.generate.fill value(2.0) : tensor<4640xf32>
+    %residual = check.tensor.view %storage offset(64) : tensor<4640xf32> -> tensor<4608xf32>
+    check.compare<@minicpm.residual, @minicpm.residual_expected>(%control, %source, %residual) : (tensor<3xi32>, tensor<4608xf32>, tensor<4608xf32>) -> () {
+      check.expect.bitwise actual(%residual) expected(%residual) : tensor<4608xf32>
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<4640xf32>
+      check.expect.bitwise actual(%source) expected(%source) : tensor<4608xf32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+command.decl @minicpm.head() launch(%input: buffer, %count: buffer, %gamma: buffer, %weight: buffer, %token: buffer)
+
+// Independent encoded witness: all ordinary output rows are zero. The final
+// Q6_K row stores code0, signed scale-1, d1/32 => every logical weight is1.
+// Positive last-active RMS input therefore selects130559; an unused negative
+// padded input row would select a zero row and exposes wrong row selection.
+func.def @minicpm.head_init(%input: buffer, %count: buffer, %weight: buffer) {
+  %origin = index.constant 0 : offset
+  %ctl = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %two_i = scalar.constant 2 : i32
+  view.store %two_i, %ctl[0] : i32, view<3xi32>
+  %x = buffer.view %input[%origin] : buffer -> view<3x1536xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %width = index.constant 1536 : index
+  %negative = scalar.constant -1.0 : f32
+  scf.for %column = [%zero to %width step %one] {
+    view.store %negative, %x[%zero, %column] : f32, view<3x1536xf32>
+    view.store %negative, %x[%two, %column] : f32, view<3x1536xf32>
+  }
+  %last_origin = index.constant 164504340 : offset
+  %block_bytes = index.constant 210 : offset
+  %scales_offset = index.constant 192 : offset
+  %delta_offset = index.constant 208 : offset
+  %six = index.constant 6 : index
+  %sixteen = index.constant 16 : index
+  %minus_one = scalar.constant -1 : i8
+  %delta = scalar.constant 0.03125 : f16
+  scf.for %block = [%zero to %six step %one] {
+    %add = index.scale %block, %block_bytes : index, offset -> offset
+    %base = index.add %last_origin, %add : offset
+    %scales_origin = index.add %base, %scales_offset : offset
+    %delta_origin = index.add %base, %delta_offset : offset
+    %s = buffer.view %weight[%scales_origin] : buffer -> view<16xi8>
+    %d = buffer.view %weight[%delta_origin] : buffer -> view<1xf16>
+    scf.for %scale = [%zero to %sixteen step %one] {
+      view.store %minus_one, %s[%scale] : i8, view<16xi8>
+    }
+    view.store %delta, %d[%zero] : f16, view<1xf16>
+  }
+  func.return
+}
+
+func.def @minicpm.head_expected(%input: buffer, %count: buffer, %gamma: buffer, %weight: buffer, %token: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %token[%origin] : buffer -> view<1xi32>
+  %id = scalar.constant 130559 : i32
+  view.store %id, %out[0] : i32, view<1xi32>
+  func.return
+}
+
+check.scenario @minicpm_high_id_last_active_head {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1.0) : tensor<4608xf32>
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %gamma = check.generate.fill value(1.0) : tensor<1536xf32>
+    %weight = check.generate.fill value(0) : tensor<164505600xi8>
+    %token = check.generate.fill value(-1) : tensor<1xi32>
+    check.generate<@minicpm.head_init>(%input, %count, %weight) : (tensor<4608xf32>, tensor<3xi32>, tensor<164505600xi8>) -> ()
+    check.compare<@minicpm.head, @minicpm.head_expected>(%input, %count, %gamma, %weight, %token) : (tensor<4608xf32>, tensor<3xi32>, tensor<1536xf32>, tensor<164505600xi8>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%token) expected(%token) : tensor<1xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<4608xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<1536xf32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<164505600xi8>
+    }
+  }
+  check.return
+}
+
+command.decl @minicpm.embedding() launch(%epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+
+func.def @minicpm.embedding_init(%count: buffer, %ids: buffer, %weight: buffer) {
+  %origin = index.constant 0 : offset
+  %ctl = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %tokens = buffer.view %ids[%origin] : buffer -> view<3xi32>
+  %active = scalar.constant 2 : i32
+  %high = scalar.constant 130559 : i32
+  %low = scalar.constant 0 : i32
+  %beyond = scalar.constant 130560 : i32
+  view.store %active, %ctl[0] : i32, view<3xi32>
+  view.store %high, %tokens[0] : i32, view<3xi32>
+  view.store %low, %tokens[1] : i32, view<3xi32>
+  view.store %beyond, %tokens[2] : i32, view<3xi32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %six = index.constant 6 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+  %n128 = index.constant 128 : index
+  %last = index.constant 112802976 : offset
+  %block_bytes = index.constant 144 : offset
+  %scale_add = index.constant 4 : offset
+  %code_add = index.constant 16 : offset
+  %delta = scalar.constant 1.0 : f16
+  %scale = scalar.constant 1 : i8
+  %code = scalar.constant 17 : i8
+  scf.for %block = [%zero to %six step %one] {
+    %add = index.scale %block, %block_bytes : index, offset -> offset
+    %base = index.add %last, %add : offset
+    %scale_origin = index.add %base, %scale_add : offset
+    %code_origin = index.add %base, %code_add : offset
+    %d = buffer.view %weight[%base] : buffer -> view<2xf16>
+    %s = buffer.view %weight[%scale_origin] : buffer -> view<12xi8>
+    %q = buffer.view %weight[%code_origin] : buffer -> view<128xi8>
+    view.store %delta, %d[%zero] : f16, view<2xf16>
+    scf.for %i = [%zero to %four step %one] {
+      %hi = index.add %eight, %i : index
+      view.store %scale, %s[%i] : i8, view<12xi8>
+      view.store %scale, %s[%hi] : i8, view<12xi8>
+    }
+    scf.for %i = [%zero to %n128 step %one] {
+      view.store %code, %q[%i] : i8, view<128xi8>
+    }
+  }
+  func.return
+}
+
+func.def @minicpm.embedding_expected(%epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %output[%origin] : buffer -> view<3x1536xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %width = index.constant 1536 : index
+  %value = scalar.constant 1.0 : f32
+  %low = scalar.constant 0.0 : f32
+  scf.for %column = [%zero to %width step %one] {
+    view.store %low, %out[%one, %column] : f32, view<3x1536xf32>
+    view.store %value, %out[%zero, %column] : f32, view<3x1536xf32>
+  }
+  func.return
+}
+
+// The highest row independently encodes1; the contrasting low row encodes0.
+// Clamping the high ID to a low row fails. Poisoned inactive IDs remain unread.
+check.scenario @minicpm_high_id_embedding_inactive_ids {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %ids = check.generate.fill value(0) : tensor<3xi32>
+    %weight = check.generate.fill value(0) : tensor<112803840xi8>
+    %storage = check.generate.fill value(7.0) : tensor<4640xf32>
+    %out = check.tensor.view %storage offset(64) : tensor<4640xf32> -> tensor<4608xf32>
+    check.generate<@minicpm.embedding_init>(%count, %ids, %weight) : (tensor<3xi32>, tensor<3xi32>, tensor<112803840xi8>) -> ()
+    check.compare<@minicpm.embedding, @minicpm.embedding_expected>(%epoch, %count, %ids, %weight, %out) : (tensor<8xi32>, tensor<3xi32>, tensor<3xi32>, tensor<112803840xi8>, tensor<4608xf32>) -> () {
+      check.expect.bitwise actual(%out) expected(%out) : tensor<4608xf32>
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<4640xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%ids) expected(%ids) : tensor<3xi32>
+      check.expect.bitwise actual(%weight) expected(%weight) : tensor<112803840xi8>
+    }
+  }
+  check.return
+}
+
+command.decl @minicpm.composed_attention() launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer)
+
+func.def @minicpm.composed_init(%normalized: buffer, %count: buffer, %control: buffer, %map: buffer) {
+  %origin = index.constant 0 : offset
+  %x = buffer.view %normalized[%origin] : buffer -> view<3x1536xf32>
+  %n = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
+  %m = buffer.view %map[%origin] : buffer -> view<2xi32>
+  %x0 = scalar.constant 127.0 : f32
+  %x1 = scalar.constant 254.0 : f32
+  %poison = scalar.constant -127.0 : f32
+  %two = scalar.constant 2 : i32
+  %one = scalar.constant 1 : i32
+  view.store %x0, %x[0, 0] : f32, view<3x1536xf32>
+  view.store %x1, %x[1, 0] : f32, view<3x1536xf32>
+  view.store %poison, %x[2, 0] : f32, view<3x1536xf32>
+  view.store %two, %n[0] : i32, view<3xi32>
+  view.store %two, %ctl[0] : i32, view<3xi32>
+  view.store %one, %m[1] : i32, view<2xi32>
+  func.return
+}
+
+// Fixed two-score scalar oracle, independent of production projection/rotary/
+// softmax routines. Encoded sparse weights imply q=k=v=input0/128. Position1
+// rotates pair0 by1 radian; K publication rounds to F16 before QK. Small-query
+// PV rounds probabilities and products to F16; O repacks with an F16 Q8 scale.
+func.def @minicpm.composed_expected(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %residual[%origin] : buffer -> view<3x1536xf32>
+  %v0 = scalar.constant 0.9921875 : f32
+  %v1 = scalar.constant 1.984375 : f32
+  %one = scalar.constant 1.0 : f32
+  %angle = scalar.constant 1.0 : f32
+  %cs = scalar.cosf %angle : f32
+  %sn = scalar.sinf %angle : f32
+  %qc = scalar.mulf %v1, %cs : f32
+  %qs = scalar.mulf %v1, %sn : f32
+  %kc16 = scalar.fptrunc %qc : f32 to f16
+  %ks16 = scalar.fptrunc %qs : f32 to f16
+  %kc = scalar.extf %kc16 : f16 to f32
+  %ks = scalar.extf %ks16 : f16 to f32
+  %dot0 = scalar.mulf %qc, %v0 : f32
+  %dc = scalar.mulf %qc, %kc : f32
+  %ds = scalar.mulf %qs, %ks : f32
+  %dot1 = scalar.addf %dc, %ds : f32
+  %scale = scalar.constant 0.088388347648318447 : f32
+  %s0 = scalar.mulf %dot0, %scale : f32
+  %s1 = scalar.mulf %dot1, %scale : f32
+  %diff = scalar.subf %s0, %s1 : f32
+  %exp = scalar.expf %diff : f32
+  %den = scalar.addf %one, %exp : f32
+  %p0 = scalar.divf %exp, %den : f32
+  %p1 = scalar.divf %one, %den : f32
+  %p0h = scalar.fptrunc %p0 : f32 to f16
+  %p1h = scalar.fptrunc %p1 : f32 to f16
+  %v0h = scalar.fptrunc %v0 : f32 to f16
+  %v1h = scalar.fptrunc %v1 : f32 to f16
+  %pv0h = scalar.mulf %p0h, %v0h : f16
+  %pv1h = scalar.mulf %p1h, %v1h : f16
+  %pv0 = scalar.extf %pv0h : f16 to f32
+  %pv1 = scalar.extf %pv1h : f16 to f32
+  %attended = scalar.addf %pv0, %pv1 : f32
+  %n127 = scalar.constant 127.0 : f32
+  %d = scalar.divf %attended, %n127 : f32
+  %dh = scalar.fptrunc %d : f32 to f16
+  %dw = scalar.extf %dh : f16 to f32
+  %projected = scalar.mulf %n127, %dw : f32
+  %base = scalar.constant 5.0 : f32
+  %r0 = scalar.addf %base, %v0 : f32
+  %r1 = scalar.addf %base, %projected : f32
+  view.store %r0, %out[0, 1535] : f32, view<3x1536xf32>
+  view.store %r1, %out[1, 1535] : f32, view<3x1536xf32>
+  func.return
+}
+
+check.scenario @minicpm_actual_attention_composition {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %root = check.generate.fill value(0) : tensor<5000000xi8>
+    %normalized = check.generate.fill value(0.0) : tensor<4608xf32>
+    %count = check.generate.fill value(0) : tensor<3xi32>
+    %control = check.generate.fill value(0) : tensor<3xi32>
+    %map = check.generate.fill value(0) : tensor<2xi32>
+    %cache = check.generate.fill value(0.0) : tensor<131088xf16>
+    %storage = check.generate.fill value(5.0) : tensor<4640xf32>
+    %out = check.tensor.view %storage offset(64) : tensor<4640xf32> -> tensor<4608xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<4640xf32> -> tensor<16xf32>
+    %suffix = check.tensor.view %storage offset(18496) : tensor<4640xf32> -> tensor<16xf32>
+    %inactive = check.tensor.view %storage offset(12352) : tensor<4640xf32> -> tensor<1536xf32>
+    check.generate<@minicpm.composed_init>(%normalized, %count, %control, %map) : (tensor<4608xf32>, tensor<3xi32>, tensor<3xi32>, tensor<2xi32>) -> ()
+    check.compare<@minicpm.composed_attention, @minicpm.composed_expected>(%root, %normalized, %out, %count, %control, %map, %cache) : (tensor<5000000xi8>, tensor<4608xf32>, tensor<4608xf32>, tensor<3xi32>, tensor<3xi32>, tensor<2xi32>, tensor<131088xf16>) -> () {
+      check.expect.approximate actual(%out) expected(%out) atol(0.00029999999999999997) rtol(5.0000000000000002e-05) nan(same) : tensor<4608xf32>, tensor<4608xf32>
+      check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<1536xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xf32>
+      check.expect.bitwise actual(%normalized) expected(%normalized) : tensor<4608xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
+      check.expect.bitwise actual(%map) expected(%map) : tensor<2xi32>
+    }
+  }
+  check.return
+}

@@ -1,0 +1,1081 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+command.decl @tail_1024_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1024_1_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 1024 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<1024xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<1024xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<1024xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<1024xf32> -> f32
+    %bv = view.load %b[%i] : view<1024xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<1024xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1024_1_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<1028xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<1028xf32>
+    %os = check.generate.fill value(-99.0) : tensor<1028xf32>
+    %a = check.tensor.view %as offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    %o = check.tensor.view %os offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    check.compare<@tail_1024_1_out, @expected_tail_1024_1_out>(%a, %b, %o) : (tensor<1024xf32>, tensor<1024xf32>, tensor<1024xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<1028xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<1028xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<1028xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1024_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1024_1_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 1024 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<1024xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<1024xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<1024xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<1024xf32> -> f32
+    %bv = view.load %b[%i] : view<1024xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<1024xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1024_1_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<1028xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<1028xf32>
+    %os = check.generate.fill value(-99.0) : tensor<1028xf32>
+    %a = check.tensor.view %as offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    %o = check.tensor.view %os offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    check.compare<@tail_1024_1_lhs, @expected_tail_1024_1_lhs>(%a, %b, %o) : (tensor<1024xf32>, tensor<1024xf32>, tensor<1024xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<1028xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<1028xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<1028xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1024_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1024_1_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 1024 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<1024xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<1024xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<1024xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<1024xf32> -> f32
+    %bv = view.load %b[%i] : view<1024xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<1024xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1024_1_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<1028xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<1028xf32>
+    %os = check.generate.fill value(-99.0) : tensor<1028xf32>
+    %a = check.tensor.view %as offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    %o = check.tensor.view %os offset(8) : tensor<1028xf32> -> tensor<1024xf32>
+    check.compare<@tail_1024_1_rhs, @expected_tail_1024_1_rhs>(%a, %b, %o) : (tensor<1024xf32>, tensor<1024xf32>, tensor<1024xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<1028xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<1028xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<1028xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1024_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1024_3_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 3072 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<3072xf32> -> f32
+    %bv = view.load %b[%i] : view<3072xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1024_3_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<3076xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<3076xf32>
+    %os = check.generate.fill value(-99.0) : tensor<3076xf32>
+    %a = check.tensor.view %as offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %o = check.tensor.view %os offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    check.compare<@tail_1024_3_out, @expected_tail_1024_3_out>(%a, %b, %o) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<3076xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<3076xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<3076xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1024_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1024_3_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 3072 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<3072xf32> -> f32
+    %bv = view.load %b[%i] : view<3072xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1024_3_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<3076xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<3076xf32>
+    %os = check.generate.fill value(-99.0) : tensor<3076xf32>
+    %a = check.tensor.view %as offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %o = check.tensor.view %os offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    check.compare<@tail_1024_3_lhs, @expected_tail_1024_3_lhs>(%a, %b, %o) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<3076xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<3076xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<3076xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1024_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1024_3_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 3072 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<3072xf32> -> f32
+    %bv = view.load %b[%i] : view<3072xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1024_3_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<3076xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<3076xf32>
+    %os = check.generate.fill value(-99.0) : tensor<3076xf32>
+    %a = check.tensor.view %as offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %o = check.tensor.view %os offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    check.compare<@tail_1024_3_rhs, @expected_tail_1024_3_rhs>(%a, %b, %o) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<3076xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<3076xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<3076xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1536_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1536_1_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 1536 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<1536xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<1536xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<1536xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<1536xf32> -> f32
+    %bv = view.load %b[%i] : view<1536xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<1536xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1536_1_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<1540xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<1540xf32>
+    %os = check.generate.fill value(-99.0) : tensor<1540xf32>
+    %a = check.tensor.view %as offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    %o = check.tensor.view %os offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    check.compare<@tail_1536_1_out, @expected_tail_1536_1_out>(%a, %b, %o) : (tensor<1536xf32>, tensor<1536xf32>, tensor<1536xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<1540xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<1540xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<1540xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1536_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1536_1_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 1536 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<1536xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<1536xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<1536xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<1536xf32> -> f32
+    %bv = view.load %b[%i] : view<1536xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<1536xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1536_1_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<1540xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<1540xf32>
+    %os = check.generate.fill value(-99.0) : tensor<1540xf32>
+    %a = check.tensor.view %as offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    %o = check.tensor.view %os offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    check.compare<@tail_1536_1_lhs, @expected_tail_1536_1_lhs>(%a, %b, %o) : (tensor<1536xf32>, tensor<1536xf32>, tensor<1536xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<1540xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<1540xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<1540xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1536_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1536_1_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 1536 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<1536xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<1536xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<1536xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<1536xf32> -> f32
+    %bv = view.load %b[%i] : view<1536xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<1536xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1536_1_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<1540xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<1540xf32>
+    %os = check.generate.fill value(-99.0) : tensor<1540xf32>
+    %a = check.tensor.view %as offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    %o = check.tensor.view %os offset(8) : tensor<1540xf32> -> tensor<1536xf32>
+    check.compare<@tail_1536_1_rhs, @expected_tail_1536_1_rhs>(%a, %b, %o) : (tensor<1536xf32>, tensor<1536xf32>, tensor<1536xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<1540xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<1540xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<1540xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1536_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1536_3_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 4608 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<4608xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<4608xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<4608xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<4608xf32> -> f32
+    %bv = view.load %b[%i] : view<4608xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<4608xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1536_3_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<4612xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<4612xf32>
+    %os = check.generate.fill value(-99.0) : tensor<4612xf32>
+    %a = check.tensor.view %as offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    %o = check.tensor.view %os offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    check.compare<@tail_1536_3_out, @expected_tail_1536_3_out>(%a, %b, %o) : (tensor<4608xf32>, tensor<4608xf32>, tensor<4608xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<4612xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<4612xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<4612xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1536_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1536_3_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 4608 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<4608xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<4608xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<4608xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<4608xf32> -> f32
+    %bv = view.load %b[%i] : view<4608xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<4608xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1536_3_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<4612xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<4612xf32>
+    %os = check.generate.fill value(-99.0) : tensor<4612xf32>
+    %a = check.tensor.view %as offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    %o = check.tensor.view %os offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    check.compare<@tail_1536_3_lhs, @expected_tail_1536_3_lhs>(%a, %b, %o) : (tensor<4608xf32>, tensor<4608xf32>, tensor<4608xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<4612xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<4612xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<4612xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_1536_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_1536_3_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 4608 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<4608xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<4608xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<4608xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<4608xf32> -> f32
+    %bv = view.load %b[%i] : view<4608xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<4608xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_1536_3_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<4612xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<4612xf32>
+    %os = check.generate.fill value(-99.0) : tensor<4612xf32>
+    %a = check.tensor.view %as offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    %o = check.tensor.view %os offset(8) : tensor<4612xf32> -> tensor<4608xf32>
+    check.compare<@tail_1536_3_rhs, @expected_tail_1536_3_rhs>(%a, %b, %o) : (tensor<4608xf32>, tensor<4608xf32>, tensor<4608xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<4612xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<4612xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<4612xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_2560_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_2560_1_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 2560 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<2560xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<2560xf32> -> f32
+    %bv = view.load %b[%i] : view<2560xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<2560xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_2560_1_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<2564xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<2564xf32>
+    %os = check.generate.fill value(-99.0) : tensor<2564xf32>
+    %a = check.tensor.view %as offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %o = check.tensor.view %os offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    check.compare<@tail_2560_1_out, @expected_tail_2560_1_out>(%a, %b, %o) : (tensor<2560xf32>, tensor<2560xf32>, tensor<2560xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<2564xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<2564xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_2560_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_2560_1_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 2560 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<2560xf32> -> f32
+    %bv = view.load %b[%i] : view<2560xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<2560xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_2560_1_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<2564xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<2564xf32>
+    %os = check.generate.fill value(-99.0) : tensor<2564xf32>
+    %a = check.tensor.view %as offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %o = check.tensor.view %os offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    check.compare<@tail_2560_1_lhs, @expected_tail_2560_1_lhs>(%a, %b, %o) : (tensor<2560xf32>, tensor<2560xf32>, tensor<2560xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<2564xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<2564xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_2560_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_2560_1_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 2560 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<2560xf32> -> f32
+    %bv = view.load %b[%i] : view<2560xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<2560xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_2560_1_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<2564xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<2564xf32>
+    %os = check.generate.fill value(-99.0) : tensor<2564xf32>
+    %a = check.tensor.view %as offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %o = check.tensor.view %os offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    check.compare<@tail_2560_1_rhs, @expected_tail_2560_1_rhs>(%a, %b, %o) : (tensor<2560xf32>, tensor<2560xf32>, tensor<2560xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<2564xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<2564xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_2560_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_2560_3_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 7680 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<7680xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<7680xf32> -> f32
+    %bv = view.load %b[%i] : view<7680xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<7680xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_2560_3_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<7684xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<7684xf32>
+    %os = check.generate.fill value(-99.0) : tensor<7684xf32>
+    %a = check.tensor.view %as offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %o = check.tensor.view %os offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    check.compare<@tail_2560_3_out, @expected_tail_2560_3_out>(%a, %b, %o) : (tensor<7680xf32>, tensor<7680xf32>, tensor<7680xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<7684xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<7684xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<7684xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_2560_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_2560_3_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 7680 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<7680xf32> -> f32
+    %bv = view.load %b[%i] : view<7680xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<7680xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_2560_3_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<7684xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<7684xf32>
+    %os = check.generate.fill value(-99.0) : tensor<7684xf32>
+    %a = check.tensor.view %as offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %o = check.tensor.view %os offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    check.compare<@tail_2560_3_lhs, @expected_tail_2560_3_lhs>(%a, %b, %o) : (tensor<7680xf32>, tensor<7680xf32>, tensor<7680xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<7684xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<7684xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<7684xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_2560_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_2560_3_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 7680 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<7680xf32> -> f32
+    %bv = view.load %b[%i] : view<7680xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<7680xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_2560_3_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<7684xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<7684xf32>
+    %os = check.generate.fill value(-99.0) : tensor<7684xf32>
+    %a = check.tensor.view %as offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %o = check.tensor.view %os offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    check.compare<@tail_2560_3_rhs, @expected_tail_2560_3_rhs>(%a, %b, %o) : (tensor<7680xf32>, tensor<7680xf32>, tensor<7680xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<7684xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<7684xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<7684xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_3072_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_3072_1_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 3072 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<3072xf32> -> f32
+    %bv = view.load %b[%i] : view<3072xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_3072_1_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<3076xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<3076xf32>
+    %os = check.generate.fill value(-99.0) : tensor<3076xf32>
+    %a = check.tensor.view %as offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %o = check.tensor.view %os offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    check.compare<@tail_3072_1_out, @expected_tail_3072_1_out>(%a, %b, %o) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<3076xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<3076xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<3076xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_3072_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_3072_1_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 3072 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<3072xf32> -> f32
+    %bv = view.load %b[%i] : view<3072xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_3072_1_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<3076xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<3076xf32>
+    %os = check.generate.fill value(-99.0) : tensor<3076xf32>
+    %a = check.tensor.view %as offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %o = check.tensor.view %os offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    check.compare<@tail_3072_1_lhs, @expected_tail_3072_1_lhs>(%a, %b, %o) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<3076xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<3076xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<3076xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_3072_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_3072_1_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 3072 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<3072xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<3072xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<3072xf32> -> f32
+    %bv = view.load %b[%i] : view<3072xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<3072xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_3072_1_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<3076xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<3076xf32>
+    %os = check.generate.fill value(-99.0) : tensor<3076xf32>
+    %a = check.tensor.view %as offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    %o = check.tensor.view %os offset(8) : tensor<3076xf32> -> tensor<3072xf32>
+    check.compare<@tail_3072_1_rhs, @expected_tail_3072_1_rhs>(%a, %b, %o) : (tensor<3072xf32>, tensor<3072xf32>, tensor<3072xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<3076xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<3076xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<3076xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_3072_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_3072_3_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 9216 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<9216xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<9216xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<9216xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<9216xf32> -> f32
+    %bv = view.load %b[%i] : view<9216xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<9216xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_3072_3_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<9220xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<9220xf32>
+    %os = check.generate.fill value(-99.0) : tensor<9220xf32>
+    %a = check.tensor.view %as offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    %o = check.tensor.view %os offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    check.compare<@tail_3072_3_out, @expected_tail_3072_3_out>(%a, %b, %o) : (tensor<9216xf32>, tensor<9216xf32>, tensor<9216xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<9220xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<9220xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<9220xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_3072_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_3072_3_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 9216 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<9216xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<9216xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<9216xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<9216xf32> -> f32
+    %bv = view.load %b[%i] : view<9216xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<9216xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_3072_3_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<9220xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<9220xf32>
+    %os = check.generate.fill value(-99.0) : tensor<9220xf32>
+    %a = check.tensor.view %as offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    %o = check.tensor.view %os offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    check.compare<@tail_3072_3_lhs, @expected_tail_3072_3_lhs>(%a, %b, %o) : (tensor<9216xf32>, tensor<9216xf32>, tensor<9216xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<9220xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<9220xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<9220xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @tail_3072_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_tail_3072_3_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 9216 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<9216xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<9216xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<9216xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<9216xf32> -> f32
+    %bv = view.load %b[%i] : view<9216xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<9216xf32>
+  }
+  func.return
+}
+
+check.scenario @case_tail_3072_3_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<9220xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<9220xf32>
+    %os = check.generate.fill value(-99.0) : tensor<9220xf32>
+    %a = check.tensor.view %as offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    %o = check.tensor.view %os offset(8) : tensor<9220xf32> -> tensor<9216xf32>
+    check.compare<@tail_3072_3_rhs, @expected_tail_3072_3_rhs>(%a, %b, %o) : (tensor<9216xf32>, tensor<9216xf32>, tensor<9216xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<9220xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<9220xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<9220xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @qwen_tail_2560_1_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_qwen_tail_2560_1_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 2560 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<2560xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<2560xf32> -> f32
+    %bv = view.load %b[%i] : view<2560xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<2560xf32>
+  }
+  func.return
+}
+
+check.scenario @case_qwen_tail_2560_1_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<2564xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<2564xf32>
+    %os = check.generate.fill value(-99.0) : tensor<2564xf32>
+    %a = check.tensor.view %as offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %o = check.tensor.view %os offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    check.compare<@qwen_tail_2560_1_out, @expected_qwen_tail_2560_1_out>(%a, %b, %o) : (tensor<2560xf32>, tensor<2560xf32>, tensor<2560xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<2564xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<2564xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @qwen_tail_2560_1_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_qwen_tail_2560_1_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 2560 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<2560xf32> -> f32
+    %bv = view.load %b[%i] : view<2560xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<2560xf32>
+  }
+  func.return
+}
+
+check.scenario @case_qwen_tail_2560_1_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<2564xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<2564xf32>
+    %os = check.generate.fill value(-99.0) : tensor<2564xf32>
+    %a = check.tensor.view %as offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %o = check.tensor.view %os offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    check.compare<@qwen_tail_2560_1_lhs, @expected_qwen_tail_2560_1_lhs>(%a, %b, %o) : (tensor<2560xf32>, tensor<2560xf32>, tensor<2560xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<2564xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<2564xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @qwen_tail_2560_1_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_qwen_tail_2560_1_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 2560 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<2560xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<2560xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<2560xf32> -> f32
+    %bv = view.load %b[%i] : view<2560xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<2560xf32>
+  }
+  func.return
+}
+
+check.scenario @case_qwen_tail_2560_1_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<2564xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<2564xf32>
+    %os = check.generate.fill value(-99.0) : tensor<2564xf32>
+    %a = check.tensor.view %as offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    %o = check.tensor.view %os offset(8) : tensor<2564xf32> -> tensor<2560xf32>
+    check.compare<@qwen_tail_2560_1_rhs, @expected_qwen_tail_2560_1_rhs>(%a, %b, %o) : (tensor<2560xf32>, tensor<2560xf32>, tensor<2560xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<2564xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<2564xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<2564xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @qwen_tail_2560_3_out() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_qwen_tail_2560_3_out(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 7680 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  %o = buffer.view %out[%origin] : buffer -> view<7680xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<7680xf32> -> f32
+    %bv = view.load %b[%i] : view<7680xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<7680xf32>
+  }
+  func.return
+}
+
+check.scenario @case_qwen_tail_2560_3_out {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<7684xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<7684xf32>
+    %os = check.generate.fill value(-99.0) : tensor<7684xf32>
+    %a = check.tensor.view %as offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %o = check.tensor.view %os offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    check.compare<@qwen_tail_2560_3_out, @expected_qwen_tail_2560_3_out>(%a, %b, %o) : (tensor<7680xf32>, tensor<7680xf32>, tensor<7680xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<7684xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<7684xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<7684xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @qwen_tail_2560_3_lhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_qwen_tail_2560_3_lhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 7680 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  %o = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<7680xf32> -> f32
+    %bv = view.load %b[%i] : view<7680xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<7680xf32>
+  }
+  func.return
+}
+
+check.scenario @case_qwen_tail_2560_3_lhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<7684xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<7684xf32>
+    %os = check.generate.fill value(-99.0) : tensor<7684xf32>
+    %a = check.tensor.view %as offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %o = check.tensor.view %os offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    check.compare<@qwen_tail_2560_3_lhs, @expected_qwen_tail_2560_3_lhs>(%a, %b, %o) : (tensor<7680xf32>, tensor<7680xf32>, tensor<7680xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<7684xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<7684xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<7684xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @qwen_tail_2560_3_rhs() launch(%lhs: buffer, %rhs: buffer, %out: buffer)
+
+func.def @expected_qwen_tail_2560_3_rhs(%lhs: buffer, %rhs: buffer, %out: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %n = index.constant 7680 : index
+  %a = buffer.view %lhs[%origin] : buffer -> view<7680xf32>
+  %b = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  %o = buffer.view %rhs[%origin] : buffer -> view<7680xf32>
+  scf.for %i = [%zero to %n step %one] {
+    %av = view.load %a[%i] : view<7680xf32> -> f32
+    %bv = view.load %b[%i] : view<7680xf32> -> f32
+    %v = scalar.addf %av, %bv : f32
+    view.store %v, %o[%i] : f32, view<7680xf32>
+  }
+  func.return
+}
+
+check.scenario @case_qwen_tail_2560_3_rhs {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %as = check.generate.iota offset(-2.0) step(0.125) period(31) : tensor<7684xf32>
+    %bs = check.generate.iota offset(1.0) step(-0.25) period(19) : tensor<7684xf32>
+    %os = check.generate.fill value(-99.0) : tensor<7684xf32>
+    %a = check.tensor.view %as offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %b = check.tensor.view %bs offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    %o = check.tensor.view %os offset(8) : tensor<7684xf32> -> tensor<7680xf32>
+    check.compare<@qwen_tail_2560_3_rhs, @expected_qwen_tail_2560_3_rhs>(%a, %b, %o) : (tensor<7680xf32>, tensor<7680xf32>, tensor<7680xf32>) -> () {
+      check.expect.bitwise actual(%as) expected(%as) : tensor<7684xf32>
+      check.expect.bitwise actual(%bs) expected(%bs) : tensor<7684xf32>
+      check.expect.bitwise actual(%os) expected(%os) : tensor<7684xf32>
+    }
+  }
+  check.return
+}

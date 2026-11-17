@@ -61,11 +61,273 @@ def floats(data):
     return result
 
 
+def raw_four_billion(args, geometry):
+    """Bounded real-weight state/ABI checks; arithmetic oracles are per-op tests."""
+    assert geometry["hidden"] == 2560 and geometry["pool"] == 64
+    env = dict(os.environ, PYTHONNOUSERSITE="1", PARAMETER_GGUF=str(args.gguf))
+    record = {"passed": False, "kind": "raw-state-ownership", "runs": []}
+    variants = {}
+    for form in ("loom", "loombc"):
+        module = args.emitted / ("configured_blocks." + form)
+        for block, layer in (
+            ("gdn0", 0),
+            ("gdn4", 4),
+            ("attention3", 3),
+            ("attention19", 19),
+        ):
+            root = "validated.qwen." + block
+            work = args.output / (block + "-" + form)
+            work.mkdir(exist_ok=True)
+            reflected = work / "parameters.tsv"
+            with reflected.open("w") as out, (work / "reflection.log").open("w") as err:
+                subprocess.run(
+                    [str(args.reflector), root, str(module)],
+                    env=env,
+                    stdout=out,
+                    stderr=err,
+                    check=True,
+                )
+            roots = re.findall(
+                r"ROOT (\d+) length=(\d+) alignment=(\d+)",
+                (work / "reflection.log").read_text(),
+            )
+            assert len(roots) == 1 and roots[0][0] == "0"
+            length = int(roots[0][1])
+            fd = os.memfd_create("qwen4-raw-weights", os.MFD_CLOEXEC)
+            try:
+                header = npy_header(length)
+                os.ftruncate(fd, len(header) + length)
+                os.pwrite(fd, header, 0)
+                names = []
+                reflected_sizes = {}
+                with args.gguf.open("rb", buffering=0) as source:
+                    for line in reflected.read_text().splitlines():
+                        name, offset, size, bank, origin = line.split("\t")
+                        assert int(bank) == 0
+                        names.append(name)
+                        reflected_sizes[name] = int(size)
+                        source.seek(int(origin))
+                        remaining, destination = int(size), len(header) + int(offset)
+                        while remaining:
+                            data = source.read(min(remaining, 1024 * 1024))
+                            assert data and os.pwrite(fd, data, destination) == len(
+                                data
+                            )
+                            remaining -= len(data)
+                            destination += len(data)
+                assert sorted(names) == sorted(geometry["bindings"][str(layer)])
+                # Actual4B mixed encodings: these byte counts distinguish the
+                # selected Q4/Q6 routes before any state/ABI execution claim.
+                down_block_bytes = 144 if layer in (4, 19) else 210
+                assert reflected_sizes[f"blk.{layer}.ffn_down.weight"] == (
+                    9216 // 256 * 2560 * down_block_bytes
+                ), (block, "actual down encoding footprint")
+                if layer in (3, 19):
+                    value_block_bytes = 210 if layer == 3 else 144
+                    assert reflected_sizes[f"blk.{layer}.attn_v.weight"] == (
+                        2560 // 256 * 1024 * value_block_bytes
+                    ), (block, "actual V encoding footprint")
+                gdn = block.startswith("gdn")
+                write_base = geometry["state_origin"]
+                payload = (
+                    geometry["gdn_state_bytes"]
+                    if gdn
+                    else 2 * geometry["pool"] * geometry["plane_token_bytes"]
+                )
+                ordinal = {0: 0, 4: 3, 3: 0, 19: 4}[layer]
+                preceding = ordinal * payload
+                origin = write_base + preceding
+                initial = bytes([91]) * origin + bytes(payload) + bytes([91]) * 256
+                # First advance reads the caller-prepared anchor, then publishes
+                # to the independent write slot. Position0 does not clear GDN.
+                anchor_origin = origin
+                if gdn:
+                    anchor_origin = len(initial)
+                    initial += bytes(preceding + payload) + bytes([91]) * 256
+                else:
+                    anchor_origin = write_base
+                rows = bytearray(geometry["map_origin"] + 4)
+                struct.pack_into(
+                    "<4q", rows, 0, anchor_origin, write_base, write_base, 0
+                )
+                struct.pack_into("<i", rows, geometry["map_origin"], 0)
+                state, first = initial, None
+                for step, position, static_rows in (
+                    ("fresh", 0, 1),
+                    ("append", 1, 1),
+                    ("reset", 0, 1),
+                    ("partial", 0, 3),
+                ):
+                    if step == "partial":
+                        state = initial
+                    if step == "reset":
+                        # Reset reads the clean anchor and overwrites the dirty write slot.
+                        assert state != initial, (block, "dirty reset input")
+                    case = work / step
+                    case.mkdir(exist_ok=True)
+                    # Nonconstant per-channel input, with an explicit512-channel tail.
+                    input_row = b"".join(
+                        struct.pack("<f", ((c % 29) - 14) / 32 + position / 64)
+                        for c in range(2560)
+                    )
+                    residual = input_row + struct.pack("<f", -31.0) * (
+                        (geometry["residual_bytes"] - len(input_row)) // 4 + 64
+                    )
+                    control = bytearray(4192)
+                    struct.pack_into("<8i", control, 0, 1, 1, 0, 1, position, 0, 0, -1)
+                    buffers = [
+                        residual,
+                        state,
+                        bytes(control),
+                        bytes([83]) * geometry["capture_bytes"],
+                        bytes(rows),
+                    ]
+                    for i, data in enumerate(buffers, 1):
+                        save(case / f"arg{i}.npy", data)
+                    selected = root + ("_t3" if static_rows == 3 else "")
+                    declarations = ",".join(f"%a{i}:buffer" for i in range(6))
+                    tensors = ",".join(
+                        [f"tensor<{length}xi8>"]
+                        + [f"tensor<{len(x)}xi8>" for x in buffers]
+                    )
+                    fixture = f"command.decl @{selected}() launch({declarations})\nfunc.def @noop({declarations}) {{ func.return }}\ncheck.scenario @actual_block {{\n check.trial[1](%trial:index,%entropy:check.entropy) {{\n"
+                    fixture += f'  %a0 = check.file.read.npy path("/proc/self/fd/{fd}") : tensor<{length}xi8>\n'
+                    for i, data in enumerate(buffers, 1):
+                        fixture += f'  %a{i} = check.file.read.npy path("{case / f"arg{i}.npy"}") : tensor<{len(data)}xi8>\n'
+                    fixture += f"  check.compare<@{selected},@noop>(%a0,%a1,%a2,%a3,%a4,%a5) : ({tensors}) -> () {{\n"
+                    for i, size in ((0, length), (3, len(control)), (5, len(rows))):
+                        fixture += f"   check.expect.bitwise actual(%a{i}) expected(%a{i}) : tensor<{size}xi8>\n"
+                    fixture += "  }\n }\n check.return\n}\n"
+                    (case / "check.loom").write_text(fixture)
+                    capture = case / "capture"
+                    capture.mkdir(exist_ok=True)
+                    command = [
+                        str(args.runner),
+                        str(case / "check.loom"),
+                        "--library=" + str(module),
+                        "--case=@actual_block",
+                        "--device=amdgpu",
+                    ]
+                    with (
+                        args.gpu_lock.open("a") as lock,
+                        (case / "execution.log").open("w") as log,
+                    ):
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                        result = subprocess.run(
+                            command,
+                            env=dict(env, LOOM_FFN_CAPTURE_DIR=str(capture)),
+                            stdout=log,
+                            stderr=subprocess.STDOUT,
+                            pass_fds=(fd,),
+                        )
+                    assert result.returncode == 0, case / "execution.log"
+                    output = load(capture / "product0_call0_after_arg1.npy")
+                    next_state = load(capture / "product0_call0_after_arg2.npy")
+                    active = output[: len(input_row)]
+                    floats(active)
+                    assert active != input_row, (block, step, "nontrivial residual")
+                    # Canonical projections/FFN own all staticT private rows.
+                    # Only rows outside staticT are preservation boundaries.
+                    static_bytes = static_rows * len(input_row)
+                    floats(output[:static_bytes])
+                    assert output[static_bytes:] == residual[static_bytes:], (
+                        block,
+                        step,
+                        "outside staticT residual",
+                    )
+                    assert next_state[:origin] == state[:origin]
+                    assert next_state[origin + payload :] == state[origin + payload :]
+                    if step != "reset":
+                        assert (
+                            next_state[origin : origin + payload]
+                            != state[origin : origin + payload]
+                        )
+                    if gdn:
+                        floats(next_state[origin : origin + payload])
+                    else:
+                        cursor = origin
+                        for plane in (0, 1):
+                            begin = (
+                                origin
+                                + plane
+                                * geometry["pool"]
+                                * geometry["plane_token_bytes"]
+                                + position * geometry["plane_token_bytes"]
+                            )
+                            end = begin + geometry["plane_token_bytes"]
+                            assert next_state[cursor:begin] == state[cursor:begin], (
+                                block,
+                                step,
+                                "cache prefix",
+                            )
+                            if step != "reset":
+                                assert next_state[begin:end] != state[begin:end]
+                            else:
+                                assert next_state[begin:end] == first[1][begin:end], (
+                                    block,
+                                    "reset cache row",
+                                )
+                            cursor = end
+                        assert next_state[cursor:] == state[cursor:]
+                    if step == "fresh":
+                        first = (active, next_state)
+                    if step == "reset":
+                        assert first[0] == active, (block, "dirty reset replay")
+                        if gdn:
+                            assert (
+                                first[1][origin : origin + payload]
+                                == next_state[origin : origin + payload]
+                            ), (block, "dirty reset GDN state")
+                    if step == "partial":
+                        assert first[1] == next_state, (block, "T3/N1 state")
+                        assert all(
+                            abs(a - b) <= 1e-4 + 1e-4 * abs(b)
+                            for a, b in zip(floats(active), floats(first[0]))
+                        ), (block, "T3/N1 active")
+                    identity = (digest(output), digest(next_state))
+                    key = (block, step)
+                    if form == "loom":
+                        variants[key] = identity
+                    else:
+                        assert variants[key] == identity, (key, "SOURCE/BC parity")
+                    state = next_state
+                    record["runs"].append(
+                        {
+                            "block": block,
+                            "compact_ordinal": ordinal,
+                            "down_weight_bytes": reflected_sizes[
+                                f"blk.{layer}.ffn_down.weight"
+                            ],
+                            "value_weight_bytes": reflected_sizes.get(
+                                f"blk.{layer}.attn_v.weight"
+                            ),
+                            "form": form,
+                            "step": step,
+                            "position": position,
+                            "static_rows": static_rows,
+                            "active_rows": 1,
+                            "module_sha256": digest(module.read_bytes()),
+                            "output_sha256": identity[0],
+                            "state_sha256": identity[1],
+                        }
+                    )
+                    (args.output / "results.json").write_text(
+                        json.dumps(record, indent=2) + "\n"
+                    )
+                    for path in capture.glob("*.npy"):
+                        path.unlink()
+                    for path in case.glob("arg*.npy"):
+                        path.unlink()
+            finally:
+                os.close(fd)
+    record["passed"] = True
+    (args.output / "results.json").write_text(json.dumps(record, indent=2) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in (
         "emitted",
-        "reference",
         "gguf",
         "reflector",
         "runner",
@@ -73,12 +335,17 @@ def main():
         "gpu-lock",
     ):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--reference", type=Path)
+    parser.add_argument("--raw-four-billion", action="store_true")
     args = parser.parse_args()
     assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
     assert sys.byteorder == "little" and not os.environ.get("PYTHONPATH")
     assert not os.environ.get("PYTHONHOME")
     args.output.mkdir(parents=True, exist_ok=True)
     geometry = json.loads((args.emitted / "layout.json").read_text())
+    if args.raw_four_billion:
+        return raw_four_billion(args, geometry)
+    assert args.reference, "--reference is required unless --raw-four-billion"
     reference = json.loads((args.reference / "capture.json").read_text())
     assert Path(reference["model"]).resolve() == args.gguf.resolve()
     assert reference["n_gpu_layers"] == 0 and reference["kv_dtype"] == "f16"

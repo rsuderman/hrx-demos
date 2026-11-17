@@ -6,6 +6,25 @@ load("//build_tools:model_assembly.bzl", "custom_assembly", "ordinary_assembly",
 
 ASSEMBLIES = [
     ordinary_assembly(
+        family = "lfm2",
+        resource_stem = "Lfm2",
+        reader_symbol = "kLfm2Architecture",
+        emitter_symbol = "EmitLfm2",
+        publication = "text_and_turn",
+        context_limit = 128000,
+        required_operations = [],
+        unsupported = "LFM2 requires ordinary greedy stages",
+        architecture_srcs = [
+            "//lib/architectures/lfm2:model.loom",
+            "//lib/programs/lfm2:implementation_sources",
+        ],
+        implementation_srcs = [
+            "//lib/kernels/selection:greedy_argmax.loom",
+            "//lib/kernels/epoch:count.loom",
+            "//lib/kernels/publication:two_stops.loom",
+        ],
+    ),
+    ordinary_assembly(
         family = "spark2_5",
         resource_stem = "Spark25",
         reader_symbol = "kSpark25Architecture",

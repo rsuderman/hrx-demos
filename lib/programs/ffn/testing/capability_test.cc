@@ -78,6 +78,22 @@ std::vector<Input> Inputs() {
     v.phase = rows == 1 ? 1 : 0;
     result.push_back(v);
   }
+  for (int profile : {0, 1}) {
+    for (int down : {12, 14}) {
+      for (int rows : {1, 3}) {
+        Input v;
+        v.name = "tail512_" + std::to_string(profile) + "_" +
+                 std::to_string(down) + "_" + std::to_string(rows);
+        v.profile = profile;
+        v.hidden = profile == 0 ? 1536 : 2560;
+        v.ffn = profile == 0 ? 4608 : 9216;
+        v.down_tag = down;
+        v.rows = rows;
+        v.phase = rows == 1 ? 1 : 0;
+        result.push_back(v);
+      }
+    }
+  }
   auto bad = [&](const char *name) -> Input & {
     result.push_back(Input{});
     result.back().name = name;
@@ -94,7 +110,7 @@ std::vector<Input> Inputs() {
   bad("unknown_down_tag").down_tag = 99;
   bad("wrong_gate_bytes").bad_gate_bytes = true;
   bad("wrong_down_bytes").bad_down_bytes = true;
-  bad("hidden_row_alignment").hidden = 1536;
+  bad("hidden_row_alignment").hidden = 1408;
   bad("ffn_block_alignment").ffn = 640;
   auto &q6_limit = bad("q6_input_capability");
   q6_limit.ffn = 17664;

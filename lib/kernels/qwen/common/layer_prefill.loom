@@ -37,8 +37,10 @@ kernel.def export("qwen38_residual_add_f32_prefill") @qwen38_residual_add_f32_pr
   %unit = index.constant 1 : index
   %hidden_size = config.get @qwen.model.hidden_size : index
   %channels_per_group = index.constant 1024 : index
-  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 1024)] : index
-  %workgroup_count = index.div %bounded_hidden_size, %channels_per_group : index
+  %bounded_hidden_size = index.assume %hidden_size [range(%hidden_size, 1024, 32768), multiple_of(%hidden_size, 256)] : index
+  %tile_tail = index.constant 1023 : index
+  %rounded_hidden_size = index.add %bounded_hidden_size, %tile_tail : index
+  %workgroup_count = index.div %rounded_hidden_size, %channels_per_group : index
   %workgroup_size = index.constant 256 : index
   kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
 } launch(%token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer) {

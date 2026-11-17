@@ -86,6 +86,35 @@ bool HeaderWithUnlistedTemplate(const char *asset,
     return false;
   return std::fclose(output.release()) == 0;
 }
+TEST(PublicGgufBuilder, MiniCpmConfiguresNumericallyWithDeclaredSingleEos) {
+  const char *asset = std::getenv("LOOMIFY_TEST_MINICPM_GGUF");
+  if (!asset)
+    GTEST_SKIP() << "requires immutable MiniCPM numerical asset";
+  std::unique_ptr<GgufModelBuilder> builder;
+  std::string error;
+  ASSERT_TRUE(GgufModelBuilder::Open(asset, &builder, &error)) << error;
+  ASSERT_EQ(builder->descriptor().family, "llama");
+  const auto &text = builder->text_metadata();
+  uint64_t eos = UINT64_MAX;
+  for (const auto &role : text.tokens)
+    if (role.source_key == "tokenizer.ggml.eos_token_id")
+      eos = role.id;
+  ASSERT_NE(eos, UINT64_MAX);
+  ASSERT_EQ(text.token_pieces.at(eos), "</s>");
+  GgufBuildOptions options;
+  options.prefill_capacity = 3;
+  options.context_capacity = 64;
+  std::unique_ptr<GgufConfiguration> configured;
+  ASSERT_TRUE(builder->Configure(options, nullptr, &configured, &error))
+      << error;
+  ASSERT_TRUE(configured);
+  for (const char *slot : {"end_text_id", "end_message_id", "end_turn_id"}) {
+    const auto expected = "config.def @llama.publication." + std::string(slot) +
+                          " = " + std::to_string(eos) + " : i32\n";
+    EXPECT_NE(configured->configuration_source().find(expected),
+              std::string::npos);
+  }
+}
 TEST(PublicGgufBuilder, InvalidOpenPreservesExistingOutput) {
   std::unique_ptr<GgufModelBuilder> builder;
   std::string error;

@@ -92,12 +92,22 @@ int main(int argc, char **argv) {
   }
   // Explicit fixture bounds, not production geometry or an arithmetic oracle.
   const uint64_t layers = descriptor.layers.size(), pool = 512,
-                 base = 768 + 4 * 129;
+                 base = 768 + 4 * 129, hidden = descriptor.embedding_width,
+                 kv = descriptor.layers.front().kv_heads *
+                      descriptor.key_head_width;
+  const bool minicpm = hidden == 1536 && kv == 256 && layers == 24;
+  if (!minicpm && !(hidden == 3072 && kv == 1024)) {
+    std::fprintf(stderr,
+                 "layer fixture supports Llama3B or MiniCPM1B geometry\n");
+    return 1;
+  }
   std::ofstream layout(std::string(argv[3]) + "/layout.json");
   layout << "{\"rows\":17,\"layers\":" << layers << ",\"pool\":" << pool
+         << ",\"hidden\":" << hidden << ",\"kv\":" << kv << ",\"fixture\":\""
+         << (minicpm ? "minicpm1b" : "llama3b") << "\""
          << ",\"cache_base\":" << base
          << ",\"map_origin\":2048,\"cache_bytes\":"
-         << base + 4 * layers * pool * 1024 << ",\"map_bytes\":2080}\n";
+         << base + 4 * layers * pool * kv << ",\"map_bytes\":2080}\n";
   ok = bool(layout) && ok;
   loomc_module_release(module);
   loomc_workspace_release(workspace);
