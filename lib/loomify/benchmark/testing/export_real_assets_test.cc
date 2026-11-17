@@ -6,6 +6,7 @@
 #include "lib/loomify/benchmark/report_io.h"
 #include "loomc/target/amdgpu.h"
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -190,14 +191,64 @@ TEST_F(BenchmarkExportRealTest, StrictCoverageMatchesActualRunnableInventory) {
     EXPECT_EQ(result.selected_invocations, partial.selected_invocations);
   }
 }
+TEST_F(BenchmarkExportRealTest, ExplicitUnsupportedSequenceNeverPublishes) {
+  ExportOptions options;
+  options.max_case_input_bytes = UINT64_C(64) * 1024 * 1024;
+  options.allow_partial = true;
+  options.output = directory_ / "bundle";
+  ExportResult result;
+  result.selection_id = "preserved";
+  std::string error;
+  options.sequence_pairs = {{{"missing-origin", "p0/c183"}}};
+  EXPECT_FALSE(Export(options, &result, &error));
+  EXPECT_NE(error.find("unknown selected origin"), std::string::npos);
+  EXPECT_EQ(result.selection_id, "preserved");
+  EXPECT_TRUE(fs::is_empty(directory_));
+  // Reversing the known selected pair cannot describe the native schedule.
+  options.sequence_pairs = {{{"p0/c183", "p0/c182"}}};
+  EXPECT_FALSE(Export(options, &result, &error));
+  EXPECT_NE(error.find("cannot prepare requested sequence"), std::string::npos);
+  EXPECT_EQ(result.selection_id, "preserved");
+  EXPECT_TRUE(fs::is_empty(directory_));
+  options.sequence_pairs = {{{"p0/c182", "p0/c183"}}, {{"p0/c182", "p0/c183"}}};
+  EXPECT_FALSE(Export(options, &result, &error));
+  EXPECT_NE(error.find("duplicate pairs"), std::string::npos);
+  EXPECT_TRUE(fs::is_empty(directory_));
+  options.sequence_pairs.resize(1);
+  options.plan_only = true;
+  EXPECT_FALSE(Export(options, &result, &error));
+  EXPECT_NE(error.find("plan-only"), std::string::npos);
+  EXPECT_TRUE(fs::is_empty(directory_));
+}
 TEST_F(BenchmarkExportRealTest, PartialBundleProjectsCompleteOriginInventory) {
   ExportOptions options;
   options.max_case_input_bytes = UINT64_C(64) * 1024 * 1024;
   options.allow_partial = true;
   options.generator_identity = "test-generator";
+  options.sequence_pairs = {{{"p0/c182", "p0/c183"}}};
   options.output = directory_ / "partial";
   ExportResult result;
   std::string error;
+  Plan plan;
+  ASSERT_TRUE(BuildBenchmarkPlan(gguf_, workload_, library_root_, context_,
+                                 workspace_, &plan, &error))
+      << error;
+  for (const auto &id : options.sequence_pairs[0]) {
+    const auto invocation = std::find_if(
+        plan.invocations.begin(), plan.invocations.end(),
+        [&](const Invocation &value) { return value.invocation_id == id; });
+    ASSERT_NE(invocation, plan.invocations.end()) << id;
+    ASSERT_EQ(invocation->kernel_symbol, "ggml_linear_q4k_q8_1_x4");
+    ASSERT_TRUE(invocation->command.begins_barrier_wave);
+    ASSERT_GE(invocation->arguments.size(), 3u);
+    EXPECT_EQ(invocation->arguments[0].value.scalar_bits, 512u);
+    EXPECT_EQ(invocation->arguments[1].value.scalar_bits, 1024u);
+    EXPECT_EQ(invocation->arguments[2].value.scalar_bits, 3584u);
+    const auto &grid = invocation->command.payload.dispatch.workgroup_count;
+    EXPECT_EQ(grid[0], 448u);
+    EXPECT_EQ(grid[1], 1u);
+    EXPECT_EQ(grid[2], 1u);
+  }
   ASSERT_TRUE(Export(options, &result, &error)) << error;
   EXPECT_EQ(result.complete, result.unsupported_invocations == 0);
   EXPECT_GT(result.exported_invocations, 0u);
@@ -219,6 +270,32 @@ TEST_F(BenchmarkExportRealTest, PartialBundleProjectsCompleteOriginInventory) {
   EXPECT_EQ(inventory.manifest_id, result.manifest_id);
   EXPECT_EQ(inventory.invocations.size(), result.selected_invocations);
   EXPECT_EQ(inventory.cases.size(), result.case_count);
+  ASSERT_EQ(inventory.sequence_occurrences.size(), 1u);
+  const auto &occurrence = inventory.sequence_occurrences[0];
+  EXPECT_EQ(occurrence.program_ordinal, 0u);
+  EXPECT_EQ(occurrence.command_begin, 182u);
+  EXPECT_EQ(occurrence.command_end, 184u);
+  EXPECT_EQ(occurrence.covered_invocation_ids,
+            (std::vector<std::string>{"p0/c182", "p0/c183"}));
+  const auto sequence =
+      std::find_if(inventory.cases.begin(), inventory.cases.end(),
+                   [&](const ReportCase &value) {
+                     return value.case_id == occurrence.case_id;
+                   });
+  ASSERT_NE(sequence, inventory.cases.end());
+  EXPECT_EQ(sequence->measurement_subject, "sequence");
+  EXPECT_EQ(sequence->reset_policy, "none_overwrite_only");
+  EXPECT_EQ(sequence->arithmetic_check, "unchecked");
+  for (const auto &id : occurrence.covered_invocation_ids) {
+    const auto origin =
+        std::find_if(inventory.invocations.begin(), inventory.invocations.end(),
+                     [&](const ReportInvocation &value) {
+                       return value.invocation_id == id;
+                     });
+    ASSERT_NE(origin, inventory.invocations.end());
+    EXPECT_FALSE(origin->case_id.empty());
+    EXPECT_NE(origin->case_id, sequence->case_id);
+  }
   EXPECT_TRUE(fs::is_regular_file(options.output / "benchmark.loombc"));
   EXPECT_TRUE(fs::is_regular_file(options.output / "benchmark.loom"));
   for (const auto &origin : inventory.invocations)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/benchmark/bundle.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -342,6 +343,8 @@ TEST_F(BenchmarkScalarEmissionTest, PreservesSignedI32AndBooleanCarriers) {
                                               &emitted, &error))
           << error;
       ASSERT_EQ(emitted.size(), 1);
+      EXPECT_EQ(emitted[0].covered_origin_ids,
+                (std::vector<std::string>{"p0/c0"}));
       ASSERT_EQ(emitted[0].timed_dispatches.size(), 1);
       std::ifstream file(directory / "benchmark.loom");
       const std::string text((std::istreambuf_iterator<char>(file)),
@@ -383,6 +386,109 @@ TEST_F(BenchmarkScalarEmissionTest, RejectsInvalidCarrierBitsAndSourceType) {
   auto changed_inputs = prepared;
   changed_inputs.source_argument_types[0] = "f32";
   reject(changed, changed_inputs, "wrong-source-type", "source runtime ABI");
+}
+TEST_F(BenchmarkScalarEmissionTest, RejectsUnprovenProjectionPairSchedules) {
+  // Invalid synthetic schedules exercise admission before native source lookup.
+  // Actual retained projection emission is covered by the real-asset pair gate.
+  Plan plan;
+  plan.implementations.push_back({"selected-Q4", {}, {}});
+  Invocation first;
+  first.invocation_id = "p0/c0";
+  first.kernel_symbol = "ggml_linear_q4k_q8_1_x4";
+  first.command.kind = LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT;
+  first.command.argument_count = 6;
+  first.command.begins_barrier_wave = true;
+  std::fill(std::begin(first.command.payload.dispatch.workgroup_count),
+            std::end(first.command.payload.dispatch.workgroup_count), 1);
+  first.arguments.resize(6);
+  for (size_t i = 0; i < 3; ++i) {
+    first.arguments[i].kind = LOOMC_CMD_ARGUMENT_KIND_INDEX;
+    first.arguments[i].value.scalar_bits = 1;
+  }
+  for (size_t i = 3; i < 6; ++i)
+    first.arguments[i].kind = LOOMC_CMD_ARGUMENT_KIND_BUFFER;
+  first.arguments[3].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 0, 0,
+                                     16};
+  first.arguments[4].value.buffer = {LOOMC_CMD_BUFFER_ROLE_FIXED, 0, 0, 16};
+  first.arguments[5].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 0, 32,
+                                     16};
+  auto second = first;
+  second.invocation_id = "p0/c1";
+  second.command_ordinal = 1;
+  second.arguments[4].value.buffer.byte_offset = 16;
+  second.arguments[5].value.buffer.byte_offset = 64;
+  plan.invocations = {first, second};
+  Program program;
+  program.commands = {first.command, second.command};
+  plan.programs = {program};
+  PreparedSequenceCase sequence;
+  sequence.invocation_indices = {0, 1};
+  auto &inputs = sequence.inputs;
+  inputs.setup_recipe_id = "test-pair-admission/v1";
+  inputs.measurement_subject = "sequence";
+  inputs.source_workloads = {1, 256, 4};
+  inputs.source_argument_types = {"index",  "index",  "index",
+                                  "buffer", "buffer", "buffer"};
+  for (const auto &invocation : plan.invocations)
+    for (size_t i = 3; i < 6; ++i)
+      inputs.buffer_extents.push_back(
+          {invocation.arguments[i].value.buffer, 16, 1});
+  std::string error;
+  ASSERT_TRUE(
+      AllocateInputRoots(inputs.buffer_extents, 128, &inputs.roots, &error));
+  auto reject = [&](Plan candidate, PreparedSequenceCase prepared,
+                    const char *name, const char *message) {
+    SCOPED_TRACE(name);
+    const auto directory = path / name;
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    std::vector<EmittedCase> emitted;
+    EXPECT_FALSE(EmitPreparedBenchmarkBundle(candidate, {}, directory, context,
+                                             workspace, &emitted, &error,
+                                             {std::move(prepared)}));
+    EXPECT_NE(error.find(message), std::string::npos) << error;
+    EXPECT_FALSE(std::filesystem::exists(directory / "benchmark.loombc"));
+  };
+  auto changed = plan;
+  changed.invocations[1].command_ordinal = 2;
+  changed.programs[0].commands.push_back(second.command);
+  reject(changed, sequence, "gap", "adjacent");
+  changed = plan;
+  changed.invocations[1].command.begins_barrier_wave = false;
+  changed.programs[0].commands[1].begins_barrier_wave = false;
+  reject(changed, sequence, "same-wave", "serial canonical Q4");
+  changed = plan;
+  changed.invocations[1].arguments[0].value.scalar_bits = 2;
+  reject(changed, sequence, "different-scalar", "identical source scalar");
+  changed = plan;
+  changed.invocations[1].command.payload.dispatch.workgroup_count[0] = 2;
+  changed.programs[0].commands[1] = changed.invocations[1].command;
+  reject(changed, sequence, "different-grid", "selected direct grids");
+  changed = plan;
+  changed.invocations[1].implementation_index = 1;
+  reject(changed, sequence, "different-implementation", "serial canonical Q4");
+  auto changed_inputs = sequence;
+  changed = plan;
+  changed.invocations[1].arguments[5].value.buffer =
+      first.arguments[3].value.buffer;
+  changed_inputs.inputs.buffer_extents[5].binding =
+      first.arguments[3].value.buffer;
+  reject(changed, changed_inputs, "write-read-alias", "overlaps a READ");
+  changed = plan;
+  changed_inputs = sequence;
+  changed.invocations[1].arguments[5].value.buffer =
+      first.arguments[5].value.buffer;
+  changed_inputs.inputs.buffer_extents[5].binding =
+      first.arguments[5].value.buffer;
+  reject(changed, changed_inputs, "write-write-alias", "outputs overlap");
+  changed = plan;
+  changed_inputs = sequence;
+  changed.invocations[1].arguments[3].value.buffer.byte_offset = 16;
+  changed_inputs.inputs.buffer_extents[3].binding.byte_offset = 16;
+  reject(changed, changed_inputs, "different-packed-read",
+         "share its packed READ");
+  changed_inputs = sequence;
+  changed_inputs.inputs.measurement_subject = "kernel";
+  reject(plan, changed_inputs, "wrong-measurement", "nonreset case");
 }
 } // namespace
 } // namespace hrx::loomify_gguf::benchmark

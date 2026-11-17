@@ -204,6 +204,56 @@ TEST(BenchmarkReportTest, NoisyNumbersRemainVisibleWithoutQualifiedCoverage) {
   EXPECT_EQ(report.coverage.qualified_invocations, 0);
 }
 
+TEST(BenchmarkReportTest,
+     BaselineGroupProvesExistingNativeNameWithoutInventedField) {
+  auto inventory = Inventory();
+  inventory.cases[0].benchmark_symbol = "bench_projection";
+  auto input = Interleaved();
+  Replace(&input.snapshot_json, "\"candidate_id\":\"c0\"",
+          "\"candidate_id\":\"c0\",\"baseline_candidate_id\":\"c0\"");
+  Replace(&input.snapshot_json, "\"comparison_group\":\"baseline\"",
+          "\"comparison_group\":\"bench_projection\"");
+  input.bindings[0].comparison_group = "bench_projection";
+  const auto without_aggregate = input;
+  input.snapshot_json =
+      AddFields(input.snapshot_json,
+                "\"comparisons\":[{\"comparison_group\":\"bench_projection\","
+                "\"baseline_candidate_id\":\"c0\",\"candidate_id\":\"c1\","
+                "\"p50_ns\":{\"baseline\":13773,\"candidate\":13773}}]");
+  BenchmarkReport report;
+  std::string error;
+  ASSERT_TRUE(BuildBenchmarkReport(inventory, {input}, {}, &report, &error))
+      << error;
+  EXPECT_EQ(report.cases[0].measurements[0].benchmark_identity_state,
+            "verified_native_baseline_group");
+  EXPECT_EQ(report.cases[0].measurements[0].quality, "usable");
+  EXPECT_EQ(report.coverage.qualified_invocations, 2);
+  ASSERT_TRUE(
+      BuildBenchmarkReport(inventory, {without_aggregate}, {}, &report, &error))
+      << error;
+  EXPECT_EQ(report.cases[0].measurements[0].benchmark_identity_state,
+            "unverified_no_native_name");
+  auto not_baseline = input;
+  Replace(&not_baseline.snapshot_json, "\"baseline_candidate_id\":\"c0\"",
+          "\"baseline_candidate_id\":\"c1\"");
+  ASSERT_TRUE(
+      BuildBenchmarkReport(inventory, {not_baseline}, {}, &report, &error))
+      << error;
+  EXPECT_EQ(report.cases[0].measurements[0].quality, "quality_unassessed");
+}
+
+TEST(BenchmarkReportTest, BaselineGroupMismatchRejectsInsteadOfRelabelingCase) {
+  auto inventory = Inventory();
+  inventory.cases[0].benchmark_symbol = "different_case";
+  auto input = Interleaved();
+  Replace(&input.snapshot_json, "\"candidate_id\":\"c0\"",
+          "\"candidate_id\":\"c0\",\"baseline_candidate_id\":\"c0\"");
+  BenchmarkReport report;
+  std::string error;
+  EXPECT_FALSE(BuildBenchmarkReport(inventory, {input}, {}, &report, &error));
+  EXPECT_NE(error.find("baseline group disagrees"), std::string::npos);
+}
+
 TEST(BenchmarkReportTest, ManifestNamesAndInterleavedIdentityAreExplicit) {
   auto inventory = Inventory();
   inventory.cases[0].benchmark_symbol = "bench_projection";

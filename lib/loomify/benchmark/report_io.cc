@@ -132,6 +132,70 @@ bool Binding(const Object &object, ResultBinding *out, std::string *error) {
          Coordinate(object, "trial_ordinal", &out->trial_ordinal, error);
 }
 
+bool Ordinal(const Object &object, const char *key, bool required,
+             std::optional<uint32_t> *out, std::string *error) {
+  std::optional<uint64_t> value;
+  if (!Coordinate(object, key, &value, error))
+    return false;
+  if (!value)
+    return !required || Fail(error, std::string("missing ordinal: ") + key);
+  if (*value > UINT32_MAX)
+    return Fail(error, std::string("ordinal out of range: ") + key);
+  *out = static_cast<uint32_t>(*value);
+  return true;
+}
+
+bool Occurrences(const Object &manifest, ReportInventory *out,
+                 std::string *error) {
+  if (Field(manifest, "programs")) {
+    std::vector<Object> programs;
+    if (!Objects(manifest, "programs", &programs, error))
+      return false;
+    for (const auto &program : programs) {
+      std::vector<Object> commands;
+      if (!Objects(program, "commands", &commands, error))
+        return false;
+      out->program_command_counts.push_back(commands.size());
+    }
+  }
+  if (!Field(manifest, "sequence_occurrences"))
+    return true;
+  std::vector<Object> occurrences;
+  if (!Objects(manifest, "sequence_occurrences", &occurrences, error))
+    return false;
+  for (const auto &item : occurrences) {
+    SequenceOccurrence occurrence;
+    std::optional<uint32_t> program, begin, end;
+    if (!Text(item, "occurrence_id", true, &occurrence.occurrence_id, error) ||
+        !Text(item, "case_id", true, &occurrence.case_id, error) ||
+        !Ordinal(item, "program_ordinal", true, &program, error) ||
+        !Ordinal(item, "command_begin", true, &begin, error) ||
+        !Ordinal(item, "command_end", true, &end, error))
+      return false;
+    occurrence.program_ordinal = *program;
+    occurrence.command_begin = *begin;
+    occurrence.command_end = *end;
+    const auto *ids = Field(item, "covered_invocation_ids");
+    if (!ids || ids->type != IREE_JSON_VALUE_TYPE_ARRAY)
+      return Fail(error, "sequence occurrence requires covered_invocation_ids");
+    const auto visitor = [](void *user, iree_host_size_t,
+                            iree_json_value_type_t type,
+                            iree_string_view_t bytes) -> iree_status_t {
+      std::string id;
+      if (type != IREE_JSON_VALUE_TYPE_STRING || !Decode(bytes, &id) ||
+          id.empty())
+        return iree_status_from_code(IREE_STATUS_INVALID_ARGUMENT);
+      static_cast<std::vector<std::string> *>(user)->push_back(std::move(id));
+      return iree_ok_status();
+    };
+    if (!StatusOk(iree_json_enumerate_array_typed(
+            ids->bytes, visitor, &occurrence.covered_invocation_ids)))
+      return Fail(error, "invalid ordered sequence origin IDs");
+    out->sequence_occurrences.push_back(std::move(occurrence));
+  }
+  return true;
+}
+
 bool Read(const std::filesystem::path &path, std::string *out,
           std::string *error) {
   std::ifstream input(path, std::ios::binary);
@@ -237,7 +301,9 @@ bool ParseBenchmarkReportManifest(std::string_view manifest_json,
               error) ||
         !Text(item, "measurement_subject", true, &result.measurement_subject,
               error) ||
-        !Text(item, "arithmetic_check", false, &result.arithmetic_check, error))
+        !Text(item, "arithmetic_check", false, &result.arithmetic_check,
+              error) ||
+        !Text(item, "reset_policy", false, &result.reset_policy, error))
       return false;
     parsed.cases.push_back(std::move(result));
   }
@@ -246,14 +312,19 @@ bool ParseBenchmarkReportManifest(std::string_view manifest_json,
     if (!Text(item, "invocation_id", true, &result.invocation_id, error) ||
         !Text(item, "case_id", false, &result.case_id, error) ||
         !Text(item, "unsupported_reason", false, &result.unsupported_reason,
-              error))
+              error) ||
+        !Ordinal(item, "program_ordinal", false, &result.program_ordinal,
+                 error) ||
+        !Ordinal(item, "command_ordinal", false, &result.command_ordinal,
+                 error))
       return false;
     parsed.invocations.push_back(std::move(result));
   }
   // Reuse the report's existing inventory/alias/coverage validation instead of
   // defining a second set of case/origin rules in this IO adapter.
   BenchmarkReport checked;
-  if (!BuildBenchmarkReport(parsed, {}, {}, &checked, error))
+  if (!Occurrences(manifest, &parsed, error) ||
+      !BuildBenchmarkReport(parsed, {}, {}, &checked, error))
     return false;
   *inventory = std::move(parsed);
   return true;
@@ -287,7 +358,26 @@ bool BuildBenchmarkReportFromFiles(const std::filesystem::path &manifest_path,
   std::vector<ReportResultInput> inputs;
   if (!ReadResults(index, inventory, index_path.parent_path(), &inputs, error))
     return false;
-  return BuildBenchmarkReport(inventory, inputs, options, report, error);
+  BenchmarkReport parsed;
+  if (!BuildBenchmarkReport(inventory, inputs, options, &parsed, error))
+    return false;
+  if (Field(index, "sequence_partition")) {
+    std::vector<Object> selected;
+    std::vector<SequenceCostSelection> selections;
+    if (!Objects(index, "sequence_partition", &selected, error))
+      return false;
+    for (const auto &item : selected) {
+      SequenceCostSelection selection;
+      if (!Text(item, "occurrence_id", true, &selection.occurrence_id, error) ||
+          !Text(item, "result_id", true, &selection.result_id, error))
+        return false;
+      selections.push_back(std::move(selection));
+    }
+    if (!AddSequencePartitionReport(inventory, selections, &parsed, error))
+      return false;
+  }
+  *report = std::move(parsed);
+  return true;
 }
 
 } // namespace hrx::loomify_gguf::benchmark

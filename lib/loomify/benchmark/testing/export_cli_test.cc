@@ -84,6 +84,32 @@ TEST_F(BenchmarkCliTest, InvalidWorkloadsNeverPublishOutput) {
   EXPECT_NE(Read(stderr_).find("decode requires"), std::string::npos);
   EXPECT_FALSE(fs::exists(output));
 }
+TEST_F(BenchmarkCliTest, SequenceFlagsRejectMalformedOrPlanOnlyRequests) {
+  const auto output = directory_ / "bundle";
+  const auto destination = "--output=" + output.string();
+  for (const char *bad :
+       {"", "p0/c1", ",p0/c2", "p0/c1,", "p0/c1,p0/c2,p0/c3"}) {
+    EXPECT_NE(Run({"--gguf=absent.gguf", destination,
+                   std::string("--sequence=") + bad}),
+              0);
+    EXPECT_NE(Read(stderr_).find("--sequence requires exactly"),
+              std::string::npos);
+    EXPECT_FALSE(fs::exists(output));
+  }
+  EXPECT_NE(Run({"--gguf=absent.gguf", destination, "--plan-only",
+                 "--sequence=p0/c1,p0/c2"}),
+            0);
+  EXPECT_NE(Read(stderr_).find("--sequence cannot be used with --plan-only"),
+            std::string::npos);
+  EXPECT_FALSE(fs::exists(output));
+  // Repeatable valid syntax reaches source admission without a parser fallback.
+  EXPECT_NE(Run({"--gguf=absent.gguf", destination, "--sequence=p0/c1,p0/c2",
+                 "--sequence=p0/c3,p0/c4"}),
+            0);
+  EXPECT_NE(Read(stderr_).find("GGUF"), std::string::npos);
+  EXPECT_EQ(Read(stderr_).find("--sequence requires"), std::string::npos);
+  EXPECT_FALSE(fs::exists(output));
+}
 TEST_F(BenchmarkCliTest, FullUnsignedSeedReachesSourceAdmission) {
   EXPECT_NE(Run({"--gguf=absent.gguf", "--plan-only", "--phase=decode",
                  "--seed=18446744073709551615",

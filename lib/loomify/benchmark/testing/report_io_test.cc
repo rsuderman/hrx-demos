@@ -221,6 +221,49 @@ TEST_F(ReportIoTest, EmptyResultListRetainsMissingCosts) {
   EXPECT_EQ(report.cases[0].measurements[0].reason, "missing_measurement");
 }
 
+TEST_F(ReportIoTest,
+       OptionalSequenceMetadataAndExplicitPartitionRemainPartial) {
+  auto manifest = Manifest();
+  Replace(
+      &manifest, "\"measurement_subject\":\"kernel\"",
+      "\"measurement_subject\":\"sequence\",\"reset_policy\":\"none_overwrite_only\"");
+  Replace(&manifest, "\"invocation_id\":\"p0/c1\"",
+          "\"invocation_id\":\"p0/c1\",\"program_ordinal\":0");
+  Replace(&manifest, "\"invocation_id\":\"p0/c2\"",
+          "\"invocation_id\":\"p0/c2\",\"program_ordinal\":0");
+  Replace(
+      &manifest, "\"invocation_id\":\"p0/c3\"",
+      "\"invocation_id\":\"p0/c3\",\"program_ordinal\":0,\"command_ordinal\":3");
+  manifest.insert(
+      manifest.size() - 1,
+      ",\"programs\":[{\"commands\":[{},{},{},{}]}],"
+      "\"sequence_occurrences\":[{\"occurrence_id\":\"pair\",\"case_id\":\"case-A\","
+      "\"program_ordinal\":0,\"command_begin\":1,\"command_end\":3,"
+      "\"covered_invocation_ids\":[\"p0/c1\",\"p0/c2\"]}]");
+  Write("bundle/manifest.json", manifest);
+  auto index = Index(Snapshot());
+  index.insert(
+      index.size() - 1,
+      ",\"sequence_partition\":[{\"occurrence_id\":\"pair\",\"result_id\":\"sha256:" +
+          Hash(Snapshot()) + "\"}]");
+  Write("bundle/index.json", index);
+  BenchmarkReport report;
+  std::string error;
+  ASSERT_TRUE(Build(&report, &error)) << error;
+  ASSERT_TRUE(report.sequence_partition);
+  EXPECT_FALSE(report.sequence_partition->complete);
+  EXPECT_FALSE(report.sequence_partition->qualified_bundle_subtotal_ns);
+  EXPECT_EQ(report.sequence_partition->selected_commands, 2);
+  EXPECT_EQ(report.sequence_partition->total_selected_commands, 4);
+  EXPECT_EQ(report.cases[0].measurements[0].p50_ns, 123943);
+  Replace(&index, "\"occurrence_id\":\"pair\"",
+          "\"occurrence_id\":\"missing\"");
+  Write("bundle/index.json", index);
+  report.manifest_id = "unchanged";
+  EXPECT_FALSE(Build(&report, &error));
+  EXPECT_EQ(report.manifest_id, "unchanged");
+}
+
 TEST_F(ReportIoTest, MissingResultFileIsAnErrorNotAMeasuredZero) {
   std::filesystem::remove(root_ / "bundle/results/native score.json");
   BenchmarkReport report;

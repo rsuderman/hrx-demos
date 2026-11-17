@@ -46,6 +46,9 @@ IREE_FLAG_NAMED(bool, emit_source, "emit-source", true,
 IREE_FLAG_NAMED(
     string, max_input_bytes, "max-input-bytes", nullptr,
     "Optional prepared-root byte budget per case; no cap by default.");
+IREE_FLAG_LIST(
+    string, sequence,
+    "Add a supported ordered pair: --sequence=ORIGIN1,ORIGIN2 (repeatable).");
 IREE_FLAG(string, manifest, nullptr, "Export manifest for the report command.");
 IREE_FLAG(string, index, nullptr,
           "Explicit result index for the report command.");
@@ -220,6 +223,20 @@ int main(int argc, char **argv) {
   options.allow_partial = FLAG_allow_partial;
   options.emit_source = FLAG_emit_source;
   options.generator_identity = GeneratorIdentity();
+  const auto sequences = FLAG_sequence_list();
+  for (iree_host_size_t i = 0; i < sequences.count; ++i) {
+    const std::string_view text(sequences.values[i].data,
+                                sequences.values[i].size);
+    const auto comma = text.find(',');
+    if (comma == std::string_view::npos || comma == 0 ||
+        comma + 1 == text.size() ||
+        text.find(',', comma + 1) != std::string_view::npos)
+      return Error("--sequence requires exactly ORIGIN1,ORIGIN2");
+    options.sequence_pairs.push_back({std::string(text.substr(0, comma)),
+                                      std::string(text.substr(comma + 1))});
+  }
+  if (options.plan_only && !options.sequence_pairs.empty())
+    return Error("--sequence cannot be used with --plan-only");
   if (FLAG_max_input_bytes && !Unsigned(FLAG_max_input_bytes, "max-input-bytes",
                                         &options.max_case_input_bytes, &error))
     return Error(error);

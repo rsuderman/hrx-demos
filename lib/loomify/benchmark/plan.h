@@ -6,6 +6,7 @@
 #include "lib/loomify/gguf_model_builder.h"
 #include "loomc/product.h"
 #include "loomc/target/cmd/program.h"
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -94,6 +95,14 @@ struct CaseIdentity {
 bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
                        const PreparedCase &prepared, CaseIdentity *out,
                        std::string *error);
+
+// Ordered, adjacent canonical projection pair using one merged input image.
+// Buffer extents are concatenated in member ABI order; no native command is
+// synthesized and both original implementation/root/argument records are bound.
+bool BuildProjectionPairIdentity(const Plan &plan,
+                                 const std::array<size_t, 2> &indices,
+                                 const PreparedCase &prepared,
+                                 CaseIdentity *out, std::string *error);
 
 // Synchronous CPU selection/planning. Borrows native context/workspace only for
 // this call; returned requests/facts own their data. Failure preserves *out.

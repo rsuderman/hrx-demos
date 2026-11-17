@@ -46,7 +46,10 @@ iree_cc_library(
 
 iree_cc_library(
     name = "report",
-    srcs = ["report.cc"],
+    srcs = [
+        "report.cc",
+        "report_partition.cc",
+    ],
     hdrs = ["report.h"],
     cxxopts = _CXXOPTS,
     deps = [
@@ -86,7 +89,10 @@ cc_test(
 
 cc_test(
     name = "report_test",
-    srcs = ["testing/report_test.cc"],
+    srcs = [
+        "testing/report_partition_test.cc",
+        "testing/report_test.cc",
+    ],
     copts = _CXXOPTS,
     deps = [
         ":report",

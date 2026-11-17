@@ -5,7 +5,10 @@
 
 #include "lib/loomify/benchmark/plan.h"
 #include "lib/loomify/benchmark/report.h"
+#include <array>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace hrx::loomify_gguf::benchmark {
 
@@ -15,6 +18,10 @@ struct ExportOptions {
   bool plan_only = false;
   bool allow_partial = false;
   bool emit_source = true;
+  // Explicit ordered pairs of selected invocation IDs. Each admitted pair adds
+  // one sequence case; canonical leaf coverage remains unchanged. Unsupported
+  // explicit requests fail even with allow_partial. Not valid with plan_only.
+  std::vector<std::array<std::string, 2>> sequence_pairs;
   // Optional caller resource budget; UINT64_MAX means no imposed per-case cap.
   uint64_t max_case_input_bytes = UINT64_MAX;
   // Identity of the generator build, not of a later benchmark runner/device.

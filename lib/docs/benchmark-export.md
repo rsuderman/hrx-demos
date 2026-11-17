@@ -144,3 +144,38 @@ providing those APIs; repository pin qualification remains a separate delivery
 gate. Generated standalone modules use the existing benchmark runner. Focused
 tests live under `lib/loomify/benchmark/testing`; real assets are supplied through
 explicit fixture environment variables and are never downloaded by tests.
+
+## Explicit two-dispatch sequences
+
+Inspect the selected plan to obtain exact invocation IDs, then request an
+additional sequence benchmark by passing its two ordered origins:
+
+```sh
+loomify-benchmark --gguf=MODEL.gguf --phase=decode --history-tokens=5 \
+  --allow-partial --sequence=p0/c182,p0/c183 --output=NEW_BUNDLE
+```
+
+`--sequence=ORIGIN1,ORIGIN2` is repeatable. The C++ API accepts the same pairs in
+`ExportOptions::sequence_pairs`. Selection is explicit: the exporter does not
+search for model layers or guess which kernels to combine. The first supported
+recipe is an adjacent canonical Q4 projection pair with the same selected
+implementation, scalar geometry and packed input, separate matrices and disjoint
+outputs. Its original two barrier waves remain separate; this is a measured
+sequence, not a fused kernel. The example IDs are specific to the selected
+checkpoint and workload; inspect the plan for other inputs.
+
+An unsupported or unknown requested pair fails the whole export, including with
+`--allow-partial`; no partial output is published. Plan-only mode rejects sequence
+requests. This first export interface rejects duplicate pair selectors and
+distinct requests with an identical sequence case identity. It does not group repeated
+layer occurrences; this is an export policy limit, not a kernel restriction.
+Canonical leaf cases and dispatch-origin coverage remain intact. Each
+admitted sequence adds a case and a post-proof `sequence_occurrences` record with
+its selected program, command interval and ordered origin IDs. Runtime safety
+assertions remain separate from independent arithmetic checking.
+
+The optional result-index `sequence_partition` array selects explicit occurrence
+and result IDs for reporting. Sequence timing contributes once per selected
+occurrence, not once per covered leaf dispatch. Partial measured intervals do not
+establish full-model latency; missing, overlapping or unqualified selections
+cannot produce a complete-phase estimate.

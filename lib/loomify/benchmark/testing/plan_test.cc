@@ -67,6 +67,73 @@ PreparedCase IdentityInputs(const Invocation &invocation,
     }
   return prepared;
 }
+TEST(CaseIdentity, ProjectionPairBindsOrderedOriginalMembersAndMergedInputs) {
+  Plan plan;
+  plan.workload_id = "pair-workload";
+  plan.implementations.push_back({"implementation", {}, {}});
+  PreparedCase prepared;
+  prepared.setup_recipe_id = "test.projection-pair/v1";
+  prepared.measurement_subject = "sequence";
+  prepared.reset_policy = "none_overwrite_only";
+  for (size_t member = 0; member < 2; ++member) {
+    Invocation invocation;
+    invocation.command_ordinal = member;
+    invocation.command.kind = LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT;
+    invocation.command.argument_count = 6;
+    for (auto &count : invocation.command.payload.dispatch.workgroup_count)
+      count = 1;
+    for (size_t arg = 0; arg < 6; ++arg) {
+      loomc_cmd_argument_t argument{};
+      argument.kind = arg < 3 ? LOOMC_CMD_ARGUMENT_KIND_INDEX
+                              : LOOMC_CMD_ARGUMENT_KIND_BUFFER;
+      if (arg < 3)
+        argument.value.scalar_bits = 4;
+      else {
+        argument.value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 0,
+                                 (member * 3 + arg - 3) * 4, 4};
+        prepared.buffer_extents.push_back({argument.value.buffer, 4, 4});
+      }
+      invocation.arguments.push_back(argument);
+    }
+    plan.invocations.push_back(std::move(invocation));
+  }
+  PreparedRoot root;
+  root.bytes.resize(28, 1);
+  root.minimum_alignment = 4;
+  prepared.roots.push_back(root);
+  CaseIdentity baseline, changed;
+  std::string error;
+  ASSERT_TRUE(
+      BuildProjectionPairIdentity(plan, {0, 1}, prepared, &baseline, &error))
+      << error;
+  auto guard_written = prepared;
+  guard_written.roots[0].fixture_suffix_bytes = kBenchmarkTailGuardBytes;
+  ASSERT_TRUE(BuildProjectionPairIdentity(plan, {0, 1}, guard_written, &changed,
+                                          &error));
+  EXPECT_EQ(baseline.case_id, changed.case_id);
+  prepared.roots[0].bytes[0] ^= 1;
+  ASSERT_TRUE(
+      BuildProjectionPairIdentity(plan, {0, 1}, prepared, &changed, &error));
+  EXPECT_NE(baseline.case_id, changed.case_id);
+  prepared.roots[0].bytes[0] ^= 1;
+  plan.invocations[1].arguments[5].value.buffer.byte_offset = 24;
+  prepared.buffer_extents[5].binding.byte_offset = 24;
+  ASSERT_TRUE(
+      BuildProjectionPairIdentity(plan, {0, 1}, prepared, &changed, &error));
+  EXPECT_NE(baseline.case_id, changed.case_id);
+  plan.invocations[1].arguments[0].value.scalar_bits++;
+  changed.case_id = "preserved";
+  EXPECT_FALSE(
+      BuildProjectionPairIdentity(plan, {0, 1}, prepared, &changed, &error));
+  EXPECT_EQ(changed.case_id, "preserved");
+  plan.invocations[1].arguments[0].value.scalar_bits--;
+  EXPECT_FALSE(
+      BuildProjectionPairIdentity(plan, {1, 0}, prepared, &changed, &error));
+  plan.invocations[1].command_ordinal = 2;
+  EXPECT_FALSE(
+      BuildProjectionPairIdentity(plan, {0, 1}, prepared, &changed, &error));
+}
+
 TEST(CaseIdentity, BindsInputsAbiAndReplayWithoutConfusingImplementation) {
   Plan plan;
   plan.workload_id = "workload";

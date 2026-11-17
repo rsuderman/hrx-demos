@@ -20,6 +20,7 @@ struct ReportCase {
   std::string implementation_id;
   // Optional for programmatic inventory; required by export-manifest IO.
   std::string benchmark_symbol;
+  std::string reset_policy;
 };
 
 struct ReportInvocation {
@@ -27,6 +28,23 @@ struct ReportInvocation {
   std::string
       case_id; // Empty for a selected occurrence without a runnable case.
   std::string unsupported_reason;
+  std::optional<uint32_t> program_ordinal;
+  std::optional<uint32_t> command_ordinal;
+};
+
+// One proven logical measured subject, not a count of its dispatch origins.
+struct SequenceOccurrence {
+  std::string occurrence_id;
+  std::string case_id;
+  uint32_t program_ordinal = 0;
+  uint32_t command_begin = 0;
+  uint32_t command_end = 0;
+  std::vector<std::string> covered_invocation_ids;
+};
+
+struct SequenceCostSelection {
+  std::string occurrence_id;
+  std::string result_id;
 };
 
 struct ReportInventory {
@@ -35,6 +53,8 @@ struct ReportInventory {
   std::string phase;
   std::vector<ReportCase> cases;
   std::vector<ReportInvocation> invocations;
+  std::vector<uint64_t> program_command_counts;
+  std::vector<SequenceOccurrence> sequence_occurrences;
 };
 
 struct ResultBinding {
@@ -83,6 +103,9 @@ struct ReportMeasurement {
   // Native evidence is preserved independently of score/quality interpretation.
   std::string device_json;
   std::string data_cache_json;
+  std::string cache_policy;
+  std::optional<uint64_t> binding_ring_count;
+  std::string measurement_materialization;
   std::string timing_warnings_json;
   std::string stop_reason;
   std::string producer_identity;
@@ -107,6 +130,33 @@ struct ReportCoverage {
   uint64_t qualified_invocations = 0;
 };
 
+struct SequenceContribution {
+  std::string occurrence_id;
+  std::string case_id;
+  std::string result_id;
+  std::optional<double> contribution_ns;
+  std::string reason;
+};
+
+struct UncoveredCommandRange {
+  uint32_t program_ordinal = 0;
+  uint64_t command_begin = 0;
+  uint64_t command_end = 0;
+};
+
+struct SequencePartitionReport {
+  std::vector<SequenceContribution> occurrences;
+  uint64_t total_selected_commands = 0;
+  uint64_t selected_commands = 0;
+  uint64_t qualified_commands = 0;
+  uint64_t qualified_dispatch_origins = 0;
+  std::optional<double> qualified_bundle_subtotal_ns;
+  // Absent when any selected subject lacks eligible timing evidence.
+  std::optional<double> partition_total_ns;
+  bool complete = false;
+  std::vector<UncoveredCommandRange> uncovered_commands;
+};
+
 struct BenchmarkReport {
   std::string manifest_id;
   std::string workload_id;
@@ -116,6 +166,7 @@ struct BenchmarkReport {
   std::vector<ReportCaseResult> cases;
   std::vector<ReportInvocation> unsupported_invocations;
   std::vector<std::string> run_diagnostics;
+  std::optional<SequencePartitionReport> sequence_partition;
 };
 
 // Consumes actual native ordinary or interleaved snapshot JSON, not JSONL.
@@ -128,6 +179,14 @@ bool BuildBenchmarkReport(const ReportInventory &inventory,
                           std::string *error);
 
 std::string BenchmarkReportJson(const BenchmarkReport &report);
+
+// Explicit sequence occurrences only. Preserves raw singleton scores/coverage;
+// the optional phase estimate is complete only with full selected-command
+// coverage. Failure leaves the previous report untouched.
+bool AddSequencePartitionReport(
+    const ReportInventory &inventory,
+    const std::vector<SequenceCostSelection> &selections,
+    BenchmarkReport *report, std::string *error);
 
 } // namespace hrx::loomify_gguf::benchmark
 #endif

@@ -206,6 +206,11 @@ void CopyEvidence(const Json &row, ReportMeasurement *out) {
   out->physical_dispatches_per_logical_operation =
       Uint(Field(measurement, "physical_dispatches_per_logical_operation"));
   out->data_cache_json = Raw(row.Get("data_cache"));
+  out->cache_policy = String(Field(row.Get("data_cache"), "cache_policy"));
+  out->binding_ring_count =
+      Uint(Field(row.Get("data_cache"), "binding_ring_count"));
+  out->measurement_materialization =
+      String(Field(row.Get("data_cache"), "measurement_materialization"));
   out->timing_warnings_json =
       Raw(Field(Field(measurement, "timing_interpretation"), "warnings"));
   out->stop_reason = String(Field(measurement, "stop_reason"));
@@ -345,6 +350,8 @@ bool Interleaved(const Json &snapshot, const ResultBinding &binding,
       snapshot.Get("dry_run")->type == IREE_JSON_VALUE_TYPE_TRUE;
   std::vector<Score> scores;
   bool all_names_present = true;
+  bool all_rows_are_baseline = true;
+  std::string baseline_id;
   std::string group;
   std::set<uint64_t> order_indices;
   for (const auto &row : *repetitions) {
@@ -357,6 +364,18 @@ bool Interleaved(const Json &snapshot, const ResultBinding &binding,
     if (!scores.empty() && current_group != group)
       return Fail(error, "ambiguous interleaved comparison group");
     group = current_group;
+    const auto current_baseline = String(row.Get("baseline_candidate_id"));
+    if (!baseline_id.empty() && !current_baseline.empty() &&
+        baseline_id != current_baseline)
+      return Fail(error, "inconsistent native baseline candidate identity");
+    if (!current_baseline.empty())
+      baseline_id = current_baseline;
+    all_rows_are_baseline &=
+        !current_baseline.empty() && current_baseline == binding.candidate_id;
+    if (!binding.benchmark.empty() && !current_baseline.empty() &&
+        current_baseline == binding.candidate_id && group != binding.benchmark)
+      return Fail(error,
+                  "native baseline group disagrees with manifest benchmark");
     if (!binding.benchmark.empty()) {
       const auto name = String(row.Get("benchmark"));
       if (!name.empty() && name != binding.benchmark)
@@ -374,18 +393,10 @@ bool Interleaved(const Json &snapshot, const ResultBinding &binding,
                   Coordinates(*scores.front().row);
   if (!Qualify(scores, options, out, error))
     return false;
-  if (!binding.benchmark.empty()) {
-    out->benchmark_identity_state = all_names_present
-                                        ? "verified_native_name"
-                                        : "unverified_no_native_name";
-    if (!all_names_present && out->quality == "usable") {
-      out->quality = "quality_unassessed";
-      out->reason = "benchmark_identity_unverified";
-    }
-  }
   // Validate the snapshot aggregate association. It supplements, never
   // replaces, the selected windows and their correctness/policy evidence.
   const auto *comparisons = Array(snapshot.Get("comparisons"));
+  bool verified_baseline_aggregate = false;
   if (comparisons && out->p50_ns) {
     std::optional<double> aggregate;
     for (const auto &row : *comparisons) {
@@ -403,10 +414,24 @@ bool Interleaved(const Json &snapshot, const ResultBinding &binding,
         return Fail(error,
                     "invalid or conflicting interleaved p50_ns aggregate");
       aggregate = value;
+      verified_baseline_aggregate |= baseline;
     }
     if (aggregate && *aggregate != *out->p50_ns)
       return Fail(error,
                   "interleaved aggregate does not match selected windows");
+  }
+  if (!binding.benchmark.empty()) {
+    const bool verified_group = all_rows_are_baseline &&
+                                group == binding.benchmark &&
+                                verified_baseline_aggregate;
+    out->benchmark_identity_state = all_names_present ? "verified_native_name"
+                                    : verified_group
+                                        ? "verified_native_baseline_group"
+                                        : "unverified_no_native_name";
+    if (!all_names_present && !verified_group && out->quality == "usable") {
+      out->quality = "quality_unassessed";
+      out->reason = "benchmark_identity_unverified";
+    }
   }
   return true;
 }
@@ -588,6 +613,11 @@ bool BuildBenchmarkReport(const ReportInventory &inventory,
     if (qualified)
       result.coverage.qualified_invocations += item.invocation_count;
   }
+  if (!inventory.sequence_occurrences.empty()) {
+    if (!AddSequencePartitionReport(inventory, {}, &result, error))
+      return false;
+    result.sequence_partition.reset();
+  }
   *report = std::move(result);
   if (error)
     error->clear();
@@ -608,9 +638,14 @@ std::string BenchmarkReportJson(const BenchmarkReport &report) {
       << "},\"quality_policy\":{\"minimum_windows\":"
       << report.quality_policy.minimum_windows << ",\"maximum_window_spread\":"
       << report.quality_policy.maximum_window_spread
-      << "},\"approximate_numerical_phase_ns\":null,"
+      << "},\"approximate_numerical_phase_ns\":";
+  if (report.sequence_partition && report.sequence_partition->complete)
+    Optional(out, report.sequence_partition->partition_total_ns);
+  else
+    out << "null";
+  out << ','
       << "\"limits\":[\"standalone work proxies are not additive model or GPU latency\","
-      << "\"no calibrated sequence partition in this report\","
+      << "\"sums of bundle medians are not model latency quantiles\","
       << "\"ring reuse does not establish cold or streaming behavior\"],\"cases\":[";
   bool first = true;
   for (const auto &item : report.cases) {
@@ -622,6 +657,7 @@ std::string BenchmarkReportJson(const BenchmarkReport &report) {
         << ",\"benchmark_symbol\":" << Quote(item.definition.benchmark_symbol)
         << ",\"measurement_subject\":"
         << Quote(item.definition.measurement_subject)
+        << ",\"reset_policy\":" << Quote(item.definition.reset_policy)
         << ",\"arithmetic_check\":" << Quote(item.definition.arithmetic_check)
         << ",\"invocation_count\":" << item.invocation_count
         << ",\"measurements\":[";
@@ -691,7 +727,44 @@ std::string BenchmarkReportJson(const BenchmarkReport &report) {
       out << ',';
     out << Quote(report.run_diagnostics[i]);
   }
-  out << "]}\n";
+  out << ']';
+  if (report.sequence_partition) {
+    const auto &partition = *report.sequence_partition;
+    out << ",\"sequence_partition\":{\"complete\":"
+        << (partition.complete ? "true" : "false")
+        << ",\"total_selected_commands\":" << partition.total_selected_commands
+        << ",\"selected_commands\":" << partition.selected_commands
+        << ",\"qualified_commands\":" << partition.qualified_commands
+        << ",\"qualified_dispatch_origins\":"
+        << partition.qualified_dispatch_origins
+        << ",\"qualified_bundle_subtotal_ns\":";
+    Optional(out, partition.qualified_bundle_subtotal_ns);
+    out << ",\"partition_total_ns\":";
+    Optional(out, partition.partition_total_ns);
+    out << ",\"occurrences\":[";
+    for (size_t i = 0; i < partition.occurrences.size(); ++i) {
+      if (i)
+        out << ',';
+      const auto &item = partition.occurrences[i];
+      out << "{\"occurrence_id\":" << Quote(item.occurrence_id)
+          << ",\"case_id\":" << Quote(item.case_id)
+          << ",\"result_id\":" << Quote(item.result_id)
+          << ",\"contribution_ns\":";
+      Optional(out, item.contribution_ns);
+      out << ",\"reason\":" << Quote(item.reason) << '}';
+    }
+    out << "],\"uncovered_commands\":[";
+    for (size_t i = 0; i < partition.uncovered_commands.size(); ++i) {
+      if (i)
+        out << ',';
+      const auto &gap = partition.uncovered_commands[i];
+      out << "{\"program_ordinal\":" << gap.program_ordinal
+          << ",\"command_begin\":" << gap.command_begin
+          << ",\"command_end\":" << gap.command_end << '}';
+    }
+    out << "]}";
+  }
+  out << "}\n";
   return out.str();
 }
 

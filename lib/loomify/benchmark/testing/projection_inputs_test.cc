@@ -125,6 +125,32 @@ protected:
     // Three launched rows of two groups each; scalar capacity remains four.
     invocation.command.payload.dispatch.workgroup_count[0] = 6;
   }
+  void Pair() {
+    auto second_tensor = plan.model.layers[0].tensors[0];
+    second_tensor.tensor.name = "selected.up.weight";
+    second_tensor.tensor.absolute_offset = 8 + 432;
+    plan.model.layers[0].tensors.push_back(second_tensor);
+    plan.programs[0].parameters.push_back(
+        {second_tensor.tensor.name, 3, 2000, 432, 4});
+    auto up = weights;
+    for (size_t block = 0; block < up.size(); block += 144)
+      up[block + 16] = 0x44; // Different finite payload, same encoding/scales.
+    weights.insert(weights.end(), up.begin(), up.end());
+    WriteWeights();
+    invocation.invocation_id = "p0/c0";
+    invocation.command.begins_barrier_wave = true;
+    auto second = invocation;
+    second.invocation_id = "p0/c1";
+    second.command_ordinal = 1;
+    second.arguments[4].value.buffer.byte_offset = 2000;
+    second.arguments[5].value.buffer.byte_offset = 1600;
+    plan.invocations = {invocation, second};
+    plan.programs[0].commands = {invocation.command, second.command};
+    plan.programs[0].layout.command_count = 2;
+    plan.implementations.resize(1);
+    plan.implementations[0].implementation_id = "retained-q4-implementation";
+    plan.implementations[0].roots.resize(1);
+  }
   void WriteWeights() {
     std::ofstream file(plan.source_asset, std::ios::binary | std::ios::trunc);
     file.write("metadata", 8);
@@ -556,6 +582,153 @@ TEST_F(ProjectionInputsTest,
             PreparationStatus::kUnsupported);
   EXPECT_NE(error.find("budget"), std::string::npos);
   EXPECT_EQ(prepared.setup_recipe_id, "preserved");
+}
+TEST_F(ProjectionInputsTest,
+       PairMergesRootsOnceAndPreservesOrderedExactWeights) {
+  Pair();
+  PreparedSequenceCase prepared;
+  std::string error;
+  ASSERT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kReady)
+      << error;
+  EXPECT_EQ(prepared.invocation_indices, (std::array<size_t, 2>{0, 1}));
+  EXPECT_EQ(prepared.inputs.measurement_subject, "sequence");
+  EXPECT_EQ(prepared.inputs.reset_policy, "none_overwrite_only");
+  EXPECT_EQ(prepared.inputs.arithmetic_check, "unchecked");
+  EXPECT_TRUE(prepared.inputs.resets.empty());
+  EXPECT_EQ(prepared.inputs.buffer_extents.size(), 6);
+  ASSERT_EQ(prepared.inputs.weight_sources.size(), 2);
+  EXPECT_EQ(prepared.inputs.weight_sources[0].key, "selected.matrix.weight");
+  EXPECT_EQ(prepared.inputs.weight_sources[1].key, "selected.up.weight");
+  EXPECT_EQ(prepared.inputs.representative_weight_spans.size(), 2);
+  ASSERT_EQ(prepared.inputs.roots.size(), 2);
+  const auto packed = plan.invocations[0].arguments[3].value.buffer;
+  const auto *root = FindInputRoot(prepared.inputs.roots, packed);
+  ASSERT_TRUE(root);
+  EXPECT_EQ(root->bytes.size(),
+            1584); // Shared input and both disjoint outputs.
+  EXPECT_EQ(root->initialized_ranges.size(), 3); // Packed input written once.
+  for (size_t member = 0; member < 2; ++member) {
+    const auto output = plan.invocations[member].arguments[5].value.buffer;
+    EXPECT_EQ(root->bytes[output.byte_offset - root->original_byte_offset],
+              0xA5);
+    const auto weight = plan.invocations[member].arguments[4].value.buffer;
+    const auto *fixed = FindInputRoot(prepared.inputs.roots, weight);
+    ASSERT_TRUE(fixed);
+    EXPECT_EQ(fixed->bytes.size(),
+              1432); // Native fixed parameter gap retained.
+    EXPECT_TRUE(std::equal(weights.begin() + member * 432,
+                           weights.begin() + (member + 1) * 432,
+                           fixed->bytes.begin() + weight.byte_offset -
+                               fixed->original_byte_offset));
+  }
+}
+TEST_F(ProjectionInputsTest, PairRejectsNonadjacentProgramsAndUnrecordedWaves) {
+  Pair();
+  const auto original = plan;
+  PreparedSequenceCase prepared;
+  prepared.inputs.setup_recipe_id = "preserved";
+  std::string error;
+  plan.invocations[1].command_ordinal = 2;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.programs.push_back(plan.programs[0]);
+  plan.invocations[1].program_ordinal = 1;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.invocations[1].command.begins_barrier_wave = false;
+  plan.programs[0].commands[1].begins_barrier_wave = false;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  auto hidden = plan.programs[0].commands[0];
+  hidden.kind = LOOMC_CMD_COMMAND_KIND_BARRIER_EXECUTION;
+  plan.programs[0].commands.insert(plan.programs[0].commands.begin() + 1,
+                                   hidden);
+  plan.invocations[1].command_ordinal = 2;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.programs[0].commands[1].kind = LOOMC_CMD_COMMAND_KIND_FILL;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kFailure);
+  EXPECT_EQ(prepared.inputs.setup_recipe_id, "preserved");
+}
+TEST_F(ProjectionInputsTest,
+       PairRejectsDifferentRetainedGeometryAndSharedInput) {
+  Pair();
+  const auto original = plan;
+  PreparedSequenceCase prepared;
+  std::string error;
+  plan.invocations[1].arguments[0].value.scalar_bits = 3;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.invocations[1].command.payload.dispatch.workgroup_count[1] = 2;
+  plan.programs[0].commands[1] = plan.invocations[1].command;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.invocations[1].implementation_index = 1;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.invocations[1].request_root_ordinal = 1;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.invocations[1].arguments[3].value.buffer.byte_offset += 16;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+}
+TEST_F(ProjectionInputsTest, PairOutputsMustBeIndependentOfEveryReadAndWrite) {
+  Pair();
+  PreparedSequenceCase prepared;
+  std::string error;
+  const auto original = plan;
+  plan.invocations[1].arguments[5].value.buffer =
+      plan.invocations[0].arguments[5].value.buffer;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  plan = original;
+  plan.invocations[1].arguments[5].value.buffer =
+      plan.invocations[0].arguments[4].value.buffer;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+}
+TEST_F(ProjectionInputsTest, PairBudgetsMergedHullIncludingGapBeforeIo) {
+  Pair();
+  ASSERT_TRUE(std::filesystem::remove(plan.source_asset));
+  PreparedSequenceCase prepared;
+  prepared.inputs.setup_recipe_id = "preserved";
+  std::string error;
+  // Payload sum without the native fixed gap would fit this cap; merged hull
+  // must include that gap and reject before trying the deliberately absent IO.
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 2500, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  EXPECT_NE(error.find("budget"), std::string::npos);
+  plan.model.layers[0].tensors[1].tensor.storage_type = 14;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 1, &prepared, &error),
+            PreparationStatus::kFailure);
+  EXPECT_EQ(prepared.inputs.setup_recipe_id, "preserved");
+}
+TEST_F(ProjectionInputsTest,
+       PairRejectsConflictingInitializedReadonlyWeightBytes) {
+  Pair();
+  // Each exact parameter remains a valid matrix, but their native read views
+  // overlap while GGUF bytes disagree. Shared initialized-range checking must
+  // reject this realization atomically rather than silently overwrite either.
+  plan.programs[0].parameters[1].byte_offset = 1100;
+  plan.invocations[1].arguments[4].value.buffer.byte_offset = 1100;
+  PreparedSequenceCase prepared;
+  prepared.inputs.setup_recipe_id = "preserved";
+  std::string error;
+  EXPECT_EQ(PrepareProjectionPair(plan, 0, 1, 3500, &prepared, &error),
+            PreparationStatus::kFailure);
+  EXPECT_NE(error.find("conflicting initialization"), std::string::npos);
+  EXPECT_EQ(prepared.inputs.setup_recipe_id, "preserved");
 }
 } // namespace
 } // namespace hrx::loomify_gguf::benchmark

@@ -123,18 +123,21 @@ bool Validate(const Workload &workload, std::string *error) {
 }
 } // namespace
 
-bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
-                       const PreparedCase &prepared, CaseIdentity *out,
-                       std::string *error) {
-  if (!out || invocation.implementation_index >= plan.implementations.size() ||
-      prepared.setup_recipe_id.empty() ||
+static bool BuildIdentity(const Plan &plan,
+                          const std::vector<const Invocation *> &members,
+                          const PreparedCase &prepared, CaseIdentity *out,
+                          std::string *error) {
+  if (members.empty())
+    return Fail(error, "case identity requires a member");
+  for (const auto *member : members)
+    if (member->implementation_index >= plan.implementations.size() ||
+        member->arguments.size() != member->command.argument_count)
+      return Fail(error, "case identity member has invalid implementation/ABI");
+  if (!out || prepared.setup_recipe_id.empty() ||
       prepared.measurement_subject.empty() || prepared.reset_policy.empty())
     return Fail(
         error,
         "case identity requires implementation and declared input/reset policy");
-  if (invocation.arguments.size() != invocation.command.argument_count)
-    return Fail(error,
-                "case identity argument count does not match native dispatch");
   using RootKey = std::pair<uint32_t, uint32_t>;
   using Span = std::pair<uint64_t, uint64_t>; // root-relative begin/end
   std::map<RootKey, const PreparedRoot *> by_key;
@@ -182,54 +185,66 @@ bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
   Number(logical, prepared.source_argument_types.size());
   for (const auto &type : prepared.source_argument_types)
     Field(logical, type);
-  Number(logical, invocation.arguments.size());
+  if (members.size() > 1) {
+    Field(logical, "ordered-projection-pair-v1");
+    Number(logical, members.size());
+  }
   size_t buffer_index = 0;
-  for (const auto &argument : invocation.arguments) {
-    Number(logical, argument.kind);
-    if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_BUFFER) {
-      if (buffer_index >= prepared.buffer_extents.size())
-        return Fail(error, "case identity is missing an emitted buffer extent");
-      const auto &extent = prepared.buffer_extents[buffer_index++];
-      auto binding = argument.value.buffer;
-      if (extent.binding.role != binding.role ||
-          extent.binding.root_index != binding.root_index ||
-          extent.binding.byte_offset != binding.byte_offset ||
-          (binding.byte_length != UINT64_MAX &&
-           extent.byte_length > binding.byte_length))
-        return Fail(
-            error,
-            "emitted buffer extent does not match selected native argument");
-      binding.byte_length = extent.byte_length;
-      if (!append_buffer(binding, logical))
-        return false;
-      Number(logical, extent.minimum_alignment);
-    } else {
-      Number(logical, argument.value.scalar_bits);
+  for (const auto *member : members) {
+    Number(logical, member->arguments.size());
+    for (const auto &argument : member->arguments) {
+      Number(logical, argument.kind);
+      if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_BUFFER) {
+        if (buffer_index >= prepared.buffer_extents.size())
+          return Fail(error,
+                      "case identity is missing an emitted buffer extent");
+        const auto &extent = prepared.buffer_extents[buffer_index++];
+        auto binding = argument.value.buffer;
+        if (extent.binding.role != binding.role ||
+            extent.binding.root_index != binding.root_index ||
+            extent.binding.byte_offset != binding.byte_offset ||
+            (binding.byte_length != UINT64_MAX &&
+             extent.byte_length > binding.byte_length))
+          return Fail(
+              error,
+              "emitted buffer extent does not match selected native argument");
+        binding.byte_length = extent.byte_length;
+        if (!append_buffer(binding, logical))
+          return false;
+        Number(logical, extent.minimum_alignment);
+      } else {
+        Number(logical, argument.value.scalar_bits);
+      }
     }
   }
   if (buffer_index != prepared.buffer_extents.size())
     return Fail(error, "case identity has extra emitted buffer extents");
   const auto operation_roots = ordinals;
   std::string physical;
-  Number(physical, invocation.command.kind);
-  const bool indirect = invocation.command.kind ==
-                            LOOMC_CMD_COMMAND_KIND_DISPATCH_INDIRECT_STATIC ||
-                        invocation.command.kind ==
-                            LOOMC_CMD_COMMAND_KIND_DISPATCH_INDIRECT_DYNAMIC;
-  if (invocation.command.kind == LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT) {
-    for (auto count : invocation.command.payload.dispatch.workgroup_count)
-      Number(physical, count);
-  } else if (indirect) {
-    std::string count_binding;
-    if (!append_buffer(
-            invocation.command.payload.dispatch.workgroup_count_buffer,
-            count_binding))
-      return false;
-    Field(physical, count_binding);
-    Field(logical, "indirect-count-binding");
-    Field(logical, count_binding);
-  } else {
-    return Fail(error, "case identity requires a selected dispatch");
+  for (const auto *member : members) {
+    const auto &invocation = *member;
+    Number(physical, invocation.command.kind);
+    if (members.size() > 1)
+      Number(physical, invocation.command.begins_barrier_wave);
+    const bool indirect = invocation.command.kind ==
+                              LOOMC_CMD_COMMAND_KIND_DISPATCH_INDIRECT_STATIC ||
+                          invocation.command.kind ==
+                              LOOMC_CMD_COMMAND_KIND_DISPATCH_INDIRECT_DYNAMIC;
+    if (invocation.command.kind == LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT) {
+      for (auto count : invocation.command.payload.dispatch.workgroup_count)
+        Number(physical, count);
+    } else if (indirect) {
+      std::string count_binding;
+      if (!append_buffer(
+              invocation.command.payload.dispatch.workgroup_count_buffer,
+              count_binding))
+        return false;
+      Field(physical, count_binding);
+      Field(logical, "indirect-count-binding");
+      Field(logical, count_binding);
+    } else {
+      return Fail(error, "case identity requires a selected dispatch");
+    }
   }
   Number(logical, prepared.resets.size());
   for (const auto &reset : prepared.resets) {
@@ -282,9 +297,10 @@ bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
                   ? other.byte_offset - ref.byte_offset < extent.byte_length
                   : ref.byte_offset - other.byte_offset < other.byte_length);
     };
-    if (indirect &&
-        overlaps(invocation.command.payload.dispatch.workgroup_count_buffer))
-      return Fail(error, "representative weights overlap launch controls");
+    for (const auto *member : members)
+      if (member->command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT &&
+          overlaps(member->command.payload.dispatch.workgroup_count_buffer))
+        return Fail(error, "representative weights overlap launch controls");
     for (const auto &reset : prepared.resets)
       if (overlaps(reset.target))
         return Fail(error,
@@ -386,9 +402,12 @@ bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
     std::string concrete;
     Field(concrete, "loomify-benchmark-case-v1");
     Field(concrete, identity.logical_case_key);
-    Field(concrete, plan.implementations[invocation.implementation_index]
-                        .implementation_id);
-    Number(concrete, invocation.request_root_ordinal);
+    for (const auto *member : members) {
+      Field(
+          concrete,
+          plan.implementations[member->implementation_index].implementation_id);
+      Number(concrete, member->request_root_ordinal);
+    }
     Field(concrete, physical);
     identity.case_id = Digest(concrete);
     return identity;
@@ -405,6 +424,47 @@ bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
   if (error)
     error->clear();
   return true;
+}
+
+bool BuildCaseIdentity(const Plan &plan, const Invocation &invocation,
+                       const PreparedCase &prepared, CaseIdentity *out,
+                       std::string *error) {
+  return BuildIdentity(plan, {&invocation}, prepared, out, error);
+}
+
+bool BuildProjectionPairIdentity(const Plan &plan,
+                                 const std::array<size_t, 2> &indices,
+                                 const PreparedCase &prepared,
+                                 CaseIdentity *out, std::string *error) {
+  if (indices[0] >= plan.invocations.size() ||
+      indices[1] >= plan.invocations.size() || indices[1] != indices[0] + 1)
+    return Fail(error, "projection pair requires ordered adjacent origins");
+  const auto &first = plan.invocations[indices[0]];
+  const auto &second = plan.invocations[indices[1]];
+  if (first.program_ordinal != second.program_ordinal ||
+      second.command_ordinal != first.command_ordinal + 1 ||
+      first.implementation_index != second.implementation_index ||
+      first.request_root_ordinal != second.request_root_ordinal ||
+      first.command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
+      second.command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
+      first.arguments.size() != 6 || second.arguments.size() != 6 ||
+      prepared.buffer_extents.size() != 6 ||
+      prepared.measurement_subject != "sequence" || !prepared.resets.empty())
+    return Fail(error,
+                "projection pair requires same-root adjacent direct launches");
+  for (size_t i = 0; i < 3; ++i)
+    if (first.command.payload.dispatch.workgroup_count[i] !=
+        second.command.payload.dispatch.workgroup_count[i])
+      return Fail(error, "projection pair grids differ");
+  for (size_t i = 0; i < first.arguments.size(); ++i)
+    if (first.arguments[i].kind != (i < 3 ? LOOMC_CMD_ARGUMENT_KIND_INDEX
+                                          : LOOMC_CMD_ARGUMENT_KIND_BUFFER) ||
+        first.arguments[i].kind != second.arguments[i].kind ||
+        (first.arguments[i].kind != LOOMC_CMD_ARGUMENT_KIND_BUFFER &&
+         first.arguments[i].value.scalar_bits !=
+             second.arguments[i].value.scalar_bits))
+      return Fail(error, "projection pair scalar ABI differs");
+  return BuildIdentity(plan, {&first, &second}, prepared, out, error);
 }
 
 bool BuildBenchmarkPlan(const std::string &gguf_path, const Workload &workload,

@@ -16,6 +16,28 @@ bool Fail(std::string *error, const std::string &message) {
     *error = message;
   return false;
 }
+bool AccumulatePayload(const PreparedRoot &root, CaseInventory &inventory,
+                       std::set<std::array<uint8_t, 32>> &fixture_contents,
+                       std::string *error) {
+  const auto bytes = root.bytes.size();
+  if (bytes >
+      std::numeric_limits<uint64_t>::max() - inventory.retained_input_bytes)
+    return Fail(error, "benchmark retained input byte count overflows");
+  inventory.retained_input_bytes += bytes;
+  loom_sha256_t digest;
+  loom_sha256_compute(iree_make_const_byte_span(root.bytes.data(), bytes),
+                      &digest);
+  std::array<uint8_t, 32> identity;
+  std::copy_n(digest.bytes, identity.size(), identity.begin());
+  if (fixture_contents.insert(identity).second) {
+    if (bytes > std::numeric_limits<uint64_t>::max() -
+                    inventory.unique_fixture_payload_bytes)
+      return Fail(error, "benchmark unique fixture byte count overflows");
+    inventory.unique_fixture_payload_bytes += bytes;
+    ++inventory.unique_fixture_count;
+  }
+  return true;
+}
 } // namespace
 
 bool BuildCaseInventory(const Plan &plan, uint64_t max_case_input_bytes,
@@ -32,25 +54,8 @@ bool BuildCaseInventory(const Plan &plan, uint64_t max_case_input_bytes,
   std::map<std::string, size_t> groups, exact_representatives;
   std::set<std::string> origins;
   std::set<std::array<uint8_t, 32>> fixture_contents;
-  auto retain_payload = [&](const PreparedRoot &root) -> bool {
-    const auto bytes = root.bytes.size();
-    if (bytes >
-        std::numeric_limits<uint64_t>::max() - inventory.retained_input_bytes)
-      return Fail(error, "benchmark retained input byte count overflows");
-    inventory.retained_input_bytes += bytes;
-    loom_sha256_t digest;
-    loom_sha256_compute(iree_make_const_byte_span(root.bytes.data(), bytes),
-                        &digest);
-    std::array<uint8_t, 32> identity;
-    std::copy_n(digest.bytes, identity.size(), identity.begin());
-    if (fixture_contents.insert(identity).second) {
-      if (bytes > std::numeric_limits<uint64_t>::max() -
-                      inventory.unique_fixture_payload_bytes)
-        return Fail(error, "benchmark unique fixture byte count overflows");
-      inventory.unique_fixture_payload_bytes += bytes;
-      ++inventory.unique_fixture_count;
-    }
-    return true;
+  auto retain_payload = [&](const PreparedRoot &root) {
+    return AccumulatePayload(root, inventory, fixture_contents, error);
   };
   for (size_t i = 0; i < plan.invocations.size(); ++i) {
     const auto &invocation = plan.invocations[i];
@@ -135,6 +140,36 @@ bool BuildCaseInventory(const Plan &plan, uint64_t max_case_input_bytes,
   return true;
 }
 
+bool AccountSequenceInputs(CaseInventory *inventory,
+                           const std::vector<PreparedSequenceCase> &sequences,
+                           std::string *error) {
+  if (!inventory)
+    return Fail(error, "input footprint requires inventory");
+  CaseInventory counts;
+  std::set<std::array<uint8_t, 32>> contents;
+  auto add = [&](const PreparedCase &prepared) {
+    for (const auto &root : prepared.roots)
+      if (!AccumulatePayload(root, counts, contents, error))
+        return false;
+    for (const auto &reset : prepared.resets)
+      if (!AccumulatePayload(reset.seed, counts, contents, error))
+        return false;
+    return true;
+  };
+  for (const auto &leaf : inventory->prepared_cases)
+    if (!add(leaf.inputs))
+      return false;
+  for (const auto &sequence : sequences)
+    if (!add(sequence.inputs))
+      return false;
+  inventory->retained_input_bytes = counts.retained_input_bytes;
+  inventory->unique_fixture_payload_bytes = counts.unique_fixture_payload_bytes;
+  inventory->unique_fixture_count = counts.unique_fixture_count;
+  if (error)
+    error->clear();
+  return true;
+}
+
 ReportInventory ProjectReportInventory(const Plan &plan,
                                        const CaseInventory &inventory,
                                        const std::vector<EmittedCase> &emitted,
@@ -143,6 +178,8 @@ ReportInventory ProjectReportInventory(const Plan &plan,
   report.manifest_id = final_manifest_id;
   report.workload_id = plan.workload_id;
   report.phase = plan.workload.phase;
+  for (const auto &program : plan.programs)
+    report.program_command_counts.push_back(program.commands.size());
   std::map<std::string, std::string> benchmark_symbols;
   for (const auto &source : emitted)
     benchmark_symbols.emplace(source.case_id, source.benchmark_symbol);
@@ -153,6 +190,9 @@ ReportInventory ProjectReportInventory(const Plan &plan,
     row.measurement_subject = group.measurement_subject;
     row.arithmetic_check = group.arithmetic_check;
     row.implementation_id = group.implementation_id;
+    for (const auto &source : emitted)
+      if (source.case_id == row.case_id)
+        row.reset_policy = source.reset_policy;
     const auto symbol = benchmark_symbols.find(row.case_id);
     if (symbol != benchmark_symbols.end())
       row.benchmark_symbol = symbol->second;
@@ -160,12 +200,57 @@ ReportInventory ProjectReportInventory(const Plan &plan,
   }
   for (const auto &origin : inventory.origins) {
     ReportInvocation row;
-    row.invocation_id = plan.invocations[origin.invocation_index].invocation_id;
+    const auto &invocation = plan.invocations[origin.invocation_index];
+    row.invocation_id = invocation.invocation_id;
+    row.program_ordinal = invocation.program_ordinal;
+    row.command_ordinal = invocation.command_ordinal;
     if (origin.group_index)
       row.case_id = inventory.groups[*origin.group_index].identity.case_id;
     else
       row.unsupported_reason = origin.unsupported_reason;
     report.invocations.push_back(std::move(row));
+  }
+  for (const auto &source : emitted) {
+    if (source.measurement_subject != "sequence" ||
+        source.covered_origin_ids.size() != 2)
+      continue;
+    const Invocation *first = nullptr;
+    const Invocation *last = nullptr;
+    for (const auto &invocation : plan.invocations) {
+      if (invocation.invocation_id == source.covered_origin_ids.front())
+        first = &invocation;
+      if (invocation.invocation_id == source.covered_origin_ids.back())
+        last = &invocation;
+    }
+    if (!first || !last || first->program_ordinal != last->program_ordinal ||
+        last->command_ordinal != first->command_ordinal + 1)
+      continue; // Only proven adjacent native-plan origins are reportable.
+    if (!benchmark_symbols.count(source.case_id))
+      continue;
+    if (std::none_of(
+            report.cases.begin(), report.cases.end(),
+            [&](const auto &row) { return row.case_id == source.case_id; })) {
+      ReportCase row;
+      row.case_id = source.case_id;
+      row.input_policy_digest = source.input_policy_digest;
+      row.measurement_subject = source.measurement_subject;
+      row.arithmetic_check = source.arithmetic_check;
+      row.implementation_id =
+          plan.implementations[first->implementation_index].implementation_id;
+      row.benchmark_symbol = source.benchmark_symbol;
+      row.reset_policy = source.reset_policy;
+      report.cases.push_back(std::move(row));
+    }
+    SequenceOccurrence occurrence;
+    occurrence.occurrence_id = "p" + std::to_string(first->program_ordinal) +
+                               "/c" + std::to_string(first->command_ordinal) +
+                               ":" + std::to_string(last->command_ordinal + 1);
+    occurrence.case_id = source.case_id;
+    occurrence.program_ordinal = first->program_ordinal;
+    occurrence.command_begin = first->command_ordinal;
+    occurrence.command_end = last->command_ordinal + 1;
+    occurrence.covered_invocation_ids = source.covered_origin_ids;
+    report.sequence_occurrences.push_back(std::move(occurrence));
   }
   return report;
 }

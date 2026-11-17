@@ -19,6 +19,8 @@ struct EmittedDispatch {
 
 struct EmittedCase {
   std::string invocation_id;
+  // Ordered original model origins; one leaf or the admitted two-launch pair.
+  std::vector<std::string> covered_origin_ids;
   std::string case_id;
   std::string logical_case_key;
   std::string input_policy_digest;
@@ -39,6 +41,20 @@ struct PreparedInvocationCase {
   size_t invocation_index = 0;
   PreparedCase inputs;
 };
+
+// Bounded same-shape canonical Q4 pair. Both members use identical source
+// workloads/scalar ABI; inputs owns merged roots and six ABI buffer views in
+// member order (packed, weight, output). This is not arbitrary composition.
+struct PreparedSequenceCase {
+  std::array<size_t, 2> invocation_indices{};
+  PreparedCase inputs;
+};
+
+PreparationStatus PrepareProjectionPair(const Plan &plan, size_t first_index,
+                                        size_t second_index,
+                                        uint64_t max_input_bytes,
+                                        PreparedSequenceCase *out,
+                                        std::string *error);
 
 // Shared metadata lookup only. Operation recipes retain encoding/shape/layout
 // validation; SetTensorInput remains the sole exact-range fixture reader.
@@ -78,7 +94,9 @@ PreparationStatus PrepareBasicCase(const Plan &plan,
 
 // Emit genuine selected cases as ONE native-linked module plus relative
 // fixtures into an already-owned EMPTY staging directory. The caller owns
-// publication and failure cleanup. Cases/fixtures/implementations deduplicate
+// publication and failure cleanup. Optional sequences admit only the bounded
+// canonical projection pair; ordinary singletons keep their existing behavior.
+// Cases/fixtures/implementations deduplicate
 // by exact identities; each distinct case retains its benchmark symbol.
 // No private command-bytecode decoder,
 // source-kernel copies, compiler subprocess or GPU execution. Direct check.case
@@ -91,7 +109,8 @@ bool EmitPreparedBenchmarkBundle(
     const Plan &plan, std::vector<PreparedInvocationCase> cases,
     const std::filesystem::path &empty_staging_directory,
     loomc_context_t *context, loomc_workspace_t *workspace,
-    std::vector<EmittedCase> *out, std::string *error);
+    std::vector<EmittedCase> *out, std::string *error,
+    std::vector<PreparedSequenceCase> sequences = {});
 
 } // namespace hrx::loomify_gguf::benchmark
 #endif

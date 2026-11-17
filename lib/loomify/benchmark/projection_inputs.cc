@@ -63,18 +63,26 @@ std::vector<uint8_t> PackedInputs(uint64_t capacity, uint64_t width,
     }
   return bytes;
 }
-} // namespace
-
-PreparationStatus PrepareProjectionCase(const Plan &plan,
-                                        const Invocation &invocation,
-                                        uint64_t max_input_bytes,
-                                        PreparedCase *out, std::string *error) {
-  struct Recipe {
-    const char *symbol;
-    uint32_t storage_type;
-    uint64_t block_values, block_bytes, scale_offset, scale_count, max_width;
-    bool controls, quantizer;
-  };
+struct Recipe {
+  const char *symbol;
+  uint32_t storage_type;
+  uint64_t block_values, block_bytes, scale_offset, scale_count, max_width;
+  bool controls, quantizer;
+};
+struct ProjectionLayout {
+  const Recipe *recipe = nullptr;
+  PreparedCase inputs;
+  const model::TensorRecord *tensor = nullptr;
+  size_t input_argument = 0;
+  uint64_t capacity = 0, width = 0, output_bytes = 0, weight_bytes = 0;
+  bool dynamic_count = false;
+  loomc_cmd_buffer_ref_t count_binding{};
+  std::vector<uint8_t> count_bytes;
+};
+PreparationStatus DescribeProjectionCase(const Plan &plan,
+                                         const Invocation &invocation,
+                                         ProjectionLayout *out,
+                                         std::string *error) {
   static constexpr Recipe recipes[] = {
       {"ggml_linear_q4k_q8_1_x4", 12, 256, 144, 0, 2, 32768, false, false},
       {"ggml_linear_q5k_q8_1_x4", 13, 256, 176, 0, 2, 32768, false, false},
@@ -236,25 +244,59 @@ PreparationStatus PrepareProjectionCase(const Plan &plan,
     for (size_t j = i + 1; j < prepared.buffer_extents.size(); ++j)
       if (Overlaps(prepared.buffer_extents[i], prepared.buffer_extents[j]))
         return Fail(error, "quantized recipe requires disjoint argument spans");
+  *out = {recipe,
+          std::move(prepared),
+          tensor,
+          input_argument,
+          capacity,
+          width,
+          output_bytes,
+          weight_bytes,
+          dynamic_count,
+          count_binding,
+          std::move(count_bytes)};
+  return PreparationStatus::kReady;
+}
+PreparationStatus AllocateProjectionRoots(uint64_t max_input_bytes,
+                                          PreparedCase *prepared,
+                                          std::string *error) {
   bool budget_exceeded = false;
-  if (!AllocateInputRoots(prepared.buffer_extents, max_input_bytes,
-                          &prepared.roots, error, &budget_exceeded))
+  if (!AllocateInputRoots(prepared->buffer_extents, max_input_bytes,
+                          &prepared->roots, error, &budget_exceeded))
     return budget_exceeded ? PreparationStatus::kUnsupported
                            : PreparationStatus::kFailure;
-  if (dynamic_count &&
-      !SetInputBytes(count_binding, count_bytes, &prepared.roots, error))
+  return PreparationStatus::kReady;
+}
+PreparationStatus FillProjectionInputs(const Plan &plan,
+                                       const Invocation &invocation,
+                                       const ProjectionLayout &layout,
+                                       bool fill_shared_input,
+                                       PreparedCase *out, std::string *error) {
+  const auto *recipe = layout.recipe;
+  const auto *tensor = layout.tensor;
+  const auto input_argument = layout.input_argument;
+  const auto input = invocation.arguments[input_argument].value.buffer;
+  const auto output = invocation.arguments.back().value.buffer;
+  const auto capacity = layout.capacity, width = layout.width;
+  const auto output_bytes = layout.output_bytes,
+             weight_bytes = layout.weight_bytes;
+  auto &prepared = *out;
+  if (layout.dynamic_count &&
+      !SetInputBytes(layout.count_binding, layout.count_bytes, &prepared.roots,
+                     error))
     return PreparationStatus::kFailure;
-  if (!(recipe->quantizer
-            ? SetFiniteF32Input(input, capacity * width, plan.workload.seed,
-                                &prepared.roots, error)
-            : SetInputBytes(input,
-                            PackedInputs(capacity, width, plan.workload.seed),
-                            &prepared.roots, error)) ||
+  if ((fill_shared_input &&
+       !(recipe->quantizer
+             ? SetFiniteF32Input(input, capacity * width, plan.workload.seed,
+                                 &prepared.roots, error)
+             : SetInputBytes(input,
+                             PackedInputs(capacity, width, plan.workload.seed),
+                             &prepared.roots, error))) ||
       !SetInputBytes(output, std::vector<uint8_t>(output_bytes, 0xA5),
                      &prepared.roots, error))
     return PreparationStatus::kFailure;
   if (tensor) {
-    const auto weight = buffer(input_argument + 1);
+    const auto weight = invocation.arguments[input_argument + 1].value.buffer;
     if (!SetTensorInput(weight, plan.source_asset, tensor->absolute_offset,
                         weight_bytes, &prepared.roots, error))
       return PreparationStatus::kFailure;
@@ -273,7 +315,138 @@ PreparationStatus PrepareProjectionCase(const Plan &plan,
               "GGUF quantized scale has nonfinite F16 values; input is not finite");
       }
   }
-  *out = std::move(prepared);
+  return PreparationStatus::kReady;
+}
+} // namespace
+
+PreparationStatus PrepareProjectionCase(const Plan &plan,
+                                        const Invocation &invocation,
+                                        uint64_t max_input_bytes,
+                                        PreparedCase *out, std::string *error) {
+  ProjectionLayout layout;
+  const auto described =
+      DescribeProjectionCase(plan, invocation, &layout, error);
+  if (described != PreparationStatus::kReady)
+    return described;
+  if (!out)
+    return Fail(error, "prepared projection case output is required");
+  const auto allocated =
+      AllocateProjectionRoots(max_input_bytes, &layout.inputs, error);
+  if (allocated != PreparationStatus::kReady)
+    return allocated;
+  const auto filled = FillProjectionInputs(plan, invocation, layout, true,
+                                           &layout.inputs, error);
+  if (filled != PreparationStatus::kReady)
+    return filled;
+  *out = std::move(layout.inputs);
+  if (error)
+    error->clear();
+  return PreparationStatus::kReady;
+}
+PreparationStatus PrepareProjectionPair(const Plan &plan, size_t first_index,
+                                        size_t second_index,
+                                        uint64_t max_input_bytes,
+                                        PreparedSequenceCase *out,
+                                        std::string *error) {
+  const auto unsupported = [&](const char *message) {
+    if (error)
+      *error = message;
+    return PreparationStatus::kUnsupported;
+  };
+  if (!out || first_index >= plan.invocations.size() ||
+      second_index >= plan.invocations.size())
+    return Fail(error, "projection pair requires valid indices and output");
+  const auto &first = plan.invocations[first_index];
+  const auto &second = plan.invocations[second_index];
+  if (first.kernel_symbol != "ggml_linear_q4k_q8_1_x4" ||
+      second.kernel_symbol != first.kernel_symbol)
+    return unsupported("projection pair supports canonical Q4 only");
+  ProjectionLayout layouts[2];
+  for (size_t i = 0; i < 2; ++i) {
+    const auto status =
+        DescribeProjectionCase(plan, i ? second : first, &layouts[i], error);
+    if (status != PreparationStatus::kReady)
+      return status;
+  }
+  if (first.program_ordinal != second.program_ordinal ||
+      uint64_t(first.command_ordinal) + 1 != second.command_ordinal)
+    return unsupported(
+        "projection pair requires adjacent commands in the same program");
+  const auto &commands = plan.programs[first.program_ordinal].commands;
+  if (second.command_ordinal >= commands.size())
+    return Fail(error,
+                "projection pair is absent from the complete native schedule");
+  for (const auto *inv : {&first, &second}) {
+    const auto &command = commands[inv->command_ordinal];
+    if (command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
+        command.argument_count != inv->command.argument_count ||
+        command.begins_barrier_wave != inv->command.begins_barrier_wave ||
+        command.payload.dispatch.requirement_ordinal !=
+            inv->command.payload.dispatch.requirement_ordinal ||
+        !std::equal(std::begin(command.payload.dispatch.workgroup_count),
+                    std::end(command.payload.dispatch.workgroup_count),
+                    std::begin(inv->command.payload.dispatch.workgroup_count)))
+      return Fail(error, "projection pair does not match the native schedule");
+    if (!command.begins_barrier_wave)
+      return unsupported(
+          "projection pair requires two recorded serial barrier waves");
+  }
+  if (first.implementation_index != second.implementation_index ||
+      first.request_root_ordinal != second.request_root_ordinal)
+    return unsupported(
+        "projection pair requires one retained implementation/root");
+  if (first.implementation_index >= plan.implementations.size() ||
+      first.request_root_ordinal >=
+          plan.implementations[first.implementation_index].roots.size())
+    return Fail(error,
+                "projection pair retained implementation/root is missing");
+  for (size_t i = 0; i < 3; ++i)
+    if (first.arguments[i].value.scalar_bits !=
+            second.arguments[i].value.scalar_bits ||
+        first.command.payload.dispatch.workgroup_count[i] !=
+            second.command.payload.dispatch.workgroup_count[i])
+      return unsupported(
+          "projection pair requires identical scalar/grid geometry");
+  const auto a = first.arguments[3].value.buffer;
+  const auto b = second.arguments[3].value.buffer;
+  if (a.role != b.role || a.root_index != b.root_index ||
+      a.byte_offset != b.byte_offset || a.byte_length != b.byte_length)
+    return unsupported(
+        "projection pair requires the exact shared packed input");
+  PreparedCase prepared = layouts[0].inputs;
+  prepared.setup_recipe_id = "q4k_q8_1_x4_pair_dyadic/v1";
+  prepared.measurement_subject = "sequence";
+  const auto &other = layouts[1].inputs;
+  prepared.buffer_extents.insert(prepared.buffer_extents.end(),
+                                 other.buffer_extents.begin(),
+                                 other.buffer_extents.end());
+  prepared.weight_sources.insert(prepared.weight_sources.end(),
+                                 other.weight_sources.begin(),
+                                 other.weight_sources.end());
+  prepared.representative_weight_spans.insert(
+      prepared.representative_weight_spans.end(),
+      other.representative_weight_spans.begin(),
+      other.representative_weight_spans.end());
+  for (const size_t written : {size_t{2}, size_t{5}})
+    for (size_t i = 0; i < prepared.buffer_extents.size(); ++i)
+      if (i != written && Overlaps(prepared.buffer_extents[written],
+                                   prepared.buffer_extents[i]))
+        return unsupported(
+            "projection pair outputs overlap a read or another output");
+  const auto allocated =
+      AllocateProjectionRoots(max_input_bytes, &prepared, error);
+  if (allocated != PreparationStatus::kReady)
+    return allocated;
+  for (size_t i = 0; i < 2; ++i) {
+    const auto filled = FillProjectionInputs(
+        plan, i ? second : first, layouts[i], i == 0, &prepared, error);
+    if (filled != PreparationStatus::kReady)
+      return filled;
+  }
+  PreparedSequenceCase result;
+  result.invocation_indices = {first_index, second_index};
+  result.inputs = std::move(prepared);
+  *out = std::move(result);
   if (error)
     error->clear();
   return PreparationStatus::kReady;

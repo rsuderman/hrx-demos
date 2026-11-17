@@ -246,6 +246,55 @@ TEST(CaseInventory, UnsupportedIsAccountedWhileIoFailureAlwaysAborts) {
             "operation has no maintained input recipe");
   EXPECT_NE(error.find("GGUF source changed"), std::string::npos);
 }
+TEST(CaseInventory,
+     SequenceProjectionPreservesCanonicalLeavesAndCountsAllPayloads) {
+  auto plan = MakePlan(2);
+  Program program;
+  program.commands.resize(2);
+  plan.programs.push_back(program);
+  CaseInventory inventory;
+  std::string error;
+  ASSERT_TRUE(BuildCaseInventory(plan, 1024, Prepare, &inventory, &error))
+      << error;
+  const auto leaf_bytes = inventory.retained_input_bytes;
+  const auto leaf_unique = inventory.unique_fixture_payload_bytes;
+  PreparedSequenceCase sequence;
+  sequence.invocation_indices = {0, 1};
+  PreparedRoot root;
+  root.bytes = {0x71, 0x72, 0x73};
+  sequence.inputs.roots = {root, root};
+  ASSERT_TRUE(AccountSequenceInputs(&inventory, {sequence}, &error));
+  EXPECT_EQ(inventory.retained_input_bytes, leaf_bytes + 6);
+  EXPECT_EQ(inventory.unique_fixture_payload_bytes, leaf_unique + 3);
+  auto emitted = Emissions(inventory);
+  EmittedCase pair;
+  pair.case_id = "pair-case";
+  pair.input_policy_digest = "pair-inputs";
+  pair.measurement_subject = "sequence";
+  pair.reset_policy = "none_overwrite_only";
+  pair.benchmark_symbol = "pair_benchmark";
+  pair.covered_origin_ids = {"i0", "i1"};
+  emitted.push_back(pair);
+  const auto report = ProjectReportInventory(plan, inventory, emitted, "final");
+  ASSERT_EQ(report.invocations.size(), 2);
+  EXPECT_EQ(
+      report.invocations[0].case_id,
+      inventory.groups[*inventory.origins[0].group_index].identity.case_id);
+  EXPECT_EQ(
+      report.invocations[1].case_id,
+      inventory.groups[*inventory.origins[1].group_index].identity.case_id);
+  EXPECT_EQ(report.cases.size(), inventory.groups.size() + 1);
+  ASSERT_EQ(report.sequence_occurrences.size(), 1);
+  const auto &occurrence = report.sequence_occurrences.front();
+  EXPECT_EQ(occurrence.occurrence_id, "p0/c0:2");
+  EXPECT_EQ(occurrence.case_id, "pair-case");
+  EXPECT_EQ(occurrence.covered_invocation_ids, pair.covered_origin_ids);
+  EXPECT_EQ(report.program_command_counts, std::vector<uint64_t>({2}));
+  EXPECT_EQ(report.invocations[1].program_ordinal, 0);
+  EXPECT_EQ(report.invocations[1].command_ordinal, 1);
+  EXPECT_EQ(report.cases.back().reset_policy, pair.reset_policy);
+}
+
 TEST(CaseInventory, RejectsUnsafeWeightMasksAndInvalidAdmissionResults) {
   for (const char *mode :
        {"bad_weight_extent", "uninitialized_weight", "rebindable_weight",

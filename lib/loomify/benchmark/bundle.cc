@@ -62,7 +62,14 @@ bool SymbolSpelling(const std::string &name) {
 }
 
 bool ValidatePrepared(const Invocation &invocation,
-                      const PreparedCase &prepared, std::string *error) {
+                      const PreparedCase &prepared, std::string *error,
+                      size_t buffer_begin = 0, size_t buffer_count = SIZE_MAX,
+                      bool sequence = false) {
+  if (buffer_count == SIZE_MAX)
+    buffer_count = prepared.buffer_extents.size();
+  if (buffer_begin > prepared.buffer_extents.size() ||
+      buffer_count > prepared.buffer_extents.size() - buffer_begin)
+    return Fail(error, "prepared target buffer slice exceeds the case ABI");
   if (invocation.command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT)
     return Fail(error,
                 "source replay has no declared indirect-count realization");
@@ -78,9 +85,10 @@ bool ValidatePrepared(const Invocation &invocation,
     const auto &argument = invocation.arguments[i];
     const auto &type = prepared.source_argument_types[i];
     if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_BUFFER) {
-      if (type != "buffer" || buffer_ordinal >= prepared.buffer_extents.size())
+      if (type != "buffer" || buffer_ordinal >= buffer_count)
         return Fail(error, "prepared case is missing a source buffer extent");
-      const auto &extent = prepared.buffer_extents[buffer_ordinal++];
+      const auto &extent =
+          prepared.buffer_extents[buffer_begin + buffer_ordinal++];
       const auto &ref = argument.value.buffer;
       if (extent.binding.role != ref.role ||
           extent.binding.root_index != ref.root_index ||
@@ -126,13 +134,12 @@ bool ValidatePrepared(const Invocation &invocation,
                     "nonfinite f32 has no exact direct-case literal recipe");
     }
   }
-  if (buffer_ordinal != prepared.buffer_extents.size())
+  if (buffer_ordinal != buffer_count)
     return Fail(error, "prepared case has extra native buffer extents");
   if (prepared.resets.empty()) {
-    if (prepared.measurement_subject != "kernel" ||
+    if (prepared.measurement_subject != (sequence ? "sequence" : "kernel") ||
         prepared.reset_policy != "none_overwrite_only")
-      return Fail(
-          error, "nonreset case must declare its actual single-kernel subject");
+      return Fail(error, "nonreset case must declare its measured subject");
   } else if (prepared.measurement_subject != "reset_plus_kernel" ||
              prepared.reset_policy != "copy_seed_each_invocation") {
     return Fail(error, "mutable replay must declare the timed reset composite");
@@ -152,6 +159,93 @@ bool ValidatePrepared(const Invocation &invocation,
       return Fail(error,
                   "reset seed/live span violates the exact-copy contract");
   }
+  return true;
+}
+
+bool ValidatePair(const Plan &plan, const std::vector<size_t> &indices,
+                  const PreparedCase &prepared, std::string *error) {
+  if (indices.size() != 2 || indices[0] >= plan.invocations.size() ||
+      indices[1] >= plan.invocations.size())
+    return Fail(error, "projection pair requires two selected invocations");
+  const auto &first = plan.invocations[indices[0]];
+  const auto &second = plan.invocations[indices[1]];
+  if (first.program_ordinal != second.program_ordinal ||
+      first.program_ordinal >= plan.programs.size() ||
+      first.command_ordinal == UINT32_MAX ||
+      second.command_ordinal != first.command_ordinal + 1 ||
+      second.command_ordinal >=
+          plan.programs[first.program_ordinal].commands.size())
+    return Fail(error,
+                "projection pair must be adjacent in one actual program");
+  for (const auto index : indices) {
+    const auto &invocation = plan.invocations[index];
+    const auto &command = plan.programs[first.program_ordinal]
+                              .commands[invocation.command_ordinal];
+    if (command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
+        invocation.command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
+        !command.begins_barrier_wave ||
+        !invocation.command.begins_barrier_wave ||
+        command.payload.dispatch.requirement_ordinal !=
+            invocation.command.payload.dispatch.requirement_ordinal ||
+        invocation.kernel_symbol != "ggml_linear_q4k_q8_1_x4" ||
+        invocation.implementation_index != first.implementation_index ||
+        invocation.request_root_ordinal != first.request_root_ordinal ||
+        invocation.arguments.size() != 6)
+      return Fail(
+          error,
+          "projection pair is not the retained serial canonical Q4 pattern");
+    for (unsigned axis = 0; axis < 3; ++axis)
+      if (command.payload.dispatch.workgroup_count[axis] !=
+              invocation.command.payload.dispatch.workgroup_count[axis] ||
+          invocation.command.payload.dispatch.workgroup_count[axis] !=
+              first.command.payload.dispatch.workgroup_count[axis])
+        return Fail(error, "projection pair changes the selected direct grids");
+    for (size_t a = 0; a < 3; ++a)
+      if (invocation.arguments[a].kind != LOOMC_CMD_ARGUMENT_KIND_INDEX ||
+          invocation.arguments[a].value.scalar_bits !=
+              first.arguments[a].value.scalar_bits)
+        return Fail(
+            error, "projection pair requires identical source scalar geometry");
+  }
+  if (prepared.buffer_extents.size() != 6 || !prepared.resets.empty() ||
+      prepared.source_argument_types !=
+          std::vector<std::string>{"index", "index", "index", "buffer",
+                                   "buffer", "buffer"})
+    return Fail(
+        error,
+        "projection pair requires two explicit canonical buffer triplets");
+  const auto &packed0 = prepared.buffer_extents[0];
+  const auto &packed1 = prepared.buffer_extents[3];
+  if (packed0.binding.role != packed1.binding.role ||
+      packed0.binding.root_index != packed1.binding.root_index ||
+      packed0.binding.byte_offset != packed1.binding.byte_offset ||
+      packed0.byte_length != packed1.byte_length ||
+      prepared.buffer_extents[1].binding.role != LOOMC_CMD_BUFFER_ROLE_FIXED ||
+      prepared.buffer_extents[4].binding.role != LOOMC_CMD_BUFFER_ROLE_FIXED)
+    return Fail(
+        error,
+        "projection pair must share its packed READ and retain real weights");
+  const auto overlaps = [](const BufferExtent &a, const BufferExtent &b) {
+    return a.binding.role == b.binding.role &&
+           a.binding.root_index == b.binding.root_index &&
+           (a.binding.byte_offset <= b.binding.byte_offset
+                ? b.binding.byte_offset - a.binding.byte_offset < a.byte_length
+                : a.binding.byte_offset - b.binding.byte_offset <
+                      b.byte_length);
+  };
+  // Only this known projection contract supplies READ/overwrite-WRITE roles.
+  // An arbitrary caller label is not a repeatability or independence proof.
+  for (const size_t output : {size_t(2), size_t(5)}) {
+    if (prepared.buffer_extents[output].binding.role !=
+        LOOMC_CMD_BUFFER_ROLE_REBINDABLE)
+      return Fail(error, "projection pair output is not mutable storage");
+    for (const size_t input : {size_t(0), size_t(1), size_t(3), size_t(4)})
+      if (overlaps(prepared.buffer_extents[output],
+                   prepared.buffer_extents[input]))
+        return Fail(error, "projection pair output overlaps a READ operand");
+  }
+  if (overlaps(prepared.buffer_extents[2], prepared.buffer_extents[5]))
+    return Fail(error, "projection pair outputs overlap");
   return true;
 }
 
@@ -342,9 +436,10 @@ std::string ScalarSetup(const PreparedCase &prepared,
 // kernel ABI remains buffer. No runtime scalar is substituted or rounded.
 std::string LaunchSequence(const PreparedCase &prepared,
                            const Invocation &invocation,
-                           const std::string &kernel, bool tensor_arguments) {
+                           const std::string &kernel, bool tensor_arguments,
+                           size_t buffer_base = 0, bool include_resets = true) {
   std::ostringstream source;
-  for (size_t i = 0; i < prepared.resets.size(); ++i) {
+  for (size_t i = 0; include_resets && i < prepared.resets.size(); ++i) {
     source << "  kernel.launch @loomify.benchmark.reset_bytes[%reset_bytes" << i
            << "](%reset_bytes" << i << ", %reset_zero, %reset_zero, %seed" << i
            << ", %reset_live" << i << ") : [index](index, offset, offset, ";
@@ -362,7 +457,7 @@ std::string LaunchSequence(const PreparedCase &prepared,
     source << "%workload" << i;
   }
   source << "](";
-  size_t buffer_ordinal = 0;
+  size_t buffer_ordinal = buffer_base;
   for (size_t i = 0; i < invocation.arguments.size(); ++i) {
     if (i)
       source << ", ";
@@ -378,7 +473,7 @@ std::string LaunchSequence(const PreparedCase &prepared,
     source << "index";
   }
   source << "](";
-  buffer_ordinal = 0;
+  buffer_ordinal = buffer_base;
   for (size_t i = 0; i < prepared.source_argument_types.size(); ++i) {
     if (i)
       source << ", ";
@@ -395,7 +490,7 @@ std::string LaunchSequence(const PreparedCase &prepared,
 
 std::string ProofSource(const PreparedCase &prepared,
                         const Invocation &invocation, const std::string &kernel,
-                        const std::string &subject) {
+                        const std::string &subject, size_t target_count) {
   std::ostringstream source;
   source << KernelDeclaration(prepared, kernel) << "command.def public @"
          << subject << "() launch(";
@@ -407,10 +502,13 @@ std::string ProofSource(const PreparedCase &prepared,
   for (size_t i = 0; i < prepared.resets.size(); ++i)
     source << ", %seed" << i << ": buffer, %reset_live" << i << ": buffer";
   source << ") {\n" << ScalarSetup(prepared, invocation, false);
-  if (!prepared.resets.empty())
+  if (!prepared.resets.empty() || target_count == 2)
     source << " command.serial {\n";
-  source << LaunchSequence(prepared, invocation, kernel, false);
-  if (!prepared.resets.empty())
+  for (size_t i = 0; i < target_count; ++i)
+    source << LaunchSequence(prepared, invocation, kernel, false,
+                             i * prepared.buffer_extents.size() / target_count,
+                             i == 0);
+  if (!prepared.resets.empty() || target_count == 2)
     source << " }\n";
   source << " command.return\n}\n";
   return source.str();
@@ -420,7 +518,7 @@ std::string CaseSource(const PreparedCase &prepared,
                        const Invocation &invocation, const std::string &kernel,
                        const std::string &subject,
                        const std::string &benchmark_symbol,
-                       bool include_declaration) {
+                       bool include_declaration, size_t target_count) {
   std::ostringstream source, checks;
   if (include_declaration)
     source << KernelDeclaration(prepared, kernel);
@@ -503,9 +601,12 @@ std::string CaseSource(const PreparedCase &prepared,
          reset.target.byte_offset - root->original_byte_offset,
          reset.target.byte_length);
   }
-  source << ScalarSetup(prepared, invocation, true)
-         << LaunchSequence(prepared, invocation, kernel, true) << checks.str()
-         << "  check.return\n}\n"
+  source << ScalarSetup(prepared, invocation, true);
+  for (size_t i = 0; i < target_count; ++i)
+    source << LaunchSequence(prepared, invocation, kernel, true,
+                             i * prepared.buffer_extents.size() / target_count,
+                             i == 0);
+  source << checks.str() << "  check.return\n}\n"
          << "check.benchmark<@" << subject << "> @" << benchmark_symbol << "\n";
   return source.str();
 }
@@ -596,9 +697,9 @@ bool MatchBufferSlot(const loomc_product_t *product, uint32_t slot,
          argument.value.buffer.byte_offset == 0;
 }
 
-bool VerifyReplay(const Invocation &invocation, const PreparedCase &prepared,
-                  const std::string &subject, const loomc_module_t *module,
-                  loomc_workspace_t *workspace,
+bool VerifyReplay(const std::vector<const Invocation *> &targets,
+                  const PreparedCase &prepared, const std::string &subject,
+                  const loomc_module_t *module, loomc_workspace_t *workspace,
                   std::vector<EmittedDispatch> *out_dispatches,
                   std::string *error) {
   const auto root = loomc_make_cstring_view(subject.c_str());
@@ -635,11 +736,11 @@ bool VerifyReplay(const Invocation &invocation, const PreparedCase &prepared,
     }
     const size_t ordinal = dispatches.size();
     if (command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT ||
-        ordinal > prepared.resets.size())
+        ordinal >= prepared.resets.size() + targets.size())
       return Fail(error,
                   "standalone replay changes the selected dispatch schedule");
     if (ordinal && !(ordered || command.begins_barrier_wave))
-      return Fail(error, "reset composite lost its serial execution barrier");
+      return Fail(error, "measured sequence lost its serial execution barrier");
     ordered = false;
     loomc_cmd_entry_requirement_t requirement{};
     if (!loomc_cmd_program_product_entry_requirement_at(
@@ -684,6 +785,8 @@ bool VerifyReplay(const Invocation &invocation, const PreparedCase &prepared,
       dispatches.push_back(std::move(emitted));
       continue;
     }
+    const size_t target_index = ordinal - prepared.resets.size();
+    const auto &invocation = *targets[target_index];
     if (command.argument_count != invocation.arguments.size())
       return Fail(error, "standalone replay changes selected ABI arity");
     for (unsigned axis = 0; axis < 3; ++axis)
@@ -691,7 +794,8 @@ bool VerifyReplay(const Invocation &invocation, const PreparedCase &prepared,
           invocation.command.payload.dispatch.workgroup_count[axis])
         return Fail(error,
                     "standalone replay changes selected workgroup counts");
-    uint32_t buffer_ordinal = 0;
+    uint32_t buffer_ordinal =
+        target_index * prepared.buffer_extents.size() / targets.size();
     for (uint32_t a = 0; a < command.argument_count; ++a) {
       loomc_cmd_argument_t argument{};
       if (!loomc_cmd_program_product_argument_at(product.get(), 0, i, a,
@@ -704,7 +808,7 @@ bool VerifyReplay(const Invocation &invocation, const PreparedCase &prepared,
             invocation.arguments[a].value.scalar_bits)
           return Fail(error, "standalone replay changes selected scalar bits");
       } else {
-        // Each command argument receives its exact prepared view. The scenario
+        // Each command argument receives its exact prepared view. The case
         // retains physical alias roots; this entry maps final ABI buffer slots.
         if (!MatchBufferSlot(product.get(), buffer_ordinal++, argument))
           return Fail(error,
@@ -713,7 +817,7 @@ bool VerifyReplay(const Invocation &invocation, const PreparedCase &prepared,
     }
     dispatches.push_back(std::move(emitted));
   }
-  if (dispatches.size() != prepared.resets.size() + 1)
+  if (dispatches.size() != prepared.resets.size() + targets.size())
     return Fail(error, "standalone replay has no selected dispatch");
   *out_dispatches = std::move(dispatches);
   return true;
@@ -780,9 +884,10 @@ bool EmitPreparedBenchmarkBundle(
     const Plan &plan, std::vector<PreparedInvocationCase> cases,
     const std::filesystem::path &empty_staging_directory,
     loomc_context_t *context, loomc_workspace_t *workspace,
-    std::vector<EmittedCase> *out, std::string *error) {
+    std::vector<EmittedCase> *out, std::string *error,
+    std::vector<PreparedSequenceCase> sequences) {
   if (!context || !workspace || !out || empty_staging_directory.empty() ||
-      cases.empty())
+      (cases.empty() && sequences.empty()))
     return Fail(
         error,
         "benchmark bundle requires native context, cases and staging directory");
@@ -791,6 +896,17 @@ bool EmitPreparedBenchmarkBundle(
       !std::filesystem::is_empty(empty_staging_directory, ec) || ec)
     return Fail(error,
                 "benchmark staging directory must already exist and be empty");
+  struct Subject {
+    std::vector<size_t> invocation_indices;
+    PreparedCase inputs;
+  };
+  std::vector<Subject> subjects;
+  for (auto &item : cases)
+    subjects.push_back({{item.invocation_index}, std::move(item.inputs)});
+  for (auto &item : sequences)
+    subjects.push_back(
+        {{item.invocation_indices[0], item.invocation_indices[1]},
+         std::move(item.inputs)});
   struct Record {
     size_t case_index;
     CaseIdentity identity;
@@ -805,7 +921,7 @@ bool EmitPreparedBenchmarkBundle(
   std::string source;
   std::string helper_source;
   const bool has_resets =
-      std::any_of(cases.begin(), cases.end(),
+      std::any_of(subjects.begin(), subjects.end(),
                   [](const auto &item) { return !item.inputs.resets.empty(); });
   if (has_resets) {
     const auto *helper = loomify_benchmark_reset_bytes_source_create();
@@ -815,19 +931,33 @@ bool EmitPreparedBenchmarkBundle(
                          helper[0].size);
     source = helper_source + '\n';
   }
-  for (size_t index = 0; index < cases.size(); ++index) {
-    auto &item = cases[index];
-    if (item.invocation_index >= plan.invocations.size())
+  for (size_t index = 0; index < subjects.size(); ++index) {
+    auto &item = subjects[index];
+    if (item.invocation_indices[0] >= plan.invocations.size())
       return Fail(error,
                   "prepared case names an unavailable selected invocation");
-    const auto &invocation = plan.invocations[item.invocation_index];
+    const auto &invocation = plan.invocations[item.invocation_indices[0]];
     auto &prepared = item.inputs;
     if (invocation.implementation_index >= plan.implementations.size())
       return Fail(error, "selected invocation implementation is unavailable");
-    if (!ValidatePrepared(invocation, prepared, error))
+    const bool pair = item.invocation_indices.size() == 2;
+    if (pair && !ValidatePair(plan, item.invocation_indices, prepared, error))
       return false;
+    for (size_t target = 0; target < item.invocation_indices.size(); ++target)
+      if (!ValidatePrepared(plan.invocations[item.invocation_indices[target]],
+                            prepared, error,
+                            target * prepared.buffer_extents.size() /
+                                item.invocation_indices.size(),
+                            prepared.buffer_extents.size() /
+                                item.invocation_indices.size(),
+                            pair))
+        return false;
     CaseIdentity identity;
-    if (!BuildCaseIdentity(plan, invocation, prepared, &identity, error))
+    if (pair ? !BuildProjectionPairIdentity(
+                   plan,
+                   {item.invocation_indices[0], item.invocation_indices[1]},
+                   prepared, &identity, error)
+             : !BuildCaseIdentity(plan, invocation, prepared, &identity, error))
       return false;
     if (!identities.emplace(identity.case_id, records.size()).second)
       continue;
@@ -876,7 +1006,8 @@ bool EmitPreparedBenchmarkBundle(
     const std::string benchmark = "gguf_case_" + identity.case_id;
     const std::string subject = benchmark + "_subject";
     source += CaseSource(prepared, invocation, kernel, subject, benchmark,
-                         declared_roots.insert(kernel).second);
+                         declared_roots.insert(kernel).second,
+                         item.invocation_indices.size());
     records.push_back({index, std::move(identity), benchmark, subject});
   }
   std::vector<loomc_module_t *> modules;
@@ -891,8 +1022,8 @@ bool EmitPreparedBenchmarkBundle(
     return false;
   std::vector<EmittedCase> emitted;
   for (const auto &record : records) {
-    auto &item = cases[record.case_index];
-    const auto &invocation = plan.invocations[item.invocation_index];
+    auto &item = subjects[record.case_index];
+    const auto &invocation = plan.invocations[item.invocation_indices[0]];
     auto &prepared = item.inputs;
     EmittedCase result;
     const auto &implementation =
@@ -905,11 +1036,15 @@ bool EmitPreparedBenchmarkBundle(
     Module proof(nullptr, loomc_module_release);
     const std::string proof_source =
         helper_source + "\n" +
-        ProofSource(prepared, invocation, kernel, record.subject);
+        ProofSource(prepared, invocation, kernel, record.subject,
+                    item.invocation_indices.size());
+    std::vector<const Invocation *> targets;
+    for (const auto index : item.invocation_indices)
+      targets.push_back(&plan.invocations[index]);
     if (!LinkCase(context, workspace, proof_source, {loaded.module.get()},
                   {record.subject}, &proof, error) ||
-        !VerifyReplay(invocation, prepared, record.subject, proof.get(),
-                      workspace, &result.timed_dispatches, error)) {
+        !VerifyReplay(targets, prepared, record.subject, proof.get(), workspace,
+                      &result.timed_dispatches, error)) {
       if (error)
         *error = "benchmark replay " + invocation.invocation_id + " @" +
                  kernel + ": " + *error;
@@ -920,7 +1055,10 @@ bool EmitPreparedBenchmarkBundle(
       result.safety_checks.push_back("immutable_weight_spans");
     if (!prepared.resets.empty())
       result.safety_checks.push_back("immutable_reset_seeds");
-    result.invocation_id = invocation.invocation_id;
+    if (targets.size() == 1)
+      result.invocation_id = invocation.invocation_id;
+    for (const auto *target : targets)
+      result.covered_origin_ids.push_back(target->invocation_id);
     result.case_id = record.identity.case_id;
     result.logical_case_key = record.identity.logical_case_key;
     result.input_policy_digest = record.identity.input_policy_digest;

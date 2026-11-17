@@ -10,6 +10,7 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <set>
 #include <sstream>
 #include <utility>
@@ -402,6 +403,24 @@ std::string ManifestJson(const Plan &plan, const CaseInventory &inventory,
     WriteWeightSources(out, coverage.weight_sources);
     out << '}';
   }
+  out << "],\"sequence_occurrences\":[";
+  for (size_t i = 0; i < report.sequence_occurrences.size(); ++i) {
+    if (i)
+      out << ',';
+    const auto &occurrence = report.sequence_occurrences[i];
+    out << "{\"occurrence_id\":" << Quote(occurrence.occurrence_id)
+        << ",\"case_id\":" << Quote(occurrence.case_id)
+        << ",\"program_ordinal\":" << occurrence.program_ordinal
+        << ",\"command_begin\":" << occurrence.command_begin
+        << ",\"command_end\":" << occurrence.command_end
+        << ",\"covered_invocation_ids\":[";
+    for (size_t j = 0; j < occurrence.covered_invocation_ids.size(); ++j) {
+      if (j)
+        out << ',';
+      out << Quote(occurrence.covered_invocation_ids[j]);
+    }
+    out << "]}";
+  }
   out << "]}\n";
   return out.str();
 }
@@ -596,6 +615,15 @@ bool ExportGgufBenchmarks(const std::string &gguf_path,
     return Fail(
         error,
         "benchmark export requires context, workspace, output and a positive input limit");
+  if (options.plan_only && !options.sequence_pairs.empty())
+    return Fail(error, "sequence pairs cannot be requested with plan-only");
+  std::set<std::array<std::string, 2>> requested_pairs;
+  for (const auto &pair : options.sequence_pairs)
+    if (pair[0].empty() || pair[1].empty() || pair[0] == pair[1] ||
+        !requested_pairs.insert(pair).second)
+      return Fail(
+          error,
+          "sequence pairs require two distinct origin IDs and no duplicate pairs");
   fs::path destination;
   if (!Destination(options.output, &destination, error))
     return false;
@@ -629,11 +657,45 @@ bool ExportGgufBenchmarks(const std::string &gguf_path,
       error->clear();
     return true;
   }
+  std::vector<PreparedSequenceCase> sequences;
+  std::vector<CaseIdentity> sequence_identities;
+  std::set<std::string> sequence_case_ids;
+  if (!options.sequence_pairs.empty()) {
+    std::map<std::string, size_t> origins;
+    for (size_t i = 0; i < plan.invocations.size(); ++i)
+      origins.emplace(plan.invocations[i].invocation_id, i);
+    for (const auto &pair : options.sequence_pairs) {
+      const auto first = origins.find(pair[0]), second = origins.find(pair[1]);
+      if (first == origins.end() || second == origins.end())
+        return Fail(error,
+                    "requested sequence names an unknown selected origin");
+      PreparedSequenceCase prepared;
+      std::string reason;
+      if (PrepareProjectionPair(plan, first->second, second->second,
+                                options.max_case_input_bytes, &prepared,
+                                &reason) != PreparationStatus::kReady)
+        return Fail(error, "cannot prepare requested sequence " + pair[0] +
+                               "," + pair[1] + ": " + reason);
+      CaseIdentity identity;
+      if (!BuildProjectionPairIdentity(plan, prepared.invocation_indices,
+                                       prepared.inputs, &identity, error))
+        return false;
+      if (!sequence_case_ids.insert(identity.case_id).second)
+        return Fail(
+            error,
+            "requested sequence pairs have duplicate case identities; this export does not group repeated sequence occurrences");
+      sequence_identities.push_back(std::move(identity));
+      sequences.push_back(std::move(prepared));
+    }
+  }
   CaseInventory inventory;
   if (!BuildCaseInventory(plan, options.max_case_input_bytes, PrepareAvailable,
                           &inventory, error))
     return false;
-  result.case_count = inventory.groups.size();
+  if (!sequences.empty() &&
+      !AccountSequenceInputs(&inventory, sequences, error))
+    return false;
+  result.case_count = inventory.groups.size() + sequences.size();
   for (const auto &origin : inventory.origins)
     origin.group_index ? ++result.exported_invocations
                        : ++result.unsupported_invocations;
@@ -653,13 +715,13 @@ bool ExportGgufBenchmarks(const std::string &gguf_path,
   std::vector<EmittedCase> emitted;
   if (!EmitPreparedBenchmarkBundle(plan, std::move(inventory.prepared_cases),
                                    stage.path, context, workspace, &emitted,
-                                   error))
+                                   error, std::move(sequences)))
     return stage.Abort(error);
-  if (emitted.size() != inventory.groups.size()) {
+  if (emitted.size() != result.case_count) {
     Fail(error, "emitted case count does not match selected case inventory");
     return stage.Abort(error);
   }
-  for (size_t c = 0; c < emitted.size(); ++c) {
+  for (size_t c = 0; c < inventory.groups.size(); ++c) {
     const auto &group = inventory.groups[c];
     const auto &expected = group.identity;
     if (emitted[c].case_id != expected.case_id ||
@@ -672,6 +734,25 @@ bool ExportGgufBenchmarks(const std::string &gguf_path,
         emitted[c].arithmetic_check != group.arithmetic_check ||
         emitted[c].benchmark_symbol.empty()) {
       Fail(error, "emitted case identity does not match selected inventory");
+      return stage.Abort(error);
+    }
+  }
+  for (size_t i = 0; i < sequence_identities.size(); ++i) {
+    const auto &product = emitted[inventory.groups.size() + i];
+    const auto &expected = sequence_identities[i];
+    const auto &pair = options.sequence_pairs[i];
+    if (product.case_id != expected.case_id ||
+        product.input_policy_digest != expected.input_policy_digest ||
+        product.logical_case_key != expected.logical_case_key ||
+        !product.invocation_id.empty() ||
+        product.covered_origin_ids !=
+            std::vector<std::string>{pair[0], pair[1]} ||
+        product.measurement_subject != "sequence" ||
+        product.reset_policy != "none_overwrite_only" ||
+        product.arithmetic_check != "unchecked" ||
+        product.benchmark_symbol.empty()) {
+      Fail(error,
+           "emitted sequence identity does not match the requested pair");
       return stage.Abort(error);
     }
   }

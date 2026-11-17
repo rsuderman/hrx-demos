@@ -54,6 +54,12 @@ bool BuildCaseInventory(const Plan &plan, uint64_t max_case_input_bytes,
                         CasePreparer prepare, CaseInventory *out,
                         std::string *error);
 
+// Recompute shared leaf+sequence payload preflight without retaining/copying
+// fixture images. Call before moving either set into the emitter.
+bool AccountSequenceInputs(CaseInventory *inventory,
+                           const std::vector<PreparedSequenceCase> &sequences,
+                           std::string *error);
+
 // Generation-time one-way projection after the facade has bound the actual
 // emitted artifacts/fixtures into final_manifest_id. Does not read files or
 // confuse Plan::selection_id with the published manifest identity.
