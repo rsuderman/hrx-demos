@@ -12,7 +12,7 @@ kernel.def target(@llm.platform.projection.scaled_f16.wave32) export("llm.platfo
   %row_tiles = index.div %rows, %c64 : index
   %out_tiles = index.div %n, %c64 : index
   kernel.launch.config workgroups(%out_tiles, %row_tiles, %c1) workgroup_size(%c256, %c1, %c1) : index
-} launch(%rows_arg: index, %k_arg: index, %n_arg: index, %x: buffer, %scales: buffer, %w: buffer, %y: buffer) {
+} launch(%rows_arg: index, %k_arg: index, %n_arg: index, %count: buffer, %x: buffer, %scales: buffer, %w: buffer, %y: buffer) {
   %rows = index.assume %rows_arg [range(%rows_arg, 64, 8192), multiple_of(%rows_arg, 64)] : index
   %k = index.assume %k_arg [range(%k_arg, 256, 65536), multiple_of(%k_arg, 256)] : index
   %n = index.assume %n_arg [range(%n_arg, 64, 262144), multiple_of(%n_arg, 64)] : index
@@ -83,82 +83,99 @@ kernel.def target(@llm.platform.projection.scaled_f16.wave32) export("llm.platfo
   %init = vector.fragment<init> %zero8 shape [%c16, %c16] : vector<8xf32>
   %k_steps = index.div %k, %c64 : index
   %s_view = buffer.view %scales[%origin] : buffer -> view<[%rows]x2xf32>
-  %skip_tid0 = kernel.workitem.id<x> : index
-  %skip_tid = index.assume %skip_tid0 [range(%skip_tid0, 0, 511)] : index
-  %skip_tm = index.constant 64 : index
-  %skip_in = index.cmp ult, %skip_tid, %skip_tm : index
-  %skip_row = index.add %row_origin, %skip_tid : index
-  %skip_rc = scf.select %skip_in, %skip_row, %row_origin : index
-  %tile_row = index.assume %skip_rc [lt(%skip_rc, %rows)] : index
-  %tile_scale = view.load %s_view[%tile_row, %c0] : view<[%rows]x2xf32> -> f32
-  %tile_abs = scalar.absf %tile_scale : f32
-  %tile_any = kernel.workgroup.reduce<maxnumf> %tile_abs : f32
-  %no_scale = scalar.constant 0.0 : f32
-  %tile_live = scalar.cmpf one, %tile_any, %no_scale : f32
-  %x_scale = view.load %s_view[%bounded_x_row, %c0] : view<[%rows]x2xf32> -> f32
-  %x_scales = vector.splat %x_scale : vector<16xf32>
-  %a0_raw, %a1_raw = scf.for %step = [%c0 to %k_steps step %c1](%a0_acc = %init : vector<8xf32>, %a1_acc = %init : vector<8xf32>) -> (vector<8xf32>, vector<8xf32>) {
-    %k_origin = index.mul %step, %c64 : index
-    %x_col = index.add %k_origin, %stage_col : index
-    %x_half = vector.load %x_view[%bounded_x_row, %x_col] : view<[%rows]x[%k]xf16> -> vector<16xf16>
-    vector.store %x_half, %x_stage_view[%stage_row, %stage_col] : vector<16xf16>, view<64x72xf16>
-    %w_col = index.add %k_origin, %stage_col : index
+  // The packet is immutable for prepare plus all sibling projections. Both
+  // row_origin and active are workgroup-uniform, including the barrier branch.
+  %control = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %active32 = view.load %control[%c0] : view<3xi32> -> i32
+  %active = index.cast %active32 : i32 to index
+  %tile_live = index.cmp ult, %row_origin, %active : index
+  scf.if %tile_live {
+    %x_scale = view.load %s_view[%bounded_x_row, %c0] : view<[%rows]x2xf32> -> f32
+    %x_scales = vector.splat %x_scale : vector<16xf32>
+    %a0_raw, %a1_raw = scf.for %step = [%c0 to %k_steps step %c1](%a0_acc = %init : vector<8xf32>, %a1_acc = %init : vector<8xf32>) -> (vector<8xf32>, vector<8xf32>) {
+      %k_origin = index.mul %step, %c64 : index
+      %x_col = index.add %k_origin, %stage_col : index
+      %x_half = vector.load %x_view[%bounded_x_row, %x_col] : view<[%rows]x[%k]xf16> -> vector<16xf16>
+      vector.store %x_half, %x_stage_view[%stage_row, %stage_col] : vector<16xf16>, view<64x72xf16>
+      %w_col = index.add %k_origin, %stage_col : index
 
-    %deq0 = template.apply<@ggml.q4k.f16_fma16>(%w, %w_row_origin, %w_col) : (buffer, offset, index) -> (vector<16xf16>)
-    vector.store %deq0, %w_stage_view[%stage_row, %stage_col] : vector<16xf16>, view<64x72xf16>
+      %deq0 = template.apply<@ggml.q4k.f16_fma16>(%w, %w_row_origin, %w_col) : (buffer, offset, index) -> (vector<16xf16>)
+      vector.store %deq0, %w_stage_view[%stage_row, %stage_col] : vector<16xf16>, view<64x72xf16>
+      kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+      %fc0 = index.constant 0 : index
+      %lhs0 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc0] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
+      %rv000 = vector.load %w_stage_view[%w_row0, %fc0] : view<64x72xf16> -> vector<16xf16>
+      %rhs000 = vector.fragment<rhs> %rv000 shape [%c16, %c16] : vector<16xf16>
+      %na0_0 = vector.mma %lhs0, %rhs000, %a0_acc : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %rv010 = vector.load %w_stage_view[%w_row1, %fc0] : view<64x72xf16> -> vector<16xf16>
+      %rhs010 = vector.fragment<rhs> %rv010 shape [%c16, %c16] : vector<16xf16>
+      %na1_0 = vector.mma %lhs0, %rhs010, %a1_acc : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %fc1 = index.constant 16 : index
+      %lhs1 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc1] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
+      %rv001 = vector.load %w_stage_view[%w_row0, %fc1] : view<64x72xf16> -> vector<16xf16>
+      %rhs001 = vector.fragment<rhs> %rv001 shape [%c16, %c16] : vector<16xf16>
+      %na0_1 = vector.mma %lhs1, %rhs001, %na0_0 : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %rv011 = vector.load %w_stage_view[%w_row1, %fc1] : view<64x72xf16> -> vector<16xf16>
+      %rhs011 = vector.fragment<rhs> %rv011 shape [%c16, %c16] : vector<16xf16>
+      %na1_1 = vector.mma %lhs1, %rhs011, %na1_0 : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %fc2 = index.constant 32 : index
+      %lhs2 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc2] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
+      %rv002 = vector.load %w_stage_view[%w_row0, %fc2] : view<64x72xf16> -> vector<16xf16>
+      %rhs002 = vector.fragment<rhs> %rv002 shape [%c16, %c16] : vector<16xf16>
+      %na0_2 = vector.mma %lhs2, %rhs002, %na0_1 : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %rv012 = vector.load %w_stage_view[%w_row1, %fc2] : view<64x72xf16> -> vector<16xf16>
+      %rhs012 = vector.fragment<rhs> %rv012 shape [%c16, %c16] : vector<16xf16>
+      %na1_2 = vector.mma %lhs2, %rhs012, %na1_1 : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %fc3 = index.constant 48 : index
+      %lhs3 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc3] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
+      %rv003 = vector.load %w_stage_view[%w_row0, %fc3] : view<64x72xf16> -> vector<16xf16>
+      %rhs003 = vector.fragment<rhs> %rv003 shape [%c16, %c16] : vector<16xf16>
+      %na0_3 = vector.mma %lhs3, %rhs003, %na0_2 : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      %rv013 = vector.load %w_stage_view[%w_row1, %fc3] : view<64x72xf16> -> vector<16xf16>
+      %rhs013 = vector.fragment<rhs> %rv013 shape [%c16, %c16] : vector<16xf16>
+      %na1_3 = vector.mma %lhs3, %rhs013, %na1_2 : vector<16xf16>, vector<16xf16>, vector<8xf32>
+      kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+      scf.yield %na0_3, %na1_3 : vector<8xf32>, vector<8xf32>
+    }
+    %inv_bytes = index.constant 4096 : offset
+    %inv_tile = buffer.alloca<workgroup> align(16) %inv_bytes : buffer
+    %inv_view = buffer.view %inv_tile[%origin] : buffer -> view<64x16xf32>
+    %writer = index.cmp ult, %workitem, %c64 : index
+    scf.if %writer {
+      %inv_row_value = index.add %row_origin, %workitem : index
+      %inv_row = index.assume %inv_row_value [lt(%inv_row_value, %rows)] : index
+      %inverse = view.load %s_view[%inv_row, %c1] : view<[%rows]x2xf32> -> f32
+      %inverse16 = vector.splat %inverse : vector<16xf32>
+      %bw = index.assume %workitem [range(%workitem, 0, 63)] : index
+      vector.store %inverse16, %inv_view[%bw, %c0] : vector<16xf32>, view<64x16xf32>
+    }
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
-    %fc0 = index.constant 0 : index
-    %lhs0 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc0] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
-    %rv000 = vector.load %w_stage_view[%w_row0, %fc0] : view<64x72xf16> -> vector<16xf16>
-    %rhs000 = vector.fragment<rhs> %rv000 shape [%c16, %c16] : vector<16xf16>
-    %na0_0 = vector.mma %lhs0, %rhs000, %a0_acc : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %rv010 = vector.load %w_stage_view[%w_row1, %fc0] : view<64x72xf16> -> vector<16xf16>
-    %rhs010 = vector.fragment<rhs> %rv010 shape [%c16, %c16] : vector<16xf16>
-    %na1_0 = vector.mma %lhs0, %rhs010, %a1_acc : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %fc1 = index.constant 16 : index
-    %lhs1 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc1] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
-    %rv001 = vector.load %w_stage_view[%w_row0, %fc1] : view<64x72xf16> -> vector<16xf16>
-    %rhs001 = vector.fragment<rhs> %rv001 shape [%c16, %c16] : vector<16xf16>
-    %na0_1 = vector.mma %lhs1, %rhs001, %na0_0 : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %rv011 = vector.load %w_stage_view[%w_row1, %fc1] : view<64x72xf16> -> vector<16xf16>
-    %rhs011 = vector.fragment<rhs> %rv011 shape [%c16, %c16] : vector<16xf16>
-    %na1_1 = vector.mma %lhs1, %rhs011, %na1_0 : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %fc2 = index.constant 32 : index
-    %lhs2 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc2] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
-    %rv002 = vector.load %w_stage_view[%w_row0, %fc2] : view<64x72xf16> -> vector<16xf16>
-    %rhs002 = vector.fragment<rhs> %rv002 shape [%c16, %c16] : vector<16xf16>
-    %na0_2 = vector.mma %lhs2, %rhs002, %na0_1 : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %rv012 = vector.load %w_stage_view[%w_row1, %fc2] : view<64x72xf16> -> vector<16xf16>
-    %rhs012 = vector.fragment<rhs> %rv012 shape [%c16, %c16] : vector<16xf16>
-    %na1_2 = vector.mma %lhs2, %rhs012, %na1_1 : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %fc3 = index.constant 48 : index
-    %lhs3 = vector.fragment.load<lhs> %x_stage_view[%wave_row, %fc3] shape [%c16, %c16] : view<64x72xf16> -> vector<16xf16>
-    %rv003 = vector.load %w_stage_view[%w_row0, %fc3] : view<64x72xf16> -> vector<16xf16>
-    %rhs003 = vector.fragment<rhs> %rv003 shape [%c16, %c16] : vector<16xf16>
-    %na0_3 = vector.mma %lhs3, %rhs003, %na0_2 : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    %rv013 = vector.load %w_stage_view[%w_row1, %fc3] : view<64x72xf16> -> vector<16xf16>
-    %rhs013 = vector.fragment<rhs> %rv013 shape [%c16, %c16] : vector<16xf16>
-    %na1_3 = vector.mma %lhs3, %rhs013, %na1_2 : vector<16xf16>, vector<16xf16>, vector<8xf32>
-    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
-    scf.yield %na0_3, %na1_3 : vector<8xf32>, vector<8xf32>
+    %inv_frag = vector.fragment.load<result> %inv_view[%wave_row, %c0] shape [%c16, %c16] : view<64x16xf32> -> vector<8xf32>
+    %a0 = vector.mulf %a0_raw, %inv_frag : vector<8xf32>
+    %a1 = vector.mulf %a1_raw, %inv_frag : vector<8xf32>
+    // prepare_scaled_f16 writes a finite positive 2^e inverse for every
+    // active row, including exceptional input values, and zero only otherwise.
+    // The loaded inverse fragment already carries the exact result-row mapping.
+    // Select after the original math: zero multiplication cannot suppress NaNs
+    // from finite encoded weights that overflow during half staging.
+    %result_live = vector.cmpf ogt, %inv_frag, %zero8 : vector<8xf32> -> vector<8xi1>
+    %stored0 = vector.select %result_live, %a0, %zero8 : vector<8xf32>
+    %stored1 = vector.select %result_live, %a1, %zero8 : vector<8xf32>
+    vector.fragment.store<result> %stored0, %y_view[%bounded_wave_row, %bounded_wave_out] shape [%c16, %c16] : vector<8xf32>, view<64x64xf32, %y_layout>
+    vector.fragment.store<result> %stored1, %y_view[%bounded_wave_row, %wave_out1] shape [%c16, %c16] : vector<8xf32>, view<64x64xf32, %y_layout>
+  } else {
+    // Every result in this tile is inactive, but callers still consume the
+    // complete padded output. Store all 4096 values without reading inputs,
+    // inverse scales or weights. Each lane owns 16 disjoint scalar results.
+    %tile_elements = index.constant 4096 : index
+    %zero_f32 = scalar.constant 0.0 : f32
+    scf.for %element = [%workitem to %tile_elements step %c256] {
+      %local_row0 = index.div %element, %c64 : index
+      %local_col0 = index.rem %element, %c64 : index
+      %local_row = index.assume %local_row0 [range(%local_row0, 0, 63)] : index
+      %local_col = index.assume %local_col0 [range(%local_col0, 0, 63)] : index
+      view.store %zero_f32, %y_view[%local_row, %local_col] : f32, view<64x64xf32, %y_layout>
+    }
   }
-  %inv_bytes = index.constant 4096 : offset
-  %inv_tile = buffer.alloca<workgroup> align(16) %inv_bytes : buffer
-  %inv_view = buffer.view %inv_tile[%origin] : buffer -> view<64x16xf32>
-  %writer = index.cmp ult, %workitem, %c64 : index
-  scf.if %writer {
-    %inv_row_value = index.add %row_origin, %workitem : index
-    %inv_row = index.assume %inv_row_value [lt(%inv_row_value, %rows)] : index
-    %inverse = view.load %s_view[%inv_row, %c1] : view<[%rows]x2xf32> -> f32
-    %inverse16 = vector.splat %inverse : vector<16xf32>
-    %bw = index.assume %workitem [range(%workitem, 0, 63)] : index
-    vector.store %inverse16, %inv_view[%bw, %c0] : vector<16xf32>, view<64x16xf32>
-  }
-  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
-  %inv_frag = vector.fragment.load<result> %inv_view[%wave_row, %c0] shape [%c16, %c16] : view<64x16xf32> -> vector<8xf32>
-  %a0 = vector.mulf %a0_raw, %inv_frag : vector<8xf32>
-  %a1 = vector.mulf %a1_raw, %inv_frag : vector<8xf32>
-  vector.fragment.store<result> %a0, %y_view[%bounded_wave_row, %bounded_wave_out] shape [%c16, %c16] : vector<8xf32>, view<64x64xf32, %y_layout>
-  vector.fragment.store<result> %a1, %y_view[%bounded_wave_row, %wave_out1] shape [%c16, %c16] : vector<8xf32>, view<64x64xf32, %y_layout>
   kernel.return
 }

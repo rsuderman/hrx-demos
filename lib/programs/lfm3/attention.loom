@@ -1,6 +1,8 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 config.decl @lfm3.model.hidden_size : index
 config.decl @lfm3.model.query_size : index
 config.decl @lfm3.model.kv_size : index
@@ -71,9 +73,20 @@ command.def @loomify.lfm3.attention(%layer: index, %ordinal: index, %window: ind
   %gate_elements = index.mul %rows, %qh : index
   %gate_bytes = index.scale %gate_elements, %word : index, offset -> offset
   %gate = buffer.alloca<global> align(256) %gate_bytes : buffer
-  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %qwidth, %qt, %qb, %count, %normalized, %qw, %q) : (index, index, index, index, index, buffer, buffer, view<[%qb]xi8>, buffer)
-  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %kv, %kt, %kb, %count, %normalized, %kw, %k) : (index, index, index, index, index, buffer, buffer, view<[%kb]xi8>, buffer)
-  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %kv, %vt, %vb, %count, %normalized, %vw, %v) : (index, index, index, index, index, buffer, buffer, view<[%vb]xi8>, buffer)
+  %canonical = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %count_origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %block = index.constant 128 : index
+  %packet = index.constant 144 : offset
+  %input_elements = index.mul %rows, %hidden : index
+  %groups = index.div %input_elements, %block : index
+  %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%canonical, %rows, %rows, %hidden, %begin, %dynamic, %count_origin, %count, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %qt, %rows, %rows, %hidden, %qwidth, %qb, %begin, %dynamic, %count_origin, %count, %packed, %qw, %q) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%qb]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %kt, %rows, %rows, %hidden, %kv, %kb, %begin, %dynamic, %count_origin, %count, %packed, %kw, %k) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%kb]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %vt, %rows, %rows, %hidden, %kv, %vb, %begin, %dynamic, %count_origin, %count, %packed, %vw, %v) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%vb]xi8>, buffer)
   template.apply<@llm.projection.f32_rows>(%rows, %hidden, %qh, %count, %normalized, %gate_weight, %gate) : (index, index, index, buffer, buffer, view<[%qh]x[%hidden]xf32>, buffer)
   kernel.launch @llm.attention.prepare_qk_factored_h128[%rows, %qh](%capacity, %rms_epsilon, %rope_step, %global, %control_origin, %epoch, %q, %qnorm, %factors, %query) : [index, index](index, f32, f32, i1, offset, buffer, buffer, view<[%head]xf32>, view<64xf32>, buffer)
   kernel.launch @llm.attention.prepare_qk_factored_h128[%rows, %kh](%capacity, %rms_epsilon, %rope_step, %global, %control_origin, %epoch, %k, %knorm, %factors, %key) : [index, index](index, f32, f32, i1, offset, buffer, buffer, view<[%head]xf32>, view<64xf32>, buffer)

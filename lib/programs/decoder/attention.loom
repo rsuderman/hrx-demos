@@ -3,6 +3,7 @@
 // Shared Qwen2/Qwen3 assembly; the selected family supplies prepare_qkv.
 func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
 template.decl @llm.projection.matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.matrix_qkv(%capacity: index, %input_width: index, %query_width: index, %kv_width: index, %query_tag: index, %key_tag: index, %value_tag: index, %query_bytes: index, %key_bytes: index, %value_bytes: index, %count: buffer, %input: buffer, %query_weight: view<[%query_bytes]xi8>, %key_weight: view<[%key_bytes]xi8>, %value_weight: view<[%value_bytes]xi8>, %query: buffer, %key: buffer, %value: buffer)
 kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
 kernel.decl @llm.decoder.publish_kv_h128(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
@@ -38,9 +39,7 @@ template.def<@llm.decoder.matrix_attention> @llm_decoder_matrix_attention(%layer
   %attended_elements = index.mul %rows, %qwidth : index
   %attended_bytes = index.scale %attended_elements, %word : index, offset -> offset
   %attended = buffer.alloca<global> align(256) %attended_bytes : buffer
-  template.apply<@llm.projection.matrix>(%rows, %hidden, %qwidth, %qt, %qb, %count, %normalized, %qw, %q) : (index, index, index, index, index, buffer, buffer, view<[%qb]xi8>, buffer)
-  template.apply<@llm.projection.matrix>(%rows, %hidden, %kv, %kt, %kb, %count, %normalized, %kw, %k) : (index, index, index, index, index, buffer, buffer, view<[%kb]xi8>, buffer)
-  template.apply<@llm.projection.matrix>(%rows, %hidden, %kv, %vt, %vb, %count, %normalized, %vw, %v) : (index, index, index, index, index, buffer, buffer, view<[%vb]xi8>, buffer)
+  template.apply<@llm.projection.matrix_qkv>(%rows, %hidden, %qwidth, %kv, %qt, %kt, %vt, %qb, %kb, %vb, %count, %normalized, %qw, %kw, %vw, %q, %k, %v) : (index, index, index, index, index, index, index, index, index, index, buffer, buffer, view<[%qb]xi8>, view<[%kb]xi8>, view<[%vb]xi8>, buffer, buffer, buffer)
   template.apply<@llm.decoder.prepare_qkv>(%layer, %rows, %control_origin, %capacity, %qwidth, %kv, %qh, %kh, %rope_step, %epsilon, %parameters, %q, %k, %v, %query, %key, %count, %epoch) : (index, index, offset, index, index, index, index, index, f32, f32, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llm.decoder.publish_kv_h128[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llm.decoder.attention_rows_h128[%rows, %qh, %kh](%kh, %layer, %layers, %capacity, %pool, %scale, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)

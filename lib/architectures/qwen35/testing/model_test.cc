@@ -234,7 +234,7 @@ protected:
     ASSERT_EQ(boundary.size(), 3u);
     ASSERT_TRUE(loom_buffer_alloca_isa(boundary[0]));
     EXPECT_EQ(
-        Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 16);
+        Constant(view.module, loom_buffer_alloca_byte_length(boundary[0])), 4);
     EXPECT_EQ(loom_buffer_alloca_base_alignment(boundary[0]), 256);
     ASSERT_EQ(boundary[0]->result_count, 1u);
     const auto selected_ids = loom_op_const_results(boundary[0])[0];

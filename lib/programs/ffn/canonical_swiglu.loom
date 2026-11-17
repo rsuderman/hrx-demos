@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Independent gate/up/down encodings; callers own normalization and residual order.
 template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
 kernel.decl @llm_ffn_swiglu_f32_prefill(%rows$9: index, %width$10: index) launch(%width$11: index, %rows$12: index, %gate: buffer, %up: buffer, %output: buffer)
 
@@ -18,8 +20,19 @@ template.def<@llm.ffn.canonical_swiglu> @llm_ffn_canonical_swiglu(%rows: index, 
   %activated_elements = index.mul %rows, %ffn : index
   %activated_bytes = index.scale %activated_elements, %word : index, offset -> offset
   %activated = buffer.alloca<global> align(256) %activated_bytes : buffer
-  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %ffn, %gt, %gb, %count, %normal, %gate_weight, %gate) : (index, index, index, index, index, buffer, buffer, view<[%gb]xi8>, buffer)
-  template.apply<@llm.projection.canonical_rows>(%rows, %hidden, %ffn, %ut, %ub, %count, %normal, %up_weight, %up) : (index, index, index, index, index, buffer, buffer, view<[%ub]xi8>, buffer)
+  %canonical = index.constant 1 : index
+  %begin = index.constant 0 : index
+  %count_origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %block = index.constant 128 : index
+  %packet = index.constant 144 : offset
+  %input_elements = index.mul %rows, %hidden : index
+  %groups = index.div %input_elements, %block : index
+  %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%canonical, %rows, %rows, %hidden, %begin, %dynamic, %count_origin, %count, %normal, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %gt, %rows, %rows, %hidden, %ffn, %gb, %begin, %dynamic, %count_origin, %count, %packed, %gate_weight, %gate) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%gb]xi8>, buffer)
+  template.apply<@llm.projection.project_packed>(%canonical, %ut, %rows, %rows, %hidden, %ffn, %ub, %begin, %dynamic, %count_origin, %count, %packed, %up_weight, %up) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%ub]xi8>, buffer)
   kernel.launch @llm_ffn_swiglu_f32_prefill[%rows, %ffn](%ffn, %rows, %gate, %up, %activated) : [index, index](index, index, buffer, buffer, buffer)
   template.apply<@llm.projection.canonical_rows>(%rows, %ffn, %hidden, %dt, %db, %count, %activated, %down_weight, %down) : (index, index, index, index, index, buffer, buffer, view<[%db]xi8>, buffer)
   template.return

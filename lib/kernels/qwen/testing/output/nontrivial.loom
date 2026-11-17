@@ -68,3 +68,104 @@ kernel.def @qwen_output_init_tied_bank() {
   }
   kernel.return
 }
+
+// Original four-row arithmetic remains a test-only retained-row oracle.
+config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : index
+config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : index
+func.decl @ggml_q6k_q8_1_x4_block_lane(%weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %q6_block: index, %lane: index) -> (f32)
+func.def inline @ggml_q6k_q8_1_x4_row_lane_m4(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row0_byte_base: offset, %q8_row1_byte_base: offset, %q8_row2_byte_base: offset, %q8_row3_byte_base: offset, %lane: index) -> (f32, f32, f32, f32) {
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c256 = index.constant 256 : index
+  %c0_f32 = scalar.constant 0.0 : f32
+  %block_count = index.div %bounded_input_size, %c256 : index
+  %row0, %row1, %row2, %row3 = scf.for %block = [%c0 to %block_count step %c1](%row0_acc = %c0_f32, %row1_acc = %c0_f32, %row2_acc = %c0_f32, %row3_acc = %c0_f32 : f32, f32, f32, f32) -> (f32, f32, f32, f32) {
+    %contribution0 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row0_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %contribution1 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row1_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %contribution2 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row2_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %contribution3 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row3_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
+    %next0 = scalar.addf<reassoc|nnan|ninf|nsz> %row0_acc, %contribution0 : f32
+    %next1 = scalar.addf<reassoc|nnan|ninf|nsz> %row1_acc, %contribution1 : f32
+    %next2 = scalar.addf<reassoc|nnan|ninf|nsz> %row2_acc, %contribution2 : f32
+    %next3 = scalar.addf<reassoc|nnan|ninf|nsz> %row3_acc, %contribution3 : f32
+    scf.yield %next0, %next1, %next2, %next3 : f32, f32, f32, f32
+  }
+  func.return %row0, %row1, %row2, %row3 : f32, f32, f32, f32
+}
+kernel.def export("ggml_linear_q6k_q8_1_x4_m4") @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 4, 4)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144)] : index
+  %c8 = index.constant 8 : index
+  %c7 = index.constant 7 : index
+  %c1 = index.constant 1 : index
+  %workgroup_size = index.constant 256 : index
+  %padded_output_size = index.add %bounded_output_size, %c7 : index
+  %output_tiles = index.div %padded_output_size, %c8 : index
+  kernel.launch.config workgroups(%output_tiles, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer) {
+  %q8_noalias, %weight_noalias, %output_noalias = buffer.assume.noalias %q8_input, %weight, %output : buffer, buffer, buffer
+  %token_capacity = config.get @ggml.linear_q6k_q8_1_x4.token_capacity : index
+  %output_capacity = config.get @ggml.linear_q6k_q8_1_x4.output_capacity : index
+  %bounded_token_count = index.assume %token_count [range(%token_count, 4, 4), le(%token_count, %token_capacity)] : index
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
+  %channel_tile = kernel.workgroup.id<x> : index
+  %subgroup0 = kernel.subgroup.id : index
+  %subgroup = index.assume %subgroup0 [range(%subgroup0, 0, 7)] : index
+  %lane = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4_bytes = index.constant 4 : offset
+  %c8 = index.constant 8 : index
+  %c128 = index.constant 128 : index
+  %c144_bytes = index.constant 144 : offset
+  %c210_bytes = index.constant 210 : offset
+  %c256 = index.constant 256 : index
+  %channel_base = index.mul %channel_tile, %c8 : index
+  %channel0 = index.add %channel_base, %subgroup : index
+  %valid_channel = index.cmp ult, %channel0, %bounded_output_size : index
+  %safe_channel0 = scf.select %valid_channel, %channel0, %c0 : index
+  %safe_channel = index.assume %safe_channel0 [lt(%safe_channel0, %output_capacity)] : index
+  %q6_block_count = index.div %bounded_input_size, %c256 : index
+  %weight_row_bytes = index.scale %q6_block_count, %c210_bytes : index, offset -> offset
+  %weight_row_byte_base = index.scale %safe_channel, %weight_row_bytes : index, offset -> offset
+  %q8_group_count = index.div %bounded_input_size, %c128 : index
+  %q8_row_bytes = index.scale %q8_group_count, %c144_bytes : index, offset -> offset
+  %q8_row0_byte_base = index.scale %c0, %q8_row_bytes : index, offset -> offset
+  %q8_row1_byte_base = index.scale %c1, %q8_row_bytes : index, offset -> offset
+  %q8_row2_byte_base = index.scale %c2, %q8_row_bytes : index, offset -> offset
+  %q8_row3_byte_base = index.scale %c3, %q8_row_bytes : index, offset -> offset
+  %lane0, %lane1, %lane2, %lane3 = scf.if %valid_channel -> (f32, f32, f32, f32) {
+    %value0, %value1, %value2, %value3 = func.call @ggml_q6k_q8_1_x4_row_lane_m4(%bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row0_byte_base, %q8_row1_byte_base, %q8_row2_byte_base, %q8_row3_byte_base, %lane) : (index, buffer, offset, buffer, offset, offset, offset, offset, index) -> (f32, f32, f32, f32)
+    scf.yield %value0, %value1, %value2, %value3 : f32, f32, f32, f32
+  } else {
+    %c0_f32 = scalar.constant 0.0 : f32
+    scf.yield %c0_f32, %c0_f32, %c0_f32, %c0_f32 : f32, f32, f32, f32
+  }
+  %dot0 = kernel.subgroup.reduce<addf> %lane0 : f32
+  %dot1 = kernel.subgroup.reduce<addf> %lane1 : f32
+  %dot2 = kernel.subgroup.reduce<addf> %lane2 : f32
+  %dot3 = kernel.subgroup.reduce<addf> %lane3 : f32
+  %is_lane_zero = index.cmp eq, %lane, %c0 : index
+  scf.if %valid_channel {
+    scf.if %is_lane_zero {
+      %c0_offset = index.constant 0 : offset
+      %output_row_bytes = index.scale %bounded_output_size, %c4_bytes : index, offset -> offset
+      %output_row1_byte_base = index.scale %c1, %output_row_bytes : index, offset -> offset
+      %output_row2_byte_base = index.scale %c2, %output_row_bytes : index, offset -> offset
+      %output_row3_byte_base = index.scale %c3, %output_row_bytes : index, offset -> offset
+      %output_row0 = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_output_size]xf32>
+      %output_row1 = buffer.view %output_noalias[%output_row1_byte_base] : buffer -> view<[%bounded_output_size]xf32>
+      %output_row2 = buffer.view %output_noalias[%output_row2_byte_base] : buffer -> view<[%bounded_output_size]xf32>
+      %output_row3 = buffer.view %output_noalias[%output_row3_byte_base] : buffer -> view<[%bounded_output_size]xf32>
+      view.store %dot0, %output_row0[%channel0] : f32, view<[%bounded_output_size]xf32>
+      view.store %dot1, %output_row1[%channel0] : f32, view<[%bounded_output_size]xf32>
+      view.store %dot2, %output_row2[%channel0] : f32, view<[%bounded_output_size]xf32>
+      view.store %dot3, %output_row3[%channel0] : f32, view<[%bounded_output_size]xf32>
+    }
+  }
+  kernel.return
+}

@@ -20,34 +20,51 @@ template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %r
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 kernel.decl @llm.projection.prepare_scaled_f16(%capacity: index, %padded_capacity: index, %input_width: index) launch(%capacity: index, %padded_capacity: index, %input_width: index, %count_origin: offset, %count: buffer, %input: buffer, %scales: buffer, %output: buffer)
 kernel.decl @llm.projection.prepare_f32_prefix(%capacity: index, %input_width: index) launch(%capacity: index, %input_width: index, %count: buffer, %input: buffer, %output: buffer)
-kernel.decl @llm.platform.q4k_scaled_f16_store(%rows: index, %input_width: index, %output_width: index) launch(%rows: index, %input_width: index, %output_width: index, %input: buffer, %scales: buffer, %weight: buffer, %output: buffer)
-kernel.decl @llm.platform.q6k_scaled_f16_store(%rows: index, %input_width: index, %output_width: index) launch(%rows: index, %input_width: index, %output_width: index, %input: buffer, %scales: buffer, %weight: buffer, %output: buffer)
-kernel.decl @llm.platform.q4k_scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index) launch(%rows: index, %input_width: index, %output_width: index, %input: buffer, %scales: buffer, %gate: buffer, %up: buffer, %output: buffer)
+kernel.decl @llm.platform.q4k_scaled_f16_store(%rows: index, %input_width: index, %output_width: index) launch(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %scales: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llm.platform.q6k_scaled_f16_store(%rows: index, %input_width: index, %output_width: index) launch(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %scales: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llm.platform.q4k_scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index) launch(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %scales: buffer, %gate: buffer, %up: buffer, %output: buffer)
 
 template.decl @llm.projection.scaled_contract(%rows: index, %input_width: index, %output_width: index, %bytes: index, %expected: index)
 template.def<@llm.projection.scaled_contract> @llm_projection_scaled_contract(%rows: index, %input_width: index, %output_width: index, %bytes: index, %expected: index) where [range(%rows, 64, 512), multiple_of(%rows, 64), range(%input_width, 256, 32768), multiple_of(%input_width, 256), range(%output_width, 64, 32768), multiple_of(%output_width, 64), eq(%bytes, %expected)] { template.return }
 
-template.decl @llm.projection.scaled_f16_store(%tag: index, %rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %input_f16: buffer, %row_scale: buffer, %weight: view<[%weight_bytes]xi8>, %output_f32: buffer)
+template.decl @llm.projection.scaled_f16_store(%tag: index, %rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %weight: view<[%weight_bytes]xi8>, %output_f32: buffer)
 
-template.def<@llm.projection.scaled_f16_store> @llm_projection_scaled_q4k(%tag: index, %rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %input_f16: buffer, %row_scale: buffer, %weight: view<[%weight_bytes]xi8>, %output_f32: buffer) where [eq(%tag, 12)] {
+template.def<@llm.projection.scaled_f16_store> @llm_projection_scaled_q4k(%tag: index, %rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %weight: view<[%weight_bytes]xi8>, %output_f32: buffer) where [eq(%tag, 12)] {
   %block = index.constant 256 : index
   %block_bytes = index.constant 144 : index
   %blocks = index.div %input_width, %block : index
   %row_bytes = index.mul %blocks, %block_bytes : index
   %bytes = index.mul %output_width, %row_bytes : index
   template.apply<@llm.projection.scaled_contract>(%rows, %input_width, %output_width, %weight_bytes, %bytes) : (index, index, index, index, index)
-  kernel.launch @llm.platform.q4k_scaled_f16_store[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %input_f16, %row_scale, %weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @llm.platform.q4k_scaled_f16_store[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %count, %input_f16, %row_scale, %weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   template.return
 }
 
-template.def<@llm.projection.scaled_f16_store> @llm_projection_scaled_q6k(%tag: index, %rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %input_f16: buffer, %row_scale: buffer, %weight: view<[%weight_bytes]xi8>, %output_f32: buffer) where [eq(%tag, 14)] {
+template.def<@llm.projection.scaled_f16_store> @llm_projection_scaled_q6k(%tag: index, %rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %weight: view<[%weight_bytes]xi8>, %output_f32: buffer) where [eq(%tag, 14)] {
   %block = index.constant 256 : index
   %block_bytes = index.constant 210 : index
   %blocks = index.div %input_width, %block : index
   %row_bytes = index.mul %blocks, %block_bytes : index
   %bytes = index.mul %output_width, %row_bytes : index
   template.apply<@llm.projection.scaled_contract>(%rows, %input_width, %output_width, %weight_bytes, %bytes) : (index, index, index, index, index)
-  kernel.launch @llm.platform.q6k_scaled_f16_store[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %input_f16, %row_scale, %weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @llm.platform.q6k_scaled_f16_store[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %count, %input_f16, %row_scale, %weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+// Defines inactive F32 rows before canonical packing; sibling consumers share
+// the caller-owned packed buffer without changing the quantization policy.
+template.decl @llm.projection.prepare_canonical_prefix(%capacity: index, %input_width: index, %count: buffer, %input: buffer, %packed: buffer)
+template.def<@llm.projection.prepare_canonical_prefix> @llm_projection_prepare_canonical_prefix(%capacity: index, %input_width: index, %count: buffer, %input: buffer, %packed: buffer) where [range(%capacity, 1, 16)] {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %word = index.constant 4 : offset
+  %elements = index.mul %capacity, %input_width : index
+  %input_bytes = index.scale %elements, %word : index, offset -> offset
+  %defined_input = buffer.alloca<global> align(256) %input_bytes : buffer
+  kernel.launch @llm.projection.prepare_f32_prefix[%capacity, %input_width](%capacity, %input_width, %count, %input, %defined_input) : [index, index](index, index, buffer, buffer, buffer)
+  template.apply<@llm.projection.pack_input>(%one, %capacity, %capacity, %input_width, %zero, %dynamic, %origin, %count, %defined_input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
   template.return
 }
 
@@ -60,17 +77,13 @@ template.def<@llm.projection.matrix> @llm_projection_matrix(%capacity: index, %i
   %dynamic = scalar.constant -1 : i32
   %small = index.cmp ule, %capacity, %sixteen : index
   scf.if %small {
-    %word = index.constant 4 : offset
     %elements = index.mul %capacity, %input_width : index
-    %input_bytes = index.scale %elements, %word : index, offset -> offset
-    %defined_input = buffer.alloca<global> align(256) %input_bytes : buffer
-    kernel.launch @llm.projection.prepare_f32_prefix[%capacity, %input_width](%capacity, %input_width, %count, %input, %defined_input) : [index, index](index, index, buffer, buffer, buffer)
     %block = index.constant 128 : index
     %packet = index.constant 144 : offset
     %groups = index.div %elements, %block : index
     %packed_bytes = index.scale %groups, %packet : index, offset -> offset
     %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
-    template.apply<@llm.projection.pack_input>(%one, %capacity, %capacity, %input_width, %zero, %dynamic, %origin, %count, %defined_input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.projection.prepare_canonical_prefix>(%capacity, %input_width, %count, %input, %packed) : (index, index, buffer, buffer, buffer)
     template.apply<@llm.projection.project_packed>(%one, %tag, %capacity, %capacity, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   } else {
     %padded = func.call pure @llm.projection.matrix_output_rows(%capacity) : (index) -> (index)
@@ -82,7 +95,45 @@ template.def<@llm.projection.matrix> @llm_projection_matrix(%capacity: index, %i
     %prepared = buffer.alloca<global> align(256) %half_bytes : buffer
     %scales = buffer.alloca<global> align(256) %scale_bytes : buffer
     kernel.launch @llm.projection.prepare_scaled_f16[%capacity, %padded, %input_width](%capacity, %padded, %input_width, %origin, %count, %input, %scales, %prepared) : [index, index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
-    template.apply<@llm.projection.scaled_f16_store>(%tag, %padded, %input_width, %output_width, %weight_bytes, %prepared, %scales, %weight, %output) : (index, index, index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+    template.apply<@llm.projection.scaled_f16_store>(%tag, %padded, %input_width, %output_width, %weight_bytes, %count, %prepared, %scales, %weight, %output) : (index, index, index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  }
+  template.return
+}
+
+// Q/K/V consume the same input, activity packet and numerical preparation.
+// Weight formats and output widths remain independent projection facts.
+template.decl @llm.projection.matrix_qkv(%capacity: index, %input_width: index, %query_width: index, %kv_width: index, %query_tag: index, %key_tag: index, %value_tag: index, %query_bytes: index, %key_bytes: index, %value_bytes: index, %count: buffer, %input: buffer, %query_weight: view<[%query_bytes]xi8>, %key_weight: view<[%key_bytes]xi8>, %value_weight: view<[%value_bytes]xi8>, %query: buffer, %key: buffer, %value: buffer)
+template.def<@llm.projection.matrix_qkv> @llm_projection_matrix_qkv(%capacity: index, %input_width: index, %query_width: index, %kv_width: index, %query_tag: index, %key_tag: index, %value_tag: index, %query_bytes: index, %key_bytes: index, %value_bytes: index, %count: buffer, %input: buffer, %query_weight: view<[%query_bytes]xi8>, %key_weight: view<[%key_bytes]xi8>, %value_weight: view<[%value_bytes]xi8>, %query: buffer, %key: buffer, %value: buffer) where [range(%capacity, 1, 512)] {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %sixteen = index.constant 16 : index
+  %origin = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %small = index.cmp ule, %capacity, %sixteen : index
+  scf.if %small {
+    %elements = index.mul %capacity, %input_width : index
+    %block = index.constant 128 : index
+    %packet = index.constant 144 : offset
+    %groups = index.div %elements, %block : index
+    %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+    %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+    template.apply<@llm.projection.prepare_canonical_prefix>(%capacity, %input_width, %count, %input, %packed) : (index, index, buffer, buffer, buffer)
+    template.apply<@llm.projection.project_packed>(%one, %query_tag, %capacity, %capacity, %input_width, %query_width, %query_bytes, %zero, %dynamic, %origin, %count, %packed, %query_weight, %query) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%query_bytes]xi8>, buffer)
+    template.apply<@llm.projection.project_packed>(%one, %key_tag, %capacity, %capacity, %input_width, %kv_width, %key_bytes, %zero, %dynamic, %origin, %count, %packed, %key_weight, %key) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%key_bytes]xi8>, buffer)
+    template.apply<@llm.projection.project_packed>(%one, %value_tag, %capacity, %capacity, %input_width, %kv_width, %value_bytes, %zero, %dynamic, %origin, %count, %packed, %value_weight, %value) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%value_bytes]xi8>, buffer)
+  } else {
+    %padded = func.call pure @llm.projection.matrix_output_rows(%capacity) : (index) -> (index)
+    %two = index.constant 2 : offset
+    %eight = index.constant 8 : offset
+    %elements = index.mul %padded, %input_width : index
+    %half_bytes = index.scale %elements, %two : index, offset -> offset
+    %scale_bytes = index.scale %padded, %eight : index, offset -> offset
+    %prepared = buffer.alloca<global> align(256) %half_bytes : buffer
+    %scales = buffer.alloca<global> align(256) %scale_bytes : buffer
+    kernel.launch @llm.projection.prepare_scaled_f16[%capacity, %padded, %input_width](%capacity, %padded, %input_width, %origin, %count, %input, %scales, %prepared) : [index, index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
+    template.apply<@llm.projection.scaled_f16_store>(%query_tag, %padded, %input_width, %query_width, %query_bytes, %count, %prepared, %scales, %query_weight, %query) : (index, index, index, index, index, buffer, buffer, buffer, view<[%query_bytes]xi8>, buffer)
+    template.apply<@llm.projection.scaled_f16_store>(%key_tag, %padded, %input_width, %kv_width, %key_bytes, %count, %prepared, %scales, %key_weight, %key) : (index, index, index, index, index, buffer, buffer, buffer, view<[%key_bytes]xi8>, buffer)
+    template.apply<@llm.projection.scaled_f16_store>(%value_tag, %padded, %input_width, %kv_width, %value_bytes, %count, %prepared, %scales, %value_weight, %value) : (index, index, index, index, index, buffer, buffer, buffer, view<[%value_bytes]xi8>, buffer)
   }
   template.return
 }
@@ -110,15 +161,15 @@ kernel.def @llm.projection.active_swiglu(%capacity: index, %output_width: index)
   kernel.return
 }
 
-template.decl @llm.projection.scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %input_f16: buffer, %row_scale: buffer, %gate_weight: view<[%weight_bytes]xi8>, %up_weight: view<[%weight_bytes]xi8>, %output_f32: buffer)
-template.def<@llm.projection.scaled_f16_swiglu> @llm_projection_scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %input_f16: buffer, %row_scale: buffer, %gate_weight: view<[%weight_bytes]xi8>, %up_weight: view<[%weight_bytes]xi8>, %output_f32: buffer) {
+template.decl @llm.projection.scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %gate_weight: view<[%weight_bytes]xi8>, %up_weight: view<[%weight_bytes]xi8>, %output_f32: buffer)
+template.def<@llm.projection.scaled_f16_swiglu> @llm_projection_scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %gate_weight: view<[%weight_bytes]xi8>, %up_weight: view<[%weight_bytes]xi8>, %output_f32: buffer) {
   %block = index.constant 256 : index
   %block_bytes = index.constant 144 : index
   %blocks = index.div %input_width, %block : index
   %row_bytes = index.mul %blocks, %block_bytes : index
   %bytes = index.mul %output_width, %row_bytes : index
   template.apply<@llm.projection.scaled_contract>(%rows, %input_width, %output_width, %weight_bytes, %bytes) : (index, index, index, index, index)
-  kernel.launch @llm.platform.q4k_scaled_f16_swiglu[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %input_f16, %row_scale, %gate_weight, %up_weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @llm.platform.q4k_scaled_f16_swiglu[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %count, %input_f16, %row_scale, %gate_weight, %up_weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%weight_bytes]xi8>, buffer)
   template.return
 }
 
@@ -132,8 +183,19 @@ template.def<@llm.projection.gated_matrix> @llm_projection_gated_matrix(%capacit
     %bytes = index.scale %elements, %word : index, offset -> offset
     %gate = buffer.alloca<global> align(256) %bytes : buffer
     %up = buffer.alloca<global> align(256) %bytes : buffer
-    template.apply<@llm.projection.matrix>(%capacity, %input_width, %output_width, %tag, %weight_bytes, %count, %input, %gate_weight, %gate) : (index, index, index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
-    template.apply<@llm.projection.matrix>(%capacity, %input_width, %output_width, %tag, %weight_bytes, %count, %input, %up_weight, %up) : (index, index, index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %origin = index.constant 0 : offset
+    %dynamic = scalar.constant -1 : i32
+    %input_elements = index.mul %capacity, %input_width : index
+    %block = index.constant 128 : index
+    %packet = index.constant 144 : offset
+    %groups = index.div %input_elements, %block : index
+    %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+    %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+    template.apply<@llm.projection.prepare_canonical_prefix>(%capacity, %input_width, %count, %input, %packed) : (index, index, buffer, buffer, buffer)
+    template.apply<@llm.projection.project_packed>(%one, %tag, %capacity, %capacity, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %gate_weight, %gate) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+    template.apply<@llm.projection.project_packed>(%one, %tag, %capacity, %capacity, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %up_weight, %up) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
     kernel.launch @llm.projection.active_swiglu[%capacity, %output_width](%capacity, %output_width, %count, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, buffer)
   } else {
     %origin = index.constant 0 : offset
@@ -146,7 +208,7 @@ template.def<@llm.projection.gated_matrix> @llm_projection_gated_matrix(%capacit
     %prepared = buffer.alloca<global> align(256) %half_bytes : buffer
     %scales = buffer.alloca<global> align(256) %scale_bytes : buffer
     kernel.launch @llm.projection.prepare_scaled_f16[%capacity, %padded, %input_width](%capacity, %padded, %input_width, %origin, %count, %input, %scales, %prepared) : [index, index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
-    template.apply<@llm.projection.scaled_f16_swiglu>(%padded, %input_width, %output_width, %weight_bytes, %prepared, %scales, %gate_weight, %up_weight, %output) : (index, index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, view<[%weight_bytes]xi8>, buffer)
+    template.apply<@llm.projection.scaled_f16_swiglu>(%padded, %input_width, %output_width, %weight_bytes, %count, %prepared, %scales, %gate_weight, %up_weight, %output) : (index, index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%weight_bytes]xi8>, buffer)
   }
   template.return
 }

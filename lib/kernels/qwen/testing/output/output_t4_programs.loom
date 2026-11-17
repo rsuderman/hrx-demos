@@ -29,7 +29,7 @@ kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch:
 // Test-only composition retains the public-output oracle without restoring a
 // combined production head or giving numerical computation public output.
 command.def @qwen.output.compose_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  %bytes = index.constant 16 : offset
+  %bytes = index.constant 4 : offset
   %ids = buffer.alloca<global> align(256) %bytes : buffer
   command.launch @loomify.qwen.head[%token_capacity, %output_capacity](%parameters, %residual, %epoch, %ids) : [index, index](buffer, buffer, buffer, buffer)
   kernel.launch @qwen08_publish_selected_ids[%output_capacity](%epoch, %ids, %output) : [index](buffer, buffer, buffer)
@@ -86,8 +86,7 @@ command.def public retain @qwen.output.chain.t4() launch(%v0: buffer, %v1: buffe
   command.return
 }
 
-// External test-owned selected storage allows checking all four ID stores and
-// a suffix guard independently of public publication.
+// External selected storage checks the single ID store and its suffix guard.
 command.def public retain @qwen.output.compute.t4() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) {
   %tokens = index.constant 4 : index
   %one = index.constant 1 : index

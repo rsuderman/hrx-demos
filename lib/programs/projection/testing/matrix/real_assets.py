@@ -50,6 +50,18 @@ def floats(path):
     return list(struct.unpack("<" + "f" * (len(data) // 4), data))
 
 
+def shape(value):
+    try:
+        capacity, active = map(int, value.split(":"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("shape must be CAPACITY:ACTIVE") from error
+    if not 17 <= capacity <= 512 or not 0 <= active <= capacity:
+        raise argparse.ArgumentTypeError(
+            "require 17 <= capacity <= 512 and 0 <= active <= capacity"
+        )
+    return capacity, active
+
+
 def main():
     parser = argparse.ArgumentParser()
     for flag in [
@@ -62,6 +74,12 @@ def main():
         "gpu-lock",
     ]:
         parser.add_argument("--" + flag, type=Path, required=True)
+    parser.add_argument(
+        "--shape",
+        type=shape,
+        action="append",
+        help="scaled matrix CAPACITY:ACTIVE, repeatable; default 17:2",
+    )
     args = parser.parse_args()
     if not os.environ.get("LOOM_SERVE_DIR"):
         parser.error(
@@ -135,8 +153,12 @@ def main():
     ]
     with args.gpu_lock.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        for name, tensor, gated in cases:
-            directory = args.output / name
+        for name, tensor, gated, t, active in [
+            (*case, capacity, active)
+            for case in cases
+            for capacity, active in (args.shape or [(17, 2)])
+        ]:
+            directory = args.output / f"{name}_t{t}_a{active}"
             directory.mkdir()
             k, tag, raw, binding = weight(tensor)
             up = raw
@@ -145,18 +167,20 @@ def main():
                 k1, tag1, up, other = weight("blk.0.ffn_up.weight")
                 assert (k1, tag1) == (k, 12)
                 bindings.append(other)
-            active = 2
-            t = 17
-            tp = 64
+            tp = (t + 63) // 64 * 64
             n = 64
             inputs = [
                 [input_value(row, column, False) for column in range(k)]
                 for row in range(active)
             ]
             expected = (
-                gated_matrix(inputs, raw, up, n)
-                if gated
-                else scaled_matrix(inputs, raw, tag, n)
+                (
+                    gated_matrix(inputs, raw, up, n)
+                    if gated
+                    else scaled_matrix(inputs, raw, tag, n)
+                )
+                if active
+                else []
             )
             flat = [x for row in inputs for x in row] + [float("nan")] * (
                 (t - active) * k
@@ -172,6 +196,9 @@ def main():
             write_npy(directory / "weight.npy", raw, "|i1", wb)
             write_npy(directory / "up.npy", up, "|i1", wb)
             write_npy(
+                directory / "count.npy", struct.pack("<3i", active, 0, 0), "<i4", 3
+            )
+            write_npy(
                 directory / "expected.npy",
                 struct.pack("<" + "f" * len(golden), *golden),
                 "<f4",
@@ -186,7 +213,7 @@ def main():
             declaration = (
                 "kernel.decl @llm.platform."
                 + kernel
-                + "(%rows:index,%K:index,%N:index) launch(%rows:index,%K:index,%N:index,%input:buffer,%scales:buffer,%weight:buffer,"
+                + "(%rows:index,%K:index,%N:index) launch(%rows:index,%K:index,%N:index,%count:buffer,%input:buffer,%scales:buffer,%weight:buffer,"
                 + ("%up:buffer," if gated else "")
                 + "%output:buffer)\n"
             )
@@ -207,10 +234,8 @@ def main():
   %up = check.file.read.npy path("{directory/'up.npy'}") : tensor<{wb}xi8>
   %up_copy = check.file.read.npy path("{directory/'up.npy'}") : tensor<{wb}xi8>
   %expected = check.file.read.npy path("{directory/'expected.npy'}") : tensor<{tp*n}xf32>
-  %count = check.generate.fill value(0) : tensor<3xi32>
-  %first = check.tensor.view %count offset(0) : tensor<3xi32> -> tensor<1xi32>
-  %active = check.generate.fill value(2) : tensor<1xi32>
-  check.tensor.copy %active to %first : tensor<1xi32> to tensor<1xi32>
+  %count = check.file.read.npy path("{directory/'count.npy'}") : tensor<3xi32>
+  %count_copy = check.file.read.npy path("{directory/'count.npy'}") : tensor<3xi32>
   %scales = check.generate.fill value(-991.0) : tensor<{tp*2}xf32>
   %half = check.generate.fill value(-991.0) : tensor<{tp*k}xf16>
   %owner = check.generate.fill value(-991.0) : tensor<{tp*n+8}xf32>
@@ -220,9 +245,9 @@ def main():
             text += (
                 "  kernel.launch @llm.platform."
                 + kernel
-                + "[%Tp,%K,%N](%Tp,%K,%N,%half,%scales,%weight,"
+                + "[%Tp,%K,%N](%Tp,%K,%N,%count,%half,%scales,%weight,"
                 + ("%up," if gated else "")
-                + "%output) : [index,index,index](index,index,index,tensor<"
+                + "%output) : [index,index,index](index,index,index,tensor<3xi32>,tensor<"
                 + str(tp * k)
                 + "xf16>,tensor<"
                 + str(tp * 2)
@@ -238,22 +263,11 @@ def main():
   check.expect.bitwise actual(%input) expected(%input_copy) : tensor<{t*k}xf32>
   check.expect.bitwise actual(%weight) expected(%weight_copy) : tensor<{wb}xi8>
   check.expect.bitwise actual(%up) expected(%up_copy) : tensor<{wb}xi8>
+  check.expect.bitwise actual(%count) expected(%count_copy) : tensor<3xi32>
   check.file.write.npy value(%owner) path("actual.npy") mode(always) : tensor<{tp*n+8}xf32>
   check.return
 }}
 """
-            # Count snapshot is an explicit immutable file, avoiding test-only
-            # mutation operations that are not part of the public check grammar.
-            write_npy(
-                directory / "count.npy", struct.pack("<3i", active, 0, 0), "<i4", 3
-            )
-            begin = text.index("  %count = check.generate.fill")
-            end = text.index("  %scales =", begin)
-            text = (
-                text[:begin]
-                + f'  %count = check.file.read.npy path("{directory/"count.npy"}") : tensor<3xi32>\n'
-                + text[end:]
-            )
             fixture = directory / "case.loom"
             fixture.write_text(text)
             parse = [
@@ -288,6 +302,9 @@ def main():
                     )
                 record = {
                     "case": name,
+                    "capacity": t,
+                    "padded_capacity": tp,
+                    "active": active,
                     "library": str(library),
                     "library_sha256": sha(library),
                     "command": cmd,
@@ -306,7 +323,10 @@ def main():
                     actual = values[4:-4]
                     assert guards == [-991.0] * 8
                     assert all(math.isfinite(x) for x in actual)
-                    assert actual[active * n :] == [0.0] * ((tp - active) * n)
+                    assert all(
+                        struct.pack("<f", value) == b"\0\0\0\0"
+                        for value in actual[active * n :]
+                    ), "inactive result must be positive zero bitwise"
                     diff = [
                         a - b
                         for a, b in zip(actual[: active * n], golden[: active * n])
@@ -317,7 +337,7 @@ def main():
                     error = math.sqrt(math.fsum(x * x for x in diff)) / denominator
                     record.update(
                         relative_l2=error,
-                        max_absolute_error=max(map(abs, diff)),
+                        max_absolute_error=max(map(abs, diff), default=0.0),
                         limit=0.002 if gated else 0.0005,
                         guards=True,
                         padding_zero=True,

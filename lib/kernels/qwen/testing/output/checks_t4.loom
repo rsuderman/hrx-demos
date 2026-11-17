@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Registered producers plus independent F16 gather and selected RMS anchors.
 kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_output_normalize_spans(%output_capacity: index) launch(%epoch: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 command.decl @qwen.output.embedding.t4() launch(%parameters: buffer, %ids: buffer, %residual: buffer)
+
 command.decl @qwen.output.head.t4() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer)
+
 func.def @embedding_expected(%parameters: buffer, %ids: buffer, %residual: buffer) {
   %origin = index.constant 0 : offset
   %data = buffer.view %residual[%origin] : buffer -> view<512x1024xf32>
@@ -20,17 +24,19 @@ func.def @embedding_expected(%parameters: buffer, %ids: buffer, %residual: buffe
   }
   func.return
 }
+
 check.scenario @registered_embedding_t4_padding {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-  %parameters = check.generate.fill value(0) : tensor<208588800xi8>
-  %ids = check.generate.fill value(0) : tensor<512xi32>
-  %residual = check.generate.fill value(-77.0) : tensor<512x1024xf32>
-  check.compare<@qwen.output.embedding.t4, @embedding_expected>(%parameters, %ids, %residual) : (tensor<208588800xi8>, tensor<512xi32>, tensor<512x1024xf32>) -> () {
-    check.expect.approximate actual(%residual) expected(%residual) atol(0.0) rtol(0.0) nan(same) : tensor<512x1024xf32>, tensor<512x1024xf32>
-  }
+    %parameters = check.generate.fill value(0) : tensor<208588800xi8>
+    %ids = check.generate.fill value(0) : tensor<512xi32>
+    %residual = check.generate.fill value(-77.0) : tensor<512x1024xf32>
+    check.compare<@qwen.output.embedding.t4, @embedding_expected>(%parameters, %ids, %residual) : (tensor<208588800xi8>, tensor<512xi32>, tensor<512x1024xf32>) -> () {
+      check.expect.approximate actual(%residual) expected(%residual) atol(0.0) rtol(0.0) nan(same) : tensor<512x1024xf32>, tensor<512x1024xf32>
+    }
   }
   check.return
 }
+
 func.def @init_epoch_0(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %selection_origin = index.constant 1292 : offset
@@ -53,35 +59,40 @@ func.def @init_epoch_0(%epoch: buffer) {
   view.store %row, %selection[0] : i32, view<64xi32>
   func.return
 }
+
 kernel.def @init_epoch_kernel_0() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer) {
-  func.call @init_epoch_0(%epoch) : (buffer) -> ()
+  func.call @init_epoch_0(%epoch) : (buffer)
   kernel.return
 }
+
 command.def @head_actual_0() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_epoch_kernel_0[](%epoch) : [](buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
+  kernel.launch @init_epoch_kernel_0(%epoch) : (buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @head_expected_0(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  func.call @init_epoch_0(%epoch) : (buffer) -> ()
+  func.call @init_epoch_0(%epoch) : (buffer)
   func.return
 }
+
 check.scenario @registered_head_t4_count0_public_guard {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-  %parameters = check.generate.fill value(0) : tensor<209000000xi8>
-  %residual = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
-  %epoch = check.generate.fill value(0) : tensor<1048xi32>
-  %output = check.generate.fill value(-77) : tensor<20xi32>
-  check.compare<@head_actual_0, @head_expected_0>(%parameters, %residual, %epoch, %output) : (tensor<209000000xi8>, tensor<512x1024xf32>, tensor<1048xi32>, tensor<20xi32>) -> () {
-    check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
-    check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
-  }
+    %parameters = check.generate.fill value(0) : tensor<209000000xi8>
+    %residual = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %output = check.generate.fill value(-77) : tensor<20xi32>
+    check.compare<@head_actual_0, @head_expected_0>(%parameters, %residual, %epoch, %output) : (tensor<209000000xi8>, tensor<512x1024xf32>, tensor<1048xi32>, tensor<20xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+    }
   }
   check.return
 }
+
 func.def @init_epoch_1(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %selection_origin = index.constant 1292 : offset
@@ -104,39 +115,44 @@ func.def @init_epoch_1(%epoch: buffer) {
   view.store %row, %selection[0] : i32, view<64xi32>
   func.return
 }
+
 kernel.def @init_epoch_kernel_1() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer) {
-  func.call @init_epoch_1(%epoch) : (buffer) -> ()
+  func.call @init_epoch_1(%epoch) : (buffer)
   kernel.return
 }
+
 command.def @head_actual_1() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_epoch_kernel_1[](%epoch) : [](buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
+  kernel.launch @init_epoch_kernel_1(%epoch) : (buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @head_expected_1(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  func.call @init_epoch_1(%epoch) : (buffer) -> ()
+  func.call @init_epoch_1(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %out = buffer.view %output[%origin] : buffer -> view<4xi32>
   %token = scalar.constant 0 : i32
   view.store %token, %out[0] : i32, view<4xi32>
   func.return
 }
+
 check.scenario @registered_head_t4_count1_public_guard {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-  %parameters = check.generate.fill value(0) : tensor<209000000xi8>
-  %residual = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
-  %epoch = check.generate.fill value(0) : tensor<1048xi32>
-  %output = check.generate.fill value(-77) : tensor<20xi32>
-  check.compare<@head_actual_1, @head_expected_1>(%parameters, %residual, %epoch, %output) : (tensor<209000000xi8>, tensor<512x1024xf32>, tensor<1048xi32>, tensor<20xi32>) -> () {
-    check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
-    check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
-  }
+    %parameters = check.generate.fill value(0) : tensor<209000000xi8>
+    %residual = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %output = check.generate.fill value(-77) : tensor<20xi32>
+    check.compare<@head_actual_1, @head_expected_1>(%parameters, %residual, %epoch, %output) : (tensor<209000000xi8>, tensor<512x1024xf32>, tensor<1048xi32>, tensor<20xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+    }
   }
   check.return
 }
+
 kernel.def @qwen38_token_embedding_q6k_known_weights() {
   %one = index.constant 1 : index
   %rows = index.constant 4 : index
@@ -172,12 +188,14 @@ kernel.def @qwen38_token_embedding_q6k_known_weights() {
   view.store %delta, %delta_view[0] : f16, view<1xf16>
   kernel.return
 }
+
 command.def @embedding_known_actual() launch(%weight: buffer, %ids: buffer, %output: buffer) {
-  kernel.launch @qwen38_token_embedding_q6k_known_weights[](%weight) : [](buffer)
+  kernel.launch @qwen38_token_embedding_q6k_known_weights(%weight) : (buffer)
   %tokens = index.constant 4 : index
   kernel.launch @qwen38_token_embedding_q6k_f16_prefill[%tokens](%ids, %weight, %output) : [index](buffer, buffer, buffer)
   command.return
 }
+
 func.def @embedding_known_expected(%weight: buffer, %ids: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %data = buffer.view %output[%origin] : buffer -> view<512x1024xf32>
@@ -193,26 +211,29 @@ func.def @embedding_known_expected(%weight: buffer, %ids: buffer, %output: buffe
   }
   func.return
 }
+
 check.scenario @f16_gather_t4_independent_anchor {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-  %weight = check.generate.fill value(0) : tensor<4x4x210xi8>
-  %ids = check.generate.fill value(2) : tensor<512xi32>
-  %output = check.generate.fill value(-77.0) : tensor<512x1024xf32>
-  check.compare<@embedding_known_actual, @embedding_known_expected>(%weight, %ids, %output) : (tensor<4x4x210xi8>, tensor<512xi32>, tensor<512x1024xf32>) -> () {
-    check.expect.bitwise actual(%output) expected(%output) : tensor<512x1024xf32>
-  }
+    %weight = check.generate.fill value(0) : tensor<4x4x210xi8>
+    %ids = check.generate.fill value(2) : tensor<512xi32>
+    %output = check.generate.fill value(-77.0) : tensor<512x1024xf32>
+    check.compare<@embedding_known_actual, @embedding_known_expected>(%weight, %ids, %output) : (tensor<4x4x210xi8>, tensor<512xi32>, tensor<512x1024xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<512x1024xf32>
+    }
   }
   check.return
 }
+
 command.def @normalize_actual_0() launch(%input: buffer, %gamma: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_epoch_kernel_0[](%epoch) : [](buffer)
+  kernel.launch @init_epoch_kernel_0(%epoch) : (buffer)
   %four = index.constant 4 : index
-  %epsilon = scalar.constant 0.000001 : f32
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
   kernel.launch @qwen38_output_normalize_spans[%four](%epoch, %epsilon, %input, %gamma, %output) : [index](buffer, f32, buffer, buffer, buffer)
   command.return
 }
+
 func.def @normalize_expected_0(%input: buffer, %gamma: buffer, %epoch: buffer, %output: buffer) {
-  func.call @init_epoch_0(%epoch) : (buffer) -> ()
+  func.call @init_epoch_0(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<512x1024xf32>
   %g = buffer.view %gamma[%origin] : buffer -> view<1024xf32>
@@ -229,32 +250,35 @@ func.def @normalize_expected_0(%input: buffer, %gamma: buffer, %epoch: buffer, %
   }
   func.return
 }
+
 check.scenario @selected_rms_t4_count0_private_padding_guard {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-  %input = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
-  %gamma = check.generate.iota offset(0.5) step(0.001) : tensor<1024xf32>
-  %epoch = check.generate.fill value(0) : tensor<1048xi32>
-  %output = check.generate.fill value(-77.0) : tensor<5x1024xf32>
-  %private_padding = check.tensor.view %output offset(0) : tensor<5x1024xf32> -> tensor<4x1024xf32>
-  %outside_guard = check.tensor.view %output offset(16384) : tensor<5x1024xf32> -> tensor<1024xf32>
-  check.compare<@normalize_actual_0, @normalize_expected_0>(%input, %gamma, %epoch, %output) : (tensor<512x1024xf32>, tensor<1024xf32>, tensor<1048xi32>, tensor<5x1024xf32>) -> () {
-    check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<5x1024xf32>, tensor<5x1024xf32>
-    check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
-    check.expect.bitwise actual(%private_padding) expected(%private_padding) : tensor<4x1024xf32>
-    check.expect.bitwise actual(%outside_guard) expected(%outside_guard) : tensor<1024xf32>
-  }
+    %input = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.001) : tensor<1024xf32>
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %output = check.generate.fill value(-77.0) : tensor<5x1024xf32>
+    %private_padding = check.tensor.view %output offset(0) : tensor<5x1024xf32> -> tensor<4x1024xf32>
+    %outside_guard = check.tensor.view %output offset(16384) : tensor<5x1024xf32> -> tensor<1024xf32>
+    check.compare<@normalize_actual_0, @normalize_expected_0>(%input, %gamma, %epoch, %output) : (tensor<512x1024xf32>, tensor<1024xf32>, tensor<1048xi32>, tensor<5x1024xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<5x1024xf32>, tensor<5x1024xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%private_padding) expected(%private_padding) : tensor<4x1024xf32>
+      check.expect.bitwise actual(%outside_guard) expected(%outside_guard) : tensor<1024xf32>
+    }
   }
   check.return
 }
+
 command.def @normalize_actual_1() launch(%input: buffer, %gamma: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_epoch_kernel_1[](%epoch) : [](buffer)
+  kernel.launch @init_epoch_kernel_1(%epoch) : (buffer)
   %four = index.constant 4 : index
-  %epsilon = scalar.constant 0.000001 : f32
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
   kernel.launch @qwen38_output_normalize_spans[%four](%epoch, %epsilon, %input, %gamma, %output) : [index](buffer, f32, buffer, buffer, buffer)
   command.return
 }
+
 func.def @normalize_expected_1(%input: buffer, %gamma: buffer, %epoch: buffer, %output: buffer) {
-  func.call @init_epoch_1(%epoch) : (buffer) -> ()
+  func.call @init_epoch_1(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<512x1024xf32>
   %g = buffer.view %gamma[%origin] : buffer -> view<1024xf32>
@@ -271,7 +295,7 @@ func.def @normalize_expected_1(%input: buffer, %gamma: buffer, %epoch: buffer, %
   }
   %row = index.constant 1 : index
   %width_f = scalar.constant 1024.0 : f32
-  %epsilon = scalar.constant 0.000001 : f32
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
   %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
     %value = view.load %x[%row, %c] : view<512x1024xf32> -> f32
     %square = scalar.mulf %value, %value : f32
@@ -290,30 +314,33 @@ func.def @normalize_expected_1(%input: buffer, %gamma: buffer, %epoch: buffer, %
   }
   func.return
 }
+
 check.scenario @selected_rms_t4_count1_private_padding_guard {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-  %input = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
-  %gamma = check.generate.iota offset(0.5) step(0.001) : tensor<1024xf32>
-  %epoch = check.generate.fill value(0) : tensor<1048xi32>
-  %output = check.generate.fill value(-77.0) : tensor<5x1024xf32>
-  %private_padding = check.tensor.view %output offset(4096) : tensor<5x1024xf32> -> tensor<3x1024xf32>
-  %outside_guard = check.tensor.view %output offset(16384) : tensor<5x1024xf32> -> tensor<1024xf32>
-  check.compare<@normalize_actual_1, @normalize_expected_1>(%input, %gamma, %epoch, %output) : (tensor<512x1024xf32>, tensor<1024xf32>, tensor<1048xi32>, tensor<5x1024xf32>) -> () {
-    check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<5x1024xf32>, tensor<5x1024xf32>
-    check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
-    check.expect.bitwise actual(%private_padding) expected(%private_padding) : tensor<3x1024xf32>
-    check.expect.bitwise actual(%outside_guard) expected(%outside_guard) : tensor<1024xf32>
-  }
+    %input = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.001) : tensor<1024xf32>
+    %epoch = check.generate.fill value(0) : tensor<1048xi32>
+    %output = check.generate.fill value(-77.0) : tensor<5x1024xf32>
+    %private_padding = check.tensor.view %output offset(4096) : tensor<5x1024xf32> -> tensor<3x1024xf32>
+    %outside_guard = check.tensor.view %output offset(16384) : tensor<5x1024xf32> -> tensor<1024xf32>
+    check.compare<@normalize_actual_1, @normalize_expected_1>(%input, %gamma, %epoch, %output) : (tensor<512x1024xf32>, tensor<1024xf32>, tensor<1048xi32>, tensor<5x1024xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<5x1024xf32>, tensor<5x1024xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%private_padding) expected(%private_padding) : tensor<3x1024xf32>
+      check.expect.bitwise actual(%outside_guard) expected(%outside_guard) : tensor<1024xf32>
+    }
   }
   check.return
 }
 
 command.decl @qwen.output.chain.t4() launch(%parameters: buffer, %ids: buffer, %epoch: buffer, %output: buffer)
+
 command.def @fresh_chain_actual() launch(%parameters: buffer, %ids: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_epoch_kernel_1[](%epoch) : [](buffer)
-  command.launch @qwen.output.chain.t4[](%parameters, %ids, %epoch, %output) : [](buffer, buffer, buffer, buffer)
+  kernel.launch @init_epoch_kernel_1(%epoch) : (buffer)
+  command.launch @qwen.output.chain.t4(%parameters, %ids, %epoch, %output) : (buffer, buffer, buffer, buffer)
   command.return
 }
+
 check.scenario @fresh_registered_embedding_head_t4 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(0) : tensor<209000000xi8>
@@ -322,29 +349,33 @@ check.scenario @fresh_registered_embedding_head_t4 {
     %output = check.generate.fill value(-77) : tensor<20xi32>
     check.compare<@fresh_chain_actual, @head_expected_1>(%parameters, %ids, %epoch, %output) : (tensor<209000000xi8>, tensor<512xi32>, tensor<1048xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<20xi32>
-    check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
     }
   }
   check.return
 }
-kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width: index) launch(%rows: index, %width: index, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%rows: index, %width: index, %outputs: index) launch(%rows: index, %width: index, %outputs: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows$237: index, %width$238: index) launch(%rows$239: index, %width$240: index, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%rows$243: index, %width$244: index, %outputs$245: index) launch(%rows$246: index, %width$247: index, %outputs$248: index, %input: buffer, %weight: buffer, %output: buffer)
+
 command.def @m4_anchor_actual() launch(%weight: buffer, %input: buffer, %packed: buffer, %output: buffer) {
   %four = index.constant 4 : index
   %hidden = index.constant 1024 : index
-  kernel.launch @qwen38_token_embedding_q6k_known_weights[](%weight) : [](buffer)
+  kernel.launch @qwen38_token_embedding_q6k_known_weights(%weight) : (buffer)
   kernel.launch @ggml_quantize_q8_1_x4_f32[%four, %hidden](%four, %hidden, %input, %packed) : [index, index](index, index, buffer, buffer)
   kernel.launch @ggml_linear_q6k_q8_1_x4_m4[%four, %hidden, %four](%four, %hidden, %four, %packed, %weight, %output) : [index, index, index](index, index, index, buffer, buffer, buffer)
   command.return
 }
+
 func.def @m4_anchor_expected(%weight: buffer, %input: buffer, %packed: buffer, %output: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %four = index.constant 4 : index
   %origin = index.constant 0 : offset
   %out = buffer.view %output[%origin] : buffer -> view<4x4xf32>
-  //1024 * (-32) * (3*(column+1)) * (1365/4096) *127*(129/16384).
-  //The constant is the independently rounded F32 contraction for column0.
+  // 1024 * (-32) * (3*(column+1)) * (1365/4096) *127*(129/16384).
+  // The constant is the independently rounded F32 contraction for column0.
   %base = scalar.constant -32758.0 : f32
   scf.for %r = [%zero to %four step %one] {
     scf.for %c = [%zero to %four step %one] {
@@ -357,6 +388,7 @@ func.def @m4_anchor_expected(%weight: buffer, %input: buffer, %packed: buffer, %
   }
   func.return
 }
+
 check.scenario @private_m4_nonzero_canonical_anchor_t4 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weight = check.generate.fill value(0) : tensor<4x4x210xi8>
@@ -364,13 +396,14 @@ check.scenario @private_m4_nonzero_canonical_anchor_t4 {
     %packed = check.generate.fill value(0) : tensor<4x1152xi8>
     %output = check.generate.fill value(-77.0) : tensor<4x4xf32>
     check.compare<@m4_anchor_actual, @m4_anchor_expected>(%weight, %input, %packed, %output) : (tensor<4x4x210xi8>, tensor<4x1024xf32>, tensor<4x1152xi8>, tensor<4x4xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(0.000001) nan(same) : tensor<4x4xf32>, tensor<4x4xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(9.9999999999999995e-07) nan(same) : tensor<4x4xf32>, tensor<4x4xf32>
     }
   }
   check.return
 }
 
 command.decl @qwen.output.init() launch(%parameters: buffer)
+
 kernel.def @set_replay_ids() {
   %tokens = index.constant 4 : index
   %one = index.constant 1 : index
@@ -391,6 +424,7 @@ kernel.def @set_replay_ids() {
   view.store %value, %data[%r] : i32, view<512xi32>
   kernel.return
 }
+
 kernel.def @set_replay_epoch() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -414,6 +448,7 @@ kernel.def @set_replay_epoch() {
   view.store %selected, %selection[0] : i32, view<64xi32>
   kernel.return
 }
+
 kernel.def @record_replay_step() {
   %one = index.constant 1 : index
   %four = index.constant 4 : index
@@ -428,6 +463,7 @@ kernel.def @record_replay_step() {
   view.store %value, %history[%bounded_stage, %lane] : i32, view<3x4xi32>
   kernel.return
 }
+
 command.def @nontrivial_replay_actual() launch(%parameters: buffer, %ids: buffer, %residual: buffer, %epoch: buffer, %output: buffer, %trace: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -438,20 +474,21 @@ command.def @nontrivial_replay_actual() launch(%parameters: buffer, %ids: buffer
   %id2 = scalar.constant 2 : i32
   %first = scalar.constant 0 : i32
   %last = scalar.constant 1 : i32
-  command.launch @qwen.output.init[](%parameters) : [](buffer)
-  kernel.launch @set_replay_ids[](%id1, %ids) : [](i32, buffer)
-  command.launch @qwen.output.embedding.t4[](%parameters, %ids, %residual) : [](buffer, buffer, buffer)
-  kernel.launch @set_replay_epoch[](%active, %first, %epoch) : [](i32, i32, buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
-  kernel.launch @record_replay_step[](%zero, %output, %trace) : [](index, buffer, buffer)
-  kernel.launch @set_replay_epoch[](%none, %first, %epoch) : [](i32, i32, buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
-  kernel.launch @record_replay_step[](%one, %output, %trace) : [](index, buffer, buffer)
-  kernel.launch @set_replay_epoch[](%active, %last, %epoch) : [](i32, i32, buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
-  kernel.launch @record_replay_step[](%two, %output, %trace) : [](index, buffer, buffer)
+  command.launch @qwen.output.init(%parameters) : (buffer)
+  kernel.launch @set_replay_ids(%id1, %ids) : (i32, buffer)
+  command.launch @qwen.output.embedding.t4(%parameters, %ids, %residual) : (buffer, buffer, buffer)
+  kernel.launch @set_replay_epoch(%active, %first, %epoch) : (i32, i32, buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
+  kernel.launch @record_replay_step(%zero, %output, %trace) : (index, buffer, buffer)
+  kernel.launch @set_replay_epoch(%none, %first, %epoch) : (i32, i32, buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
+  kernel.launch @record_replay_step(%one, %output, %trace) : (index, buffer, buffer)
+  kernel.launch @set_replay_epoch(%active, %last, %epoch) : (i32, i32, buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
+  kernel.launch @record_replay_step(%two, %output, %trace) : (index, buffer, buffer)
   command.return
 }
+
 func.def @nontrivial_replay_expected(%parameters: buffer, %ids: buffer, %residual: buffer, %epoch: buffer, %output: buffer, %trace: buffer) {
   %origin = index.constant 0 : offset
   %out = buffer.view %output[%origin] : buffer -> view<4xi32>
@@ -475,6 +512,7 @@ func.def @nontrivial_replay_expected(%parameters: buffer, %ids: buffer, %residua
   }
   func.return
 }
+
 check.scenario @registered_nontrivial_tied_bank_t4_replay1_0_1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(0) : tensor<209000000xi8>
@@ -493,33 +531,37 @@ check.scenario @registered_nontrivial_tied_bank_t4_replay1_0_1 {
 
 // One selected result uses ordinal0 even when its physical destination is S2.
 func.def @init_slot_2(%epoch: buffer) {
-  func.call @init_epoch_1(%epoch) : (buffer) -> ()
+  func.call @init_epoch_1(%epoch) : (buffer)
   %slot_origin = index.constant 28 : offset
   %slot_view = buffer.view %epoch[%slot_origin] : buffer -> view<1xi32>
   %slot = scalar.constant 2 : i32
   view.store %slot, %slot_view[0] : i32, view<1xi32>
   func.return
 }
+
 kernel.def @init_slot_kernel_2() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer) {
-  func.call @init_slot_2(%epoch) : (buffer) -> ()
+  func.call @init_slot_2(%epoch) : (buffer)
   kernel.return
 }
+
 command.def @slot_actual_2() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_slot_kernel_2[](%epoch) : [](buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
+  kernel.launch @init_slot_kernel_2(%epoch) : (buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @slot_expected_2(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  func.call @init_slot_2(%epoch) : (buffer) -> ()
+  func.call @init_slot_2(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %out = buffer.view %output[%origin] : buffer -> view<20xi32>
   %winner = scalar.constant 0 : i32
   view.store %winner, %out[2] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @head_t4_physical_slot_2_ordinal_zero {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(0) : tensor<209000000xi8>
@@ -537,33 +579,37 @@ check.scenario @head_t4_physical_slot_2_ordinal_zero {
 
 // One selected result uses ordinal0 even when its physical destination is S7.
 func.def @init_slot_7(%epoch: buffer) {
-  func.call @init_epoch_1(%epoch) : (buffer) -> ()
+  func.call @init_epoch_1(%epoch) : (buffer)
   %slot_origin = index.constant 28 : offset
   %slot_view = buffer.view %epoch[%slot_origin] : buffer -> view<1xi32>
   %slot = scalar.constant 7 : i32
   view.store %slot, %slot_view[0] : i32, view<1xi32>
   func.return
 }
+
 kernel.def @init_slot_kernel_7() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer) {
-  func.call @init_slot_7(%epoch) : (buffer) -> ()
+  func.call @init_slot_7(%epoch) : (buffer)
   kernel.return
 }
+
 command.def @slot_actual_7() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  kernel.launch @init_slot_kernel_7[](%epoch) : [](buffer)
-  command.launch @qwen.output.head.t4[](%parameters, %residual, %epoch, %output) : [](buffer, buffer, buffer, buffer)
+  kernel.launch @init_slot_kernel_7(%epoch) : (buffer)
+  command.launch @qwen.output.head.t4(%parameters, %residual, %epoch, %output) : (buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @slot_expected_7(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
-  func.call @init_slot_7(%epoch) : (buffer) -> ()
+  func.call @init_slot_7(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %out = buffer.view %output[%origin] : buffer -> view<20xi32>
   %winner = scalar.constant 0 : i32
   view.store %winner, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @head_t4_physical_slot_7_ordinal_zero {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(0) : tensor<209000000xi8>
@@ -580,25 +626,23 @@ check.scenario @head_t4_physical_slot_7_ordinal_zero {
 }
 
 command.decl @qwen.output.compute.t4() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer)
+
 command.def @private_ids_actual() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) {
-  kernel.launch @init_epoch_kernel_1[](%epoch) : [](buffer)
-  command.launch @qwen.output.compute.t4[](%parameters, %residual, %epoch, %selected_ids) : [](buffer, buffer, buffer, buffer)
+  kernel.launch @init_epoch_kernel_1(%epoch) : (buffer)
+  command.launch @qwen.output.compute.t4(%parameters, %residual, %epoch, %selected_ids) : (buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @private_ids_expected(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) {
-  func.call @init_epoch_1(%epoch) : (buffer) -> ()
+  func.call @init_epoch_1(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %ids = buffer.view %selected_ids[%origin] : buffer -> view<8xi32>
-  %zero = index.constant 0 : index
-  %one = index.constant 1 : index
-  %four = index.constant 4 : index
   %winner = scalar.constant 0 : i32
-  scf.for %i = [%zero to %four step %one] {
-    view.store %winner, %ids[%i] : i32, view<8xi32>
-  }
+  view.store %winner, %ids[0] : i32, view<8xi32>
   func.return
 }
-check.scenario @head_t4_only_four_private_ids_with_suffix_guard {
+
+check.scenario @head_t4_only_one_private_id_with_suffix_guard {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(0) : tensor<209000000xi8>
     %residual = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
@@ -608,6 +652,219 @@ check.scenario @head_t4_only_four_private_ids_with_suffix_guard {
       check.expect.bitwise actual(%ids) expected(%ids) : tensor<8xi32>
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
       check.expect.bitwise actual(%residual) expected(%residual) : tensor<512x1024xf32>
+    }
+  }
+  check.return
+}
+
+// The actual canonical one-row provider retains M4 row-zero arithmetic. The
+// original M4 provider is test-only, and the independent anchor above remains.
+kernel.decl @ggml_linear_q6k_q8_1_x4(%rows$435: index, %width$436: index, %outputs$437: index) launch(%rows$438: index, %width$439: index, %outputs$440: index, %input: buffer, %weight: buffer, %output: buffer)
+
+command.def @single_row_anchor_actual() launch(%weight: buffer, %input: buffer, %packed: buffer, %output: buffer) {
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  %hidden = index.constant 1024 : index
+  kernel.launch @qwen38_token_embedding_q6k_known_weights(%weight) : (buffer)
+  kernel.launch @ggml_quantize_q8_1_x4_f32[%one, %hidden](%one, %hidden, %input, %packed) : [index, index](index, index, buffer, buffer)
+  kernel.launch @ggml_linear_q6k_q8_1_x4[%one, %hidden, %four](%one, %hidden, %four, %packed, %weight, %output) : [index, index, index](index, index, index, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @single_row_anchor_expected(%weight: buffer, %input: buffer, %packed: buffer, %output: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %four = index.constant 4 : index
+  %origin = index.constant 0 : offset
+  %out = buffer.view %output[%origin] : buffer -> view<4xf32>
+  // Same independently rounded contraction as the original M4 anchor.
+  %base = scalar.constant -32758.0 : f32
+  scf.for %c = [%zero to %four step %one] {
+    %ordinal = index.add %c, %one : index
+    %word = index.cast %ordinal : index to i32
+    %scale = scalar.sitofp %word : i32 to f32
+    %value = scalar.mulf %base, %scale : f32
+    view.store %value, %out[%c] : f32, view<4xf32>
+  }
+  func.return
+}
+
+check.scenario @single_row_nonzero_canonical_anchor_T4 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weight = check.generate.fill value(0) : tensor<4x4x210xi8>
+    %input = check.generate.fill value(1.0) : tensor<4x1024xf32>
+    %packed = check.generate.fill value(-11) : tensor<4x1152xi8>
+    %output = check.generate.fill value(-77.0) : tensor<4x4xf32>
+    %padding = check.tensor.view %output offset(16) : tensor<4x4xf32> -> tensor<12xf32>
+    check.compare<@single_row_anchor_actual, @single_row_anchor_expected>(%weight, %input, %packed, %output) : (tensor<4x4x210xi8>, tensor<4x1024xf32>, tensor<4x1152xi8>, tensor<4x4xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(9.9999999999999995e-07) nan(same) : tensor<4x4xf32>, tensor<4x4xf32>
+      check.expect.bitwise actual(%padding) expected(%padding) : tensor<12xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<4x1024xf32>
+    }
+  }
+  check.return
+}
+
+// Both numerical subjects execute on the target. The VM oracle only expects
+// zero byte mismatches; it never attempts to execute a command program.
+kernel.def @retained_row_byte_mismatches() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%packed: buffer, %logits: buffer, %old_packed: buffer, %old_logits: buffer, %mismatches: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %q8_bytes = index.constant 1152 : index
+  %logit_bytes = index.constant 16 : index
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %q8 = buffer.view %packed[%origin] : buffer -> view<1152xi8>
+  %old_q8 = buffer.view %old_packed[%origin] : buffer -> view<1152xi8>
+  %y = buffer.view %logits[%origin] : buffer -> view<16xi8>
+  %old_y = buffer.view %old_logits[%origin] : buffer -> view<16xi8>
+  %q8_errors = scf.for %i = [%zero to %q8_bytes step %one](%errors = %zero32 : i32) -> (i32) {
+    %a = view.load %q8[%i] : view<1152xi8> -> i8
+    %b = view.load %old_q8[%i] : view<1152xi8> -> i8
+    %different = scalar.cmpi ne, %a, %b : i8
+    %increment = scf.select %different, %one32, %zero32 : i32
+    %next = scalar.addi %errors, %increment : i32
+    scf.yield %next : i32
+  }
+  %logit_errors = scf.for %i = [%zero to %logit_bytes step %one](%errors = %zero32 : i32) -> (i32) {
+    %a = view.load %y[%i] : view<16xi8> -> i8
+    %b = view.load %old_y[%i] : view<16xi8> -> i8
+    %different = scalar.cmpi ne, %a, %b : i8
+    %increment = scf.select %different, %one32, %zero32 : i32
+    %next = scalar.addi %errors, %increment : i32
+    scf.yield %next : i32
+  }
+  %out = buffer.view %mismatches[%origin] : buffer -> view<2xi32>
+  view.store %q8_errors, %out[0] : i32, view<2xi32>
+  view.store %logit_errors, %out[1] : i32, view<2xi32>
+  kernel.return
+}
+
+command.def @retained_row_proof_actual() launch(%weight: buffer, %input: buffer, %packed: buffer, %output: buffer, %mismatches: buffer) {
+  %q8_bytes = index.constant 4608 : offset
+  %logit_bytes = index.constant 64 : offset
+  %old_packed = buffer.alloca<global> align(256) %q8_bytes : buffer
+  %old_logits = buffer.alloca<global> align(256) %logit_bytes : buffer
+  command.launch @single_row_anchor_actual(%weight, %input, %packed, %output) : (buffer, buffer, buffer, buffer)
+  command.launch @m4_anchor_actual(%weight, %input, %old_packed, %old_logits) : (buffer, buffer, buffer, buffer)
+  kernel.launch @retained_row_byte_mismatches(%packed, %output, %old_packed, %old_logits, %mismatches) : (buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @retained_row_proof_expected(%weight: buffer, %input: buffer, %packed: buffer, %output: buffer, %mismatches: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = scalar.constant 0 : i32
+  %out = buffer.view %mismatches[%origin] : buffer -> view<2xi32>
+  view.store %zero, %out[0] : i32, view<2xi32>
+  view.store %zero, %out[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @single_row_matches_original_row_zero_T4 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %weight = check.generate.fill value(0) : tensor<4x4x210xi8>
+    %input = check.generate.iota offset(-2.0) step(0.0030000000000000001) : tensor<4x1024xf32>
+    %packed = check.generate.fill value(-11) : tensor<4x1152xi8>
+    %output = check.generate.fill value(-77.0) : tensor<4x4xf32>
+    %mismatches = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@retained_row_proof_actual, @retained_row_proof_expected>(%weight, %input, %packed, %output, %mismatches) : (tensor<4x4x210xi8>, tensor<4x1024xf32>, tensor<4x1152xi8>, tensor<4x4xf32>, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%mismatches) expected(%mismatches) : tensor<2xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<4x1024xf32>
+    }
+  }
+  check.return
+}
+
+// Target-only scenario subjects keep reference evaluation outside timing.
+check.benchmark<@registered_head_t4_count1_public_guard> @qwen_selected_head_t4
+
+check.benchmark<@single_row_nonzero_canonical_anchor_T4> @qwen_single_row_projection_t4
+
+// Larger source capacity is independent of the one-row output capacity.
+func.def @init_epoch_last(%epoch: buffer) {
+  func.call @init_epoch_1(%epoch) : (buffer)
+  %origin = index.constant 0 : offset
+  %selection_origin = index.constant 1292 : offset
+  %header = buffer.view %epoch[%origin] : buffer -> view<3xi32>
+  %selection = buffer.view %epoch[%selection_origin] : buffer -> view<64xi32>
+  %tokens = scalar.constant 128 : i32
+  %last = scalar.constant 127 : i32
+  view.store %tokens, %header[0] : i32, view<3xi32>
+  view.store %last, %selection[0] : i32, view<64xi32>
+  func.return
+}
+
+kernel.def @init_epoch_kernel_last() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer) {
+  func.call @init_epoch_last(%epoch) : (buffer)
+  kernel.return
+}
+
+command.def @normalize_actual_last_single() launch(%input: buffer, %gamma: buffer, %epoch: buffer, %output: buffer) {
+  kernel.launch @init_epoch_kernel_last(%epoch) : (buffer)
+  %one = index.constant 1 : index
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
+  kernel.launch @qwen38_output_normalize_spans[%one](%epoch, %epsilon, %input, %gamma, %output) : [index](buffer, f32, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @normalize_expected_last_single(%input: buffer, %gamma: buffer, %epoch: buffer, %output: buffer) {
+  func.call @init_epoch_last(%epoch) : (buffer)
+  %origin = index.constant 0 : offset
+  %x = buffer.view %input[%origin] : buffer -> view<512x1024xf32>
+  %g = buffer.view %gamma[%origin] : buffer -> view<1024xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<5x1024xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %four = index.constant 1 : index
+  %width = index.constant 1024 : index
+  %zero_f = scalar.constant 0.0 : f32
+  scf.for %r = [%zero to %four step %one] {
+    scf.for %c = [%zero to %width step %one] {
+      view.store %zero_f, %out[%r, %c] : f32, view<5x1024xf32>
+    }
+  }
+  %row = index.constant 127 : index
+  %width_f = scalar.constant 1024.0 : f32
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
+  %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
+    %value = view.load %x[%row, %c] : view<512x1024xf32> -> f32
+    %square = scalar.mulf %value, %value : f32
+    %next = scalar.addf %partial, %square : f32
+    scf.yield %next : f32
+  }
+  %mean = scalar.divf %sum, %width_f : f32
+  %biased = scalar.addf %mean, %epsilon : f32
+  %scale = scalar.rsqrtf %biased : f32
+  scf.for %c = [%zero to %width step %one] {
+    %value = view.load %x[%row, %c] : view<512x1024xf32> -> f32
+    %weight = view.load %g[%c] : view<1024xf32> -> f32
+    %normalized = scalar.mulf %value, %scale : f32
+    %expected = scalar.mulf %normalized, %weight : f32
+    view.store %expected, %out[0, %c] : f32, view<5x1024xf32>
+  }
+  func.return
+}
+
+check.scenario @selected_rms_last_single_row_with_guard_T4 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-2.0) step(0.001) : tensor<512x1024xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.001) : tensor<1024xf32>
+    %epoch = check.generate.fill value(-313) : tensor<1048xi32>
+    %output = check.generate.fill value(-77.0) : tensor<5x1024xf32>
+    %guard = check.tensor.view %output offset(4096) : tensor<5x1024xf32> -> tensor<4x1024xf32>
+    check.compare<@normalize_actual_last_single, @normalize_expected_last_single>(%input, %gamma, %epoch, %output) : (tensor<512x1024xf32>, tensor<1024xf32>, tensor<1048xi32>, tensor<5x1024xf32>) -> () {
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<5x1024xf32>, tensor<5x1024xf32>
+      check.expect.bitwise actual(%guard) expected(%guard) : tensor<4x1024xf32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<512x1024xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<1024xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
     }
   }
   check.return
