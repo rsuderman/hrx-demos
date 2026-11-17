@@ -85,7 +85,7 @@ template.def<@llm.rotary.adjacent128_value> device @llm_rotary_adjacent128_value
   %inv_two_pi = scalar.constant 0.15915494309189535 : f32
   %two_pi_high = scalar.constant 6.28125 : f32
   %two_pi_mid = scalar.constant 0.001934051513671875 : f32
-  %two_pi_low = scalar.constant 0.0000012556659144769253 : f32
+  %two_pi_low = scalar.constant 1.2556659144769252e-06 : f32
   %turns0 = scalar.mulf %phase, %inv_two_pi : f32
   %turns = scalar.roundf %turns0 : f32
   %high_product = scalar.mulf %turns, %two_pi_high : f32

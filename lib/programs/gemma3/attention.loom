@@ -1,21 +1,37 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
-kernel.decl @gemma3_rmsnorm_active_f32(%rows: index) launch(%rows: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @gemma3_rmsnorm_active_f32(%rows$24: index) launch(%rows$25: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 kernel.decl @gemma3_residual(%rows: index) launch(%count: buffer, %source: buffer, %residual: buffer)
+
 config.decl @gemma3.model.hidden_size : index
+
 config.decl @gemma3.model.query_size : index
+
 config.decl @gemma3.model.kv_size : index
+
 config.decl @gemma3.model.head_size : index
+
 config.decl @gemma3.model.query_heads : index
+
 config.decl @gemma3.model.kv_heads : index
+
 config.decl @gemma3.attention.cache_base : offset
+
 config.decl @gemma3.attention.map_origin : offset
+
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
+
 kernel.decl @gemma3_prepare_qk(%rows: index, %heads: index) launch(%layer: index, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer)
+
 kernel.decl @gemma3_publish_kv(%rows: index) launch(%layer: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
 kernel.decl @gemma3_attention_rows(%rows: index) launch(%layer: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
 command.def @loomify.gemma3.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @gemma3.model.hidden_size : index
   %zero = index.constant 0 : index

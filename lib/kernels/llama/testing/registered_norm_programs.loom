@@ -6,9 +6,9 @@ config.def @llama.model.hidden_size = 3072 : index
 
 config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
 
-kernel.decl @llama32_rmsnorm_f32(%token_count0: index) launch(%token_count0: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_f32(%token_count0$2: index) launch(%token_count0$3: index, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @llm_ffn_residual_add_f32_prefill(%token_count: index, %hidden_size: index) launch(%hidden_size: index, %token_count: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+kernel.decl @llm_ffn_residual_add_f32_prefill(%token_count$7: index, %hidden_size$8: index) launch(%hidden_size$9: index, %token_count$10: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
 command.def public retain @registered.norm() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
   command.serial {

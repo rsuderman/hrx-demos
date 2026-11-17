@@ -1,17 +1,21 @@
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.ffn_size : index
+
 config.decl @qwen.model.hidden_divisor : f32
+
 config.decl @qwen.model.hidden_size : index
 
 template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
 template.decl @llm.swiglu_f32.row(%ffn_size0: index, %row_count0: index, %row0: index, %gate: buffer, %up: buffer, %output: buffer)
 
 // Elementwise and normalization primitives shared by Qwen3.8 decode layers.
 // Quantized projections and attention/GDN state transitions remain in their
 // own files so command programs can select and compose them independently.
-
 amdgpu.target<gfx11-generic> @qwen38_layer_gfx11_wave32 {subgroup_size = 32}
 
 // Callers provide a contiguous F32 row domain, its F32 width divisor, and
@@ -186,13 +190,13 @@ kernel.def export("qwen38_swiglu_f32_decode") @qwen38_swiglu_f32_decode() {
 // with the matching variant config so fixture and kernel dimensions agree.
 check.case public @qwen38_rmsnorm_f32_decode_known_case {
   %shape_hidden_size = check.literal value(5120) : index
-  %epsilon = check.literal value(0.000001) : f32
+  %epsilon = check.literal value(9.9999999999999995e-07) : f32
   %input = check.generate.fill value(2.0) : tensor<[%shape_hidden_size]xf32>
   %weight = check.generate.fill value(0.5) : tensor<[%shape_hidden_size]xf32>
   %output = check.generate.fill value(0.0) : tensor<[%shape_hidden_size]xf32>
-  %expected = check.generate.fill value(0.49999994) : tensor<[%shape_hidden_size]xf32>
+  %expected = check.generate.fill value(0.49999993999999998) : tensor<[%shape_hidden_size]xf32>
   kernel.launch @qwen38_rmsnorm_f32_decode(%epsilon, %input, %weight, %output) : (f32, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>)
-  check.expect.approximate actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
   check.return
 }
 
@@ -212,22 +216,22 @@ check.case public @qwen38_swiglu_f32_decode_known_case {
   %gate = check.generate.fill value(0.25) : tensor<[%shape_ffn_size]xf32>
   %up = check.generate.fill value(0.5) : tensor<[%shape_ffn_size]xf32>
   %output = check.generate.fill value(0.0) : tensor<[%shape_ffn_size]xf32>
-  %expected = check.generate.fill value(0.07027235627174377) : tensor<[%shape_ffn_size]xf32>
+  %expected = check.generate.fill value(0.070272356271743774) : tensor<[%shape_ffn_size]xf32>
   kernel.launch @qwen38_swiglu_f32_decode(%gate, %up, %output) : (tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>)
-  check.expect.approximate actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
   check.return
 }
 
 check.case public @qwen38_layer_decode_primitives_known_case {
   %shape_ffn_size = check.literal value(17408) : index
   %shape_hidden_size = check.literal value(5120) : index
-  %epsilon = check.literal value(0.000001) : f32
+  %epsilon = check.literal value(9.9999999999999995e-07) : f32
   %norm_input = check.generate.fill value(2.0) : tensor<[%shape_hidden_size]xf32>
   %norm_weight = check.generate.fill value(0.5) : tensor<[%shape_hidden_size]xf32>
   %normalized = check.generate.fill value(0.0) : tensor<[%shape_hidden_size]xf32>
-  %expected_normalized = check.generate.fill value(0.49999994) : tensor<[%shape_hidden_size]xf32>
+  %expected_normalized = check.generate.fill value(0.49999993999999998) : tensor<[%shape_hidden_size]xf32>
   kernel.launch @qwen38_rmsnorm_f32_decode(%epsilon, %norm_input, %norm_weight, %normalized) : (f32, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>)
-  check.expect.approximate actual(%normalized) expected(%expected_normalized) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%normalized) expected(%expected_normalized) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
 
   %lhs = check.generate.fill value(0.125) : tensor<[%shape_hidden_size]xf32>
   %rhs = check.generate.fill value(-0.0625) : tensor<[%shape_hidden_size]xf32>
@@ -239,21 +243,21 @@ check.case public @qwen38_layer_decode_primitives_known_case {
   %gate = check.generate.fill value(0.25) : tensor<[%shape_ffn_size]xf32>
   %up = check.generate.fill value(0.5) : tensor<[%shape_ffn_size]xf32>
   %swiglu = check.generate.fill value(0.0) : tensor<[%shape_ffn_size]xf32>
-  %expected_swiglu = check.generate.fill value(0.07027235627174377) : tensor<[%shape_ffn_size]xf32>
+  %expected_swiglu = check.generate.fill value(0.070272356271743774) : tensor<[%shape_ffn_size]xf32>
   kernel.launch @qwen38_swiglu_f32_decode(%gate, %up, %swiglu) : (tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>)
-  check.expect.approximate actual(%swiglu) expected(%expected_swiglu) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
+  check.expect.approximate actual(%swiglu) expected(%expected_swiglu) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
   check.return
 }
 
 check.case public @qwen38_rmsnorm_f32_decode_known_08b_case {
   %shape_hidden_size = check.literal value(1024) : index
-  %epsilon = check.literal value(0.000001) : f32
+  %epsilon = check.literal value(9.9999999999999995e-07) : f32
   %input = check.generate.fill value(2.0) : tensor<[%shape_hidden_size]xf32>
   %weight = check.generate.fill value(0.5) : tensor<[%shape_hidden_size]xf32>
   %output = check.generate.fill value(0.0) : tensor<[%shape_hidden_size]xf32>
-  %expected = check.generate.fill value(0.49999994) : tensor<[%shape_hidden_size]xf32>
+  %expected = check.generate.fill value(0.49999993999999998) : tensor<[%shape_hidden_size]xf32>
   kernel.launch @qwen38_rmsnorm_f32_decode(%epsilon, %input, %weight, %output) : (f32, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>)
-  check.expect.approximate actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
   check.return
 }
 
@@ -273,22 +277,22 @@ check.case public @qwen38_swiglu_f32_decode_known_08b_case {
   %gate = check.generate.fill value(0.25) : tensor<[%shape_ffn_size]xf32>
   %up = check.generate.fill value(0.5) : tensor<[%shape_ffn_size]xf32>
   %output = check.generate.fill value(0.0) : tensor<[%shape_ffn_size]xf32>
-  %expected = check.generate.fill value(0.07027235627174377) : tensor<[%shape_ffn_size]xf32>
+  %expected = check.generate.fill value(0.070272356271743774) : tensor<[%shape_ffn_size]xf32>
   kernel.launch @qwen38_swiglu_f32_decode(%gate, %up, %output) : (tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>)
-  check.expect.approximate actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
   check.return
 }
 
 check.case public @qwen38_layer_decode_primitives_known_08b_case {
   %shape_ffn_size = check.literal value(3584) : index
   %shape_hidden_size = check.literal value(1024) : index
-  %epsilon = check.literal value(0.000001) : f32
+  %epsilon = check.literal value(9.9999999999999995e-07) : f32
   %norm_input = check.generate.fill value(2.0) : tensor<[%shape_hidden_size]xf32>
   %norm_weight = check.generate.fill value(0.5) : tensor<[%shape_hidden_size]xf32>
   %normalized = check.generate.fill value(0.0) : tensor<[%shape_hidden_size]xf32>
-  %expected_normalized = check.generate.fill value(0.49999994) : tensor<[%shape_hidden_size]xf32>
+  %expected_normalized = check.generate.fill value(0.49999993999999998) : tensor<[%shape_hidden_size]xf32>
   kernel.launch @qwen38_rmsnorm_f32_decode(%epsilon, %norm_input, %norm_weight, %normalized) : (f32, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>)
-  check.expect.approximate actual(%normalized) expected(%expected_normalized) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
+  check.expect.approximate actual(%normalized) expected(%expected_normalized) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_hidden_size]xf32>, tensor<[%shape_hidden_size]xf32>
 
   %lhs = check.generate.fill value(0.125) : tensor<[%shape_hidden_size]xf32>
   %rhs = check.generate.fill value(-0.0625) : tensor<[%shape_hidden_size]xf32>
@@ -300,9 +304,9 @@ check.case public @qwen38_layer_decode_primitives_known_08b_case {
   %gate = check.generate.fill value(0.25) : tensor<[%shape_ffn_size]xf32>
   %up = check.generate.fill value(0.5) : tensor<[%shape_ffn_size]xf32>
   %swiglu = check.generate.fill value(0.0) : tensor<[%shape_ffn_size]xf32>
-  %expected_swiglu = check.generate.fill value(0.07027235627174377) : tensor<[%shape_ffn_size]xf32>
+  %expected_swiglu = check.generate.fill value(0.070272356271743774) : tensor<[%shape_ffn_size]xf32>
   kernel.launch @qwen38_swiglu_f32_decode(%gate, %up, %swiglu) : (tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>)
-  check.expect.approximate actual(%swiglu) expected(%expected_swiglu) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
+  check.expect.approximate actual(%swiglu) expected(%expected_swiglu) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_ffn_size]xf32>, tensor<[%shape_ffn_size]xf32>
   check.return
 }
 
@@ -375,13 +379,13 @@ kernel.def @llm_swiglu_f32_known_fixture() {
 }
 
 check.case public @llm_primitives_llama_known_case {
-  %epsilon = check.literal value(0.00001) : f32
+  %epsilon = check.literal value(1.0000000000000001e-05) : f32
   %input = check.generate.fill value(2.0) : tensor<3x3072xf32>
   %weight = check.generate.fill value(0.5) : tensor<3072xf32>
   %normalized = check.generate.fill value(0.0) : tensor<3x3072xf32>
   %expected_normalized = check.generate.fill value(0.49999937415122986) : tensor<3x3072xf32>
   kernel.launch @llm_rmsnorm_f32_known_fixture(%epsilon, %input, %weight, %normalized) : (f32, tensor<3x3072xf32>, tensor<3072xf32>, tensor<3x3072xf32>)
-  check.expect.approximate actual(%normalized) expected(%expected_normalized) atol(0.000001) rtol(0.000001) nan(same) : tensor<3x3072xf32>, tensor<3x3072xf32>
+  check.expect.approximate actual(%normalized) expected(%expected_normalized) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<3x3072xf32>, tensor<3x3072xf32>
   %normalized_f16 = check.generate.fill value(0.0) : tensor<3x3072xf16>
   %expected_normalized_f16 = check.generate.fill value(0.5) : tensor<3x3072xf16>
   kernel.launch @llm_rmsnorm_f16_known_fixture(%epsilon, %input, %weight, %normalized_f16) : (f32, tensor<3x3072xf32>, tensor<3072xf32>, tensor<3x3072xf16>)
@@ -394,9 +398,9 @@ check.case public @llm_primitives_llama_known_case {
   %gate = check.generate.fill value(0.25) : tensor<3x8192xf32>
   %up = check.generate.fill value(0.5) : tensor<3x8192xf32>
   %swiglu = check.generate.fill value(0.0) : tensor<3x8192xf32>
-  %expected_swiglu = check.generate.fill value(0.07027235627174377) : tensor<3x8192xf32>
+  %expected_swiglu = check.generate.fill value(0.070272356271743774) : tensor<3x8192xf32>
   kernel.launch @llm_swiglu_f32_known_fixture(%gate, %up, %swiglu) : (tensor<3x8192xf32>, tensor<3x8192xf32>, tensor<3x8192xf32>)
-  check.expect.approximate actual(%swiglu) expected(%expected_swiglu) atol(0.000001) rtol(0.000001) nan(same) : tensor<3x8192xf32>, tensor<3x8192xf32>
+  check.expect.approximate actual(%swiglu) expected(%expected_swiglu) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<3x8192xf32>, tensor<3x8192xf32>
   check.return
 }
 

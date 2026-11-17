@@ -4,9 +4,13 @@
 // all20blocks and all8scale/min groups, nonzero origins, repeated/reordered IDs,
 // mixed signs and non-F16-representable results; inactive row and bank guards.
 config.def @qwen.model.hidden_size = 5120 : index
+
 config.def @qwen.model.hidden_row_bytes = 20480 : index
+
 config.def @qwen.model.embedding_row_bytes = 2880 : index
+
 kernel.decl @qwen38_token_embedding_q4k_f32_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
+
 func.def @q4.d(%row: index, %block: index) -> (f32) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -25,6 +29,7 @@ func.def @q4.d(%row: index, %block: index) -> (f32) {
   %value = scf.select %odd, %small, %d : f32
   func.return %value : f32
 }
+
 func.def @q4.setup(%weights: buffer, %ids: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -119,15 +124,17 @@ func.def @q4.setup(%weights: buffer, %ids: buffer) {
   }
   func.return
 }
+
 kernel.def @q4.init() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%weights: buffer, %ids: buffer) {
-  func.call @q4.setup(%weights, %ids) : (buffer, buffer) -> ()
+  func.call @q4.setup(%weights, %ids) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual.q4() launch(%weights: buffer, %ids: buffer, %output: buffer) {
-  kernel.launch @q4.init[](%weights, %ids) : [](buffer, buffer)
+  kernel.launch @q4.init(%weights, %ids) : (buffer, buffer)
   %tokens = index.constant 3 : index
   %weight_begin = index.constant 256 : offset
   %output_begin = index.constant 128 : offset
@@ -136,8 +143,9 @@ command.def public @actual.q4() launch(%weights: buffer, %ids: buffer, %output: 
   kernel.launch @qwen38_token_embedding_q4k_f32_prefill[%tokens](%ids, %w, %out) : [index](buffer, view<8640xi8>, view<20480xf32>)
   command.return
 }
+
 func.def @expected.q4(%weights: buffer, %ids: buffer, %output: buffer) {
-  func.call @q4.setup(%weights, %ids) : (buffer, buffer) -> ()
+  func.call @q4.setup(%weights, %ids) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -194,6 +202,7 @@ func.def @expected.q4(%weights: buffer, %ids: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @q4_embedding_f32_5120_nonzero {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<9152xi8>

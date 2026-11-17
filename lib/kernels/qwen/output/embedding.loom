@@ -2,17 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated ordinary Qwen0.8B closure from loom-pipeline at0aed77a.
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.embedding_row_bytes : index
+
 template.decl @ggml.q6k.f32_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf32>)
+
 template.decl @ggml.q6k.f16_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf16>)
+
 template.decl @llm.token_embedding_q6k_f16.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
+
 template.decl @qwen38.token_embedding_q6k_f16.row(%token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
+
 template.def<@ggml.q6k.f16_vector4> device @ggml_q6k_f16_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf16>) {
   %values_f32 = template.apply<@ggml.q6k.f32_vector4>(%weight, %weight_row_byte_base, %q6_block, %q6_group, %packet) : (buffer, offset, index, index, index) -> (vector<4xf32>)
   %values = vector.fptrunc %values_f32 : vector<4xf32> to vector<4xf16>
   template.return %values : vector<4xf16>
 }
+
 template.def<@llm.token_embedding_q6k_f16.row> device @llm_token_embedding_q6k_f16_row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer) {
   %workitem = kernel.workitem.id<x> : index
   %c4 = index.constant 4 : index
@@ -37,12 +45,14 @@ template.def<@llm.token_embedding_q6k_f16.row> device @llm_token_embedding_q6k_f
   }
   template.return
 }
+
 template.def<@qwen38.token_embedding_q6k_f16.row> device @qwen38_token_embedding_q6k_f16_row(%token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer) {
   %hidden_size = config.get @qwen.model.hidden_size : index
   %row_bytes = config.get @qwen.model.embedding_row_bytes : index
   template.apply<@llm.token_embedding_q6k_f16.row>(%hidden_size, %row_bytes, %token_id_i32, %output_byte_offset, %weight, %output) : (index, index, i32, offset, buffer, buffer)
   template.return
 }
+
 kernel.def export("qwen38_token_embedding_q6k_f16_prefill") @qwen38_token_embedding_q6k_f16_prefill(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
   %c1 = index.constant 1 : index
@@ -62,6 +72,7 @@ kernel.def export("qwen38_token_embedding_q6k_f16_prefill") @qwen38_token_embedd
 }
 
 template.decl @llm.token_embedding_q4k_f32.row(%hidden: index, %row_bytes: index, %id: i32, %origin: offset, %weight: buffer, %output: buffer)
+
 kernel.def export("qwen38_token_embedding_q4k_f32_prefill") @qwen38_token_embedding_q4k_f32_prefill(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
   %c1 = index.constant 1 : index

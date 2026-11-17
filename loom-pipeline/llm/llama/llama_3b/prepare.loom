@@ -5,43 +5,64 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
+
 func.decl import("prepare") @config_i64(%stage: i32, %key: buffer, %value: i64)
+
 func.decl import("prepare") @source(%directory: buffer, %path: buffer) -> (i32)
+
 func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %input: i32, %source: i32, %policy: buffer)
+
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
 
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.ffn_size : index
+
 config.decl @llama.model.kv_size : index
+
 config.decl @llama.model.layer_count : index
 
 // llama32_prefill
 global.rodata.def @prefill_root = bytes("6c6c616d6133325f70726566696c6c")
+
 // llama32_text_decode_greedy
 global.rodata.def @decode_root = bytes("6c6c616d6133325f746578745f6465636f64655f677265656479")
+
 // llama32_epoch
 global.rodata.def @epoch_root = bytes("6c6c616d6133325f65706f6368")
+
 // weights.loom
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
+
 // <|eot_id|>
 global.rodata.def @terminal = bytes("3c7c656f745f69647c3e")
+
 // Empty path component.
 global.rodata.def @empty = bytes("")
+
 // Llama 3B requires target-only greedy stages, empty model options and valid bounded capacities
 global.rodata.def @unsupported = bytes("4c6c616d61203342207265717569726573207461726765742d6f6e6c7920677265656479207374616765732c20656d707479206d6f64656c206f7074696f6e7320616e642076616c696420626f756e6465642063617061636974696573")
+
 // runner.llama32.prefill_token_count
 global.rodata.def @prefill_key = bytes("72756e6e65722e6c6c616d6133322e70726566696c6c5f746f6b656e5f636f756e74")
+
 // runner.llama32.span_capacity
 global.rodata.def @span_key = bytes("72756e6e65722e6c6c616d6133322e7370616e5f6361706163697479")
+
 // llama.attention.cache_capacity
 global.rodata.def @context_key = bytes("6c6c616d612e617474656e74696f6e2e63616368655f6361706163697479")
+
 // llama.attention.pool_capacity
 global.rodata.def @pool_key = bytes("6c6c616d612e617474656e74696f6e2e706f6f6c5f6361706163697479")
+
 // ggml.linear_q4k_q8_1_x4.token_capacity
 global.rodata.def @q4_key = bytes("67676d6c2e6c696e6561725f71346b5f71385f315f78342e746f6b656e5f6361706163697479")
+
 // ggml.linear_q6k_q8_1_x4.token_capacity
 global.rodata.def @q6_key = bytes("67676d6c2e6c696e6561725f71366b5f71385f315f78342e746f6b656e5f6361706163697479")
+
 // ggml.quantize_q8_1_x4.group_capacity
 global.rodata.def @groups_key = bytes("67676d6c2e7175616e74697a655f71385f315f78342e67726f75705f6361706163697479")
 
@@ -56,24 +77,24 @@ func.def @llama32_declare_stage(%root: buffer, %tokens: i64, %spans: i64, %capac
   %groups_per_token = index.cast %ffn_groups : index to i64
   %groups = scalar.muli %groups_per_token, %capacity : i64
   %prefill_key = global.load @prefill_key : buffer
-  func.call @config_i64(%stage, %prefill_key, %tokens) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %prefill_key, %tokens) : (i32, buffer, i64)
   %span_key = global.load @span_key : buffer
-  func.call @config_i64(%stage, %span_key, %spans) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %span_key, %spans) : (i32, buffer, i64)
   %context_key = global.load @context_key : buffer
-  func.call @config_i64(%stage, %context_key, %context) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %context_key, %context) : (i32, buffer, i64)
   %pool_key = global.load @pool_key : buffer
-  func.call @config_i64(%stage, %pool_key, %pool) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %pool_key, %pool) : (i32, buffer, i64)
   %q4_key = global.load @q4_key : buffer
-  func.call @config_i64(%stage, %q4_key, %capacity) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %q4_key, %capacity) : (i32, buffer, i64)
   %q6_key = global.load @q6_key : buffer
-  func.call @config_i64(%stage, %q6_key, %capacity) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %q6_key, %capacity) : (i32, buffer, i64)
   %groups_key = global.load @groups_key : buffer
-  func.call @config_i64(%stage, %groups_key, %groups) : (i32, buffer, i64) -> ()
+  func.call @config_i64(%stage, %groups_key, %groups) : (i32, buffer, i64)
   %empty = global.load @empty : buffer
   %policy = global.load @policy : buffer
   %zero = scalar.constant 0 : i32
   %registered_source_1 = func.call @source(%empty, %weights) : (buffer, buffer) -> (i32)
-  func.call @parameter(%stage, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer) -> ()
+  func.call @parameter(%stage, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer)
   func.return %stage : i32
 }
 
@@ -169,15 +190,14 @@ func.def @llama32_storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %pa
   %allocation_bytes = index.constant 264 : offset
   %allocations = buffer.alloca<private> align(8) %allocation_bytes : buffer
   scf.for %slot = [%zero to %eleven step %one] {
-    func.call @llama32_allocation(%allocations, %slot, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
-    scf.yield
+    func.call @llama32_allocation(%allocations, %slot, %zero64, %zero64) : (buffer, index, i64, i64)
   }
-  func.call @llama32_allocation(%allocations, %zero, %residual_bytes, %residual_bytes) : (buffer, index, i64, i64) -> ()
-  func.call @llama32_allocation(%allocations, %one, %arena_bytes, %private_bytes) : (buffer, index, i64, i64) -> ()
-  func.call @llama32_allocation(%allocations, %two, %packed_metadata, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @llama32_allocation(%allocations, %three, %packed_table, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @llama32_allocation(%allocations, %four, %packed_tokens, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @llama32_allocation(%allocations, %five, %packed_outputs, %zero64) : (buffer, index, i64, i64) -> ()
+  func.call @llama32_allocation(%allocations, %zero, %residual_bytes, %residual_bytes) : (buffer, index, i64, i64)
+  func.call @llama32_allocation(%allocations, %one, %arena_bytes, %private_bytes) : (buffer, index, i64, i64)
+  func.call @llama32_allocation(%allocations, %two, %packed_metadata, %zero64) : (buffer, index, i64, i64)
+  func.call @llama32_allocation(%allocations, %three, %packed_table, %zero64) : (buffer, index, i64, i64)
+  func.call @llama32_allocation(%allocations, %four, %packed_tokens, %zero64) : (buffer, index, i64, i64)
+  func.call @llama32_allocation(%allocations, %five, %packed_outputs, %zero64) : (buffer, index, i64, i64)
   // All five draft allocations remain zero. There is no GDN, MTP or draft cache.
   %bounded_rows = scalar.assume %rows [range(%rows, 1, 16)] : i64
   %row_count = index.cast %bounded_rows : i64 to index
@@ -196,15 +216,14 @@ func.def @llama32_storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %pa
     %attention_base = scalar.addi %base, %attention_origin : i64
     %tokens_base = scalar.addi %base, %tokens_offset : i64
     %progress_base = scalar.addi %base, %progress_offset : i64
-    func.call @llama32_row_view(%views, %row_count, %i, %zero, %base, %control_bytes) : (buffer, index, index, index, i64, i64) -> ()
-    func.call @llama32_row_view(%views, %row_count, %i, %one, %attention_base, %attention_bytes) : (buffer, index, index, index, i64, i64) -> ()
-    func.call @llama32_row_view(%views, %row_count, %i, %two, %tokens_base, %token_bytes) : (buffer, index, index, index, i64, i64) -> ()
-    func.call @llama32_row_view(%views, %row_count, %i, %three, %progress_base, %progress_bytes) : (buffer, index, index, index, i64, i64) -> ()
+    func.call @llama32_row_view(%views, %row_count, %i, %zero, %base, %control_bytes) : (buffer, index, index, index, i64, i64)
+    func.call @llama32_row_view(%views, %row_count, %i, %one, %attention_base, %attention_bytes) : (buffer, index, index, index, i64, i64)
+    func.call @llama32_row_view(%views, %row_count, %i, %two, %tokens_base, %token_bytes) : (buffer, index, index, index, i64, i64)
+    func.call @llama32_row_view(%views, %row_count, %i, %three, %progress_base, %progress_bytes) : (buffer, index, index, index, i64, i64)
     %kv_base = scf.select %pooled, %private_bytes, %attention_base : i64
     view.store %slot_base, %target[%i, 0] : i64, view<16x4xi64>
     view.store %slot_base, %target[%i, 1] : i64, view<16x4xi64>
     view.store %kv_base, %target[%i, 2] : i64, view<16x4xi64>
-    scf.yield
   }
   %header_bytes = index.constant 64 : offset
   %pooled_geometry_bytes = index.constant 104 : offset
@@ -229,7 +248,6 @@ func.def @llama32_storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %pa
     view.store %planes, %region[2] : i64, view<5xi64>
     view.store %plane_stride, %region[3] : i64, view<5xi64>
     view.store %block_bytes, %region[4] : i64, view<5xi64>
-    scf.yield
   }
   func.return %allocations, %views, %origins, %draft_origins, %geometry : buffer, buffer, buffer, buffer, buffer
 }
@@ -290,7 +308,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %supported = scalar.andi %valid_epochs, %valid_pins : i1
   %supported32 = scalar.extui %supported : i1 to i32
   %diagnostic = global.load @unsupported : buffer
-  func.call @require(%supported32, %diagnostic) : (i32, buffer) -> ()
+  func.call @require(%supported32, %diagnostic) : (i32, buffer)
   %bounded = scalar.assume %shape_count [range(%shape_count, 0, 2147483645)] : i64
   %count = index.cast %bounded : i64 to index
   %view = buffer.view %shapes[%origin] : buffer -> view<[%count]x2xi64>
@@ -312,7 +330,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
     %span_range = scalar.andi %span_min, %span_bound : i1
     %valid_shape = scalar.andi %token_fit, %span_range : i1
     %valid_shape32 = scalar.extui %valid_shape : i1 to i32
-    func.call @require(%valid_shape32, %diagnostic) : (i32, buffer) -> ()
+    func.call @require(%valid_shape32, %diagnostic) : (i32, buffer)
     %stage = func.call @llama32_declare_stage(%epoch_root, %tokens, %spans, %capacity, %context, %pool, %weights) : (buffer, i64, i64, i64, i64, i64, buffer) -> (i32)
     %larger = scalar.cmpi ugt, %tokens, %previous : i64
     %next = scf.select %larger, %tokens, %previous : i64

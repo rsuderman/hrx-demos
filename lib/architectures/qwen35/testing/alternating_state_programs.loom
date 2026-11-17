@@ -3,14 +3,23 @@
 // Generated GGUF route data selects actual stateful recurrence and attention
 // publication children. This is an ordinal/state witness, not an FFN/model oracle.
 config.decl @qwen.model.base_layers : index
+
 config.decl @qwen.model.gdn_layer_bytes : index
+
 config.decl @qwen.model.gdn_state_bytes : index
+
 config.decl @qwen.model.kv_plane_token_bytes : index
+
 config.decl @qwen38.attention.pool_capacity : index
+
 config.decl @qwen.model.rms_epsilon : f32
+
 func.decl pure @loomify.config.layer_route(%slot: index) -> (index, index, index)
-kernel.decl @qwen08_gdn_clear_raw(%tokens: index) launch(%tokens: index, %output: buffer)
+
+kernel.decl @qwen08_gdn_clear_raw(%tokens$10: index) launch(%tokens$11: index, %output: buffer)
+
 kernel.decl @qwen38_gdn_recurrent_spans(%spans: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer)
+
 kernel.decl @qwen38_attention_kv_prepare_spans(%tokens: index, %spans: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer)
 
 func.def @route_seed_state(%state: buffer, %cache: buffer) {
@@ -29,21 +38,27 @@ func.def @route_seed_state(%state: buffer, %cache: buffer) {
     %relative = index.scale %ordinal, %stride : index, offset -> offset
     %origin = index.add %guard, %relative : offset
     %matrix = buffer.view %state[%origin] : buffer -> view<262144xf32>
-    scf.for %i = [%zero to %count step %one] { view.store %initial, %matrix[%i] : f32, view<262144xf32> }
+    scf.for %i = [%zero to %count step %one] {
+      view.store %initial, %matrix[%i] : f32, view<262144xf32>
+    }
   }
   %cached = buffer.view %cache[%guard] : buffer -> view<524288xf16>
   %cache_count = index.constant 524288 : index
   %poison = scalar.constant -99.0 : f16
-  scf.for %i = [%zero to %cache_count step %one] { view.store %poison, %cached[%i] : f16, view<524288xf16> }
+  scf.for %i = [%zero to %cache_count step %one] {
+    view.store %poison, %cached[%i] : f16, view<524288xf16>
+  }
   func.return
 }
+
 kernel.def @route_seed_state_kernel() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%state: buffer, %cache: buffer) {
-  func.call @route_seed_state(%state, %cache) : (buffer, buffer) -> ()
+  func.call @route_seed_state(%state, %cache) : (buffer, buffer)
   kernel.return
 }
+
 func.def @route_epoch(%position: index, %epoch: buffer, %rows: buffer) {
   %origin = index.constant 0 : offset
   %p = index.cast %position : index to i32
@@ -73,13 +88,15 @@ func.def @route_epoch(%position: index, %epoch: buffer, %rows: buffer) {
   view.store %one, %pages[1] : i32, view<2xi32>
   func.return
 }
+
 kernel.def @route_epoch_kernel() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%position: index, %epoch: buffer, %rows: buffer) {
-  func.call @route_epoch(%position, %epoch, %rows) : (index, buffer, buffer) -> ()
+  func.call @route_epoch(%position, %epoch, %rows) : (index, buffer, buffer)
   kernel.return
 }
+
 kernel.def @route_value_seed() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -94,9 +111,12 @@ kernel.def @route_value_seed() {
   %i = index.cast %b : index to i32
   %v = scalar.uitofp %i : i32 to f32
   %out = buffer.view %value[%origin] : buffer -> view<3x512xf32>
-  scf.for %c = [%zero to %width step %one] { view.store %v, %out[%two, %c] : f32, view<3x512xf32> }
+  scf.for %c = [%zero to %width step %one] {
+    view.store %v, %out[%two, %c] : f32, view<3x512xf32>
+  }
   kernel.return
 }
+
 command.def @route_step(%position: index) launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -111,13 +131,13 @@ command.def @route_step(%position: index) launch(%epoch: buffer, %rows: buffer, 
   %gdn_bytes = index.cast %gdn_stride : index to offset
   %cache_bytes = index.cast %cache_stride : index to offset
   %epsilon = config.get @qwen.model.rms_epsilon : f32
-  kernel.launch @route_epoch_kernel[](%position, %epoch, %rows) : [](index, buffer, buffer)
+  kernel.launch @route_epoch_kernel(%position, %epoch, %rows) : (index, buffer, buffer)
   scf.for %slot = [%zero to %layers step %one] unroll {
     %kind, %original, %ordinal = func.call pure @loomify.config.layer_route(%slot) : (index) -> (index, index, index)
     %attention = index.cmp eq, %kind, %zero : index
     scf.if %attention {
       %origin = index.scale %ordinal, %cache_bytes : index, offset -> offset
-      kernel.launch @route_value_seed[](%ordinal, %position, %value) : [](index, index, buffer)
+      kernel.launch @route_value_seed(%ordinal, %position, %value) : (index, index, buffer)
       kernel.launch @qwen38_attention_kv_prepare_spans[%one, %one](%epoch, %rows, %origin, %epsilon, %key, %value, %gamma, %cache) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
     } else {
       %origin = index.scale %ordinal, %gdn_bytes : index, offset -> offset
@@ -131,7 +151,7 @@ command.def @route_step(%position: index) launch(%epoch: buffer, %rows: buffer, 
 command.def public @route_actual_dependent() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  kernel.launch @route_seed_state_kernel[](%state, %cache) : [](buffer, buffer)
+  kernel.launch @route_seed_state_kernel(%state, %cache) : (buffer, buffer)
   command.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.launch @route_step[%one](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
@@ -140,15 +160,16 @@ command.def public @route_actual_dependent() launch(%epoch: buffer, %rows: buffe
 command.def public @route_actual_reset() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  kernel.launch @route_seed_state_kernel[](%state, %cache) : [](buffer, buffer)
+  kernel.launch @route_seed_state_kernel(%state, %cache) : (buffer, buffer)
   command.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.launch @route_step[%one](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @route_seed_state_kernel[](%state, %cache) : [](buffer, buffer)
+  kernel.launch @route_seed_state_kernel(%state, %cache) : (buffer, buffer)
   command.launch @route_step[%zero](%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @route_expected(%steps: index, %epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
-  func.call @route_seed_state(%state, %cache) : (buffer, buffer) -> ()
+  func.call @route_seed_state(%state, %cache) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -161,11 +182,13 @@ func.def @route_expected(%steps: index, %epoch: buffer, %rows: buffer, %qkv: buf
   %guard = index.constant 256 : offset
   %origin = index.constant 0 : offset
   %quarter = scalar.constant 0.25 : f32
-  %increment = scalar.constant 0.04419417382415922 : f32
+  %increment = scalar.constant 0.044194173824159223 : f32
   %raw_view = buffer.view %raw[%origin] : buffer -> view<3x2048xf32>
   %zero_f = scalar.constant 0.0 : f32
   scf.for %t = [%zero to %three step %one] {
-    scf.for %c = [%zero to %width step %one] { view.store %zero_f, %raw_view[%t, %c] : f32, view<3x2048xf32> }
+    scf.for %c = [%zero to %width step %one] {
+      view.store %zero_f, %raw_view[%t, %c] : f32, view<3x2048xf32>
+    }
   }
   // Four independent initial values distinguish every emitted recurrent ordinal.
   scf.for %ordinal = [%zero to %four step %one] {
@@ -178,9 +201,15 @@ func.def @route_expected(%steps: index, %epoch: buffer, %rows: buffer, %qkv: buf
       %next = scalar.addf %decayed, %increment : f32
       scf.yield %next : f32
     }
-    scf.for %i = [%zero to %matrix_count step %one] { view.store %last, %matrix[%i] : f32, view<262144xf32> }
+    scf.for %i = [%zero to %matrix_count step %one] {
+      view.store %last, %matrix[%i] : f32, view<262144xf32>
+    }
     %final = index.cmp eq, %ordinal, %three : index
-    scf.if %final { scf.for %c = [%zero to %width step %one] { view.store %last, %raw_view[%two, %c] : f32, view<3x2048xf32> } }
+    scf.if %final {
+      scf.for %c = [%zero to %width step %one] {
+        view.store %last, %raw_view[%two, %c] : f32, view<3x2048xf32>
+      }
+    }
   }
   %cached = buffer.view %cache[%guard] : buffer -> view<4x2x128x512xf16>
   %key_zero = scalar.constant 0.0 : f16
@@ -198,22 +227,25 @@ func.def @route_expected(%steps: index, %epoch: buffer, %rows: buffer, %qkv: buf
     }
   }
   %position = index.sub %steps, %one : index
-  func.call @route_epoch(%position, %epoch, %rows) : (index, buffer, buffer) -> ()
+  func.call @route_epoch(%position, %epoch, %rows) : (index, buffer, buffer)
   %last_value = index.add %four, %position : index
   %lv32 = index.cast %last_value : index to i32
   %lv = scalar.uitofp %lv32 : i32 to f32
   %values = buffer.view %value[%origin] : buffer -> view<3x512xf32>
-  scf.for %c = [%zero to %channels step %one] { view.store %lv, %values[%two, %c] : f32, view<3x512xf32> }
+  scf.for %c = [%zero to %channels step %one] {
+    view.store %lv, %values[%two, %c] : f32, view<3x512xf32>
+  }
   func.return
 }
+
 func.def public @route_expected_dependent(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %n = index.constant 2 : index
-  func.call @route_expected(%n, %epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : (index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @route_expected(%n, %epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : (index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
 
 func.def public @route_expected_reset(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer) {
   %n = index.constant 1 : index
-  func.call @route_expected(%n, %epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : (index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @route_expected(%n, %epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : (index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }

@@ -1,28 +1,31 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 kernel.decl @llm.attention.prepare_qk_factored_h128(%rows: index, %heads: index) launch(%capacity: index, %epsilon: f32, %rope_step: f32, %use_factors: i1, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %factors: buffer, %output: buffer)
+
 command.def @factored.qk.global() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
   %rows = index.constant 3 : index
   %heads = index.constant 2 : index
   %capacity = index.constant 128 : index
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   %step = scalar.constant -0.21586735546588898 : f32
   %global = scalar.constant true : i1
   %origin = index.constant 0 : offset
   kernel.launch @llm.attention.prepare_qk_factored_h128[%rows, %heads](%capacity, %epsilon, %step, %global, %origin, %epoch, %input, %gamma, %factors, %output) : [index, index](index, f32, f32, i1, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @factored.qk.local() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
   %rows = index.constant 3 : index
   %heads = index.constant 2 : index
   %capacity = index.constant 128 : index
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   %step = scalar.constant -0.14391157031059265 : f32
   %global = scalar.constant false : i1
   %origin = index.constant 0 : offset
   kernel.launch @llm.attention.prepare_qk_factored_h128[%rows, %heads](%capacity, %epsilon, %step, %global, %origin, %epoch, %input, %gamma, %factors, %output) : [index, index](index, f32, f32, i1, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 // A deterministic cache fixture, not a reference attention implementation.
 // Zero keys give uniform weights; distinct physical values expose map/window bugs.
 kernel.def @gated.fixture_cache() {
@@ -53,7 +56,9 @@ kernel.def @gated.fixture_cache() {
   view.store %half, %values[%p, %lane] : f16, view<128x128xf16>
   kernel.return
 }
-kernel.decl @llm.attention.gated_window_rows_h128(%rows: index, %heads: index, %key_heads: index) launch(%key_heads: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llm.attention.gated_window_rows_h128(%rows: index, %heads: index, %key_heads$60: index) launch(%key_heads$61: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %window: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %gate_logits: buffer, %cache: buffer, %output: buffer)
+
 command.def @gated.global() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
   %rows = index.constant 3 : index
   %qh = index.constant 2 : index
@@ -61,14 +66,15 @@ command.def @gated.global() launch(%epoch: buffer, %map: buffer, %query: buffer,
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %capacity = index.constant 128 : index
-  %scale = scalar.constant 0.0883883461356163 : f32
+  %scale = scalar.constant 0.088388346135616302 : f32
   %window = index.constant 0 : index
   %base = index.constant 16 : offset
   %origin = index.constant 0 : offset
-  kernel.launch @gated.fixture_cache[](%cache) : [](buffer)
+  kernel.launch @gated.fixture_cache(%cache) : (buffer)
   kernel.launch @llm.attention.gated_window_rows_h128[%rows, %qh, %kh](%kh, %zero, %one, %capacity, %capacity, %scale, %window, %base, %origin, %origin, %epoch, %map, %query, %gate, %cache, %output) : [index, index, index](index, index, index, index, index, f32, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @gated.local() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
   %rows = index.constant 3 : index
   %qh = index.constant 2 : index
@@ -76,11 +82,11 @@ command.def @gated.local() launch(%epoch: buffer, %map: buffer, %query: buffer, 
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %capacity = index.constant 128 : index
-  %scale = scalar.constant 0.0883883461356163 : f32
+  %scale = scalar.constant 0.088388346135616302 : f32
   %window = index.constant 2 : index
   %base = index.constant 16 : offset
   %origin = index.constant 0 : offset
-  kernel.launch @gated.fixture_cache[](%cache) : [](buffer)
+  kernel.launch @gated.fixture_cache(%cache) : (buffer)
   kernel.launch @llm.attention.gated_window_rows_h128[%rows, %qh, %kh](%kh, %zero, %one, %capacity, %capacity, %scale, %window, %base, %origin, %origin, %epoch, %map, %query, %gate, %cache, %output) : [index, index, index](index, index, index, index, index, f32, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

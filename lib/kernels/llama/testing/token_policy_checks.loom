@@ -4,10 +4,15 @@
 // retain the checkpoint's old literals. The independent expected vector is
 // [77,77,77,5], with caller-selected canonical EOS77.
 config.def @llama.publication.end_text_id = 2 : i32
+
 config.def @llama.publication.end_message_id = 3 : i32
+
 config.def @llama.publication.end_turn_id = 4 : i32
+
 func.decl @llama32_native_token(%token: i32, %eos: i32) -> (i32)
+
 func.decl @loomify_serving_native_token(%token: i32, %eos: i32) -> (i32)
+
 func.def @actual_token_policy(%input: buffer, %output: buffer) {
   %zero = index.constant 0 : offset
   %begin = index.constant 0 : index
@@ -20,10 +25,10 @@ func.def @actual_token_policy(%input: buffer, %output: buffer) {
     %v = view.load %x[%i] : view<4xi32> -> i32
     %n = func.call @llama32_native_token(%v, %eos) : (i32, i32) -> (i32)
     view.store %n, %y[%i] : i32, view<4xi32>
-    scf.yield
   }
   func.return
 }
+
 func.def @actual_host_token_policy(%input: buffer, %output: buffer) {
   %zero = index.constant 0 : offset
   %begin = index.constant 0 : index
@@ -36,10 +41,10 @@ func.def @actual_host_token_policy(%input: buffer, %output: buffer) {
     %v = view.load %x[%i] : view<4xi32> -> i32
     %n = func.call @loomify_serving_native_token(%v, %eos) : (i32, i32) -> (i32)
     view.store %n, %y[%i] : i32, view<4xi32>
-    scf.yield
   }
   func.return
 }
+
 func.def @expected_token_policy(%input: buffer, %output: buffer) {
   %zero = index.constant 0 : offset
   %y = buffer.view %output[%zero] : buffer -> view<4xi32>
@@ -51,6 +56,7 @@ func.def @expected_token_policy(%input: buffer, %output: buffer) {
   view.store %ordinary, %y[3] : i32, view<4xi32>
   func.return
 }
+
 check.scenario @relocated_stop_ids {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(2) step(1) : tensor<4xi32>
@@ -62,6 +68,7 @@ check.scenario @relocated_stop_ids {
   }
   check.return
 }
+
 check.scenario @relocated_host_stop_ids {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(2) step(1) : tensor<4xi32>

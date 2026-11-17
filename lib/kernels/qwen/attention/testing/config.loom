@@ -2,20 +2,37 @@
 // SPDX-License-Identifier: MIT
 // Fixed native anchor geometry. Production configuration belongs to the loader.
 config.def @qwen.model.head_size = 256 : index
+
 config.def @qwen.model.rope_half = 32 : index
+
 config.def @qwen.model.rope_size = 64 : index
-config.def @qwen.model.rope_log_step = -0.5036904811859131 : f32
+
+config.def @qwen.model.rope_log_step = -0.50369048118591309 : f32
+
 config.def @qwen.model.attention_heads = 8 : index
+
 config.def @qwen.model.kv_heads = 2 : index
+
 config.def @qwen.model.attention_width = 2048 : index
+
 config.def @qwen.model.kv_size = 512 : index
+
 config.def @qwen.model.kv_row_bytes = 2048 : index
+
 config.def @qwen.model.query_gate_size = 4096 : index
+
 config.def @qwen.model.query_gate_row_bytes = 16384 : index
+
 config.def @qwen.model.head_gate_size = 512 : index
+
 config.def @qwen.model.head_divisor = 256.0 : f32
+
 config.def @qwen.model.head_scratch_bytes = 1024 : index
+
 config.def @qwen.model.kv_plane_token_bytes = 1024 : index
+
 config.def @qwen.model.attention_scale = 0.0625 : f32
+
 config.def @qwen38.attention.cache_capacity = 96 : index
+
 config.def @qwen38.attention.pool_capacity = 128 : index

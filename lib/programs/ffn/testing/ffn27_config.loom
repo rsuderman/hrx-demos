@@ -5,7 +5,10 @@
 // select Q4_K gate/up/down. Resolve its original required bounds without
 // changing the selected formats or the generated arithmetic expectations.
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : %value: index where [range(%value, 1, 2048)]
+
 config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 17408 : %value: index where [range(%value, 1, 262144)]
+
 // Q5_0 is also unused; match Producer's minimal unobserved-format bounds.
 config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

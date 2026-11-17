@@ -11,13 +11,16 @@ func.def @decoder.expected.poison(%input: buffer) {
   }
   func.return
 }
+
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 // Independent Python/F64 anchors; inactive input rows contain NaNs.
 global.rodata.decl @decoder.oracle.rms.expected
+
 command.decl @decoder.actual.rms() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 func.def @decoder.expected.rms(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
-  func.call @decoder.expected.poison(%input) : (buffer) -> ()
+  func.call @decoder.expected.poison(%input) : (buffer)
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -31,6 +34,7 @@ func.def @decoder.expected.rms(%count: buffer, %input: buffer, %gamma: buffer, %
   }
   func.return
 }
+
 check.scenario @decoder.rms.active_rows {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(2) : tensor<3xi32>
@@ -42,7 +46,7 @@ check.scenario @decoder.rms.active_rows {
     %suffix = check.tensor.view %storage offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     %inactive = check.tensor.view %out offset(8192) : tensor<3x1024xf32> -> tensor<1024xf32>
     check.compare<@decoder.actual.rms, @decoder.expected.rms>(%count, %input, %gamma, %out) : (tensor<3xi32>, tensor<3x1024xf32>, tensor<1024xf32>, tensor<3x1024xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<3x1024xf32>
@@ -53,10 +57,13 @@ check.scenario @decoder.rms.active_rows {
   }
   check.return
 }
+
 global.rodata.decl @decoder.oracle.residual.expected
+
 command.decl @decoder.actual.residual() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 func.def @decoder.expected.residual(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
-  func.call @decoder.expected.poison(%input) : (buffer) -> ()
+  func.call @decoder.expected.poison(%input) : (buffer)
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -70,6 +77,7 @@ func.def @decoder.expected.residual(%count: buffer, %input: buffer, %gamma: buff
   }
   func.return
 }
+
 check.scenario @decoder.residual.active_rows {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(2) : tensor<3xi32>
@@ -81,7 +89,7 @@ check.scenario @decoder.residual.active_rows {
     %suffix = check.tensor.view %storage offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     %inactive = check.tensor.view %out offset(8192) : tensor<3x1024xf32> -> tensor<1024xf32>
     check.compare<@decoder.actual.residual, @decoder.expected.residual>(%count, %input, %gamma, %out) : (tensor<3xi32>, tensor<3x1024xf32>, tensor<1024xf32>, tensor<3x1024xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<3x1024xf32>
@@ -92,10 +100,13 @@ check.scenario @decoder.residual.active_rows {
   }
   check.return
 }
+
 global.rodata.decl @decoder.oracle.last.expected
+
 command.decl @decoder.actual.last() launch(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 func.def @decoder.expected.last(%count: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
-  func.call @decoder.expected.poison(%input) : (buffer) -> ()
+  func.call @decoder.expected.poison(%input) : (buffer)
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -109,6 +120,7 @@ func.def @decoder.expected.last(%count: buffer, %input: buffer, %gamma: buffer, 
   }
   func.return
 }
+
 check.scenario @decoder.last.active_rows {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(1) : tensor<3xi32>
@@ -119,7 +131,7 @@ check.scenario @decoder.last.active_rows {
     %prefix = check.tensor.view %storage offset(0) : tensor<1032xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(4112) : tensor<1032xf32> -> tensor<4xf32>
     check.compare<@decoder.actual.last, @decoder.expected.last>(%count, %input, %gamma, %out) : (tensor<3xi32>, tensor<3x1024xf32>, tensor<1024xf32>, tensor<1024xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<1032xf32>, tensor<1032xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<1032xf32>, tensor<1032xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<3x1024xf32>

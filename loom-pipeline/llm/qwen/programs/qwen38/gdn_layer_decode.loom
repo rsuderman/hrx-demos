@@ -10,47 +10,76 @@
 config.decl @qwen.model.projection_implementation : index
 
 config.decl @qwen.model.gdn_gate_row_bytes : index
+
 config.decl @qwen.model.gdn_inverse_row_bytes : index
 
 config.decl @qwen.model.projection_row_bytes : index
 
 config.decl @qwen.model.ffn_q8_row_bytes : index
+
 config.decl @qwen.model.ffn_row_bytes : index
+
 config.decl @qwen.model.gdn_alpha_weight_bytes : index
+
 config.decl @qwen.model.gdn_beta_weight_bytes : index
+
 config.decl @qwen.model.gdn_capture_qkv_elements : index
+
 config.decl @qwen.model.gdn_conv_elements : index
+
 config.decl @qwen.model.gdn_gate_weight_bytes : index
+
 config.decl @qwen.model.gdn_head_size : index
+
 config.decl @qwen.model.gdn_history_bytes : index
+
 config.decl @qwen.model.gdn_history_elements : index
+
 config.decl @qwen.model.gdn_qkv_size : index
+
 config.decl @qwen.model.gdn_qkv_weight_bytes : index
+
 config.decl @qwen.model.gdn_recurrent_bytes : index
+
 config.decl @qwen.model.gdn_state_elements : index
+
 config.decl @qwen.model.gdn_value_heads : index
+
 config.decl @qwen.model.gdn_width : index
+
 config.decl @qwen.model.hidden_q8_row_bytes : index
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.projection_weight_bytes : index
+
 config.decl @qwen.model.rms_epsilon : f32
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q4k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$25: index, %input_size$26: index) launch(%token_count$27: index, %input_size$28: index, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q4k_q8_1_x4(%token_count$31: index, %input_size$32: index, %output_size$33: index) launch(%token_count$34: index, %input_size$35: index, %output_size$36: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count$40: index, %input_size$41: index, %output_size$42: index) launch(%token_count$43: index, %input_size$44: index, %output_size$45: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count$49: index, %input_size$50: index, %output_size$51: index) launch(%token_count$52: index, %input_size$53: index, %output_size$54: index, %input: buffer, %weight: buffer, %output: buffer)
 
 kernel.decl @qwen38_rmsnorm_f32_decode() launch(%epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_residual_add_f32_decode() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 kernel.decl @qwen38_gdn_conv_prepare_decode() launch(%l2_epsilon: f32, %qkv_input: buffer, %conv_weight: buffer, %conv_history: buffer, %qkv_silu: buffer, %qk_inverse_norm: buffer)
+
 kernel.decl @qwen38_gdn_recurrent_decode_x4() launch(%qkv_silu: buffer, %qk_inverse_norm: buffer, %alpha: buffer, %beta: buffer, %ssm_a: buffer, %dt_bias: buffer, %state: buffer, %raw_output: buffer)
+
 kernel.decl @qwen38_gdn_norm_gate_decode() launch(%rms_epsilon: f32, %raw_output: buffer, %norm_weight: buffer, %z: buffer, %output: buffer)
 
 // Advances one GDN layer. The parameter root is immutable and fixed during
 // command-buffer materialization. The residual and persistent state roots are
 // rebound for each sequence at issue time.
 command.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
+
 command.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
 
 command.def public @qwen38_gdn_layer_decode(%layer: index, %gdn_ordinal: index) launch(%parameters: buffer, %residual: buffer, %gdn_state: buffer) where [range(%layer, 0, 63), range(%gdn_ordinal, 0, 47)] {

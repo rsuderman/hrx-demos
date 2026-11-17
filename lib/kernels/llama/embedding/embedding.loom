@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Curated from the owned Llama 3B binding; valid IDs are caller preconditions.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.vocabulary_size : index
+
 template.decl @llm.token_embedding_q6k_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
 
 template.decl @llm.embedding.epoch_f32_row(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.def export("llama32_token_embedding_q6k_f32") @llama32_token_embedding_q6k_f32(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
   %one = index.constant 1 : index
@@ -33,7 +36,6 @@ kernel.def export("llama32_token_embedding_q6k_f32") @llama32_token_embedding_q6
   template.apply<@llm.token_embedding_q6k_f32.row>(%hidden_size, %embedding_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
   kernel.return
 }
-
 
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 

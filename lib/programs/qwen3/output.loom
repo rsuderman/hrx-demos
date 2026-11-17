@@ -1,8 +1,11 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 config.decl @qwen3.model.rms_epsilon : f32
-kernel.decl @llm.decoder.output_norm_last(%capacity: index, %width: index) launch(%capacity: index, %width: index, %begin: index, %origin: offset, %epsilon: f32, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.output_norm_last(%capacity$1: index, %width$2: index) launch(%capacity$3: index, %width$4: index, %begin: index, %origin: offset, %epsilon: f32, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
+
 template.def<@llm.output.norm_last> @loomify_qwen3_output_norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer) {
   %epsilon = config.get @qwen3.model.rms_epsilon : f32
   kernel.launch @llm.decoder.output_norm_last[%capacity, %hidden](%capacity, %hidden, %begin, %origin, %epsilon, %control, %input, %gamma, %output) : [index, index](index, index, index, offset, f32, buffer, buffer, view<[%hidden]xf32>, buffer)

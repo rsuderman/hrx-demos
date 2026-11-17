@@ -5,14 +5,16 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.rope_half : index
+
 config.decl @qwen.model.rope_log_step : f32
+
 config.decl @qwen.model.rope_size : index
 
 template.decl @qwen38.attention.rope_text_value(%position: i32, %lane0: index, %normalized_head: buffer) -> (f32)
 
 // Shared Qwen3.8-27B text-attention helpers.
-
 // Rotates one value from a normalized 256-wide Q/K head. Text positions use
 // identical temporal, height, and width coordinates, reducing the model's
 // interleaved MRoPE to a 64-wide NEOX rotation. The first 64 values use pairs
@@ -22,8 +24,6 @@ template.decl @qwen38.attention.rope_text_value(%position: i32, %lane0: index, %
 // the F32 logarithmic frequency step. Values after rope_size pass through.
 // This helper does not normalize Q/K or impose a model position convention.
 template.decl @llm.attention.rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane0: index, %head_data: buffer) -> (f32)
-
-
 
 template.def<@qwen38.attention.rope_text_value> device @qwen38_attention_rope_text_value(%position: i32, %lane0: index, %normalized_head: buffer) -> (f32) {
   %head_size = config.get @qwen.model.head_size : index
@@ -54,8 +54,8 @@ template.decl @llm.attention.decode_f32(%query_heads: index, %key_heads: index, 
 // caller supplies disjoint Q/output rows and native-owned valid page maps.
 // No gate buffer is read when has_gate=false. F16 K/V widen once to F32.
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
-template.decl @llm.attention.row_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
 
+template.decl @llm.attention.row_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
 
 template.def<@llm.attention.decode_f32> device @llm_attention_decode_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %cache_capacity: index, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer) {
   %pool_capacity = index.constant 0 : index

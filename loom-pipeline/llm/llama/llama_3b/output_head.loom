@@ -4,11 +4,17 @@
 // selects a nonempty span's last active row from native {count,base,...} control
 // at an explicit origin, independently of prepared capacity and packed start.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.vocabulary_size : index
+
 config.decl @llama.model.embedding_weight_bytes : index
+
 config.decl @llama.model.rms_epsilon : f32
+
 command.decl @llama32_output_norm(%token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer)
+
 template.decl @llm.output.project_greedy(%token_count: index, %normalized_origin: offset, %output_origin: offset, %shape_hidden_size: index, %shape_vocabulary_size: index, %shape_argmax_partial_row_bytes: index, %shape_hidden_q8_row_bytes: index, %shape_logits_row_bytes: index, %shape_output_weight_bytes: index, %use_grouped_projection: i1, %use_mmvq_compat: i1, %output_weight: view<[%shape_output_weight_bytes]xi8>, %normalized: buffer, %token_id: buffer)
+
 template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 
 // Native invocation guarantees1<=active_count<=capacity-token_begin. Empty or
@@ -92,4 +98,3 @@ command.def public @llama32_output_head_last_greedy(%token_capacity: index, %tok
   template.apply<@llm.output.project_greedy>(%one, %normalized_origin, %output_origin, %hidden_size, %vocabulary_size, %partial_row_bytes, %q8_row_bytes, %logits_row_bytes, %weight_bytes, %generic_schedule, %compat, %weight, %normalized, %token_ids) : (index, offset, offset, index, index, index, index, index, index, i1, i1, view<[%weight_bytes]xi8>, buffer, buffer)
   command.return
 }
-

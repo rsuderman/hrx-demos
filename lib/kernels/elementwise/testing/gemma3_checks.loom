@@ -3,9 +3,13 @@
 // Independent F64 math anchors from gemma3_reference.py; basic F64 weighting
 // and F32 stage stores stay in the VM. Inputs/cases/guards/budgets are unchanged.
 global.rodata.decl @oracle.rms.inverses
+
 global.rodata.decl @oracle.geglu.values
+
 global.rodata.decl @oracle.rotary.cosines
+
 global.rodata.decl @oracle.rotary.sines
+
 func.def @oracle.rms(%case: index, %width: index, %rows: index, %active: index, %input: buffer, %gamma: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
@@ -35,6 +39,7 @@ func.def @oracle.rms(%case: index, %width: index, %rows: index, %active: index, 
   }
   func.return
 }
+
 func.def @oracle.residual(%width: index, %rows: index, %active: index, %lhs: buffer, %rhs: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
@@ -52,6 +57,7 @@ func.def @oracle.residual(%width: index, %rows: index, %active: index, %lhs: buf
   }
   func.return
 }
+
 func.def @oracle.geglu(%width: index, %rows: index, %active: index, %gate: buffer, %up: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
@@ -77,17 +83,19 @@ func.def @oracle.geglu(%width: index, %rows: index, %active: index, %gate: buffe
 }
 
 command.decl @actual.rms_1152_1_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.rms_1152_1_1_low(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 1 : index
   %active = index.constant 1 : index
   %rms_case = index.constant 0 : index
-  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @rms_1152_1_1_low_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %lhs_storage = check.generate.iota offset(-0.0002) step(0.0000001) : tensor<1160xf32>
+    %lhs_storage = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-08) : tensor<1160xf32>
     %rhs_storage = check.generate.iota offset(1.5) step(0.0001) : tensor<1160xf32>
     %out_storage = check.generate.fill value(-123.5) : tensor<1160xf32>
     %lhs = check.tensor.view %lhs_storage offset(16) : tensor<1160xf32> -> tensor<1x1152xf32>
@@ -98,7 +106,7 @@ check.scenario @rms_1152_1_1_low_arithmetic_and_guards {
     check.compare<@actual.rms_1152_1_1_low, @expected.rms_1152_1_1_low>(%lhs, %rhs, %out) : (tensor<1x1152xf32>, tensor<1152xf32>, tensor<1x1152xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<1160xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<1160xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<1160xf32>, tensor<1160xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<1160xf32>, tensor<1160xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -107,17 +115,19 @@ check.scenario @rms_1152_1_1_low_arithmetic_and_guards {
 }
 
 command.decl @actual.rms_1152_3_1_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.rms_1152_3_1_low(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 1 : index
   %rms_case = index.constant 0 : index
-  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @rms_1152_3_1_low_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %lhs_storage = check.generate.iota offset(-0.0002) step(0.0000001) : tensor<3464xf32>
+    %lhs_storage = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-08) : tensor<3464xf32>
     %rhs_storage = check.generate.iota offset(1.5) step(0.0001) : tensor<1160xf32>
     %out_storage = check.generate.fill value(-123.5) : tensor<3464xf32>
     %lhs = check.tensor.view %lhs_storage offset(16) : tensor<3464xf32> -> tensor<3x1152xf32>
@@ -128,7 +138,7 @@ check.scenario @rms_1152_3_1_low_arithmetic_and_guards {
     check.compare<@actual.rms_1152_3_1_low, @expected.rms_1152_3_1_low>(%lhs, %rhs, %out) : (tensor<3x1152xf32>, tensor<1152xf32>, tensor<3x1152xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<3464xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<1160xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<3464xf32>, tensor<3464xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<3464xf32>, tensor<3464xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -137,14 +147,16 @@ check.scenario @rms_1152_3_1_low_arithmetic_and_guards {
 }
 
 command.decl @actual.rms_1152_3_3_zero() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.rms_1152_3_3_zero(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
   %rms_case = index.constant 1 : index
-  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @rms_1152_3_3_zero_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %lhs_storage = check.generate.fill value(0.0) : tensor<3464xf32>
@@ -158,7 +170,7 @@ check.scenario @rms_1152_3_3_zero_arithmetic_and_guards {
     check.compare<@actual.rms_1152_3_3_zero, @expected.rms_1152_3_3_zero>(%lhs, %rhs, %out) : (tensor<3x1152xf32>, tensor<1152xf32>, tensor<3x1152xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<3464xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<1160xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<3464xf32>, tensor<3464xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<3464xf32>, tensor<3464xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -167,17 +179,19 @@ check.scenario @rms_1152_3_3_zero_arithmetic_and_guards {
 }
 
 command.decl @actual.rms_256_3_3_low() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.rms_256_3_3_low(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 256 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
   %rms_case = index.constant 2 : index
-  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @rms_256_3_3_low_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %lhs_storage = check.generate.iota offset(-0.0002) step(0.0000001) : tensor<776xf32>
+    %lhs_storage = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-08) : tensor<776xf32>
     %rhs_storage = check.generate.iota offset(1.5) step(0.0001) : tensor<264xf32>
     %out_storage = check.generate.fill value(-123.5) : tensor<776xf32>
     %lhs = check.tensor.view %lhs_storage offset(16) : tensor<776xf32> -> tensor<3x256xf32>
@@ -188,7 +202,7 @@ check.scenario @rms_256_3_3_low_arithmetic_and_guards {
     check.compare<@actual.rms_256_3_3_low, @expected.rms_256_3_3_low>(%lhs, %rhs, %out) : (tensor<3x256xf32>, tensor<256xf32>, tensor<3x256xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<776xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<264xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<776xf32>, tensor<776xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<776xf32>, tensor<776xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -197,16 +211,18 @@ check.scenario @rms_256_3_3_low_arithmetic_and_guards {
 }
 
 command.decl @actual.geglu_6912_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.geglu_6912_1_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 1 : index
   %active = index.constant 1 : index
-  func.call @oracle.geglu(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.geglu(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @geglu_6912_1_1_distinct_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %lhs_storage = check.generate.iota offset(-20.0) step(0.005) : tensor<6920xf32>
+    %lhs_storage = check.generate.iota offset(-20.0) step(0.0050000000000000001) : tensor<6920xf32>
     %rhs_storage = check.generate.iota offset(-0.5) step(0.0001) : tensor<6920xf32>
     %out_storage = check.generate.fill value(-123.5) : tensor<6920xf32>
     %lhs = check.tensor.view %lhs_storage offset(16) : tensor<6920xf32> -> tensor<1x6912xf32>
@@ -217,7 +233,7 @@ check.scenario @geglu_6912_1_1_distinct_arithmetic_and_guards {
     check.compare<@actual.geglu_6912_1_1_distinct, @expected.geglu_6912_1_1_distinct>(%lhs, %rhs, %out) : (tensor<1x6912xf32>, tensor<6912xf32>, tensor<1x6912xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<6920xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<6920xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<6920xf32>, tensor<6920xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<6920xf32>, tensor<6920xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -226,16 +242,18 @@ check.scenario @geglu_6912_1_1_distinct_arithmetic_and_guards {
 }
 
 command.decl @actual.geglu_6912_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.geglu_6912_3_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 3 : index
   %active = index.constant 1 : index
-  func.call @oracle.geglu(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.geglu(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @geglu_6912_3_1_distinct_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %lhs_storage = check.generate.iota offset(-20.0) step(0.005) : tensor<20744xf32>
+    %lhs_storage = check.generate.iota offset(-20.0) step(0.0050000000000000001) : tensor<20744xf32>
     %rhs_storage = check.generate.iota offset(-0.5) step(0.0001) : tensor<20744xf32>
     %out_storage = check.generate.fill value(-123.5) : tensor<20744xf32>
     %lhs = check.tensor.view %lhs_storage offset(16) : tensor<20744xf32> -> tensor<3x6912xf32>
@@ -246,7 +264,7 @@ check.scenario @geglu_6912_3_1_distinct_arithmetic_and_guards {
     check.compare<@actual.geglu_6912_3_1_distinct, @expected.geglu_6912_3_1_distinct>(%lhs, %rhs, %out) : (tensor<3x6912xf32>, tensor<20736xf32>, tensor<3x6912xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<20744xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<20744xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<20744xf32>, tensor<20744xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<20744xf32>, tensor<20744xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -255,16 +273,18 @@ check.scenario @geglu_6912_3_1_distinct_arithmetic_and_guards {
 }
 
 command.decl @actual.geglu_6912_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.geglu_6912_3_3_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 6912 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
-  func.call @oracle.geglu(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.geglu(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @geglu_6912_3_3_distinct_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %lhs_storage = check.generate.iota offset(-20.0) step(0.005) : tensor<20744xf32>
+    %lhs_storage = check.generate.iota offset(-20.0) step(0.0050000000000000001) : tensor<20744xf32>
     %rhs_storage = check.generate.iota offset(-0.5) step(0.0001) : tensor<20744xf32>
     %out_storage = check.generate.fill value(-123.5) : tensor<20744xf32>
     %lhs = check.tensor.view %lhs_storage offset(16) : tensor<20744xf32> -> tensor<3x6912xf32>
@@ -275,7 +295,7 @@ check.scenario @geglu_6912_3_3_distinct_arithmetic_and_guards {
     check.compare<@actual.geglu_6912_3_3_distinct, @expected.geglu_6912_3_3_distinct>(%lhs, %rhs, %out) : (tensor<3x6912xf32>, tensor<20736xf32>, tensor<3x6912xf32>) -> () {
       check.expect.bitwise actual(%lhs_storage) expected(%lhs_storage) : tensor<20744xf32>
       check.expect.bitwise actual(%rhs_storage) expected(%rhs_storage) : tensor<20744xf32>
-      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(0.000005) rtol(0.00005) nan(same) : tensor<20744xf32>, tensor<20744xf32>
+      check.expect.approximate actual(%out_storage) expected(%out_storage) atol(5.0000000000000004e-06) rtol(5.0000000000000002e-05) nan(same) : tensor<20744xf32>, tensor<20744xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
     }
@@ -284,13 +304,15 @@ check.scenario @geglu_6912_3_3_distinct_arithmetic_and_guards {
 }
 
 command.decl @actual.residual_1152_1_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.residual_1152_1_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 1 : index
   %active = index.constant 1 : index
-  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @residual_1152_1_1_distinct_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %lhs_storage = check.generate.iota offset(1.0) step(0.125) : tensor<1160xf32>
@@ -313,13 +335,15 @@ check.scenario @residual_1152_1_1_distinct_arithmetic_and_guards {
 }
 
 command.decl @actual.residual_1152_3_1_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.residual_1152_3_1_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 1 : index
-  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @residual_1152_3_1_distinct_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %lhs_storage = check.generate.iota offset(1.0) step(0.125) : tensor<3464xf32>
@@ -342,13 +366,15 @@ check.scenario @residual_1152_3_1_distinct_arithmetic_and_guards {
 }
 
 command.decl @actual.residual_1152_3_3_distinct() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.residual_1152_3_3_distinct(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
-  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @residual_1152_3_3_distinct_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %lhs_storage = check.generate.iota offset(1.0) step(0.125) : tensor<3464xf32>
@@ -371,13 +397,15 @@ check.scenario @residual_1152_3_3_distinct_arithmetic_and_guards {
 }
 
 command.decl @actual.residual_1152_3_3_lhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.residual_1152_3_3_lhs(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
-  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %lhs) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %lhs) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @residual_1152_3_3_lhs_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %lhs_storage = check.generate.iota offset(1.0) step(0.125) : tensor<3464xf32>
@@ -400,13 +428,15 @@ check.scenario @residual_1152_3_3_lhs_arithmetic_and_guards {
 }
 
 command.decl @actual.residual_1152_3_3_rhs() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 func.def @expected.residual_1152_3_3_rhs(%lhs: buffer, %rhs: buffer, %output: buffer) {
   %width = index.constant 1152 : index
   %rows = index.constant 3 : index
   %active = index.constant 3 : index
-  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %rhs) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.residual(%width, %rows, %active, %lhs, %rhs, %rhs) : (index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @residual_1152_3_3_rhs_arithmetic_and_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %lhs_storage = check.generate.iota offset(1.0) step(0.125) : tensor<3464xf32>
@@ -467,36 +497,40 @@ func.def @oracle.rotary(%case: index, %size: index, %half: index, %input: buffer
       %rotated = scf.select %low, %minus, %plus : f64
       %result = scalar.fptrunc %rotated : f64 to f32
       scf.yield %result : f32
-    } else { scf.yield %raw32 : f32 }
+    } else {
+      scf.yield %raw32 : f32
+    }
     view.store %answer, %y[%c] : f32, view<256xf32>
   }
   func.return
 }
 
 command.decl @actual.head_local() launch(%input: buffer, %gamma: buffer, %out: buffer)
+
 func.def @expected.head_local(%input: buffer, %gamma: buffer, %out: buffer) {
   %width = index.constant 256 : index
   %one = index.constant 1 : index
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<private> align(4) %bytes : buffer
   %rms_case = index.constant 3 : index
-  func.call @oracle.rms(%rms_case, %width, %one, %one, %input, %gamma, %normalized) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %one, %one, %input, %gamma, %normalized) : (index, index, index, index, buffer, buffer, buffer)
   %size = index.constant 256 : index
   %half = index.constant 128 : index
   %rotary_case = index.constant 0 : index
-  func.call @oracle.rotary(%rotary_case, %size, %half, %normalized, %out) : (index, index, index, buffer, buffer) -> ()
+  func.call @oracle.rotary(%rotary_case, %size, %half, %normalized, %out) : (index, index, index, buffer, buffer)
   func.return
 }
+
 check.scenario @head_local_norm_rotary_nonzero_position {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-0.0002) step(0.000001) : tensor<256xf32>
+    %input = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-07) : tensor<256xf32>
     %gamma = check.generate.iota offset(1.5) step(0.001) : tensor<256xf32>
     %storage = check.generate.fill value(-123.5) : tensor<264xf32>
     %out = check.tensor.view %storage offset(16) : tensor<264xf32> -> tensor<256xf32>
     %prefix = check.tensor.view %storage offset(0) : tensor<264xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(1040) : tensor<264xf32> -> tensor<4xf32>
     check.compare<@actual.head_local, @expected.head_local>(%input, %gamma, %out) : (tensor<256xf32>, tensor<256xf32>, tensor<256xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
@@ -507,29 +541,31 @@ check.scenario @head_local_norm_rotary_nonzero_position {
 }
 
 command.decl @actual.head_global() launch(%input: buffer, %gamma: buffer, %out: buffer)
+
 func.def @expected.head_global(%input: buffer, %gamma: buffer, %out: buffer) {
   %width = index.constant 256 : index
   %one = index.constant 1 : index
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<private> align(4) %bytes : buffer
   %rms_case = index.constant 3 : index
-  func.call @oracle.rms(%rms_case, %width, %one, %one, %input, %gamma, %normalized) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %one, %one, %input, %gamma, %normalized) : (index, index, index, index, buffer, buffer, buffer)
   %size = index.constant 256 : index
   %half = index.constant 128 : index
   %rotary_case = index.constant 1 : index
-  func.call @oracle.rotary(%rotary_case, %size, %half, %normalized, %out) : (index, index, index, buffer, buffer) -> ()
+  func.call @oracle.rotary(%rotary_case, %size, %half, %normalized, %out) : (index, index, index, buffer, buffer)
   func.return
 }
+
 check.scenario @head_global_norm_rotary_nonzero_position {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-0.0002) step(0.000001) : tensor<256xf32>
+    %input = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-07) : tensor<256xf32>
     %gamma = check.generate.iota offset(1.5) step(0.001) : tensor<256xf32>
     %storage = check.generate.fill value(-123.5) : tensor<264xf32>
     %out = check.tensor.view %storage offset(16) : tensor<264xf32> -> tensor<256xf32>
     %prefix = check.tensor.view %storage offset(0) : tensor<264xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(1040) : tensor<264xf32> -> tensor<4xf32>
     check.compare<@actual.head_global, @expected.head_global>(%input, %gamma, %out) : (tensor<256xf32>, tensor<256xf32>, tensor<256xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
@@ -540,29 +576,31 @@ check.scenario @head_global_norm_rotary_nonzero_position {
 }
 
 command.decl @actual.head_partial_qwen() launch(%input: buffer, %gamma: buffer, %out: buffer)
+
 func.def @expected.head_partial_qwen(%input: buffer, %gamma: buffer, %out: buffer) {
   %width = index.constant 256 : index
   %one = index.constant 1 : index
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<private> align(4) %bytes : buffer
   %rms_case = index.constant 3 : index
-  func.call @oracle.rms(%rms_case, %width, %one, %one, %input, %gamma, %normalized) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%rms_case, %width, %one, %one, %input, %gamma, %normalized) : (index, index, index, index, buffer, buffer, buffer)
   %size = index.constant 64 : index
   %half = index.constant 32 : index
   %rotary_case = index.constant 2 : index
-  func.call @oracle.rotary(%rotary_case, %size, %half, %normalized, %out) : (index, index, index, buffer, buffer) -> ()
+  func.call @oracle.rotary(%rotary_case, %size, %half, %normalized, %out) : (index, index, index, buffer, buffer)
   func.return
 }
+
 check.scenario @head_partial_qwen_norm_rotary_nonzero_position {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-0.0002) step(0.000001) : tensor<256xf32>
+    %input = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-07) : tensor<256xf32>
     %gamma = check.generate.iota offset(1.5) step(0.001) : tensor<256xf32>
     %storage = check.generate.fill value(-123.5) : tensor<264xf32>
     %out = check.tensor.view %storage offset(16) : tensor<264xf32> -> tensor<256xf32>
     %prefix = check.tensor.view %storage offset(0) : tensor<264xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(1040) : tensor<264xf32> -> tensor<4xf32>
     check.compare<@actual.head_partial_qwen, @expected.head_partial_qwen>(%input, %gamma, %out) : (tensor<256xf32>, tensor<256xf32>, tensor<256xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<264xf32>, tensor<264xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
@@ -573,6 +611,7 @@ check.scenario @head_partial_qwen_norm_rotary_nonzero_position {
 }
 
 command.decl @actual.post_residual_next() launch(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer)
+
 func.def @expected.post_residual_next(%update: buffer, %residual: buffer, %post_gamma: buffer, %next_gamma: buffer, %out: buffer) {
   %width = index.constant 1152 : index
   %one = index.constant 1 : index
@@ -580,15 +619,16 @@ func.def @expected.post_residual_next(%update: buffer, %residual: buffer, %post_
   %post = buffer.alloca<private> align(4) %bytes : buffer
   %sum = buffer.alloca<private> align(4) %bytes : buffer
   %post_case = index.constant 4 : index
-  func.call @oracle.rms(%post_case, %width, %one, %one, %update, %post_gamma, %post) : (index, index, index, index, buffer, buffer, buffer) -> ()
-  func.call @oracle.residual(%width, %one, %one, %residual, %post, %sum) : (index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%post_case, %width, %one, %one, %update, %post_gamma, %post) : (index, index, index, index, buffer, buffer, buffer)
+  func.call @oracle.residual(%width, %one, %one, %residual, %post, %sum) : (index, index, index, buffer, buffer, buffer)
   %next_case = index.constant 5 : index
-  func.call @oracle.rms(%next_case, %width, %one, %one, %sum, %next_gamma, %out) : (index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @oracle.rms(%next_case, %width, %one, %one, %sum, %next_gamma, %out) : (index, index, index, index, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @post_norm_residual_next_norm_order_and_epsilon {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %update = check.generate.iota offset(-0.0002) step(0.0000001) : tensor<1152xf32>
+    %update = check.generate.iota offset(-0.00020000000000000001) step(9.9999999999999995e-08) : tensor<1152xf32>
     %residual = check.generate.iota offset(0.5) step(0.001) : tensor<1152xf32>
     %post_gamma = check.generate.iota offset(1.5) step(0.0001) : tensor<1152xf32>
     %next_gamma = check.generate.iota offset(0.75) step(0.0001) : tensor<1152xf32>
@@ -597,7 +637,7 @@ check.scenario @post_norm_residual_next_norm_order_and_epsilon {
     %prefix = check.tensor.view %storage offset(0) : tensor<1160xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %storage offset(4624) : tensor<1160xf32> -> tensor<4xf32>
     check.compare<@actual.post_residual_next, @expected.post_residual_next>(%update, %residual, %post_gamma, %next_gamma, %out) : (tensor<1152xf32>, tensor<1152xf32>, tensor<1152xf32>, tensor<1152xf32>, tensor<1152xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00005) nan(same) : tensor<1160xf32>, tensor<1160xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(5.0000000000000002e-05) nan(same) : tensor<1160xf32>, tensor<1160xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%update) expected(%update) : tensor<1152xf32>

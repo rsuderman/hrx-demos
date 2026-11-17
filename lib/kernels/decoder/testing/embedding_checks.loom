@@ -1,9 +1,11 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 func.decl @decoder.fixture.embedding_inputs(%epoch: buffer, %tokens: buffer, %weight: buffer)
+
 command.decl @decoder.actual.embedding() launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)
+
 func.def @decoder.expected.embedding(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer) {
-  func.call @decoder.fixture.embedding_inputs(%epoch, %tokens, %weight) : (buffer, buffer, buffer) -> ()
+  func.call @decoder.fixture.embedding_inputs(%epoch, %tokens, %weight) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -20,6 +22,7 @@ func.def @decoder.expected.embedding(%epoch: buffer, %count: buffer, %tokens: bu
   }
   func.return
 }
+
 check.scenario @decoder.embedding.nonzero_input_begin {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.fill value(99) : tensor<12xi32>

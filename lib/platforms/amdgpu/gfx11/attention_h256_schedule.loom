@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Exact maintained H256/F16 wave64 schedule; model configuration belongs to the caller.
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
+
 template.decl @llm.attention.prefill_wmma_h256(%shape_kv_size: index, %shape_attention_width: index, %query_heads: index, %key_heads: index, %c256: index, %attention_scale: f32, %logical_capacity: index, %query_tile: index, %query_head: index, %workitem: index, %subgroup: index, %lane: index, %control: buffer, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer, %control_origin: offset, %token_begin: index, %key_cache_origin: offset, %value_cache_origin: offset, %map: buffer, %map_origin: offset, %pool_capacity: index)
 
 template.def<@llm.attention.prefill_wmma_h256> device @llm_attention_prefill_wmma_h256(%shape_kv_size: index, %shape_attention_width: index, %query_heads: index, %key_heads: index, %c256: index, %attention_scale: f32, %logical_capacity: index, %query_tile: index, %query_head: index, %workitem: index, %subgroup: index, %lane: index, %control: buffer, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer, %control_origin: offset, %token_begin: index, %key_cache_origin: offset, %value_cache_origin: offset, %map: buffer, %map_origin: offset, %pool_capacity: index) where [eq(%c256, 256)] {

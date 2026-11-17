@@ -1,8 +1,11 @@
 // Complete Llama native stages. Parameters plus six issue bindings match
 // prepare.loom/control.loom. The four-byte isolated native_slot is bookkeeping.
 config.decl @runner.llama32.prefill_token_count : %value: index where [range(%value, 1, 512)]
+
 config.decl @runner.llama32.span_capacity : %value: index where [range(%value, 1, 16)]
+
 config.decl @llama.model.hidden_size : index
+
 func.decl @llama32_native_token(%token: i32, %eos: i32) -> (i32)
 
 // Both prefill and packed metadata begin with active token count. Decode word0
@@ -54,10 +57,15 @@ kernel.def @llama32_mask_token_ids(%capacity0: index) {
   view.store %id, %output[%row] : i32, view<[%capacity]xi32>
   kernel.return
 }
+
 kernel.decl @llama32_publish_rows(%token_capacity0: index) launch(%all_rows: i1, %kind: index, %control: buffer, %source: buffer, %output: buffer)
+
 command.decl @llama32_embedding(%token_count: index) launch(%parameters: buffer, %token_ids: buffer, %residual: buffer)
+
 command.decl @llama32_layers(%tokens: index, %spans: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %origins: buffer, %arena: buffer)
+
 command.decl @llama32_output_head_rows_greedy(%token_count: index) launch(%parameters: buffer, %residual: buffer, %normalized: buffer, %token_ids: buffer)
+
 command.decl @llama32_output_head_last_greedy(%token_capacity: index, %token_begin: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %control: buffer, %normalized: buffer, %token_ids: buffer)
 
 command.def @llama32_embed_active(%tokens: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %input_tokens: buffer) where [range(%tokens, 1, 512), range(%kind, 0, 2)] {
@@ -105,7 +113,9 @@ kernel.def @llama32_finish_isolated() {
   %generated = scf.if %decode -> (i32) {
     %v = scalar.addi %second, %one32 : i32
     scf.yield %v : i32
-  } else { scf.yield %one32 : i32 }
+  } else {
+    scf.yield %one32 : i32
+  }
   %history = scf.if %decode -> (index) {
     %prior0 = index.cast %second : i32 to index
     %prior = index.assume %prior0 [range(%prior0, 1, 262144)] : index
@@ -113,7 +123,9 @@ kernel.def @llama32_finish_isolated() {
     %slot0 = index.rem %prior, %ring : index
     %slot = index.add %slot0, %one : index
     scf.yield %slot : index
-  } else { scf.yield %one : index }
+  } else {
+    scf.yield %one : index
+  }
   %terminal = scalar.cmpi eq, %token, %eos : i32
   %done = scf.select %terminal, %one32, %zero32 : i32
   view.store %token, %ids[0] : i32, view<129xi32>
@@ -156,13 +168,11 @@ kernel.def @llama32_gather_selected(%token_capacity0: index, %output_capacity0: 
     scf.for %element = [%lane to %hidden step %step] {
       %v = view.load %src[%row, %element] : view<[%tokens]x[%hidden]xf32> -> f32
       view.store %v, %dst[%slot, %element] : f32, view<[%outputs]x[%hidden]xf32>
-      scf.yield
     }
   } else {
     %zero = scalar.constant 0.0 : f32
     scf.for %element = [%lane to %hidden step %step] {
       view.store %zero, %dst[%slot, %element] : f32, view<[%outputs]x[%hidden]xf32>
-      scf.yield
     }
   }
   kernel.return

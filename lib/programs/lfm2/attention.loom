@@ -1,23 +1,41 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 config.decl @lfm2.model.hidden_size : index
+
 config.decl @lfm2.model.query_size : index
+
 config.decl @lfm2.model.kv_size : index
+
 config.decl @lfm2.model.query_heads : index
+
 config.decl @lfm2.model.kv_heads : index
+
 config.decl @lfm2.model.attention_layer_count : index
+
 config.decl @lfm2.model.rms_epsilon : f32
+
 config.decl @lfm2.model.rope_log_step : f32
+
 config.decl @lfm2.model.attention_scale : f32
+
 config.decl @lfm2.attention.cache_capacity : index
+
 config.decl @lfm2.attention.pool_capacity : index
+
 config.decl @lfm2.attention.cache_base : offset
+
 config.decl @lfm2.attention.map_origin : offset
+
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
+
 kernel.decl @llm.decoder.prepare_qk_h64(%rows: index, %heads: index) launch(%capacity: index, %epsilon: f32, %rope_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer)
+
 kernel.decl @llm.decoder.publish_kv_h64(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
-kernel.decl @llm.decoder.attention_rows_h64(%rows: index, %heads: index, %key_heads: index) launch(%key_heads: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.attention_rows_h64(%rows: index, %heads: index, %key_heads$57: index) launch(%key_heads$58: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
 command.def @loomify.lfm2.attention(%layer: index, %ordinal: index, %window: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %output: buffer) where [range(%rows, 1, 512)] {
   %hidden = config.get @lfm2.model.hidden_size : index
   %qwidth = config.get @lfm2.model.query_size : index

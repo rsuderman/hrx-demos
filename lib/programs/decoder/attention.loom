@@ -2,14 +2,23 @@
 // SPDX-License-Identifier: MIT
 // Shared Qwen2/Qwen3 assembly; the selected family supplies prepare_qkv.
 func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
+
 template.decl @llm.projection.matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 template.decl @llm.projection.matrix_qkv(%capacity: index, %input_width: index, %query_width: index, %kv_width: index, %query_tag: index, %key_tag: index, %value_tag: index, %query_bytes: index, %key_bytes: index, %value_bytes: index, %count: buffer, %input: buffer, %query_weight: view<[%query_bytes]xi8>, %key_weight: view<[%key_bytes]xi8>, %value_weight: view<[%value_bytes]xi8>, %query: buffer, %key: buffer, %value: buffer)
-kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
+
+kernel.decl @llm.decoder.residual(%rows: index, %width$30: index) launch(%width$31: index, %count: buffer, %source: buffer, %residual: buffer)
+
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
+
 kernel.decl @llm.decoder.publish_kv_h128(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
-kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %heads: index, %key_heads: index) launch(%key_heads: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %heads: index, %key_heads$60: index) launch(%key_heads$61: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
 template.decl @llm.decoder.prepare_qkv(%layer: index, %rows: index, %control_origin: offset, %capacity: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %rope_step: f32, %epsilon: f32, %parameters: buffer, %q: buffer, %k: buffer, %v: buffer, %query: buffer, %key: buffer, %count: buffer, %epoch: buffer)
+
 template.decl @llm.decoder.matrix_attention(%layer: index, %rows: index, %control_origin: offset, %hidden: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %map_origin: offset, %rope_step: f32, %epsilon: f32, %scale: f32, %parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer)
+
 template.def<@llm.decoder.matrix_attention> @llm_decoder_matrix_attention(%layer: index, %rows: index, %control_origin: offset, %hidden: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %map_origin: offset, %rope_step: f32, %epsilon: f32, %scale: f32, %parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512)] {
   %word = index.constant 4 : offset
   %physical_rows = func.call pure @llm.projection.matrix_output_rows(%rows) : (index) -> (index)

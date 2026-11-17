@@ -8,17 +8,29 @@
 // Nonidentity pages3/2/1/0, active count1/capacity2, nonzero packet/map/cache
 // origins, and exact full-buffer guards isolate routing and state ownership.
 config.def @llama.model.hidden_size = 2048 : index
+
 config.def @llama.model.query_heads = 16 : index
+
 config.def @llama.model.kv_heads = 8 : index
+
 config.def @llama.model.head_size = 128 : index
+
 config.def @llama.model.kv_size = 1024 : index
+
 config.def @llama.model.layer_count = 1 : index
+
 config.def @llama.attention.cache_capacity = 256 : index
+
 config.def @llama.attention.pool_capacity = 256 : index
-config.def @llama.model.rotary_step = 0.7498942093324559 : f32
+
+config.def @llama.model.rotary_step = 0.74989420933245587 : f32
+
 kernel.decl @llama32_unit_rope_factors() launch(%factors: buffer)
+
 kernel.decl @llama32_rotary_query(%tokens: index) launch(%kind: index, %origin: offset, %begin: index, %control: buffer, %factors: buffer, %projection: buffer, %output: buffer)
+
 kernel.decl @llama32_publish_kv(%tokens: index) launch(%layer: index, %cache_base: offset, %kind: index, %control_origin: offset, %begin: index, %map_origin: offset, %control: buffer, %map: buffer, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
 func.def @plainrope.setup(%position: i32, %control: buffer, %map: buffer) {
   %origin = index.constant 4 : offset
   %ctl = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -35,29 +47,32 @@ func.def @plainrope.setup(%position: i32, %control: buffer, %map: buffer) {
   view.store %zero, %mapping[3] : i32, view<4xi32>
   func.return
 }
+
 kernel.def @plainrope.init() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%position: i32, %control: buffer, %map: buffer) {
-  func.call @plainrope.setup(%position, %control, %map) : (i32, buffer, buffer) -> ()
+  func.call @plainrope.setup(%position, %control, %map) : (i32, buffer, buffer)
   kernel.return
 }
+
 command.def @plainrope.run(%position: index) launch(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %position32 = index.cast %position : index to i32
-  kernel.launch @plainrope.init[](%position32, %control, %map) : [](i32, buffer, buffer)
+  kernel.launch @plainrope.init(%position32, %control, %map) : (i32, buffer, buffer)
   %two = index.constant 2 : index
   %zero = index.constant 0 : index
   %origin = index.constant 4 : offset
   %cache_begin = index.constant 32 : offset
   %factor_view = buffer.view %factors[%cache_begin] : buffer -> view<64xf32>
-  kernel.launch @llama32_unit_rope_factors[](%factor_view) : [](view<64xf32>)
+  kernel.launch @llama32_unit_rope_factors(%factor_view) : (view<64xf32>)
   kernel.launch @llama32_rotary_query[%two](%zero, %origin, %zero, %control, %factor_view, %q, %output) : [index](index, offset, index, buffer, view<64xf32>, buffer, buffer)
   kernel.launch @llama32_publish_kv[%two](%zero, %cache_begin, %zero, %origin, %zero, %origin, %control, %map, %factor_view, %k, %v, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<64xf32>, buffer, buffer, buffer)
   command.return
 }
+
 func.def @plainrope.reference(%ordinal: index, %position: index, %control: buffer, %map: buffer, %factors: buffer, %output: buffer, %cache: buffer) {
   %position32 = index.cast %position : index to i32
-  func.call @plainrope.setup(%position32, %control, %map) : (i32, buffer, buffer) -> ()
+  func.call @plainrope.setup(%position32, %control, %map) : (i32, buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %three = index.constant 3 : index
@@ -105,18 +120,22 @@ func.def @plainrope.reference(%ordinal: index, %position: index, %control: buffe
   }
   func.return
 }
+
 global.rodata.def @plainrope.gold = bytes("0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803fc8329abef2ddb03f1f9e4d3dbfe7b43fa72ca03ee488b03f4eca003f9f2da93fccb1233f8575a13f27b23c3fdd7c9a3fb5ad4e3fa99f943fabb05b3fd2e18f3fe929653fa3238c3feb196c3fdc3a893ffd34713fe9fd863fedfa743f4648853f26c7773fa9fb833f9edb793fc4ff823f49687b3f7f41823f43907c3f0bb2813f606d7d3f0946813fb6127e3fcdf4803f6e8e7e3fc0b7803f0eeb7e3fe489803f6e307f3f7567803f68647f3f9d4d803f5b8b7f3f383a803f8ca87f3fab2b803f6ebe7f3fc020803fd6ce7f3f9018803f23db7f3f6c12803f5ce47f3fd10d803f46eb7f3f5c0a803f75f07f3fc507803f58f47f3fd405803f43f77f3f5f04803f72f97f3f4703803f16fb7f3f7502803f51fc7f3fd801803f3cfd7f3f6201803fedfd7f3f0901803f72fe7f3fc700803fd6fe7f3f9500803f20ff7f3f7000803f58ff7f3f5400803f82ff7f3f3f00803fa2ff7f3f2f00803fb9ff7f3f2300803fcbff7f3f1b00803fd8ff7f3f1400803fe2ff7f3f0f00803feaff7f3f0b00803fefff7f3f0800803ff3ff7f3f0600803ff7ff7f3f0500803ff9ff7f3f0400803ffbff7f3f0300803ffcff7f3f0200803ffdff7f3f0100803ffeff7f3f0100803ffeff7f3f0100803fffff7f3f0100803fffff7f3f0000803fffff7f3f0000803fffff7f3f0000803f0000803f0000803f0000803f0000803f0000803f0000803fe58b513fc59d933fadab5fbf36578ebf11b2f43d455fb4bfd7bc5abf943e903f553ecdbe4c98ad3f2ffeb4bf29f9c5bcf1a1973f2bbe45bf89e8afbf5cd8aa3ed2a87b3f5322823f0d85813f8cec7cbf48b607bfedd1a7bf70e8acbf2152d6be5f29a9bfa5e0003f6e986bbf7472893f86ffedbe1ff6aa3f6f689ebd96bfb43fcd22603e8ad6b23ff4edde3ef039ac3ff94a173f9d74a43f07ce333fcc1d9d3f9f45483fedcc963f870b573f3ca0913f67c6613ff5818d3f899d693f184a8a3ff35f6f3f03ce873fe49f733fefe6853f96c5763f1674843ffe1b793fe15a833f73d97a3f4586823fa3257c3fdee5813fb11d7d3f0b6d813f1dd77d3f2112813fd3617e3fc9cd803fa8c97e3f719a803f69177f3fe273803fa9517f3ff056803f4f7d7f3f3741803f059e7f3feb30803f8ab67f3fb124803febc87f3f841b803fb3d67f3fa314803f08e17f3f7a0f803fc7e87f3f9b0b803f96ee7f3fb408803ff1f27f3f8706803f35f67f3fe504803fa8f87f3fac03803f7efa7f3fc102803fdffb7f3f1002803fe7fc7f3f8c01803faefd7f3f2901803f42fe7f3fdf00803fb2fe7f3fa700803f05ff7f3f7d00803f44ff7f3f5e00803f73ff7f3f4600803f96ff7f3f3500803fb1ff7f3f2800803fc5ff7f3f1e00803fd3ff7f3f1600803fdfff7f3f1100803fe7ff7f3f0d00803fedff7f3f0900803ff2ff7f3f0700803f123607bfcaeba73fbfd5f23dc861b4bfdd365a3f467190bf05d49ebf4faf2d3fed804dbfca07953f7733afbf6e1ab6be20bba63faffa0cbf7e06b4bfe48c173e336b603fc50b8e3f52a18a3f62ce68bf1d44e9be5a5eabbfd67eaabf9b49f3be4a1dabbf773bec3e1f0c72bf829d863fdd1efabe5ae0a93f34f5c4bdad99b43f63d1513ef91bb33fd9c1d93eb0a3ac3fdd70153fd9e0a43f647a323f7e7e9d3f3451473fcc1d973f905a563f68e1913f7945613f4ab58d3f103f693ff0718a3f631a6f3fa2ec873f766c733f4ffe853f719f763fd785843fa0ff783f5268833f50c47a3f6c90823fdd157c3f85ed813fe8117d3fcd72813f4dce7d3f7716813f3b5b7e3f0bd1803fb8c47e3fe39c803fb7137f3fb875803fe44e7f3f5158803f3b7b7f3f4042803f769c7f3fb231803f5fb57f3f4625803f0bc87f3ff41b803f0bd67f3ff714803f8ae07f3fb90f803f69e87f3fcb0b803f4fee7f3fd808803fbcf27f3fa206803f0ef67f3ff904803f8af87f3fbb03803f68fa7f3fcc02803fcefb7f3f1902803fdbfc7f3f9301803fa4fd7f3f2e01803f3bfe7f3fe200803facfe7f3faa00803f01ff7f3f7f00803f41ff7f3f5f00803f71ff7f3f4800803f95ff7f3f3600803fafff7f3f2800803fc4ff7f3f1e00803fd3ff7f3f1700803fdeff7f3f1100803fe7ff7f3f0d00803fedff7f3f0a00803ff2ff7f3f0700803f183ab6be6831afbfa0afa8bfe45803bf1534ab3fac32ebbef6bbc13d2a9db43ffd07af3f9cb2b8be8d6d02bc3704b5bf18ee45bf4f92973f3324b0bf82f5a6be7e02133f7e6ca53f8793313faebf9d3fa62197bf8445473f17183b3f5af99abf8dda97bf1b10453fc7659a3fabfd3c3f9fb14e3f4c9e94bf84ee35bfca809cbf60a1b1bf0f748bbe7978a3bffd801b3f6cb05abf4943903f6300cfbee376ad3f2f12f3bcc0fab43fdd20823e7312b23f65f5eb3e5523ab3ff3f41b3fd95ca33fa025373ff8259c3fb0ad4a3f9afe953fdcc9583f6dfa903fc70b633f92ff8c3f128c6a3f02e5893fab0f703f6280873fd921743fb5ab853f0126773f1c47843fb563793fd738833fe50e7b3f926c823f874d7c3f80d2813f803b7d3f765e813f68ed7d3f2b07813f82727e3f8cc5803f26d67e3f4194803fc5207f3f3d6f803fac587f3f7453803f8f827f3f9a3e803ff5a17f3ff42e803f7db97f3f3823803f22cb7f3f6a1a803f5cd87f3fcf13803f46e27f3fdb0e803fb6e97f3f240b803f49ef7f3f5b08803f78f37f3f4406803f9af67f3fb304803ff4f87f3f8603803fb7fa7f3fa402803f09fc7f3ffb01803f07fd7f3f7c01803fc5fd7f3f1d01803f54fe7f3fd600803fbffe7f3fa000803f0fff7f3f7800803f4cff7f3f5a00803f79ff7f3f4400803f9bff7f3f3300803fb4ff7f3f2600803fc7ff7f3f1d00803f")
+
 command.def public @plainrope.actual0() launch(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %position = index.constant 0 : index
   command.launch @plainrope.run[%position](%control, %map, %factors, %q, %k, %v, %output, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @plainrope.expected0(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %ordinal = index.constant 0 : index
   %position = index.constant 0 : index
-  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @plain_rope_p0 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-91) : tensor<5xi32>
@@ -133,7 +152,7 @@ check.scenario @plain_rope_p0 {
     %cache_key = check.tensor.view %cache offset(393248) : tensor<524320xf16> -> tensor<1024xf16>
     %cache_suffix = check.tensor.view %cache offset(395296) : tensor<524320xf16> -> tensor<326672xf16>
     check.compare<@plainrope.actual0, @plainrope.expected0>(%control, %map, %factors, %q, %k, %v, %output, %cache) : (tensor<5xi32>, tensor<6xi32>, tensor<80xf32>, tensor<4096xf32>, tensor<2048xf32>, tensor<2048xf32>, tensor<4112xf32>, tensor<524320xf16>) -> () {
-      check.expect.approximate actual(%active) expected(%active) atol(0.00003) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
+      check.expect.approximate actual(%active) expected(%active) atol(3.0000000000000001e-05) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
       check.expect.approximate actual(%cache_key) expected(%cache_key) atol(0.001) rtol(0.0) nan(same) : tensor<1024xf16>, tensor<1024xf16>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2064xf32>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<196624xf16>
@@ -148,17 +167,20 @@ check.scenario @plain_rope_p0 {
   }
   check.return
 }
+
 command.def public @plainrope.actual1() launch(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %position = index.constant 1 : index
   command.launch @plainrope.run[%position](%control, %map, %factors, %q, %k, %v, %output, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @plainrope.expected1(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %ordinal = index.constant 1 : index
   %position = index.constant 1 : index
-  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @plain_rope_p1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-91) : tensor<5xi32>
@@ -175,7 +197,7 @@ check.scenario @plain_rope_p1 {
     %cache_key = check.tensor.view %cache offset(395296) : tensor<524320xf16> -> tensor<1024xf16>
     %cache_suffix = check.tensor.view %cache offset(397344) : tensor<524320xf16> -> tensor<325648xf16>
     check.compare<@plainrope.actual1, @plainrope.expected1>(%control, %map, %factors, %q, %k, %v, %output, %cache) : (tensor<5xi32>, tensor<6xi32>, tensor<80xf32>, tensor<4096xf32>, tensor<2048xf32>, tensor<2048xf32>, tensor<4112xf32>, tensor<524320xf16>) -> () {
-      check.expect.approximate actual(%active) expected(%active) atol(0.00003) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
+      check.expect.approximate actual(%active) expected(%active) atol(3.0000000000000001e-05) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
       check.expect.approximate actual(%cache_key) expected(%cache_key) atol(0.001) rtol(0.0) nan(same) : tensor<1024xf16>, tensor<1024xf16>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2064xf32>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<197648xf16>
@@ -190,17 +212,20 @@ check.scenario @plain_rope_p1 {
   }
   check.return
 }
+
 command.def public @plainrope.actual2() launch(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %position = index.constant 63 : index
   command.launch @plainrope.run[%position](%control, %map, %factors, %q, %k, %v, %output, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @plainrope.expected2(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %ordinal = index.constant 2 : index
   %position = index.constant 63 : index
-  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @plain_rope_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-91) : tensor<5xi32>
@@ -217,7 +242,7 @@ check.scenario @plain_rope_p63 {
     %cache_key = check.tensor.view %cache offset(522272) : tensor<524320xf16> -> tensor<1024xf16>
     %cache_suffix = check.tensor.view %cache offset(524320) : tensor<524320xf16> -> tensor<262160xf16>
     check.compare<@plainrope.actual2, @plainrope.expected2>(%control, %map, %factors, %q, %k, %v, %output, %cache) : (tensor<5xi32>, tensor<6xi32>, tensor<80xf32>, tensor<4096xf32>, tensor<2048xf32>, tensor<2048xf32>, tensor<4112xf32>, tensor<524320xf16>) -> () {
-      check.expect.approximate actual(%active) expected(%active) atol(0.00003) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
+      check.expect.approximate actual(%active) expected(%active) atol(3.0000000000000001e-05) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
       check.expect.approximate actual(%cache_key) expected(%cache_key) atol(0.001) rtol(0.0) nan(same) : tensor<1024xf16>, tensor<1024xf16>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2064xf32>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<261136xf16>
@@ -232,17 +257,20 @@ check.scenario @plain_rope_p63 {
   }
   check.return
 }
+
 command.def public @plainrope.actual3() launch(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %position = index.constant 64 : index
   command.launch @plainrope.run[%position](%control, %map, %factors, %q, %k, %v, %output, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @plainrope.expected3(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %ordinal = index.constant 3 : index
   %position = index.constant 64 : index
-  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @plain_rope_p64 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-91) : tensor<5xi32>
@@ -259,7 +287,7 @@ check.scenario @plain_rope_p64 {
     %cache_key = check.tensor.view %cache offset(262176) : tensor<524320xf16> -> tensor<1024xf16>
     %cache_suffix = check.tensor.view %cache offset(264224) : tensor<524320xf16> -> tensor<392208xf16>
     check.compare<@plainrope.actual3, @plainrope.expected3>(%control, %map, %factors, %q, %k, %v, %output, %cache) : (tensor<5xi32>, tensor<6xi32>, tensor<80xf32>, tensor<4096xf32>, tensor<2048xf32>, tensor<2048xf32>, tensor<4112xf32>, tensor<524320xf16>) -> () {
-      check.expect.approximate actual(%active) expected(%active) atol(0.00003) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
+      check.expect.approximate actual(%active) expected(%active) atol(3.0000000000000001e-05) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
       check.expect.approximate actual(%cache_key) expected(%cache_key) atol(0.001) rtol(0.0) nan(same) : tensor<1024xf16>, tensor<1024xf16>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2064xf32>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<131088xf16>
@@ -274,17 +302,20 @@ check.scenario @plain_rope_p64 {
   }
   check.return
 }
+
 command.def public @plainrope.actual4() launch(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %position = index.constant 255 : index
   command.launch @plainrope.run[%position](%control, %map, %factors, %q, %k, %v, %output, %cache) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @plainrope.expected4(%control: buffer, %map: buffer, %factors: buffer, %q: buffer, %k: buffer, %v: buffer, %output: buffer, %cache: buffer) {
   %ordinal = index.constant 4 : index
   %position = index.constant 255 : index
-  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @plainrope.reference(%ordinal, %position, %control, %map, %factors, %output, %cache) : (index, index, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @plain_rope_p255 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-91) : tensor<5xi32>
@@ -301,7 +332,7 @@ check.scenario @plain_rope_p255 {
     %cache_key = check.tensor.view %cache offset(129056) : tensor<524320xf16> -> tensor<1024xf16>
     %cache_suffix = check.tensor.view %cache offset(131104) : tensor<524320xf16> -> tensor<458768xf16>
     check.compare<@plainrope.actual4, @plainrope.expected4>(%control, %map, %factors, %q, %k, %v, %output, %cache) : (tensor<5xi32>, tensor<6xi32>, tensor<80xf32>, tensor<4096xf32>, tensor<2048xf32>, tensor<2048xf32>, tensor<4112xf32>, tensor<524320xf16>) -> () {
-      check.expect.approximate actual(%active) expected(%active) atol(0.00003) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
+      check.expect.approximate actual(%active) expected(%active) atol(3.0000000000000001e-05) rtol(0.0) nan(same) : tensor<2048xf32>, tensor<2048xf32>
       check.expect.approximate actual(%cache_key) expected(%cache_key) atol(0.001) rtol(0.0) nan(same) : tensor<1024xf16>, tensor<1024xf16>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<2064xf32>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<64528xf16>

@@ -35,7 +35,6 @@ template.def<@ggml.q8_1_x4.word> device @ggml_q8_1_x4_word(%q8_input: buffer, %r
 // subgroup cluster owns the 32 input values, with one scalar supplied by each
 // lane. The cluster writes one contiguous payload byte per lane and its leader
 // publishes the scale and scaled quantized sum.
-
 template.def<@ggml.quantize_q8_1_x4.group_body_policy> device @ggml_quantize_q8_1_x4_group_body_policy(%native_estimate: i1, %mmq_estimate: i1, %publish_output: i1, %group_count0: index, %group0: index, %input: buffer, %output: buffer) {
   %group_count, %group = index.assume %group_count0, %group0 [range(%group_count0, 1, 524288), lt(%group0, %group_count0)] : index, index
   %lane = kernel.workitem.id<x> : index
@@ -102,7 +101,7 @@ template.def<@ggml.quantize_q8_1_x4.group_body_policy> device @ggml_quantize_q8_
     } else {
       %d = scf.if %native_estimate -> (f32) {
         // F32(1/127), paired with the native reciprocal MMVQ policy.
-        %one_over_127 = scalar.constant 0.007874015718698502 : f32
+        %one_over_127 = scalar.constant 0.0078740157186985016 : f32
         %estimate_d = scalar.mulf %amax, %one_over_127 : f32
         scf.yield %estimate_d : f32
       } else {
@@ -205,5 +204,3 @@ template.def<@ggml.quantize_q8_1_x4.group_body_policy> device @ggml_quantize_q8_
   }
   template.return
 }
-
-// Canonical callers retain exact divisions and the existing public contract.

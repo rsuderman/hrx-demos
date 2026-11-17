@@ -1,5 +1,7 @@
 template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index)
+
 template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
+
 // Copyright 2026 The IREE Authors
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated from loom-pipeline/llm/qwen/programs/qwen38/ffn.loom at0aed77a.
@@ -13,6 +15,7 @@ template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_g
 template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
+
 config.decl @qwen.model.hidden_size : index
 
 command.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer) where [range(%layer, 0, 63)] {
@@ -82,7 +85,6 @@ config.decl @qwen.model.hidden_q8_capacity_bytes : index
 config.decl @qwen.model.hidden_q8_depth4_bytes : index
 
 // Tensor names and per-layer encoding policy stay in the model adapter.
-
 command.def public @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer) where [range(%layer, 0, 63)] {
   %projection_implementation = config.get @qwen.model.projection_implementation : index
   %recipe_zero = index.constant 0 : index

@@ -13,35 +13,63 @@
 config.decl @qwen.model.projection_implementation : index
 
 config.decl @qwen.model.ffn_capacity_bytes : index
+
 config.decl @qwen.model.gdn_alpha_partial_bytes : index
+
 config.decl @qwen.model.gdn_alpha_weight_bytes : index
+
 config.decl @qwen.model.gdn_beta_partial_bytes : index
+
 config.decl @qwen.model.gdn_beta_weight_bytes : index
+
 config.decl @qwen.model.gdn_capture_elements : index
+
 config.decl @qwen.model.gdn_capture_span_bytes : index
+
 config.decl @qwen.model.gdn_conv_elements : index
+
 config.decl @qwen.model.gdn_f16_capacity_bytes : index
+
 config.decl @qwen.model.gdn_gate_capacity_bytes : index
+
 config.decl @qwen.model.gdn_gate_weight_bytes : index
+
 config.decl @qwen.model.gdn_head_size : index
+
 config.decl @qwen.model.gdn_history_bytes : index
+
 config.decl @qwen.model.gdn_history_elements : index
+
 config.decl @qwen.model.gdn_qkv_size : index
+
 config.decl @qwen.model.gdn_qkv_weight_bytes : index
+
 config.decl @qwen.model.gdn_recurrent_bytes : index
+
 config.decl @qwen.model.gdn_state_elements : index
+
 config.decl @qwen.model.gdn_value_heads : index
+
 config.decl @qwen.model.gdn_width : index
+
 config.decl @qwen.model.hidden_capacity_bytes : index
+
 config.decl @qwen.model.hidden_q8_capacity_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.projection_capacity_bytes : index
+
 config.decl @qwen.model.projection_q8_depth4_bytes : index
+
 config.decl @qwen.model.projection_weight_bytes : index
+
 config.decl @qwen.model.qkv_capacity_bytes : index
 
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count$28: index, %input_size$29: index, %output_size$30: index) launch(%token_count$31: index, %input_size$32: index, %output_size$33: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count$37: index, %input_size$38: index, %output_size$39: index) launch(%token_count$1$40: index, %input_size$41: index, %output_size$42: index, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$0: index, %input_size$1: index) launch(%token_count$2: index, %input_size$3: index, %input: buffer, %output: buffer)
 
 kernel.decl @ggml_linear_q4k_q8_1_x4(%token_count$6: index, %input_size$7: index, %output_size$8: index) launch(%token_count$9: index, %input_size$10: index, %output_size$11: index, %input: buffer, %weight: buffer, %output: buffer)
@@ -53,7 +81,6 @@ kernel.decl @qwen38_linear_q4k_f16_wmma_beta_split_k_reduce(%token_count: index)
 kernel.decl @ggml_linear_q5k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: index, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %output: buffer)
 
 kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: index, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %output: buffer)
-
 
 kernel.decl @qwen38_linear_q5k_f16_wmma(%token_count: index, %input_size$25: index, %output_size$26: index) launch(%token_count_data: buffer, %input_size$28: index, %output_size$29: index, %input: buffer, %weight: buffer, %output: buffer)
 
@@ -67,19 +94,15 @@ kernel.decl @qwen38_linear_q5k_f16_wmma_c128_t128_wave32(%token_count: index, %i
 
 kernel.decl @qwen38_linear_q5k_f16_wmma_c128_t128_wave32_input_f16(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %output: buffer)
 
-
 kernel.decl @qwen38_linear_q6k_f16_wmma_x64(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size$0: index, %output_size$0: index, %input: buffer, %weight: buffer, %output: buffer)
 
 kernel.decl @qwen38_linear_q6k_f16_wmma_c64t32_f32acc(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size$0: index, %output_size$0: index, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_linear_q6k_f16_wmma_c64t32_f32acc_residual(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size$0: index, %output_size$0: index, %input: buffer, %weight: buffer, %residual: buffer)
-
-
 
 kernel.decl @qwen38_linear_q6k_f16_wmma_metadata_residual_x128(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %residual: buffer)
 
-
 kernel.decl @qwen38_linear_q6k_f16_wmma_metadata_residual_x128_input_f16(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %residual: buffer)
-
 
 kernel.decl @qwen38_rmsnorm_f32_prefill(%token_count$33: index) launch(%token_count$34: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 
@@ -87,9 +110,7 @@ kernel.decl @qwen38_rmsnorm_f16_prefill(%token_count: index) launch(%token_capac
 
 kernel.decl @qwen38_residual_add_f32_prefill(%token_count$39: index) launch(%token_count$40: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
-
 kernel.decl @qwen38_gdn_conv_prepare_prefill(%token_count: index) launch(%token_count_data: buffer, %l2_epsilon: f32, %qkv_input: buffer, %conv_weight: buffer, %conv_history: buffer, %qkv_silu: buffer, %qk_inverse_norm: buffer)
-
 
 kernel.decl @qwen38_gdn_snapshot_history() launch(%history: buffer, %snapshot: buffer)
 
@@ -108,9 +129,13 @@ kernel.decl @qwen38_gdn_norm_gate_f16_prefill(%token_count: index) launch(%token
 kernel.decl @qwen38_gdn_capture_transition_depth4() launch(%qkv: buffer, %alpha: buffer, %beta: buffer, %transition: buffer)
 
 kernel.decl @qwen38_gdn_conv_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse_norm: buffer)
+
 kernel.decl @qwen38_gdn_recurrent_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %qkv: buffer, %inverse_norm: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer)
+
 kernel.decl @qwen38_gdn_conv_verify_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse_norm: buffer)
+
 kernel.decl @qwen38_gdn_recurrent_verify_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %qkv: buffer, %inverse_norm: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer)
+
 kernel.decl @qwen38_gdn_capture_spans(%span_capacity: index) launch(%epoch: buffer, %qkv: buffer, %alpha: buffer, %beta: buffer, %capture: buffer, %layer_origin: offset)
 
 // Verification depth is zero for ordinary prefill and four for the MTP target
@@ -118,6 +143,7 @@ kernel.decl @qwen38_gdn_capture_spans(%span_capacity: index) launch(%epoch: buff
 // prefill retains its wide WMMA schedule. Isolated verification uses the four
 // row projection family; packed verification retains the selected token shape.
 command.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+
 command.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
 
 command.def public @qwen38_gdn_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %gdn_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %gdn_state: buffer, %token_count_data: buffer, %transition_capture: buffer, %rows: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 63), range(%gdn_ordinal, 0, 47), range(%verification_depth, 0, 4), range(%span_capacity, 0, 64)] {

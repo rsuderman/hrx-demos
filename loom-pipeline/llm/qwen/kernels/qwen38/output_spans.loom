@@ -5,6 +5,7 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
 
 template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)

@@ -1,6 +1,8 @@
 // Curated from loom-pipeline/llm/llama/llama_3b; maintained by Loomify.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.rms_epsilon : f32
+
 template.decl @llm.rmsnorm.row(%hidden_size0: index, %element_count_f32: f32, %input_row_count: index, %input_row: index, %output_origin: offset, %output_is_f16: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 
 // Native invocation guarantees1<=active_count<=capacity-token_begin. Empty or
@@ -31,4 +33,3 @@ kernel.def @llama32_output_norm_last_f32(%token_capacity: index) {
   template.apply<@llm.rmsnorm.row>(%hidden_size, %divisor, %capacity, %last, %origin, %half_output, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
   kernel.return
 }
-

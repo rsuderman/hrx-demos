@@ -1,10 +1,15 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 config.decl @lfm3.model.hidden_size : index
+
 config.decl @lfm3.shortconv.history_base : offset
+
 func.decl pure @loomify.config.layer_conv(%layer: index) -> (index, index, index, index)
-kernel.decl @llm.convolution.shortconv7(%rows: index, %width: index) launch(%rows: index, %width: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
+kernel.decl @llm.convolution.shortconv7(%rows$16: index, %width$17: index) launch(%rows$18: index, %width$19: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 command.def @loomify.lfm3.shortconv(%layer: index, %ordinal: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %cache: buffer, %output: buffer) where [range(%rows, 1, 512)] {
   %hidden = config.get @lfm3.model.hidden_size : index
   %it, %ib, %ot, %ob = func.call pure @loomify.config.layer_conv(%layer) : (index) -> (index, index, index, index)

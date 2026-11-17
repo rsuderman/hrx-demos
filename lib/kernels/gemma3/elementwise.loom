@@ -1,8 +1,11 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 config.decl @gemma3.model.hidden_size : index
+
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+
 template.decl @llm.residual_add_f32.row(%hidden: index, %rows: index, %row: index, %lhs: buffer, %rhs: buffer, %out: buffer)
+
 template.decl @llm.geglu_tanh_f32.row(%width: index, %rows: index, %row: index, %gate: buffer, %up: buffer, %out: buffer)
 
 kernel.def @gemma3_residual(%rows0: index) {
@@ -28,6 +31,7 @@ kernel.def @gemma3_residual(%rows0: index) {
   }
   kernel.return
 }
+
 kernel.def @gemma3_geglu(%rows0: index, %width0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
   %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index

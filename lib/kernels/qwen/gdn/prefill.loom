@@ -58,13 +58,11 @@ template.decl @qwen38.gdn_recurrent_prefill_x4.body(%publish_state: i1, %value_h
 // count remains an issue-time workload value, so one compiled kernel and one
 // recorded command program cover every prefill length in the configured
 // capacity.
-
 func.decl @qwen38_gdn_key_head_for_value_head(%value_head: index) -> (index)
 
 // Advances one depthwise-convolution channel by one token. History values are
 // explicit SSA state so the batched kernel does not round-trip them through
 // global memory between tokens.
-
 func.def inline @qwen38_gdn_conv_step(%current: f32, %history0: f32, %history1: f32, %history2: f32, %weight0: f32, %weight1: f32, %weight2: f32, %weight3: f32) -> (f32, f32, f32, f32) {
   %product0 = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %history0, %weight0 : f32
   %product1 = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %history1, %weight1 : f32
@@ -85,7 +83,6 @@ func.def inline @qwen38_gdn_conv_step(%current: f32, %history0: f32, %history1: 
 // Read and write origins may match or name disjoint slots of the same slab.
 // Each destination is exclusive for the whole cohort, including all readers
 // of an immutable source. The final store publishes directly from registers.
-
 template.def<@qwen38.gdn_conv_prepare_prefill.body> device @qwen38_gdn_conv_prepare_prefill_body(%publish_history: i1, %head: index, %thread: index, %token_count_data: buffer, %l2_epsilon: f32, %qkv_input: buffer, %conv_weight: buffer, %conv_history: buffer, %qkv_silu: buffer, %qk_inverse_norm: buffer, %control_origin: offset, %token_begin: index, %history_origin: offset, %next_history_origin: offset) {
   %shape_gdn_inverse_row_bytes = config.get @qwen.model.gdn_inverse_row_bytes : index
   %shape_gdn_qkv_size = config.get @qwen.model.gdn_qkv_size : index

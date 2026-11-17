@@ -15,17 +15,20 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.kv_heads : index
+
 config.decl @qwen.model.attention_heads : index
+
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.kv_size : index
 
 config.decl @qwen.model.attention_scale : f32
+
 config.decl @qwen.model.attention_width : index
 
 target.decl @llm.platform.attention.h256_prefill.wave64
 
 config.decl @qwen38.attention.cache_capacity : %value: index where [range(%value, 1, 262144)]
-
 
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
 
@@ -72,7 +75,3 @@ kernel.def target(@llm.platform.attention.h256_prefill.wave64) export("qwen38_at
   template.apply<@qwen38.attention.wmma>(%logical_capacity, %query_tile, %query_head, %workitem, %subgroup, %lane, %control, %query_noalias, %gate_noalias, %key_noalias, %value_noalias, %output_noalias, %origin, %token_begin, %origin, %origin, %control, %origin, %token_begin) : (index, index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, offset, index, offset, offset, buffer, offset, index)
   kernel.return
 }
-
-// A nonzero position base exercises one complete cache block and a 17-row
-// tail. Constant V isolates causal coverage, GQA addressing, softmax, and all
-// four output-channel tiles without requiring a separate mask allocation.

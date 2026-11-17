@@ -18,11 +18,15 @@ kernel.def @decoder.fixture.poison_attention_input(%width: index) {
   }
   kernel.return
 }
+
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 kernel.decl @llm.decoder.prepare_qk_h128(%rows: index, %heads: index) launch(%capacity: index, %epsilon: f32, %step: f32, %origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer)
+
 kernel.decl @llm.decoder.publish_kv_h128(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
-kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %qheads: index, %kheads: index) launch(%kheads: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %qheads: index, %kheads$42: index) launch(%kheads$43: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
 func.def @decoder.fixture.descriptor_values(%base: index, %epoch: buffer, %map: buffer) {
   %control_origin = index.constant 12 : offset
   %map_origin = index.constant 8 : offset
@@ -41,13 +45,15 @@ func.def @decoder.fixture.descriptor_values(%base: index, %epoch: buffer, %map: 
   view.store %zero32, %entries[1] : i32, view<2xi32>
   func.return
 }
+
 kernel.def @decoder.fixture.descriptor() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%base: index, %epoch: buffer, %map: buffer) {
-  func.call @decoder.fixture.descriptor_values(%base, %epoch, %map) : (index, buffer, buffer) -> ()
+  func.call @decoder.fixture.descriptor_values(%base, %epoch, %map) : (index, buffer, buffer)
   kernel.return
 }
+
 // Populate only layer1. Physical pages are the reverse of logical pages.
 // Future rows remain NaN, making any noncausal read observable.
 func.def @decoder.fixture.history_element(%head0: index, %physical0: index, %lane0: index, %cache: buffer) {
@@ -113,6 +119,7 @@ func.def @decoder.fixture.history_element(%head0: index, %physical0: index, %lan
   view.store %stored_value, %values[%physical, %element] : f16, view<128x1024xf16>
   func.return
 }
+
 kernel.def @decoder.fixture.history() {
   %heads = index.constant 8 : index
   %pool = index.constant 128 : index
@@ -123,9 +130,10 @@ kernel.def @decoder.fixture.history() {
   %head = kernel.workgroup.id<x> : index
   %physical = kernel.workgroup.id<y> : index
   %lane = kernel.workitem.id<x> : index
-  func.call @decoder.fixture.history_element(%head, %physical, %lane, %cache) : (index, index, index, buffer) -> ()
+  func.call @decoder.fixture.history_element(%head, %physical, %lane, %cache) : (index, index, index, buffer)
   kernel.return
 }
+
 command.def @decoder.actual.qk0() launch(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
   %base = index.constant 0 : index
   %rows = index.constant 3 : index
@@ -133,14 +141,15 @@ command.def @decoder.actual.qk0() launch(%epoch: buffer, %map: buffer, %input: b
   %h = index.constant 128 : index
   %capacity = index.constant 2048 : index
   %origin = index.constant 12 : offset
-  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  %epsilon = scalar.constant 9.9999999747524271e-07 : f32
   %step = scalar.constant -0.21586735546588898 : f32
   %width = index.constant 2048 : index
   kernel.launch @decoder.fixture.poison_attention_input[%width](%width, %input) : [index](index, buffer)
-  kernel.launch @decoder.fixture.descriptor[](%base, %epoch, %map) : [](index, buffer, buffer)
+  kernel.launch @decoder.fixture.descriptor(%base, %epoch, %map) : (index, buffer, buffer)
   kernel.launch @llm.decoder.prepare_qk_h128[%rows, %heads](%capacity, %epsilon, %step, %origin, %epoch, %input, %gamma, %output) : [index, index](index, f32, f32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @decoder.actual.qk63() launch(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
   %base = index.constant 63 : index
   %rows = index.constant 3 : index
@@ -148,14 +157,15 @@ command.def @decoder.actual.qk63() launch(%epoch: buffer, %map: buffer, %input: 
   %h = index.constant 128 : index
   %capacity = index.constant 2048 : index
   %origin = index.constant 12 : offset
-  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  %epsilon = scalar.constant 9.9999999747524271e-07 : f32
   %step = scalar.constant -0.21586735546588898 : f32
   %width = index.constant 2048 : index
   kernel.launch @decoder.fixture.poison_attention_input[%width](%width, %input) : [index](index, buffer)
-  kernel.launch @decoder.fixture.descriptor[](%base, %epoch, %map) : [](index, buffer, buffer)
+  kernel.launch @decoder.fixture.descriptor(%base, %epoch, %map) : (index, buffer, buffer)
   kernel.launch @llm.decoder.prepare_qk_h128[%rows, %heads](%capacity, %epsilon, %step, %origin, %epoch, %input, %gamma, %output) : [index, index](index, f32, f32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @decoder.actual.qk1023() launch(%epoch: buffer, %map: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
   %base = index.constant 1023 : index
   %rows = index.constant 3 : index
@@ -163,14 +173,15 @@ command.def @decoder.actual.qk1023() launch(%epoch: buffer, %map: buffer, %input
   %h = index.constant 128 : index
   %capacity = index.constant 2048 : index
   %origin = index.constant 12 : offset
-  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  %epsilon = scalar.constant 9.9999999747524271e-07 : f32
   %step = scalar.constant -0.21586735546588898 : f32
   %width = index.constant 2048 : index
   kernel.launch @decoder.fixture.poison_attention_input[%width](%width, %input) : [index](index, buffer)
-  kernel.launch @decoder.fixture.descriptor[](%base, %epoch, %map) : [](index, buffer, buffer)
+  kernel.launch @decoder.fixture.descriptor(%base, %epoch, %map) : (index, buffer, buffer)
   kernel.launch @llm.decoder.prepare_qk_h128[%rows, %heads](%capacity, %epsilon, %step, %origin, %epoch, %input, %gamma, %output) : [index, index](index, f32, f32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @decoder.actual.attention() launch(%epoch: buffer, %map: buffer, %query_input: buffer, %key_input: buffer, %value: buffer, %gamma: buffer, %cache: buffer, %output: buffer) {
   %base = index.constant 63 : index
   %rows = index.constant 3 : index
@@ -184,9 +195,9 @@ command.def @decoder.actual.attention() launch(%epoch: buffer, %map: buffer, %qu
   %cache_base = index.constant 16 : offset
   %origin = index.constant 12 : offset
   %map_origin = index.constant 8 : offset
-  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  %epsilon = scalar.constant 9.9999999747524271e-07 : f32
   %step = scalar.constant -0.21586735546588898 : f32
-  %scale = scalar.constant 0.0883883461356163 : f32
+  %scale = scalar.constant 0.088388346135616302 : f32
   %query_bytes = index.constant 24576 : offset
   %key_bytes = index.constant 12288 : offset
   %query = buffer.alloca<global> align(256) %query_bytes : buffer
@@ -196,8 +207,8 @@ command.def @decoder.actual.attention() launch(%epoch: buffer, %map: buffer, %qu
   kernel.launch @decoder.fixture.poison_attention_input[%qw](%qw, %query_input) : [index](index, buffer)
   kernel.launch @decoder.fixture.poison_attention_input[%kw](%kw, %key_input) : [index](index, buffer)
   kernel.launch @decoder.fixture.poison_attention_input[%kw](%kw, %value) : [index](index, buffer)
-  kernel.launch @decoder.fixture.descriptor[](%base, %epoch, %map) : [](index, buffer, buffer)
-  kernel.launch @decoder.fixture.history[](%cache) : [](buffer)
+  kernel.launch @decoder.fixture.descriptor(%base, %epoch, %map) : (index, buffer, buffer)
+  kernel.launch @decoder.fixture.history(%cache) : (buffer)
   kernel.launch @llm.decoder.prepare_qk_h128[%rows, %qheads](%capacity, %epsilon, %step, %origin, %epoch, %query_input, %gamma, %query) : [index, index](index, f32, f32, offset, buffer, buffer, buffer, buffer)
   kernel.launch @llm.decoder.prepare_qk_h128[%rows, %kheads](%capacity, %epsilon, %step, %origin, %epoch, %key_input, %gamma, %key) : [index, index](index, f32, f32, offset, buffer, buffer, buffer, buffer)
   kernel.launch @llm.decoder.publish_kv_h128[%rows, %kheads](%layer, %layers, %capacity, %pool, %cache_base, %origin, %map_origin, %epoch, %map, %key, %value, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)

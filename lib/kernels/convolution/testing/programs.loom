@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-kernel.decl @llm.convolution.shortconv7(%rows: index, %width: index) launch(%rows: index, %width: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+kernel.decl @llm.convolution.shortconv7(%rows$0: index, %width$1: index) launch(%rows$2: index, %width$3: index, %history_origin: offset, %control_origin: offset, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 command.def @shortconv.actual() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   %width = index.constant 256 : index
@@ -9,6 +10,7 @@ command.def @shortconv.actual() launch(%count: buffer, %epoch: buffer, %input: b
   kernel.launch @llm.convolution.shortconv7[%rows, %width](%rows, %width, %history_origin, %control_origin, %count, %epoch, %input, %weight, %state, %output) : [index, index](index, index, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 // Chunk relocation fixture: no convolution arithmetic is implemented here.
 kernel.def @shortconv.fixture_stage() {
   %one = index.constant 1 : index
@@ -35,7 +37,9 @@ kernel.def @shortconv.fixture_stage() {
         %input_row = index.assume %row0 [range(%row0, 0, 7)] : index
         %v = view.load %source[%input_row, %part, %lane] : view<8x3x256xf32> -> f32
         scf.yield %v : f32
-      } else { scf.yield %zero_f : f32 }
+      } else {
+        scf.yield %zero_f : f32
+      }
       view.store %value, %out[%row, %part, %lane] : f32, view<8x3x256xf32>
     }
   }
@@ -60,6 +64,7 @@ kernel.def @shortconv.fixture_stage() {
   }
   kernel.return
 }
+
 kernel.def @shortconv.fixture_collect() {
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
@@ -82,6 +87,7 @@ kernel.def @shortconv.fixture_collect() {
   }
   kernel.return
 }
+
 command.def @shortconv.chunked() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   %width = index.constant 256 : index
@@ -97,26 +103,28 @@ command.def @shortconv.chunked() launch(%count: buffer, %epoch: buffer, %input: 
   %chunk_epoch = buffer.alloca<global> align(256) %epoch_bytes : buffer
   %start0 = index.constant 0 : index
   %n0 = index.constant 2 : index
-  kernel.launch @shortconv.fixture_stage[](%start0, %n0, %epoch, %input, %chunk, %chunk_count, %chunk_epoch) : [](index, index, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @shortconv.fixture_stage(%start0, %n0, %epoch, %input, %chunk, %chunk_count, %chunk_epoch) : (index, index, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llm.convolution.shortconv7[%rows, %width](%rows, %width, %history_origin, %origin, %chunk_count, %chunk_epoch, %chunk, %weight, %state, %chunk_output) : [index, index](index, index, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @shortconv.fixture_collect[](%start0, %n0, %chunk_output, %output) : [](index, index, buffer, buffer)
+  kernel.launch @shortconv.fixture_collect(%start0, %n0, %chunk_output, %output) : (index, index, buffer, buffer)
   %start1 = index.constant 2 : index
   %n1 = index.constant 3 : index
-  kernel.launch @shortconv.fixture_stage[](%start1, %n1, %epoch, %input, %chunk, %chunk_count, %chunk_epoch) : [](index, index, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @shortconv.fixture_stage(%start1, %n1, %epoch, %input, %chunk, %chunk_count, %chunk_epoch) : (index, index, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llm.convolution.shortconv7[%rows, %width](%rows, %width, %history_origin, %origin, %chunk_count, %chunk_epoch, %chunk, %weight, %state, %chunk_output) : [index, index](index, index, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @shortconv.fixture_collect[](%start1, %n1, %chunk_output, %output) : [](index, index, buffer, buffer)
+  kernel.launch @shortconv.fixture_collect(%start1, %n1, %chunk_output, %output) : (index, index, buffer, buffer)
   %start2 = index.constant 5 : index
   %n2 = index.constant 3 : index
-  kernel.launch @shortconv.fixture_stage[](%start2, %n2, %epoch, %input, %chunk, %chunk_count, %chunk_epoch) : [](index, index, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @shortconv.fixture_stage(%start2, %n2, %epoch, %input, %chunk, %chunk_count, %chunk_epoch) : (index, index, buffer, buffer, buffer, buffer, buffer)
   kernel.launch @llm.convolution.shortconv7[%rows, %width](%rows, %width, %history_origin, %origin, %chunk_count, %chunk_epoch, %chunk, %weight, %state, %chunk_output) : [index, index](index, index, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @shortconv.fixture_collect[](%start2, %n2, %chunk_output, %output) : [](index, index, buffer, buffer)
+  kernel.launch @shortconv.fixture_collect(%start2, %n2, %chunk_output, %output) : (index, index, buffer, buffer)
   command.return
 }
+
 command.def @shortconv.reset_replay() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
-  command.launch @shortconv.actual[](%count, %epoch, %input, %weight, %state, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer)
-  command.launch @shortconv.chunked[](%count, %epoch, %input, %weight, %state, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @shortconv.actual(%count, %epoch, %input, %weight, %state, %output) : (buffer, buffer, buffer, buffer, buffer, buffer)
+  command.launch @shortconv.chunked(%count, %epoch, %input, %weight, %state, %output) : (buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @shortconv.wide1024() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   %width = index.constant 1024 : index
@@ -125,6 +133,7 @@ command.def @shortconv.wide1024() launch(%count: buffer, %epoch: buffer, %input:
   kernel.launch @llm.convolution.shortconv7[%rows, %width](%rows, %width, %history_origin, %control_origin, %count, %epoch, %input, %weight, %state, %output) : [index, index](index, index, offset, offset, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def @shortconv.wide2048() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   %width = index.constant 2048 : index

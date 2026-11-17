@@ -3,7 +3,9 @@
 // Canonical F32 Q4_K gather. Decode through the existing owned K-block codec;
 // do not apply the Q6 embedding's separately qualified F16 rounding policy.
 func.decl @ggml_q4k_chunk(%weight: buffer, %row_byte_base: offset, %block: index, %group: index, %half: index) -> (vector<16xi8>, f32, f32)
+
 template.decl @llm.token_embedding_q4k_f32.row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+
 template.def<@llm.token_embedding_q4k_f32.row> device @llm_token_embedding_q4k_f32_row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer) {
   %thread = kernel.workitem.id<x> : index
   %two = index.constant 2 : index

@@ -3,6 +3,7 @@
 // Wiring proof against separately emitted compact execution, not an independent
 // numerical model. M2 immutable anchors and M3 scalar oracles qualify arithmetic.
 command.decl @joined.1.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+
 func.def @reference_1_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -18,6 +19,7 @@ func.def @reference_1_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0
   view.store %one, %s[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @joined_1_prefill_replay {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %factor = check.generate.fill value(1.0) : tensor<64xf32>
@@ -39,7 +41,7 @@ check.scenario @joined_1_prefill_replay {
     %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
-    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<8x3072xf32>
+    %residual = check.generate.iota offset(0.25) step(1.0000000000000001e-05) : tensor<8x3072xf32>
     %control = check.generate.fill value(-99) : tensor<3xi32>
     %map = check.generate.fill value(0) : tensor<8xi32>
     %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
@@ -71,7 +73,9 @@ check.scenario @joined_1_prefill_replay {
   }
   check.return
 }
+
 command.decl @joined.1.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+
 func.def @reference_1_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -87,6 +91,7 @@ func.def @reference_1_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_
   view.store %one, %s[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @joined_1_decode_replay {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %factor = check.generate.fill value(1.0) : tensor<64xf32>
@@ -108,7 +113,7 @@ check.scenario @joined_1_decode_replay {
     %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
-    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<1x3072xf32>
+    %residual = check.generate.iota offset(0.25) step(1.0000000000000001e-05) : tensor<1x3072xf32>
     %control = check.generate.fill value(-99) : tensor<3xi32>
     %map = check.generate.fill value(0) : tensor<8xi32>
     %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
@@ -140,7 +145,9 @@ check.scenario @joined_1_decode_replay {
   }
   check.return
 }
+
 command.decl @joined.2.prefill() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+
 func.def @reference_2_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -156,6 +163,7 @@ func.def @reference_2_prefill(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0
   view.store %one, %s[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @joined_2_prefill_replay {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %factor = check.generate.fill value(1.0) : tensor<64xf32>
@@ -177,7 +185,7 @@ check.scenario @joined_2_prefill_replay {
     %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
-    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<8x3072xf32>
+    %residual = check.generate.iota offset(0.25) step(1.0000000000000001e-05) : tensor<8x3072xf32>
     %control = check.generate.fill value(-99) : tensor<3xi32>
     %map = check.generate.fill value(0) : tensor<8xi32>
     %cache = check.generate.fill value(0.125) : tensor<2097184xf16>
@@ -209,7 +217,9 @@ check.scenario @joined_2_prefill_replay {
   }
   check.return
 }
+
 command.decl @joined.2.decode() launch(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer)
+
 func.def @reference_2_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_2: buffer, %w0_3: buffer, %w0_4: buffer, %w0_5: buffer, %w0_6: buffer, %w0_7: buffer, %w0_8: buffer, %w1_0: buffer, %w1_1: buffer, %w1_2: buffer, %w1_3: buffer, %w1_4: buffer, %w1_5: buffer, %w1_6: buffer, %w1_7: buffer, %w1_8: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -225,6 +235,7 @@ func.def @reference_2_decode(%factor: buffer, %w0_0: buffer, %w0_1: buffer, %w0_
   view.store %one, %s[1] : i32, view<2xi32>
   func.return
 }
+
 check.scenario @joined_2_decode_replay {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %factor = check.generate.fill value(1.0) : tensor<64xf32>
@@ -246,7 +257,7 @@ check.scenario @joined_2_decode_replay {
     %w1_6 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_7 = check.generate.fill value(19) : tensor<14155776xi8>
     %w1_8 = check.generate.fill value(19) : tensor<14155776xi8>
-    %residual = check.generate.iota offset(0.25) step(0.00001) : tensor<1x3072xf32>
+    %residual = check.generate.iota offset(0.25) step(1.0000000000000001e-05) : tensor<1x3072xf32>
     %control = check.generate.fill value(-99) : tensor<3xi32>
     %map = check.generate.fill value(0) : tensor<8xi32>
     %cache = check.generate.fill value(0.125) : tensor<2097184xf16>

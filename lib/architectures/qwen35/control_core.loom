@@ -4,8 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 func.decl @generation.full_packet_transfers(%metadata: buffer, %tokens: buffer) -> (buffer)
+
 func.decl @loomify.request.check(%condition: i1)
+
 func.decl import("runner") @execute_6(%stage: i32, %b0: hal.buffer, %b1: hal.buffer, %b2: hal.buffer, %b3: hal.buffer, %b4: hal.buffer, %b5: hal.buffer) -> (i64)
+
 func.decl import("runner") @feedback(%slot: i32, %source: hal.buffer, %offset: i64, %length: i64) -> (i64)
 
 func.def public @encode_state(%bindings: buffer, %count: i32, %origins: buffer) {
@@ -32,7 +35,6 @@ func.def public @encode_state(%bindings: buffer, %count: i32, %origins: buffer) 
     view.store %read, %rows[%row, 0] : i64, view<16x4xi64>
     view.store %write, %rows[%row, 1] : i64, view<16x4xi64>
     view.store %position, %rows[%row, 3] : i64, view<16x4xi64>
-    scf.yield
   }
   func.return
 }
@@ -108,7 +110,6 @@ func.def @qwen_execution.encode_plan(%plan: buffer, %inputs: buffer, %count: ind
       %slot = index.assume %slot_value [range(%slot_value, 0, 63)] : index
       %token = scalar.addi %selection_first, %j32 : i32
       view.store %token, %selections[%slot] : i32, view<64xi32>
-      scf.yield
     }
     %next_outputs = scalar.addi %outputs, %active_selections : i32
     scf.yield %end, %next_outputs : i32, i32

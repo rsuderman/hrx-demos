@@ -14,6 +14,7 @@ func.def @anchor_gamma(%lane: index) -> (f32) {
   %v = scalar.addf %half, %p : f32
   func.return %v : f32
 }
+
 func.def @anchor_query(%head: index, %lane: index) -> (f32) {
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -25,6 +26,7 @@ func.def @anchor_query(%head: index, %lane: index) -> (f32) {
   %f = scalar.uitofp %i : i32 to f32
   func.return %f : f32
 }
+
 func.def @anchor_gate(%head: index, %lane: index) -> (f32) {
   %three = index.constant 3 : index
   %two = index.constant 2 : index
@@ -40,6 +42,7 @@ func.def @anchor_gate(%head: index, %lane: index) -> (f32) {
   %f = scalar.sitofp %v : i32 to f32
   func.return %f : f32
 }
+
 func.def @anchor_init(%count: index, %position: index, %control: buffer, %projection: buffer, %weight: buffer) {
   %origin = index.constant 0 : offset
   %ctl = buffer.view %control[%origin] : buffer -> view<2xi32>
@@ -75,6 +78,7 @@ func.def @anchor_init(%count: index, %position: index, %control: buffer, %projec
   }
   func.return
 }
+
 func.def @anchor_normalized(%head: index, %lane: index) -> (f32) {
   %one = index.constant 1 : index
   %h = index.add %head, %one : index
@@ -82,7 +86,7 @@ func.def @anchor_normalized(%head: index, %lane: index) -> (f32) {
   %hf = scalar.uitofp %hi : i32 to f32
   %square = scalar.mulf %hf, %hf : f32
   %two_half = scalar.constant 2.5 : f32
-  %epsilon = scalar.constant 0.000001 : f32
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
   %mean = scalar.mulf %square, %two_half : f32
   %biased = scalar.addf %mean, %epsilon : f32
   %root = scalar.sqrtf<afn> %biased : f32
@@ -92,8 +96,9 @@ func.def @anchor_normalized(%head: index, %lane: index) -> (f32) {
   %v = scalar.mulf %unit, %gamma : f32
   func.return %v : f32
 }
+
 func.def @anchor_expected(%count: index, %position: index, %control: buffer, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer) {
-  func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer) -> ()
+  func.call @anchor_init(%count, %position, %control, %projection, %weight) : (index, index, buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %q = buffer.view %query[%origin] : buffer -> view<4x2048xf32>
   %g = buffer.view %gate[%origin] : buffer -> view<4x2048xf32>
@@ -104,7 +109,7 @@ func.def @anchor_expected(%count: index, %position: index, %control: buffer, %pr
   %rotary = index.constant 64 : index
   %half = index.constant 32 : index
   %onef = scalar.constant 1.0 : f32
-  %log_step = scalar.constant -0.5036904811859131 : f32
+  %log_step = scalar.constant -0.50369048118591309 : f32
   scf.for %row = [%zero to %count step %one] {
     %absolute = index.add %position, %row : index
     %absolute_i32 = index.cast %absolute : index to i32
@@ -158,4 +163,3 @@ func.def @anchor_expected(%count: index, %position: index, %control: buffer, %pr
   }
   func.return
 }
-

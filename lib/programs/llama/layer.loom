@@ -3,8 +3,11 @@
 // The decoder layer owns its snapshot and scratch; residual and this layer's
 // cache planes are the only caller-owned mutable values.
 config.decl @llama.model.hidden_size : index
-kernel.decl @llama32_rmsnorm_active_f32(%rows: index) launch(%rows: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @llama32_rmsnorm_active_f32(%rows$1: index) launch(%rows$2: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 command.decl @loomify.llama.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer)
+
 command.decl @loomify.llama.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
 
 command.def @loomify.llama.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {

@@ -19,6 +19,7 @@ config.decl @ggml.linear_q5_0_q8_1_x4.output_capacity : %value: index where [ran
 target.decl @llm.platform.projection.q5_0.wave32
 
 func.decl pure @ggml_block32_q8_1_x4_output_tiles(%output_size: index, %subgroup_size: index) -> (index)
+
 func.decl @ggml_block32_q8_1_x4_project(%weight_tag: index, %weight_row_bytes: offset, %token_capacity: index, %output_capacity: index, %token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 
 kernel.def target(@llm.platform.projection.q5_0.wave32) export("ggml_linear_q5_0_q8_1_x4") @ggml_linear_q5_0_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
@@ -37,6 +38,6 @@ kernel.def target(@llm.platform.projection.q5_0.wave32) export("ggml_linear_q5_0
   %block_bytes = index.constant 22 : offset
   %blocks = index.div %bounded_input_size, %block_size : index
   %weight_row_bytes = index.scale %blocks, %block_bytes : index, offset -> offset
-  func.call @ggml_block32_q8_1_x4_project(%tag, %weight_row_bytes, %token_capacity, %output_capacity, %token_count, %bounded_input_size, %output_size, %q8_input, %weight, %output) : (index, offset, index, index, index, index, index, buffer, buffer, buffer) -> ()
+  func.call @ggml_block32_q8_1_x4_project(%tag, %weight_row_bytes, %token_capacity, %output_capacity, %token_count, %bounded_input_size, %output_size, %q8_input, %weight, %output) : (index, offset, index, index, index, index, index, buffer, buffer, buffer)
   kernel.return
 }

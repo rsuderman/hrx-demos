@@ -2,9 +2,15 @@
 // SPDX-License-Identifier: MIT
 // F32 gather/scaling uses the same owned signed Q8_0 word codec as projection.
 template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32)
+
 template.decl @llm.embedding.q8_row_bytes(%bytes: index, %expected: index)
-template.def<@llm.embedding.q8_row_bytes> @llm_embedding_q8_row_bytes(%bytes: index, %expected: index) where [eq(%bytes, %expected)] { template.return }
+
+template.def<@llm.embedding.q8_row_bytes> @llm_embedding_q8_row_bytes(%bytes: index, %expected: index) where [eq(%bytes, %expected)] {
+  template.return
+}
+
 template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %scale: f32, %weight: buffer, %output: buffer)
+
 template.def<@llm.token_embedding_q8_0_f32.row> device @llm_token_embedding_q8_0_f32_row(%hidden_size: index, %row_bytes: index, %token: i32, %output_origin: offset, %scale: f32, %weight: buffer, %output: buffer) where [range(%hidden_size, 32, 32768), multiple_of(%hidden_size, 32)] {
   %four = index.constant 4 : index
   %eight = index.constant 8 : index

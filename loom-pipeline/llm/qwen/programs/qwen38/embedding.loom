@@ -1,11 +1,15 @@
 // Architecture-selected token embedding. The Q6 consumer retains the existing
 // F16 decode/extend arithmetic; the Q5 consumer retains its F32 arithmetic.
 config.decl @qwen.model.embedding_quantization : index
+
 config.decl @qwen.model.embedding_weight_bytes : index
 
 kernel.decl @qwen38_token_embedding_q5k_f32_decode() launch(%token_id: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_token_embedding_q6k_f16_decode() launch(%token_id: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_token_embedding_q5k_f32_prefill(%token_count: index) launch(%token_ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%token_count: index) launch(%token_ids: buffer, %weight: buffer, %output: buffer)
 
 command.def public @qwen38_embedding_decode() launch(%parameters: buffer, %token_ids: buffer, %residual: buffer) {

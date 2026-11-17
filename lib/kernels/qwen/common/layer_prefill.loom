@@ -31,7 +31,6 @@ kernel.def export("qwen38_rmsnorm_f32_prefill") @qwen38_rmsnorm_f32_prefill(%tok
 
 // Produces the same F16 values consumed by WMMA projections without
 // materializing and repeatedly reloading an F32 normalized tensor.
-
 kernel.def export("qwen38_residual_add_f32_prefill") @qwen38_residual_add_f32_prefill(%token_count: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
   %unit = index.constant 1 : index

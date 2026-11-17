@@ -3,8 +3,11 @@
 // Ordinary epoch adapter around the shared Q4_K F32 row decoder. The epoch's
 // input_begin selects IDs; compact output rows always start at zero.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.vocabulary_size : index
+
 template.decl @llm.embedding.epoch_f32_row(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.def @llama32_token_embedding_epoch_q4k_f32(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 2048)] : index
   %one = index.constant 1 : index

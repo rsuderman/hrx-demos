@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.rmsnorm.row(%width: index, %divisor: f32, %rows: index, %row: index, %origin: offset, %half: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.def @consumer.llama_norm(%rows0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 2048)] : index
   %one = index.constant 1 : index
@@ -10,7 +11,7 @@ kernel.def @consumer.llama_norm(%rows0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 2048)] : index
   %width = index.constant 3072 : index
   %divisor = scalar.constant 3072.0 : f32
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   %half = scalar.constant false : i1
   %row0 = kernel.workgroup.id<y> : index
   %row = index.assume %row0 [range(%row0, 0, 2047), lt(%row0, %rows)] : index
@@ -19,6 +20,7 @@ kernel.def @consumer.llama_norm(%rows0: index) {
   template.apply<@llm.rmsnorm.row>(%width, %divisor, %rows, %row, %origin, %half, %epsilon, %input, %weight, %output) : (index, f32, index, index, offset, i1, f32, buffer, buffer, buffer)
   kernel.return
 }
+
 command.def public @consumer.model_norm(%rows: index) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @consumer.llama_norm[%rows](%rows, %input, %weight, %output) : [index](index, buffer, buffer, buffer)
   command.return

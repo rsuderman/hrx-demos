@@ -6,7 +6,6 @@ config.def @llama.attention.cache_capacity = 512 : %0: index where [range(%0, 1,
 
 // The residual provider permits lhs/output aliasing. Guard each selected row;
 // caller-owned padded rows and rows of other packed spans remain untouched.
-
 config.def @llama.model.hidden_size = 3072 : index
 
 config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : %138: index where [range(%138, 1, 262144)]
@@ -14,7 +13,6 @@ config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : %138: index where [
 config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : %139: index where [range(%139, 1, 262144)]
 
 // Capacity of the existing shared greedy implementation (historical symbol).
-
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : %140: index where [range(%140, 1, 2048)]
 
 config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %141: index where [range(%141, 1, 2048)]
@@ -24,12 +22,11 @@ config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %142: index where [ra
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Snapshot active rows before publication changes the original packet.
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count$7: index, %input_size$8: index, %output_size$9: index) launch(%token_count$10: index, %input_size$11: index, %output_size$12: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count$20: index, %input_size$21: index, %output_size$22: index) launch(%token_count$23: index, %input_size$24: index, %output_size$25: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
-
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count$33: index, %input_size$34: index) launch(%token_count$35: index, %input_size$36: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
 
 kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
 

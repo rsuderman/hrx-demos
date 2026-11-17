@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 command.decl @test.epoch8.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
 func.def @reference_epoch8_0(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
@@ -52,6 +53,7 @@ func.def @reference_epoch8_0(%parameters: buffer, %residual: buffer, %metadata: 
   view.store %v20, %outputs[2] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @epoch8_0 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
@@ -73,7 +75,9 @@ check.scenario @epoch8_0 {
   }
   check.return
 }
+
 command.decl @test.epoch8.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
 func.def @reference_epoch8_1(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
@@ -123,6 +127,7 @@ func.def @reference_epoch8_1(%parameters: buffer, %residual: buffer, %metadata: 
   view.store %v19, %outputs[0] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @epoch8_1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
@@ -144,7 +149,9 @@ check.scenario @epoch8_1 {
   }
   check.return
 }
+
 command.decl @test.epoch8.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
 func.def @reference_epoch8_2(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
@@ -196,6 +203,7 @@ func.def @reference_epoch8_2(%parameters: buffer, %residual: buffer, %metadata: 
   view.store %v20, %outputs[2] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @epoch8_2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
@@ -217,7 +225,9 @@ check.scenario @epoch8_2 {
   }
   check.return
 }
+
 command.decl @test.epoch256.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
 func.def @reference_epoch256_0(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
@@ -269,6 +279,7 @@ func.def @reference_epoch256_0(%parameters: buffer, %residual: buffer, %metadata
   view.store %v20, %outputs[2] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @epoch256_0 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
@@ -290,7 +301,9 @@ check.scenario @epoch256_0 {
   }
   check.return
 }
+
 command.decl @test.epoch256.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
 func.def @reference_epoch256_1(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
@@ -340,6 +353,7 @@ func.def @reference_epoch256_1(%parameters: buffer, %residual: buffer, %metadata
   view.store %v19, %outputs[0] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @epoch256_1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
@@ -361,7 +375,9 @@ check.scenario @epoch256_1 {
   }
   check.return
 }
+
 command.decl @test.epoch256.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
 func.def @reference_epoch256_2(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<256xi32>
@@ -413,6 +429,7 @@ func.def @reference_epoch256_2(%parameters: buffer, %residual: buffer, %metadata
   view.store %v20, %outputs[2] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @epoch256_2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
@@ -436,8 +453,9 @@ check.scenario @epoch256_2 {
 }
 
 // Independent expected stores; no packet-decoding helper or production arithmetic.
-command.decl @test.epoch.offset8() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer)
-func.def @reference_epoch_offset8(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
+command.decl @test.epoch.offset8() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer)
+
+func.def @reference_epoch_offset8(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %res = buffer.view %residual[%origin] : buffer -> view<8xi32>
   %meta = buffer.view %metadata[%origin] : buffer -> view<516xi32>
@@ -488,8 +506,9 @@ func.def @reference_epoch_offset8(%parameters:buffer,%residual:buffer,%metadata:
   view.store %v_out_7, %out[7] : i32, view<20xi32>
   func.return
 }
+
 check.scenario @epoch_offset_and_selected_physical_slot {
-  check.trial[1](%trial:index,%entropy:check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameters = check.generate.fill value(55) : tensor<4xi32>
     %residual = check.generate.fill value(-77) : tensor<8xi32>
     %metadata = check.generate.fill value(-77) : tensor<516xi32>
@@ -497,7 +516,7 @@ check.scenario @epoch_offset_and_selected_physical_slot {
     %arena = check.generate.fill value(-77) : tensor<160xi32>
     %input = check.generate.fill value(-77) : tensor<8xi32>
     %output = check.generate.iota offset(-99) step(-7) : tensor<20xi32>
-    check.compare<@test.epoch.offset8,@reference_epoch_offset8>(%parameters,%residual,%metadata,%origins,%arena,%input,%output) : (tensor<4xi32>,tensor<8xi32>,tensor<516xi32>,tensor<64xi64>,tensor<160xi32>,tensor<8xi32>,tensor<20xi32>) -> () {
+    check.compare<@test.epoch.offset8, @reference_epoch_offset8>(%parameters, %residual, %metadata, %origins, %arena, %input, %output) : (tensor<4xi32>, tensor<8xi32>, tensor<516xi32>, tensor<64xi64>, tensor<160xi32>, tensor<8xi32>, tensor<20xi32>) -> () {
       check.expect.bitwise actual(%parameters) expected(%parameters) : tensor<4xi32>
       check.expect.bitwise actual(%residual) expected(%residual) : tensor<8xi32>
       check.expect.bitwise actual(%metadata) expected(%metadata) : tensor<516xi32>

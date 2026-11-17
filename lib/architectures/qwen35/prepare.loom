@@ -1,39 +1,60 @@
 func.decl @loomify.tokens.terminal_marker() -> (buffer)
+
 // Copyright 2026 The IREE Authors
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated from the ordinary Qwen0.8B source; independently maintained by Loomify.
 config.decl @qwen.model.gdn_slot_origin : index
+
 config.decl @qwen.model.gdn_state_bytes : index
+
 config.decl @qwen.model.hidden_capacity_bytes : index
+
 config.decl @qwen.model.kv_plane_token_bytes : index
+
 config.decl @qwen.model.map_origin : index
+
 config.decl @qwen.model.private_row_stride : index
+
 config.decl @qwen.model.target_kv_planes : index
+
 config.decl @qwen.model.target_kv_token_bytes : index
+
 config.decl @qwen38.attention.cache_capacity : index
+
 config.decl @qwen38.attention.pool_capacity : index
+
 config.decl @runner.qwen38.prefill_token_count : index
 
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
 func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
+
 func.decl import("prepare") @source(%directory: buffer, %path: buffer) -> (i32)
+
 func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %input: i32, %source: i32, %policy: buffer)
+
 global.rodata.def @epoch_root = bytes("67656e6572617465642e7177656e5f65706f6368")
+
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
+
 global.rodata.def @empty = bytes("")
+
 // Ordinary Qwen0.8B requires the exact generated capacities, one row/span and no draft/options.
 global.rodata.def @unsupported_options = bytes("4f7264696e617279205177656e302e3842207265717569726573207468652067656e65726174656420636170616369746965732c206f6e6520726f772f7370616e20616e64206e6f2064726166742f6f7074696f6e73")
+
 func.def @declare_stage(%root: buffer, %tag: i64, %weights: buffer) -> (i32) {
   %entry = func.call @stage(%root, %tag) : (buffer, i64) -> (i32)
   %zero = scalar.constant 0 : i32
   %empty = global.load @empty : buffer
   %policy = global.load @policy : buffer
   %registered_source_1 = func.call @source(%empty, %weights) : (buffer, buffer) -> (i32)
-  func.call @parameter(%entry, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer) -> ()
+  func.call @parameter(%entry, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer)
   func.return %entry : i32
 }
+
 func.def @allocation(%records: buffer, %slot: index, %bytes: i64, %clear: i64) {
   %origin = index.constant 0 : offset
   %bounded_slot = index.assume %slot [range(%slot, 0, 10)] : index
@@ -116,22 +137,22 @@ func.def @storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %packed: i1
   %table_bytes = scf.select %pooled, %pooled_table_bytes, %origin_bytes : i64
   %allocation_bytes = index.constant 264 : offset
   %allocations = buffer.alloca<private> align(8) %allocation_bytes : buffer
-  func.call @allocation(%allocations, %zero, %residual_bytes, %residual_bytes) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %one, %arena_bytes, %row_bytes) : (buffer, index, i64, i64) -> ()
+  func.call @allocation(%allocations, %zero, %residual_bytes, %residual_bytes) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %one, %arena_bytes, %row_bytes) : (buffer, index, i64, i64)
   %packed_metadata = scf.select %packed, %metadata_bytes, %zero64 : i64
   %packed_table = scf.select %packed, %table_bytes, %zero64 : i64
   %packed_tokens = scf.select %packed, %cohort_token_bytes, %zero64 : i64
   %packed_outputs = scf.select %packed, %output_bytes, %zero64 : i64
-  func.call @allocation(%allocations, %two, %packed_metadata, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %three, %packed_table, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %four, %packed_tokens, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %five, %packed_outputs, %zero64) : (buffer, index, i64, i64) -> ()
+  func.call @allocation(%allocations, %two, %packed_metadata, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %three, %packed_table, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %four, %packed_tokens, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %five, %packed_outputs, %zero64) : (buffer, index, i64, i64)
   // Native ABI reserves slots 6–10 for MTP; this checkpoint leaves them empty.
-  func.call @allocation(%allocations, %six, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %seven, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %eight, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %nine, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @allocation(%allocations, %ten, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
+  func.call @allocation(%allocations, %six, %zero64, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %seven, %zero64, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %eight, %zero64, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %nine, %zero64, %zero64) : (buffer, index, i64, i64)
+  func.call @allocation(%allocations, %ten, %zero64, %zero64) : (buffer, index, i64, i64)
   %bounded_rows = scalar.assume %rows [range(%rows, 1, 16)] : i64
   %row_count = index.cast %bounded_rows : i64 to index
   %view_stride = index.constant 64 : offset
@@ -152,7 +173,6 @@ func.def @storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %packed: i1
     view.store %zero64, %draft[%i, 1] : i64, view<16x4xi64>
     view.store %zero64, %draft[%i, 2] : i64, view<16x4xi64>
     view.store %zero64, %draft[%i, 3] : i64, view<16x4xi64>
-    scf.yield
   }
   scf.for %i = [%zero to %row_count step %one] {
     %row = index.cast %i : index to i64
@@ -161,15 +181,14 @@ func.def @storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %packed: i1
     %attention_base = scalar.addi %base, %attention_offset : i64
     %tokens_base = scalar.addi %base, %tokens_offset : i64
     %progress_base = scalar.addi %base, %progress_offset : i64
-    func.call @row_view(%views, %row_count, %i, %zero, %base, %control_bytes) : (buffer, index, index, index, i64, i64) -> ()
-    func.call @row_view(%views, %row_count, %i, %one, %attention_base, %attention_bytes) : (buffer, index, index, index, i64, i64) -> ()
-    func.call @row_view(%views, %row_count, %i, %two, %tokens_base, %token_bytes) : (buffer, index, index, index, i64, i64) -> ()
-    func.call @row_view(%views, %row_count, %i, %three, %progress_base, %progress_bytes) : (buffer, index, index, index, i64, i64) -> ()
+    func.call @row_view(%views, %row_count, %i, %zero, %base, %control_bytes) : (buffer, index, index, index, i64, i64)
+    func.call @row_view(%views, %row_count, %i, %one, %attention_base, %attention_bytes) : (buffer, index, index, index, i64, i64)
+    func.call @row_view(%views, %row_count, %i, %two, %tokens_base, %token_bytes) : (buffer, index, index, index, i64, i64)
+    func.call @row_view(%views, %row_count, %i, %three, %progress_base, %progress_bytes) : (buffer, index, index, index, i64, i64)
     %kv_base = scf.select %pooled, %row_bytes, %attention_base : i64
     view.store %gdn_base, %target[%i, 0] : i64, view<16x4xi64>
     view.store %gdn_base, %target[%i, 1] : i64, view<16x4xi64>
     view.store %kv_base, %target[%i, 2] : i64, view<16x4xi64>
-    scf.yield
   }
   // Cache regions are {allocation, origin, plane_count, plane_stride,
   // block_bytes}. Variant config supplies model geometry; physical slabs may cut across
@@ -202,7 +221,6 @@ func.def @storage(%context: i64, %pool: i64, %rows: i64, %pins: i64, %packed: i1
     view.store %target_planes, %regions[2] : i64, view<5xi64>
     view.store %plane_stride, %regions[3] : i64, view<5xi64>
     view.store %block_bytes, %regions[4] : i64, view<5xi64>
-    scf.yield
   }
   func.return %allocations, %views, %target_origins, %draft_origins, %geometry : buffer, buffer, buffer, buffer, buffer
 }
@@ -233,7 +251,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %supported = scalar.andi %valid_options, %valid_depth : i1
   %supported32 = scalar.extui %supported : i1 to i32
   %diagnostic = global.load @unsupported_options : buffer
-  func.call @require(%supported32, %diagnostic) : (i32, buffer) -> ()
+  func.call @require(%supported32, %diagnostic) : (i32, buffer)
   %expected_context_index = config.get @qwen38.attention.cache_capacity : index
   %expected_context = index.cast %expected_context_index : index to i64
   %expected_pool_index = config.get @qwen38.attention.pool_capacity : index
@@ -250,7 +268,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %c3 = scalar.andi %c0, %c1 : i1
   %valid_profile = scalar.andi %c3, %c2 : i1
   %profile32 = scalar.extui %valid_profile : i1 to i32
-  func.call @require(%profile32, %diagnostic) : (i32, buffer) -> ()
+  func.call @require(%profile32, %diagnostic) : (i32, buffer)
   %bounded = scalar.assume %shape_count [range(%shape_count, 0, 2147483647)] : i64
   %count = index.cast %bounded : i64 to index
   %view = buffer.view %shapes[%origin] : buffer -> view<[%count]x2xi64>
@@ -270,7 +288,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
     %token_range = scalar.andi %positive_tokens, %fit_tokens : i1
     %shape_ok = scalar.andi %token_range, %span_range : i1
     %shape32 = scalar.extui %shape_ok : i1 to i32
-    func.call @require(%shape32, %diagnostic) : (i32, buffer) -> ()
+    func.call @require(%shape32, %diagnostic) : (i32, buffer)
     %target = func.call @declare_stage(%epoch_root, %tokens, %weights) : (buffer, i64, buffer) -> (i32)
     %larger = scalar.cmpi ugt, %tokens, %previous : i64
     %next = scf.select %larger, %tokens, %previous : i64

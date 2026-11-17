@@ -1,12 +1,19 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
-kernel.decl @gemma3_rmsnorm_active_f32(%rows: index) launch(%rows: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @gemma3_rmsnorm_active_f32(%rows$24: index) launch(%rows$25: index, %begin: index, %origin: offset, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 kernel.decl @gemma3_residual(%rows: index) launch(%count: buffer, %source: buffer, %residual: buffer)
+
 config.decl @gemma3.model.hidden_size : index
+
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
-kernel.decl @gemma3_geglu(%rows: index, %width: index) launch(%width: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
+kernel.decl @gemma3_geglu(%rows: index, %width$46: index) launch(%width$47: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
 command.def @loomify.gemma3.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @gemma3.model.hidden_size : index
   %zero = index.constant 0 : index

@@ -5,6 +5,7 @@
 // head h % 16 rather than grouping three adjacent V heads under one Q/K head.
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.gdn_key_heads : index
+
 config.decl @qwen.model.gdn_value_heads : index
 
 func.def public inline @qwen38_gdn_key_head_for_value_head(%value_head: index) -> (index) {

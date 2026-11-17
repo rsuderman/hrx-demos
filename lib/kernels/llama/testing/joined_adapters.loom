@@ -31,6 +31,7 @@ kernel.def @test.join_packet() {
   view.store %eos, %c[2] : i32, view<3xi32>
   kernel.return
 }
+
 kernel.def @test.join_seed(%capacity: index, %compact_capacity: index) {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -67,6 +68,7 @@ kernel.def @test.join_seed(%capacity: index, %compact_capacity: index) {
   }
   kernel.return
 }
+
 kernel.def @test.join_compare(%capacity: index, %compact_capacity: index) {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -103,7 +105,9 @@ kernel.def @test.join_compare(%capacity: index, %compact_capacity: index) {
       %relative = index.sub %row, %begin : index
       %inside = index.cmp ult, %relative, %count : index
       scf.yield %inside : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     %row_ok = scf.for %col = [%zero to %width step %one](%ok = %all : i1) -> (i1) {
       %actual = view.load %r[%row, %col] : view<[%capacity]x3072xf32> -> f32
       %prior = view.load %old[%row, %col] : view<[%capacity]x3072xf32> -> f32
@@ -114,7 +118,7 @@ kernel.def @test.join_compare(%capacity: index, %compact_capacity: index) {
         %diff0 = scalar.subf %actual, %expected : f32
         %diff = scalar.absf %diff0 : f32
         %abs_expected = scalar.absf %expected : f32
-        %relative_tol = scalar.constant 0.00001 : f32
+        %relative_tol = scalar.constant 1.0000000000000001e-05 : f32
         %absolute_tol = scalar.constant 0.0001 : f32
         %rt = scalar.mulf %relative_tol, %abs_expected : f32
         %tol = scalar.addf %rt, %absolute_tol : f32
@@ -153,7 +157,9 @@ kernel.def @test.join_compare(%capacity: index, %compact_capacity: index) {
       %selected_token = scalar.andi %after_position, %before_end : i1
       %selected = scalar.andi %selected_layer, %selected_token : i1
       scf.yield %selected : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     %preserved = scf.if %written -> (i1) {
       scf.yield %true : i1
     } else {

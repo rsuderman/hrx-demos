@@ -46,7 +46,6 @@ func.def public inline @ggml_qk_mmvq_compat_select(%capacity: index, %token: ind
 }
 
 // Strict descending XOR tree used only by explicitly wave32 callers.
-
 func.def public inline @ggml_qk_mmvq_compat_reduce(%lane_acc: f32) -> (f32) {
   %shuffle_width = scalar.constant 32 : i32
   %xor16 = scalar.constant 16 : i32
@@ -68,7 +67,6 @@ func.def public inline @ggml_qk_mmvq_compat_reduce(%lane_acc: f32) -> (f32) {
 }
 
 // Generic MMQ active-extent selection, shared by explicit producer/consumer policies.
-
 func.def public inline @ggml_qk_mmq_compat_select(%capacity: index, %token: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer) -> (i1) {
   %zero = scalar.constant 0 : i32
   %fixed = scalar.cmpi sge, %fixed_count, %zero : i32

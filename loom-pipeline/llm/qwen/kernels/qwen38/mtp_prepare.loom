@@ -14,10 +14,13 @@
 config.decl @qwen.model.mtp_concat_size : index
 
 config.decl @qwen.model.hidden_divisor : f32
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
 
 func.decl @qwen38_span_active(%epoch: buffer, %span: index) -> (i1)
+
 func.decl @qwen38_span_binding(%epoch: buffer, %span: index) -> (offset, index, index)
 
 // Shifts committed target hidden rows within each independent span. The prior

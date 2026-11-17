@@ -10,8 +10,11 @@ func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
 // Read-only UTF-8 byte strings: "blk.", ".ffn_gate.weight",
 // ".ffn_up.weight", and "qwen38_prepare_ffn".
 global.rodata.def @block = bytes("626c6b2e")
+
 global.rodata.def @gate = bytes("2e66666e5f676174652e776569676874")
+
 global.rodata.def @up = bytes("2e66666e5f75702e776569676874")
+
 global.rodata.def @prepare = bytes("7177656e33385f707265706172655f66666e")
 
 func.def @ends_with(%key: buffer, %suffix: buffer) -> (i1) {

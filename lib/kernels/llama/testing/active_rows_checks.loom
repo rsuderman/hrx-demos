@@ -1,20 +1,33 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 func.decl @reference_q4_1(%input: buffer, %weight: buffer, %output: buffer)
+
 func.decl @init_q4_1(%input: buffer, %weight: buffer)
+
 func.decl @reference_q4_3(%input: buffer, %weight: buffer, %output: buffer)
+
 func.decl @init_q4_3(%input: buffer, %weight: buffer)
+
 func.decl @reference_q4_9(%input: buffer, %weight: buffer, %output: buffer)
+
 func.decl @init_q4_9(%input: buffer, %weight: buffer)
+
 func.decl @reference_q6_1(%input: buffer, %weight: buffer, %output: buffer)
+
 func.decl @init_q6_1(%input: buffer, %weight: buffer)
+
 func.decl @reference_q6_3(%input: buffer, %weight: buffer, %output: buffer)
+
 func.decl @init_q6_3(%input: buffer, %weight: buffer)
+
 func.decl @reference_q6_9(%input: buffer, %weight: buffer, %output: buffer)
+
 func.decl @init_q6_9(%input: buffer, %weight: buffer)
+
 // Existing independent scalar references adapted only for compact-input and
 // active-output coordinates. Actual roots come from the maintained active-row call sequences.
 command.decl @active.norm() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer)
+
 func.def @reference_norm(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<3x3072xf32>
@@ -27,7 +40,7 @@ func.def @reference_norm(%input: buffer, %gamma: buffer, %control: buffer, %outp
   %width = index.constant 3072 : index
   %zero_f = scalar.constant 0.0 : f32
   %width_f = scalar.constant 3072.0 : f32
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   scf.for %r = [%zero to %two step %one] {
     %destination = index.add %r, %begin : index
     %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
@@ -49,6 +62,7 @@ func.def @reference_norm(%input: buffer, %gamma: buffer, %control: buffer, %outp
   }
   func.return
 }
+
 check.scenario @norm {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<9216xf32>
@@ -59,12 +73,14 @@ check.scenario @norm {
       check.expect.bitwise actual(%input) expected(%input) : tensor<9216xf32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.00005) rtol(0.00005) nan(same) : tensor<24576xf32>, tensor<24576xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(5.0000000000000002e-05) rtol(5.0000000000000002e-05) nan(same) : tensor<24576xf32>, tensor<24576xf32>
     }
   }
   check.return
 }
+
 command.decl @active.norm.tail() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer)
+
 func.def @reference_norm_tail(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<3x3072xf32>
@@ -77,7 +93,7 @@ func.def @reference_norm_tail(%input: buffer, %gamma: buffer, %control: buffer, 
   %width = index.constant 3072 : index
   %zero_f = scalar.constant 0.0 : f32
   %width_f = scalar.constant 3072.0 : f32
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   scf.for %r = [%zero to %two step %one] {
     %destination = index.add %r, %begin : index
     %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
@@ -99,6 +115,7 @@ func.def @reference_norm_tail(%input: buffer, %gamma: buffer, %control: buffer, 
   }
   func.return
 }
+
 check.scenario @norm_tail {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<9216xf32>
@@ -109,12 +126,14 @@ check.scenario @norm_tail {
       check.expect.bitwise actual(%input) expected(%input) : tensor<9216xf32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.00005) rtol(0.00005) nan(same) : tensor<15360xf32>, tensor<15360xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(5.0000000000000002e-05) rtol(5.0000000000000002e-05) nan(same) : tensor<15360xf32>, tensor<15360xf32>
     }
   }
   check.return
 }
+
 command.decl @active.norm.decode() launch(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer)
+
 func.def @reference_norm_decode(%input: buffer, %gamma: buffer, %control: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %x = buffer.view %input[%origin] : buffer -> view<1x3072xf32>
@@ -127,7 +146,7 @@ func.def @reference_norm_decode(%input: buffer, %gamma: buffer, %control: buffer
   %width = index.constant 3072 : index
   %zero_f = scalar.constant 0.0 : f32
   %width_f = scalar.constant 3072.0 : f32
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   scf.for %r = [%zero to %two step %one] {
     %destination = index.add %r, %begin : index
     %sum = scf.for %c = [%zero to %width step %one](%partial = %zero_f : f32) -> (f32) {
@@ -149,6 +168,7 @@ func.def @reference_norm_decode(%input: buffer, %gamma: buffer, %control: buffer
   }
   func.return
 }
+
 check.scenario @norm_decode {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(-3.0) step(0.001) : tensor<3072xf32>
@@ -159,12 +179,14 @@ check.scenario @norm_decode {
       check.expect.bitwise actual(%input) expected(%input) : tensor<3072xf32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<3072xf32>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.00005) rtol(0.00005) nan(same) : tensor<3072xf32>, tensor<3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(5.0000000000000002e-05) rtol(5.0000000000000002e-05) nan(same) : tensor<3072xf32>, tensor<3072xf32>
     }
   }
   check.return
 }
+
 command.decl @active.embedding() launch(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer)
+
 func.def @reference_embedding(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer) {
   %zero_o = index.constant 0 : offset
   %ids_view = buffer.view %ids[%zero_o] : buffer -> view<3xi32>
@@ -250,6 +272,7 @@ func.def @reference_embedding(%ids: buffer, %weight: buffer, %control: buffer, %
   }
   func.return
 }
+
 check.scenario @embedding {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %ids = check.generate.iota offset(2) step(-1) : tensor<3xi32>
@@ -265,7 +288,9 @@ check.scenario @embedding {
   }
   check.return
 }
+
 command.decl @active.embedding.tail() launch(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer)
+
 func.def @reference_embedding_tail(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer) {
   %zero_o = index.constant 0 : offset
   %ids_view = buffer.view %ids[%zero_o] : buffer -> view<3xi32>
@@ -351,6 +376,7 @@ func.def @reference_embedding_tail(%ids: buffer, %weight: buffer, %control: buff
   }
   func.return
 }
+
 check.scenario @embedding_tail {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %ids = check.generate.iota offset(2) step(-1) : tensor<3xi32>
@@ -366,7 +392,9 @@ check.scenario @embedding_tail {
   }
   check.return
 }
+
 command.decl @active.embedding.decode() launch(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer)
+
 func.def @reference_embedding_decode(%ids: buffer, %weight: buffer, %control: buffer, %output: buffer) {
   %zero_o = index.constant 0 : offset
   %ids_view = buffer.view %ids[%zero_o] : buffer -> view<1xi32>
@@ -452,6 +480,7 @@ func.def @reference_embedding_decode(%ids: buffer, %weight: buffer, %control: bu
   }
   func.return
 }
+
 check.scenario @embedding_decode {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %ids = check.generate.iota offset(2) step(-1) : tensor<1xi32>
@@ -467,9 +496,11 @@ check.scenario @embedding_decode {
   }
   check.return
 }
+
 command.decl @active.projection.q4.n1.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+
 func.def @reference_projection_q4_1_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
-  func.call @reference_q4_1(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  func.call @reference_q4_1(%input, %weight, %scratch) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %scratch[%origin] : buffer -> view<1x13xf32>
   %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
@@ -487,6 +518,7 @@ func.def @reference_projection_q4_1_independent(%input: buffer, %weight: buffer,
   }
   func.return
 }
+
 check.scenario @projection_q4_1_independent {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<256xf32>
@@ -496,7 +528,7 @@ check.scenario @projection_q4_1_independent {
     %output = check.generate.fill value(-99.0) : tensor<104xf32>
     %scratch = check.generate.fill value(-77.0) : tensor<13xf32>
     check.compare<@active.projection.q4.n1.reference, @reference_projection_q4_1_independent>(%input, %weight, %control, %output, %scratch) : (tensor<256xf32>, tensor<1872xi8>, tensor<3xi32>, tensor<104xf32>, tensor<13xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
@@ -504,9 +536,11 @@ check.scenario @projection_q4_1_independent {
   }
   check.return
 }
+
 command.decl @active.projection.q4.n3.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+
 func.def @reference_projection_q4_3_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
-  func.call @reference_q4_3(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  func.call @reference_q4_3(%input, %weight, %scratch) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %scratch[%origin] : buffer -> view<3x13xf32>
   %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
@@ -524,6 +558,7 @@ func.def @reference_projection_q4_3_independent(%input: buffer, %weight: buffer,
   }
   func.return
 }
+
 check.scenario @projection_q4_3_independent {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<768xf32>
@@ -533,7 +568,7 @@ check.scenario @projection_q4_3_independent {
     %output = check.generate.fill value(-99.0) : tensor<104xf32>
     %scratch = check.generate.fill value(-77.0) : tensor<39xf32>
     check.compare<@active.projection.q4.n3.reference, @reference_projection_q4_3_independent>(%input, %weight, %control, %output, %scratch) : (tensor<768xf32>, tensor<1872xi8>, tensor<3xi32>, tensor<104xf32>, tensor<39xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<768xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
@@ -541,9 +576,11 @@ check.scenario @projection_q4_3_independent {
   }
   check.return
 }
+
 command.decl @active.projection.q4.n9.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+
 func.def @reference_projection_q4_9_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
-  func.call @reference_q4_9(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  func.call @reference_q4_9(%input, %weight, %scratch) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %scratch[%origin] : buffer -> view<9x13xf32>
   %y = buffer.view %output[%origin] : buffer -> view<13x13xf32>
@@ -561,6 +598,7 @@ func.def @reference_projection_q4_9_independent(%input: buffer, %weight: buffer,
   }
   func.return
 }
+
 check.scenario @projection_q4_9_independent {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<2304xf32>
@@ -578,9 +616,11 @@ check.scenario @projection_q4_9_independent {
   }
   check.return
 }
+
 command.decl @active.projection.q6.n1.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+
 func.def @reference_projection_q6_1_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
-  func.call @reference_q6_1(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  func.call @reference_q6_1(%input, %weight, %scratch) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %scratch[%origin] : buffer -> view<1x13xf32>
   %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
@@ -598,6 +638,7 @@ func.def @reference_projection_q6_1_independent(%input: buffer, %weight: buffer,
   }
   func.return
 }
+
 check.scenario @projection_q6_1_independent {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<256xf32>
@@ -607,7 +648,7 @@ check.scenario @projection_q6_1_independent {
     %output = check.generate.fill value(-99.0) : tensor<104xf32>
     %scratch = check.generate.fill value(-77.0) : tensor<13xf32>
     check.compare<@active.projection.q6.n1.reference, @reference_projection_q6_1_independent>(%input, %weight, %control, %output, %scratch) : (tensor<256xf32>, tensor<2730xi8>, tensor<3xi32>, tensor<104xf32>, tensor<13xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
@@ -615,9 +656,11 @@ check.scenario @projection_q6_1_independent {
   }
   check.return
 }
+
 command.decl @active.projection.q6.n3.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+
 func.def @reference_projection_q6_3_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
-  func.call @reference_q6_3(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  func.call @reference_q6_3(%input, %weight, %scratch) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %scratch[%origin] : buffer -> view<3x13xf32>
   %y = buffer.view %output[%origin] : buffer -> view<8x13xf32>
@@ -635,6 +678,7 @@ func.def @reference_projection_q6_3_independent(%input: buffer, %weight: buffer,
   }
   func.return
 }
+
 check.scenario @projection_q6_3_independent {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<768xf32>
@@ -644,7 +688,7 @@ check.scenario @projection_q6_3_independent {
     %output = check.generate.fill value(-99.0) : tensor<104xf32>
     %scratch = check.generate.fill value(-77.0) : tensor<39xf32>
     check.compare<@active.projection.q6.n3.reference, @reference_projection_q6_3_independent>(%input, %weight, %control, %output, %scratch) : (tensor<768xf32>, tensor<2730xi8>, tensor<3xi32>, tensor<104xf32>, tensor<39xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<104xf32>, tensor<104xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<768xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
       check.expect.bitwise actual(%control) expected(%control) : tensor<3xi32>
@@ -652,9 +696,11 @@ check.scenario @projection_q6_3_independent {
   }
   check.return
 }
+
 command.decl @active.projection.q6.n9.reference() launch(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer)
+
 func.def @reference_projection_q6_9_independent(%input: buffer, %weight: buffer, %control: buffer, %output: buffer, %scratch: buffer) {
-  func.call @reference_q6_9(%input, %weight, %scratch) : (buffer, buffer, buffer) -> ()
+  func.call @reference_q6_9(%input, %weight, %scratch) : (buffer, buffer, buffer)
   %origin = index.constant 0 : offset
   %x = buffer.view %scratch[%origin] : buffer -> view<9x13xf32>
   %y = buffer.view %output[%origin] : buffer -> view<13x13xf32>
@@ -672,6 +718,7 @@ func.def @reference_projection_q6_9_independent(%input: buffer, %weight: buffer,
   }
   func.return
 }
+
 check.scenario @projection_q6_9_independent {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<2304xf32>
@@ -693,6 +740,7 @@ check.scenario @projection_q6_9_independent {
 // Whole-FFN wiring regression: active and compact production invocations.
 // Independent preservation remains the external immutable-baseline qualification.
 command.decl @active.ffn.q4.prefill.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+
 func.def @reference_ffn_q4_prefill_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %one = scalar.constant 1 : i32
@@ -700,16 +748,17 @@ func.def @reference_ffn_q4_prefill_wiring(%gate: buffer, %up: buffer, %down: buf
   view.store %one, %out[0] : i32, view<1xi32>
   func.return
 }
+
 check.scenario @ffn_q4_prefill_wiring {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %gate = check.generate.fill value(18) : tensor<14155776xi8>
     %up = check.generate.fill value(35) : tensor<14155776xi8>
     %down = check.generate.fill value(52) : tensor<14155776xi8>
-    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<9216xf32>
+    %input = check.generate.iota offset(1.0000000000000001e-05) step(1.9000000000000001e-08) : tensor<9216xf32>
     %control = check.generate.fill value(3) : tensor<3xi32>
     %residual = check.generate.fill value(-99.0) : tensor<24576xf32>
     %swiglu = check.generate.fill value(-99.0) : tensor<65536xf32>
-    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<9216xf32>
+    %initial = check.generate.iota offset(-0.10000000000000001) step(2.0999999999999999e-05) : tensor<9216xf32>
     %status = check.generate.fill value(0) : tensor<1xi32>
     check.compare<@active.ffn.q4.prefill.wiring, @reference_ffn_q4_prefill_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<9216xf32>, tensor<3xi32>, tensor<24576xf32>, tensor<65536xf32>, tensor<9216xf32>, tensor<1xi32>) -> () {
       check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
@@ -723,7 +772,9 @@ check.scenario @ffn_q4_prefill_wiring {
   }
   check.return
 }
+
 command.decl @active.ffn.q4.decode.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+
 func.def @reference_ffn_q4_decode_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %one = scalar.constant 1 : i32
@@ -731,16 +782,17 @@ func.def @reference_ffn_q4_decode_wiring(%gate: buffer, %up: buffer, %down: buff
   view.store %one, %out[0] : i32, view<1xi32>
   func.return
 }
+
 check.scenario @ffn_q4_decode_wiring {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %gate = check.generate.fill value(18) : tensor<14155776xi8>
     %up = check.generate.fill value(35) : tensor<14155776xi8>
     %down = check.generate.fill value(52) : tensor<14155776xi8>
-    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<3072xf32>
+    %input = check.generate.iota offset(1.0000000000000001e-05) step(1.9000000000000001e-08) : tensor<3072xf32>
     %control = check.generate.fill value(256) : tensor<3xi32>
     %residual = check.generate.fill value(-99.0) : tensor<3072xf32>
     %swiglu = check.generate.fill value(-99.0) : tensor<8192xf32>
-    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<3072xf32>
+    %initial = check.generate.iota offset(-0.10000000000000001) step(2.0999999999999999e-05) : tensor<3072xf32>
     %status = check.generate.fill value(0) : tensor<1xi32>
     check.compare<@active.ffn.q4.decode.wiring, @reference_ffn_q4_decode_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<14155776xi8>, tensor<3072xf32>, tensor<3xi32>, tensor<3072xf32>, tensor<8192xf32>, tensor<3072xf32>, tensor<1xi32>) -> () {
       check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
@@ -754,7 +806,9 @@ check.scenario @ffn_q4_decode_wiring {
   }
   check.return
 }
+
 command.decl @active.ffn.q6.prefill.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+
 func.def @reference_ffn_q6_prefill_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %one = scalar.constant 1 : i32
@@ -762,16 +816,17 @@ func.def @reference_ffn_q6_prefill_wiring(%gate: buffer, %up: buffer, %down: buf
   view.store %one, %out[0] : i32, view<1xi32>
   func.return
 }
+
 check.scenario @ffn_q6_prefill_wiring {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %gate = check.generate.fill value(18) : tensor<14155776xi8>
     %up = check.generate.fill value(35) : tensor<14155776xi8>
     %down = check.generate.fill value(52) : tensor<20643840xi8>
-    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<9216xf32>
+    %input = check.generate.iota offset(1.0000000000000001e-05) step(1.9000000000000001e-08) : tensor<9216xf32>
     %control = check.generate.fill value(3) : tensor<3xi32>
     %residual = check.generate.fill value(-99.0) : tensor<24576xf32>
     %swiglu = check.generate.fill value(-99.0) : tensor<65536xf32>
-    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<9216xf32>
+    %initial = check.generate.iota offset(-0.10000000000000001) step(2.0999999999999999e-05) : tensor<9216xf32>
     %status = check.generate.fill value(0) : tensor<1xi32>
     check.compare<@active.ffn.q6.prefill.wiring, @reference_ffn_q6_prefill_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<20643840xi8>, tensor<9216xf32>, tensor<3xi32>, tensor<24576xf32>, tensor<65536xf32>, tensor<9216xf32>, tensor<1xi32>) -> () {
       check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>
@@ -785,7 +840,9 @@ check.scenario @ffn_q6_prefill_wiring {
   }
   check.return
 }
+
 command.decl @active.ffn.q6.decode.wiring() launch(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer)
+
 func.def @reference_ffn_q6_decode_wiring(%gate: buffer, %up: buffer, %down: buffer, %input: buffer, %control: buffer, %residual: buffer, %swiglu: buffer, %initial: buffer, %status: buffer) {
   %origin = index.constant 0 : offset
   %one = scalar.constant 1 : i32
@@ -793,16 +850,17 @@ func.def @reference_ffn_q6_decode_wiring(%gate: buffer, %up: buffer, %down: buff
   view.store %one, %out[0] : i32, view<1xi32>
   func.return
 }
+
 check.scenario @ffn_q6_decode_wiring {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %gate = check.generate.fill value(18) : tensor<14155776xi8>
     %up = check.generate.fill value(35) : tensor<14155776xi8>
     %down = check.generate.fill value(52) : tensor<20643840xi8>
-    %input = check.generate.iota offset(0.00001) step(0.000000019) : tensor<3072xf32>
+    %input = check.generate.iota offset(1.0000000000000001e-05) step(1.9000000000000001e-08) : tensor<3072xf32>
     %control = check.generate.fill value(256) : tensor<3xi32>
     %residual = check.generate.fill value(-99.0) : tensor<3072xf32>
     %swiglu = check.generate.fill value(-99.0) : tensor<8192xf32>
-    %initial = check.generate.iota offset(-0.1) step(0.000021) : tensor<3072xf32>
+    %initial = check.generate.iota offset(-0.10000000000000001) step(2.0999999999999999e-05) : tensor<3072xf32>
     %status = check.generate.fill value(0) : tensor<1xi32>
     check.compare<@active.ffn.q6.decode.wiring, @reference_ffn_q6_decode_wiring>(%gate, %up, %down, %input, %control, %residual, %swiglu, %initial, %status) : (tensor<14155776xi8>, tensor<14155776xi8>, tensor<20643840xi8>, tensor<3072xf32>, tensor<3xi32>, tensor<3072xf32>, tensor<8192xf32>, tensor<3072xf32>, tensor<1xi32>) -> () {
       check.expect.bitwise actual(%status) expected(%status) : tensor<1xi32>

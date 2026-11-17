@@ -2,7 +2,9 @@ template.decl @ggml.q4k.f16_wmma.split_k_5120x48.body(%partial_split_bytes: offs
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.embedding_chunks : index
+
 config.decl @qwen.model.gdn_gate_capacity_bytes : index
+
 config.decl @qwen.model.hidden_size : index
 
 template.decl @ggml.qk.scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32)
@@ -13,7 +15,6 @@ template.decl @ggml.qk.scale_min(%weight: buffer, %block_byte_base: offset, %gro
 // parallel. Every partition consumes producer-rounded F16 activations,
 // accumulates into F32 partials, and is reduced in stable split order. The
 // original GGUF Q4_K weight bytes remain unchanged.
-
 func.decl @ggml_q4k_chunk(%weight: buffer, %row_byte_base: offset, %q4_block: index, %q4_group: index, %q4_half: index) -> (vector<16xi8>, f32, f32)
 
 // Decodes four adjacent Q4_K values directly into an F16 matrix tile.
@@ -390,7 +391,7 @@ check.case public @qwen38_linear_q4k_f16_wmma_beta_split_k_differential_case {
   %input_size = check.literal value(5120) : index
   %output_size = check.literal value(48) : index
   %token_count_data = check.generate.fill value(32) : tensor<1xi32>
-  %input = check.generate.iota offset(-0.125) step(0.00006103515625) : tensor<32x[%shape_hidden_size]xf16>
+  %input = check.generate.iota offset(-0.125) step(6.103515625e-05) : tensor<32x[%shape_hidden_size]xf16>
   %weight = check.generate.fill value(1) : tensor<48x20x144xi8>
   %partials = check.generate.fill value(0.0) : tensor<7x512x48xf32>
   %expected = check.generate.fill value(0.0) : tensor<32x48xf32>

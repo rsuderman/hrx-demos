@@ -4,12 +4,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // One package selector is shared with the strict serving manifest.
 global.rodata.decl @loomify.text.model_name
+
 func.def public @model_name() -> (buffer) {
   %name = global.load @loomify.text.model_name : buffer
   func.return %name : buffer
 }
+
 // These packages implement text-only policies; no model-specific vision ABI.
-func.def public @chat_image_limits() -> (i64,i64,i64,i64,i64) {
+func.def public @chat_image_limits() -> (i64, i64, i64, i64, i64) {
   %zero = scalar.constant 0 : i64
-  func.return %zero,%zero,%zero,%zero,%zero : i64,i64,i64,i64,i64
+  func.return %zero, %zero, %zero, %zero, %zero : i64, i64, i64, i64, i64
 }

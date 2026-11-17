@@ -8,22 +8,31 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.kv_size : index
 
 config.decl @qwen.model.attention_heads : index
+
 config.decl @qwen.model.attention_partial_bytes : index
+
 config.decl @qwen.model.attention_scale : f32
+
 config.decl @qwen.model.attention_width : index
+
 config.decl @qwen.model.gdn_qkv_size : index
+
 config.decl @qwen.model.hidden_capacity_bytes : index
+
 config.decl @qwen.model.kv_heads : index
 
 amdgpu.target<gfx11-generic> @qwen38_attention_decode_split_gfx11_wave64 {subgroup_size = 64}
 
 config.decl @qwen38.attention.cache_capacity : %value: index where [range(%value, 1, 262144)]
+
 config.decl @qwen38.attention.decode_split_count : %value: index where [range(%value, 1, 64)]
 
 kernel.decl @qwen38_attention_decode() launch(%control: buffer, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 kernel.decl @qwen38_attention_prefill_reference(%token_count: index) launch(%control: buffer, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
 
 // Shared split bodies retain the H256 schedule: 256 workitems, four or six
@@ -32,7 +41,6 @@ kernel.decl @qwen38_attention_prefill_reference(%token_count: index) launch(%con
 // Control position is word 0 for scalar; tiled m1/m4 select word 0 or 1 and
 // add token ordinal. Cache positions are contiguous, inclusive and capacity-bounded.
 // Gated reduction consumes already-sigmoid gate values.
-
 // Computes one partial online-softmax state for the query group sharing one
 // key/value head. Partial storage is [workgroup][query-in-group][accumulator,
 // max, sum], with 256 accumulator elements followed by the two scalar state
@@ -128,7 +136,7 @@ template.def<@llm.attention.split_partial_h256> device @llm_attention_split_part
   %query_values = vector.from_elements %query0, %query1, %query2, %query3, %query4, %query5 : vector<6xf32>
   %key_head_base = index.mul %key_head, %head_size : index
 
-  %final_max, %final_sum, %final_acc = scf.for %token = [%split_begin to %split_end step %c1](%old_max = %negative_large6, %old_sum = %zero6, %old_acc = %zero6 : vector<6xf32>, vector<6xf32>, vector<6xf32>) -> (vector<6xf32>, vector<6xf32>, vector<6xf32>) {
+  %final_max, %final_sum, %final_acc = scf.for %token = [%split_begin to %split_end step %c1](%old_max = %negative_large6 : vector<6xf32>, %old_sum = %zero6 : vector<6xf32>, %old_acc = %zero6 : vector<6xf32>) -> (vector<6xf32>, vector<6xf32>, vector<6xf32>) {
     %token_cache_base = index.mul %token, %cache_width : index
     %cache_head_base = index.add %token_cache_base, %key_head_base : index
     %cache_index = index.add %cache_head_base, %lane : index
@@ -621,7 +629,7 @@ template.def<@llm.attention.split_reduce_h256> device @llm_attention_split_reduc
     scf.yield %new_max : f32
   }
 
-  %final_sum, %final_acc = scf.for %split = [%c0 to %split_count step %c1](%old_sum = %zero, %old_acc = %zero : f32, f32) -> (f32, f32) {
+  %final_sum, %final_acc = scf.for %split = [%c0 to %split_count step %c1](%old_sum = %zero : f32, %old_acc = %zero : f32) -> (f32, f32) {
     %partial_acc = view.load %partial_view[%token_ordinal, %key_head, %split, %query_in_group, %lane] : view<[%token_count]x[%key_heads]x[%split_count]x[%queries_per_kv]x258xf32> -> f32
     %partial_max = view.load %partial_view[%token_ordinal, %key_head, %split, %query_in_group, %head_size] : view<[%token_count]x[%key_heads]x[%split_count]x[%queries_per_kv]x258xf32> -> f32
     %partial_sum = view.load %partial_view[%token_ordinal, %key_head, %split, %query_in_group, %c257] : view<[%token_count]x[%key_heads]x[%split_count]x[%queries_per_kv]x258xf32> -> f32
@@ -670,7 +678,7 @@ check.case public @qwen38_attention_decode_split_differential_case {
   %query = check.generate.iota offset(-0.5) step(0.000244140625) period(4096) : tensor<[%shape_attention_width]xf32>
   %gate = check.generate.iota offset(0.125) step(0.0001220703125) period(2048) : tensor<[%shape_attention_width]xf32>
   %key_cache = check.generate.iota offset(-0.5) step(0.0001220703125) period(8192) : tensor<[%shape_gdn_qkv_size]xf16>
-  %value_cache = check.generate.iota offset(0.25) step(-0.00006103515625) period(8192) : tensor<[%shape_gdn_qkv_size]xf16>
+  %value_cache = check.generate.iota offset(0.25) step(-6.103515625e-05) period(8192) : tensor<[%shape_gdn_qkv_size]xf16>
   %partials = check.generate.fill value(0.0) : tensor<61920xf32>
   %wmma_partials = check.generate.fill value(0.0) : tensor<61920xf32>
   %expected = check.generate.fill value(0.0) : tensor<[%shape_attention_width]xf32>
@@ -681,7 +689,7 @@ check.case public @qwen38_attention_decode_split_differential_case {
   kernel.launch @qwen38_attention_decode_split_reduce(%token_count, %token_ordinal, %gate, %partials, %actual) : (index, index, tensor<[%shape_attention_width]xf32>, tensor<61920xf32>, tensor<[%shape_attention_width]xf32>)
   kernel.launch @qwen38_attention_decode_split_wmma_partial(%token_count, %token_ordinal, %control_position_index, %control, %query, %key_cache, %value_cache, %wmma_partials) : (index, index, index, tensor<2xi32>, tensor<[%shape_attention_width]xf32>, tensor<[%shape_gdn_qkv_size]xf16>, tensor<[%shape_gdn_qkv_size]xf16>, tensor<61920xf32>)
   kernel.launch @qwen38_attention_decode_split_reduce(%token_count, %token_ordinal, %gate, %wmma_partials, %wmma_actual) : (index, index, tensor<[%shape_attention_width]xf32>, tensor<61920xf32>, tensor<[%shape_attention_width]xf32>)
-  check.expect.approximate actual(%actual) expected(%expected) atol(0.00001) rtol(0.0001) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
+  check.expect.approximate actual(%actual) expected(%expected) atol(1.0000000000000001e-05) rtol(0.0001) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
   check.expect.approximate actual(%wmma_actual) expected(%expected) atol(0.002) rtol(0.002) nan(same) : tensor<[%shape_attention_width]xf32>, tensor<[%shape_attention_width]xf32>
   check.return
 }
@@ -702,7 +710,7 @@ check.case public @qwen38_attention_decode_split_m4_differential_case {
   %query = check.generate.iota offset(-0.5) step(0.000244140625) period(4096) : tensor<4x[%shape_attention_width]xf32>
   %gate = check.generate.iota offset(0.125) step(0.0001220703125) period(2048) : tensor<4x[%shape_attention_width]xf32>
   %key_cache = check.generate.iota offset(-0.5) step(0.0001220703125) period(8192) : tensor<13312xf16>
-  %value_cache = check.generate.iota offset(0.25) step(-0.00006103515625) period(8192) : tensor<13312xf16>
+  %value_cache = check.generate.iota offset(0.25) step(-6.103515625e-05) period(8192) : tensor<13312xf16>
   %partials = check.generate.fill value(0.0) : tensor<[%shape_attention_partial_bytes]xf32>
   %expected = check.generate.fill value(0.0) : tensor<4x[%shape_attention_width]xf32>
   %actual = check.generate.fill value(0.0) : tensor<4x[%shape_attention_width]xf32>
@@ -774,5 +782,7 @@ check.case public @qwen38_attention_decode_10k_split_wmma_case {
 }
 
 check.benchmark<@qwen38_attention_decode_10k_baseline_case> @qwen38_attention_decode_10k_baseline
+
 check.benchmark<@qwen38_attention_decode_10k_split_case> @qwen38_attention_decode_10k_split
+
 check.benchmark<@qwen38_attention_decode_10k_split_wmma_case> @qwen38_attention_decode_10k_split_wmma

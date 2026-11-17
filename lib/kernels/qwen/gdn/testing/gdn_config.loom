@@ -2,22 +2,41 @@
 // SPDX-License-Identifier: MIT
 // Fixed known0.8B numerical test profile; production uses common derived config.
 config.def @qwen.model.gdn_capture_qkv_elements = 24576 : index
+
 config.def @qwen.model.gdn_column_tiles = 32 : index
+
 config.def @qwen.model.gdn_conv_elements = 24576 : index
+
 config.def @qwen.model.gdn_convolution_taps = 4 : index
+
 config.def @qwen.model.gdn_divisor = 128.0 : f32
+
 config.def @qwen.model.gdn_gate_row_bytes = 64 : index
+
 config.def @qwen.model.gdn_head_size = 128 : index
+
 config.def @qwen.model.gdn_history_elements = 18432 : index
+
 config.def @qwen.model.gdn_history_values = 3 : index
+
 config.def @qwen.model.gdn_inverse_row_bytes = 128 : index
+
 config.def @qwen.model.gdn_key_heads = 16 : index
+
 config.def @qwen.model.gdn_q_channels = 2048 : index
+
 config.def @qwen.model.gdn_qk_norm_elements = 32 : index
+
 config.def @qwen.model.gdn_qkv_size = 6144 : index
+
 config.def @qwen.model.gdn_state_elements = 262144 : index
+
 config.def @qwen.model.gdn_v_base = 4096 : index
+
 config.def @qwen.model.gdn_value_channels_per_key_head = 128 : index
+
 config.def @qwen.model.gdn_value_heads = 16 : index
+
 config.def @qwen.model.gdn_width = 2048 : index
+
 config.def @qwen.model.projection_row_bytes = 8192 : index

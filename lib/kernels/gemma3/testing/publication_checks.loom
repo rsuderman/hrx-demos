@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Fixed observable policy cases; selected logical ID0 publishes at physical S7.
 func.decl @fixture.publication.epoch(%outputs: i32, %epoch: buffer)
+
 command.decl @fixture.publication.actual_0() launch(%epoch: buffer, %private: buffer, %output: buffer)
+
 command.decl @fixture.publication.actual_1() launch(%epoch: buffer, %private: buffer, %output: buffer)
+
 func.def @fixture.publication.expected_raw1_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
@@ -13,6 +16,7 @@ func.def @fixture.publication.expected_raw1_count1(%epoch: buffer, %private: buf
   view.store %expected, %view[7] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @fixture.publication.raw1_count1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
@@ -29,6 +33,7 @@ check.scenario @fixture.publication.raw1_count1 {
   }
   check.return
 }
+
 func.def @fixture.publication.expected_raw106_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
@@ -38,6 +43,7 @@ func.def @fixture.publication.expected_raw106_count1(%epoch: buffer, %private: b
   view.store %expected, %view[7] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @fixture.publication.raw106_count1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
@@ -54,6 +60,7 @@ check.scenario @fixture.publication.raw106_count1 {
   }
   check.return
 }
+
 func.def @fixture.publication.expected_raw0_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
@@ -63,6 +70,7 @@ func.def @fixture.publication.expected_raw0_count1(%epoch: buffer, %private: buf
   view.store %expected, %view[7] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @fixture.publication.raw0_count1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
@@ -79,6 +87,7 @@ check.scenario @fixture.publication.raw0_count1 {
   }
   check.return
 }
+
 func.def @fixture.publication.expected_raw2_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
@@ -88,6 +97,7 @@ func.def @fixture.publication.expected_raw2_count1(%epoch: buffer, %private: buf
   view.store %expected, %view[7] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @fixture.publication.raw2_count1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
@@ -104,6 +114,7 @@ check.scenario @fixture.publication.raw2_count1 {
   }
   check.return
 }
+
 func.def @fixture.publication.expected_raw3_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
@@ -113,6 +124,7 @@ func.def @fixture.publication.expected_raw3_count1(%epoch: buffer, %private: buf
   view.store %expected, %view[7] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @fixture.publication.raw3_count1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
@@ -129,6 +141,7 @@ check.scenario @fixture.publication.raw3_count1 {
   }
   check.return
 }
+
 func.def @fixture.publication.expected_raw7_count1(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
@@ -138,6 +151,7 @@ func.def @fixture.publication.expected_raw7_count1(%epoch: buffer, %private: buf
   view.store %expected, %view[7] : i32, view<16xi32>
   func.return
 }
+
 check.scenario @fixture.publication.raw7_count1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>
@@ -154,11 +168,13 @@ check.scenario @fixture.publication.raw7_count1 {
   }
   check.return
 }
+
 func.def @fixture.publication.expected_raw1_count0(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 0 : i32
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
   func.return
 }
+
 check.scenario @fixture.publication.raw1_count0 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch_storage = check.generate.fill value(-77) : tensor<528xi32>

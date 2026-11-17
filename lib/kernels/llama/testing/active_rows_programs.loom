@@ -6,20 +6,17 @@ config.def @llama.model.hidden_size = 3072 : index
 
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-
 config.def @llama.model.vocabulary_size = 128256 : index
 
 config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
 
 // GGUF Q/K rows are already permuted for adjacent-pair RoPE.
 // rope_freqs.weight supplies 64 F32 divisors; the base alone is insufficient.
-
 config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : %173: index where [range(%173, 1, 262144)]
 
 config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : %174: index where [range(%174, 1, 262144)]
 
 // Capacity of the existing shared greedy implementation (historical symbol).
-
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : %175: index where [range(%175, 1, 2048)]
 
 config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %176: index where [range(%176, 1, 2048)]
@@ -30,20 +27,19 @@ config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %177: index where [ra
 // SPDX-License-Identifier: MIT
 // Test setup copies compact defined rows into otherwise uninitialized native
 // storage. No padding is initialized to make the numerical providers safe.
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count$8: index, %input_size$9: index, %output_size$10: index) launch(%token_count$11: index, %input_size$12: index, %output_size$13: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count$21: index, %input_size$22: index, %output_size$23: index) launch(%token_count$24: index, %input_size$25: index, %output_size$26: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %weight: buffer, %output: buffer)
-
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%token_count$34: index, %input_size$35: index) launch(%token_count$36: index, %input_size$37: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
 
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
 
-kernel.decl @llama32_rmsnorm_active_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_active_f32(%token_count0$48: index) launch(%token_count0$49: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0: index) launch(%token_count0: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count0$56: index) launch(%token_count0$57: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @test.compare_ffn(%rows0: index, %capacity0: index) launch(%rows0: index, %capacity0: index, %begin0: index, %actual_residual: buffer, %actual_swiglu: buffer, %compact_residual: buffer, %compact_swiglu: buffer, %initial: buffer, %status: buffer)
+kernel.decl @test.compare_ffn(%rows0$64: index, %capacity0$65: index) launch(%rows0$66: index, %capacity0$67: index, %begin0: index, %actual_residual: buffer, %actual_swiglu: buffer, %compact_residual: buffer, %compact_swiglu: buffer, %initial: buffer, %status: buffer)
 
 kernel.decl @test.seed_active_f32(%rows0: index, %width0: index) launch(%rows: index, %width: index, %capacity: index, %begin: index, %compact: buffer, %padded: buffer)
 

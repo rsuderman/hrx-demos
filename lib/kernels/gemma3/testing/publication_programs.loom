@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Test-only explicit token identities, independently fixed from checkpoint facts.
 config.def @gemma3.publication.eos_id = 1 : i32
+
 config.def @gemma3.publication.end_turn_id = 106 : i32
+
 kernel.decl @gemma3_publish_epoch_id() launch(%epoch: buffer, %private: buffer, %output: buffer)
+
 func.def inline @fixture.publication.epoch(%outputs: i32, %epoch: buffer) {
   %origin = index.constant 0 : offset
   %view = buffer.view %epoch[%origin] : buffer -> view<520xi32>
@@ -26,6 +29,7 @@ func.def inline @fixture.publication.epoch(%outputs: i32, %epoch: buffer) {
   view.store %terminal, %view[515] : i32, view<520xi32>
   func.return
 }
+
 kernel.def @fixture.publication.initialize() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -33,15 +37,17 @@ kernel.def @fixture.publication.initialize() {
   func.call @fixture.publication.epoch(%outputs, %epoch) : (i32, buffer)
   kernel.return
 }
+
 command.def @fixture.publication.actual_0() launch(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 0 : i32
-  kernel.launch @fixture.publication.initialize[](%outputs, %epoch) : [](i32, buffer)
-  kernel.launch @gemma3_publish_epoch_id[](%epoch, %private, %output) : [](buffer, buffer, buffer)
+  kernel.launch @fixture.publication.initialize(%outputs, %epoch) : (i32, buffer)
+  kernel.launch @gemma3_publish_epoch_id(%epoch, %private, %output) : (buffer, buffer, buffer)
   command.return
 }
+
 command.def @fixture.publication.actual_1() launch(%epoch: buffer, %private: buffer, %output: buffer) {
   %outputs = scalar.constant 1 : i32
-  kernel.launch @fixture.publication.initialize[](%outputs, %epoch) : [](i32, buffer)
-  kernel.launch @gemma3_publish_epoch_id[](%epoch, %private, %output) : [](buffer, buffer, buffer)
+  kernel.launch @fixture.publication.initialize(%outputs, %epoch) : (i32, buffer)
+  kernel.launch @gemma3_publish_epoch_id(%epoch, %private, %output) : (buffer, buffer, buffer)
   command.return
 }

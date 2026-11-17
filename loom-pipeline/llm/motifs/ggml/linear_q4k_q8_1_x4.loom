@@ -1,4 +1,5 @@
 template.decl @ggml.qk.scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32)
+
 template.decl @ggml.qk.unsigned_q8_1_dot(%quantized_values: vector<16xi8>, %d_scale: f32, %dmin_scale: f32, %q8_values: vector<16xi8>, %q8_d: f32, %q8_s: f32) -> (f32)
 
 // Contracts canonical GGML Q4_K weight rows directly with Q8_1 x4
@@ -13,14 +14,13 @@ template.decl @ggml.qk.unsigned_q8_1_dot(%quantized_values: vector<16xi8>, %d_sc
 // Sixteen lanes own one complete block. Paired lanes split each 32-value
 // scale group into two 16-value dot products. Wave32 therefore contracts two
 // blocks per iteration and wave64 contracts four without changing the row ABI.
-
 config.decl @ggml.linear_q4k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
 
 config.decl @ggml.linear_q4k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
 
 amdgpu.target<gfx11-generic> @ggml_q4k_gfx11_wave32 {subgroup_size = 32}
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$14: index, %input_size$15: index) launch(%token_count$16: index, %input_size$17: index, %input: buffer, %output: buffer)
 
 // Decodes one 16-value half of a Q4_K scale group.
 func.def public inline @ggml_q4k_chunk(%weight: buffer, %row_byte_base: offset, %q4_block: index, %q4_group: index, %q4_half: index) -> (vector<16xi8>, f32, f32) {

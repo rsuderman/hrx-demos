@@ -1,9 +1,13 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 kernel.decl @qwen38_attention_kv_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %key_projection: buffer, %value_projection: buffer, %weight: buffer, %state: buffer)
+
 func.decl @anchor_gamma(%lane: index) -> (f32)
+
 func.decl @anchor_query(%head: index, %lane: index) -> (f32)
+
 func.decl @anchor_normalized(%head: index, %lane: index) -> (f32)
+
 func.def @kv_metadata(%count: index, %position: index, %epoch: buffer, %rows: buffer) {
   %origin = index.constant 0 : offset
   %e = buffer.view %epoch[%origin] : buffer -> view<1048xi32>
@@ -37,6 +41,7 @@ func.def @kv_metadata(%count: index, %position: index, %epoch: buffer, %rows: bu
   view.store %zero32, %m[%one] : i32, view<2xi32>
   func.return
 }
+
 func.def @kv_value(%row: index, %head: index, %lane: index) -> (f32) {
   %one = index.constant 1 : index
   %head_one = index.add %head, %one : index
@@ -48,7 +53,7 @@ func.def @kv_value(%row: index, %head: index, %lane: index) -> (f32) {
   %rf = scalar.uitofp %ri : i32 to f32
   %stride = scalar.constant 0.0009765625 : f32
   %row_stride = scalar.constant 0.0625 : f32
-  %rounding = scalar.constant 0.0003 : f32
+  %rounding = scalar.constant 0.00029999999999999997 : f32
   %ld = scalar.mulf %lf, %stride : f32
   %rd = scalar.mulf %rf, %row_stride : f32
   %a = scalar.addf %hf, %ld : f32
@@ -56,8 +61,9 @@ func.def @kv_value(%row: index, %head: index, %lane: index) -> (f32) {
   %v = scalar.addf %b, %rounding : f32
   func.return %v : f32
 }
+
 func.def @kv_init(%count: index, %position: index, %epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
-  func.call @kv_metadata(%count, %position, %epoch, %rows) : (index, index, buffer, buffer) -> ()
+  func.call @kv_metadata(%count, %position, %epoch, %rows) : (index, index, buffer, buffer)
   %origin = index.constant 0 : offset
   %k = buffer.view %key[%origin] : buffer -> view<4x512xf32>
   %v = buffer.view %value[%origin] : buffer -> view<4x512xf32>
@@ -85,6 +91,7 @@ func.def @kv_init(%count: index, %position: index, %epoch: buffer, %rows: buffer
   }
   func.return
 }
+
 func.def @kv_key_expected(%head: index, %lane: index, %position: index) -> (f32) {
   %half = index.constant 32 : index
   %rotary = index.constant 64 : index
@@ -105,7 +112,7 @@ func.def @kv_key_expected(%head: index, %lane: index, %position: index) -> (f32)
     %pf = scalar.uitofp %pi : i32 to f32
     %ti = index.cast %position : index to i32
     %tf = scalar.uitofp %ti : i32 to f32
-    %step = scalar.constant -0.5036904811859131 : f32
+    %step = scalar.constant -0.50369048118591309 : f32
     %exp = scalar.mulf %pf, %step : f32
     %frequency = scalar.expf<afn> %exp : f32
     %angle = scalar.mulf %tf, %frequency : f32
@@ -126,6 +133,7 @@ func.def @kv_key_expected(%head: index, %lane: index, %position: index) -> (f32)
   }
   func.return %value : f32
 }
+
 func.def @kv_publish_expected(%count: index, %position: index, %arena: buffer) {
   %origin = index.constant 0 : offset
   %a = buffer.view %arena[%origin] : buffer -> view<262208xf16>
@@ -175,7 +183,7 @@ kernel.def @kv_initialize_n1_p0() {
 } launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
   %count = index.constant 1 : index
   %position = index.constant 0 : index
-  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer)
   kernel.return
 }
 
@@ -183,8 +191,8 @@ command.def public @kv_actual_n1_p0() launch(%epoch: buffer, %rows: buffer, %key
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
-  %epsilon = scalar.constant 0.000001 : f32
-  kernel.launch @kv_initialize_n1_p0[](%epoch, %rows, %key, %value, %weight) : [](buffer, buffer, buffer, buffer, buffer)
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
+  kernel.launch @kv_initialize_n1_p0(%epoch, %rows, %key, %value, %weight) : (buffer, buffer, buffer, buffer, buffer)
   kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
   command.return
 }
@@ -192,8 +200,8 @@ command.def public @kv_actual_n1_p0() launch(%epoch: buffer, %rows: buffer, %key
 func.def @kv_reference_n1_p0(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
   %count = index.constant 1 : index
   %position = index.constant 0 : index
-  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
-  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer) -> ()
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer)
   func.return
 }
 
@@ -233,7 +241,7 @@ kernel.def @kv_initialize_n3_p63() {
 } launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
   %count = index.constant 3 : index
   %position = index.constant 63 : index
-  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer)
   kernel.return
 }
 
@@ -241,8 +249,8 @@ command.def public @kv_actual_n3_p63() launch(%epoch: buffer, %rows: buffer, %ke
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
-  %epsilon = scalar.constant 0.000001 : f32
-  kernel.launch @kv_initialize_n3_p63[](%epoch, %rows, %key, %value, %weight) : [](buffer, buffer, buffer, buffer, buffer)
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
+  kernel.launch @kv_initialize_n3_p63(%epoch, %rows, %key, %value, %weight) : (buffer, buffer, buffer, buffer, buffer)
   kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
   command.return
 }
@@ -250,8 +258,8 @@ command.def public @kv_actual_n3_p63() launch(%epoch: buffer, %rows: buffer, %ke
 func.def @kv_reference_n3_p63(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
   %count = index.constant 3 : index
   %position = index.constant 63 : index
-  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
-  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer) -> ()
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer)
   func.return
 }
 
@@ -289,7 +297,7 @@ kernel.def @kv_initialize_n2_p63_continue() {
 } launch(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer) {
   %count = index.constant 2 : index
   %position = index.constant 63 : index
-  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer)
   kernel.return
 }
 
@@ -299,7 +307,7 @@ kernel.def @kv_advance_n2_p63_continue() {
 } launch(%epoch: buffer, %rows: buffer) {
   %one = index.constant 1 : index
   %position = index.constant 65 : index
-  func.call @kv_metadata(%one, %position, %epoch, %rows) : (index, index, buffer, buffer) -> ()
+  func.call @kv_metadata(%one, %position, %epoch, %rows) : (index, index, buffer, buffer)
   kernel.return
 }
 
@@ -307,10 +315,10 @@ command.def public @kv_actual_n2_p63_continue() launch(%epoch: buffer, %rows: bu
   %capacity = index.constant 4 : index
   %spans = index.constant 2 : index
   %layer = index.constant 262144 : offset
-  %epsilon = scalar.constant 0.000001 : f32
-  kernel.launch @kv_initialize_n2_p63_continue[](%epoch, %rows, %key, %value, %weight) : [](buffer, buffer, buffer, buffer, buffer)
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
+  kernel.launch @kv_initialize_n2_p63_continue(%epoch, %rows, %key, %value, %weight) : (buffer, buffer, buffer, buffer, buffer)
   kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
-  kernel.launch @kv_advance_n2_p63_continue[](%epoch, %rows) : [](buffer, buffer)
+  kernel.launch @kv_advance_n2_p63_continue(%epoch, %rows) : (buffer, buffer)
   kernel.launch @qwen38_attention_kv_prepare_spans[%capacity, %spans](%epoch, %rows, %layer, %epsilon, %key, %value, %weight, %arena) : [index, index](buffer, buffer, offset, f32, buffer, buffer, buffer, buffer)
   command.return
 }
@@ -318,12 +326,12 @@ command.def public @kv_actual_n2_p63_continue() launch(%epoch: buffer, %rows: bu
 func.def @kv_reference_n2_p63_continue(%epoch: buffer, %rows: buffer, %key: buffer, %value: buffer, %weight: buffer, %arena: buffer) {
   %count = index.constant 2 : index
   %position = index.constant 63 : index
-  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer) -> ()
-  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer) -> ()
+  func.call @kv_init(%count, %position, %epoch, %rows, %key, %value, %weight) : (index, index, buffer, buffer, buffer, buffer, buffer)
+  func.call @kv_publish_expected(%count, %position, %arena) : (index, index, buffer)
   %one = index.constant 1 : index
   %next_position = index.constant 65 : index
-  func.call @kv_metadata(%one, %next_position, %epoch, %rows) : (index, index, buffer, buffer) -> ()
-  func.call @kv_publish_expected(%one, %next_position, %arena) : (index, index, buffer) -> ()
+  func.call @kv_metadata(%one, %next_position, %epoch, %rows) : (index, index, buffer, buffer)
+  func.call @kv_publish_expected(%one, %next_position, %arena) : (index, index, buffer)
   func.return
 }
 

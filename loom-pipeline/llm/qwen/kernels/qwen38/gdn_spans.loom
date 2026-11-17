@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 config.decl @qwen.model.gdn_column_tiles : index
+
 config.decl @qwen.model.gdn_key_heads : index
+
 config.decl @qwen.model.gdn_value_heads : index
 
 func.decl @qwen38_span_active(%epoch: buffer, %span: index) -> (i1)

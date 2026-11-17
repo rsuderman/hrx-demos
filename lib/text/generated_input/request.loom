@@ -3,20 +3,35 @@
 // Source-driven request bindings. Adaptations read one immutable base snapshot;
 // this module neither formats chat text nor chooses a model/profile.
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+
 func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+
 func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
 func.decl @text.json_quote(%value: buffer) -> (buffer)
+
 func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
 func.decl @text.input_member(%source: buffer, %members: buffer, %count: i64, %ordinal: i64) -> (buffer, buffer, i64)
+
 func.decl @text.input_set_member(%object: buffer, %key: buffer, %value: buffer) -> (buffer)
+
 func.decl @text.input_project_message(%message: buffer) -> (buffer)
+
 func.decl @jinja.integer(%value: i64) -> (buffer)
+
 func.decl @jinja.select_adaptation(%environment: buffer) -> (i64, i64)
+
 func.decl @text.request_worker_names() -> (buffer, buffer, buffer, buffer)
+
 func.decl @text.template_globals() -> (buffer)
+
 func.decl @text.request_protected_names() -> (buffer)
 
 func.def @request_env.check(%condition: i1) {
@@ -46,7 +61,9 @@ func.def @request_env.member_json(%object: buffer, %key: buffer) -> (buffer, i64
     %text, %present = func.call @text.string(%object, %key) : (buffer, buffer) -> (buffer, i1)
     %quoted = func.call @text.json_quote(%text) : (buffer) -> (buffer)
     scf.yield %quoted : buffer
-  } else { scf.yield %raw : buffer }
+  } else {
+    scf.yield %raw : buffer
+  }
   func.return %complete, %kind, %found : buffer, i64, i1
 }
 
@@ -153,7 +170,9 @@ func.def public @text.request_base_environment(%request: buffer, %globals: buffe
     %options_object = scalar.cmpi eq, %options_kind, %two64 : i64
     func.call @request_env.check(%options_object) : (i1)
     scf.yield %raw_options : buffer
-  } else { scf.yield %object : buffer }
+  } else {
+    scf.yield %object : buffer
+  }
   %generation_key = buffer.constant utf8("add_generation_prompt") : buffer
   %true_json = buffer.constant utf8("true") : buffer
   %initial = func.call @text.input_set_member(%object, %generation_key, %true_json) : (buffer, buffer, buffer) -> (buffer)
@@ -166,14 +185,18 @@ func.def public @text.request_base_environment(%request: buffer, %globals: buffe
   %kwargs = scf.if %has_thinking -> (buffer) {
     %updated = func.call @text.input_set_member(%option_kwargs, %thinking_key, %thinking) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer
-  } else { scf.yield %option_kwargs : buffer }
+  } else {
+    scf.yield %option_kwargs : buffer
+  }
   %with_messages = func.call @text.input_set_member(%kwargs, %messages_key, %messages) : (buffer, buffer, buffer) -> (buffer)
   %tools_key = buffer.constant utf8("tools") : buffer
   %tools, %tools_kind, %has_tools = func.call @request_env.member_json(%request, %tools_key) : (buffer, buffer) -> (buffer, i64, i1)
   %with_history = scf.if %has_tools -> (buffer) {
     %updated = func.call @text.input_set_member(%with_messages, %tools_key, %tools) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer
-  } else { scf.yield %with_messages : buffer }
+  } else {
+    scf.yield %with_messages : buffer
+  }
   %global_bounded = scalar.assume %global_count_value [range(%global_count_value, 0, 2147483647)] : i64
   %global_count = index.cast %global_bounded : i64 to index
   %zero = index.constant 0 : index
@@ -188,7 +211,9 @@ func.def public @text.request_base_environment(%request: buffer, %globals: buffe
     %false_json = buffer.constant utf8("false") : buffer
     %updated = func.call @text.input_set_member(%environment, %generation_key, %false_json) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer
-  } else { scf.yield %environment : buffer }
+  } else {
+    scf.yield %environment : buffer
+  }
   func.return %result : buffer
 }
 
@@ -228,7 +253,9 @@ func.def public @text.request_apply_adaptation(%base: buffer, %messages: buffer,
   %result = scf.if %has_tools -> (buffer) {
     %updated = func.call @text.input_set_member(%with_messages, %tools_key, %tools) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer
-  } else { scf.yield %with_messages : buffer }
+  } else {
+    scf.yield %with_messages : buffer
+  }
   func.return %result : buffer
 }
 
@@ -276,7 +303,9 @@ func.def @request_env.worker(%base: buffer, %message: buffer, %message_index: i6
     %call_ordinal = func.call @jinja.integer(%call_index) : (i64) -> (buffer)
     %updated = func.call @text.input_set_member(%with_call, %call_index_key, %call_ordinal) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer
-  } else { scf.yield %with_index : buffer }
+  } else {
+    scf.yield %with_index : buffer
+  }
   func.return %result : buffer
 }
 
@@ -355,7 +384,9 @@ func.def public @text.adapt_messages(%base: buffer) -> (buffer) {
       %calls_array = scalar.cmpi eq, %calls_kind, %three64 : i64
       func.call @request_env.check(%calls_array) : (i1)
       scf.yield %raw_calls : buffer
-    } else { scf.yield %empty_calls : buffer }
+    } else {
+      scf.yield %empty_calls : buffer
+    }
     %call_records, %call_type, %call_count_value = func.call @members(%calls) : (buffer) -> (buffer, i32, i64)
     %call_bounded = scalar.assume %call_count_value [range(%call_count_value, 0, 2147483647)] : i64
     %call_count = index.cast %call_bounded : i64 to index
@@ -378,11 +409,15 @@ func.def public @text.adapt_messages(%base: buffer) -> (buffer) {
         %normalized_call = scf.if %decode_arguments -> (buffer) {
           %decoded = func.call @request_env.decode_call(%raw_call) : (buffer) -> (buffer)
           scf.yield %decoded : buffer
-        } else { scf.yield %raw_call : buffer }
+        } else {
+          scf.yield %raw_call : buffer
+        }
         %first = index.cmp eq, %j, %zero : index
         %updated = func.call @request_env.append(%call_prior, %normalized_call, %first) : (buffer, buffer, i1) -> (buffer)
         scf.yield %updated : buffer
-      } else { scf.yield %call_prior : buffer }
+      } else {
+        scf.yield %call_prior : buffer
+      }
       scf.yield %next_calls, %next_observed : buffer, i1
     }
     %with_calls = scf.if %calls_present -> (buffer) {
@@ -390,7 +425,9 @@ func.def public @text.adapt_messages(%base: buffer) -> (buffer) {
       %complete_calls = func.call @text.join8(%call_body, %close, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
       %updated = func.call @text.input_set_member(%raw_message, %calls_key, %complete_calls) : (buffer, buffer, buffer) -> (buffer)
       scf.yield %updated : buffer
-    } else { scf.yield %raw_message : buffer }
+    } else {
+      scf.yield %raw_message : buffer
+    }
     %projected = scf.if %content_observed -> (buffer) {
       scf.yield %with_calls : buffer
     } else {

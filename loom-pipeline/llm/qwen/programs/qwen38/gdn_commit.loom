@@ -5,23 +5,33 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.gdn_gate_capture_elements : index
+
 config.decl @qwen.model.gdn_norm_capture_bytes : index
+
 config.decl @qwen.model.gdn_output_capture_bytes : index
 
 config.decl @qwen.model.gdn_capture_qkv_elements : index
 
 config.decl @qwen.model.gdn_gate_span_bytes : index
+
 config.decl @qwen.model.gdn_qkv_capture_bytes : index
 
 config.decl @qwen.model.gdn_capture_span_bytes : index
+
 config.decl @qwen.model.gdn_conv_elements : index
+
 config.decl @qwen.model.gdn_layer_bytes : index
+
 config.decl @qwen.model.gdn_recurrent_bytes : index
+
 config.decl @qwen.model.gdn_value_heads : index
+
 config.decl @qwen.model.group_count : index
+
 config.decl @qwen.model.rms_epsilon : f32
 
 kernel.decl @qwen38_gdn_conv_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse_norm: buffer)
+
 kernel.decl @qwen38_gdn_recurrent_spans(%span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %qkv: buffer, %inverse_norm: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer)
 
 // Replays only accepted speculative transitions into their original resident

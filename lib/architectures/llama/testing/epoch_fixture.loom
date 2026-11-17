@@ -3,84 +3,99 @@
 // Direct packet unit fixture: production count and publication, independent
 // deterministic compute observer. This is not a full-model numerical oracle.
 config.def @llama.publication.end_text_id = 128001 : i32
+
 config.def @llama.publication.end_message_id = 128008 : i32
+
 config.def @llama.publication.end_turn_id = 128009 : i32
-kernel.decl @llm.epoch.snapshot_count() launch(%kind:index,%origin:offset,%packet:buffer,%count:buffer)
-kernel.decl @llama32_publish_epoch_id() launch(%epoch:buffer,%selected:buffer,%output:buffer)
-kernel.decl @test.epoch_compute(%capacity:index) launch(%capacity:index,%residual:buffer,%epoch:buffer,%count:buffer,%arena:buffer,%input:buffer,%selected:buffer)
-kernel.decl @test.epoch_initialize() launch(%kind:index,%metadata:buffer,%input:buffer)
-kernel.decl @test.epoch_continue() launch(%metadata:buffer,%input:buffer)
-command.def @test.epoch.single(%capacity:index) launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
+
+kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
+kernel.decl @llama32_publish_epoch_id() launch(%epoch: buffer, %selected: buffer, %output: buffer)
+
+kernel.decl @test.epoch_compute(%capacity$10: index) launch(%capacity$11: index, %residual: buffer, %epoch: buffer, %count: buffer, %arena: buffer, %input: buffer, %selected: buffer)
+
+kernel.decl @test.epoch_initialize() launch(%kind: index, %metadata: buffer, %input: buffer)
+
+kernel.decl @test.epoch_continue() launch(%metadata: buffer, %input: buffer)
+
+command.def @test.epoch.single(%capacity: index) launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %count_bytes = index.constant 12 : offset
   %selected_bytes = index.constant 16 : offset
   %count = buffer.alloca<global> align(256) %count_bytes : buffer
   %selected = buffer.alloca<global> align(256) %selected_bytes : buffer
   %prefill = index.constant 0 : index
   %descriptor_origin = index.constant 12 : offset
-  kernel.launch @llm.epoch.snapshot_count[](%prefill,%descriptor_origin,%metadata,%count) : [](index,offset,buffer,buffer)
-  kernel.launch @test.epoch_compute[%capacity](%capacity,%residual,%metadata,%count,%arena,%input,%selected) : [index](index,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @llama32_publish_epoch_id[](%metadata,%selected,%output) : [](buffer,buffer,buffer)
-  command.return
-}
-command.def public @test.epoch8.0() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %capacity = index.constant 8 : index
-  %kind = index.constant 0 : index
-  kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  command.return
-}
-command.def public @test.epoch8.1() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %capacity = index.constant 8 : index
-  %kind = index.constant 1 : index
-  kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  command.return
-}
-command.def public @test.epoch8.2() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %capacity = index.constant 8 : index
-  %kind = index.constant 2 : index
-  kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  command.return
-}
-command.def public @test.epoch256.0() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %capacity = index.constant 256 : index
-  %kind = index.constant 0 : index
-  kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  command.return
-}
-command.def public @test.epoch256.1() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %capacity = index.constant 256 : index
-  %kind = index.constant 1 : index
-  kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  command.return
-}
-command.def public @test.epoch256.2() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
-  %capacity = index.constant 256 : index
-  %kind = index.constant 2 : index
-  kernel.launch @test.epoch_initialize[](%kind,%metadata,%input) : [](index,buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
-  kernel.launch @test.epoch_continue[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
+  kernel.launch @llm.epoch.snapshot_count(%prefill, %descriptor_origin, %metadata, %count) : (index, offset, buffer, buffer)
+  kernel.launch @test.epoch_compute[%capacity](%capacity, %residual, %metadata, %count, %arena, %input, %selected) : [index](index, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @llama32_publish_epoch_id(%metadata, %selected, %output) : (buffer, buffer, buffer)
   command.return
 }
 
-kernel.decl @test.epoch_initialize_offset() launch(%epoch:buffer,%input:buffer)
-command.def public @test.epoch.offset8() launch(%parameters:buffer,%residual:buffer,%metadata:buffer,%origins:buffer,%arena:buffer,%input:buffer,%output:buffer) {
+command.def public @test.epoch8.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
   %capacity = index.constant 8 : index
-  kernel.launch @test.epoch_initialize_offset[](%metadata,%input) : [](buffer,buffer)
-  command.launch @test.epoch.single[%capacity](%parameters,%residual,%metadata,%origins,%arena,%input,%output) : [index](buffer,buffer,buffer,buffer,buffer,buffer,buffer)
+  %kind = index.constant 0 : index
+  kernel.launch @test.epoch_initialize(%kind, %metadata, %input) : (index, buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.epoch_continue(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @test.epoch8.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.constant 8 : index
+  %kind = index.constant 1 : index
+  kernel.launch @test.epoch_initialize(%kind, %metadata, %input) : (index, buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.epoch_continue(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @test.epoch8.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.constant 8 : index
+  %kind = index.constant 2 : index
+  kernel.launch @test.epoch_initialize(%kind, %metadata, %input) : (index, buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.epoch_continue(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @test.epoch256.0() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.constant 256 : index
+  %kind = index.constant 0 : index
+  kernel.launch @test.epoch_initialize(%kind, %metadata, %input) : (index, buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.epoch_continue(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @test.epoch256.1() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.constant 256 : index
+  %kind = index.constant 1 : index
+  kernel.launch @test.epoch_initialize(%kind, %metadata, %input) : (index, buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.epoch_continue(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @test.epoch256.2() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.constant 256 : index
+  %kind = index.constant 2 : index
+  kernel.launch @test.epoch_initialize(%kind, %metadata, %input) : (index, buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @test.epoch_continue(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+kernel.decl @test.epoch_initialize_offset() launch(%epoch: buffer, %input: buffer)
+
+command.def public @test.epoch.offset8() launch(%parameters: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer, %input: buffer, %output: buffer) {
+  %capacity = index.constant 8 : index
+  kernel.launch @test.epoch_initialize_offset(%metadata, %input) : (buffer, buffer)
+  command.launch @test.epoch.single[%capacity](%parameters, %residual, %metadata, %origins, %arena, %input, %output) : [index](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

@@ -34,7 +34,9 @@ func.def public @text.output_match(%text: buffer, %at: offset, %marker: buffer) 
     %matched = scf.select %short, %one32, %two32 : i32
     %value = scf.select %same, %matched, %zero32 : i32
     scf.yield %value : i32
-  } else { scf.yield %zero32 : i32 }
+  } else {
+    scf.yield %zero32 : i32
+  }
   %result = scf.select %nonempty, %matched_result, %zero32 : i32
   func.return %result : i32
 }
@@ -82,7 +84,9 @@ func.def @output_stream.visible(%text: buffer, %start: offset, %marker_a: buffer
       %stop = scalar.ori %stop0, %utf_pending : i1
       %go = scalar.cmpi eq, %stop, %false : i1
       scf.yield %go : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     scf.condition %advance, %p : i1, offset
   } do(%p: offset) {
     %next = index.add %p, %one : offset
@@ -117,7 +121,9 @@ func.def @output_stream.scan(%response: buffer, %start: offset, %mode: i64, %pha
     %finish = scf.select %close_found, %closed_end, %start : offset
     %next = scf.select %close_found, %five, %mode : i64
     scf.yield %zero, %finish, %next : i64, offset, i64
-  } else { scf.yield %mode, %end, %mode : i64, offset, i64 }
+  } else {
+    scf.yield %mode, %end, %mode : i64, offset, i64
+  }
   func.return %kind, %finish, %next : i64, offset, i64
 }
 
@@ -203,7 +209,9 @@ func.def public @text.output_scan(%response: buffer, %previous: i64, %state: i64
       %b = buffer.load.i8.u %frame[%p]
       %same = scalar.cmpi eq, %a, %b : i32
       scf.yield %same : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     %k, %e, %s = scf.if %matches -> (i64, offset, i64) {
       %end = index.add %start, %unit : offset
       %next_p = scalar.addi %progress, %one : i64

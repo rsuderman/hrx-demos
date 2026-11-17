@@ -103,4 +103,3 @@ func.def public inline @ggml_qk_mmq_compat_select(%capacity: index, %token: inde
   %selected_active = scalar.andi %selected, %active : i1
   func.return %selected_active : i1
 }
-

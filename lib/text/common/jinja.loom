@@ -4,33 +4,59 @@
 // Native JSON kinds 0..6; kind 7 is Undefined. Strings are decoded UTF-8;
 // numbers/objects/arrays retain their JSON bytes. Buffers are invocation-local.
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
 func.decl import("json") @parse_i64(%source: buffer, %begin: i64, %length: i64) -> (i64)
+
 func.decl import("json") @parse_f64(%source: buffer, %begin: i64, %length: i64) -> (f64)
+
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+
 func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.range(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.trim(%source: buffer) -> (buffer)
+
 func.decl @text.whitespace_width(%source: buffer, %position: offset, %end: offset) -> (offset)
+
 func.decl @text.at(%source: buffer, %position: offset, %marker: buffer) -> (i1)
+
 func.decl @text.find(%source: buffer, %start: offset, %marker: buffer) -> (offset, i1)
+
 func.decl @text.json_quote(%source: buffer) -> (buffer)
+
 func.decl @text.json_dump(%source: buffer) -> (buffer)
+
 func.decl @text.json_dump_compact(%source: buffer) -> (buffer)
 
 global.rodata.def @jinja.empty = bytes("")
+
 global.rodata.def @jinja.invalid = bytes("696e76616c69642074656d706c6174652076616c7565206f72206f7065726174696f6e")
+
 global.rodata.def @jinja.true = bytes("54727565")
+
 global.rodata.def @jinja.false = bytes("46616c7365")
+
 global.rodata.def @jinja.none = bytes("4e6f6e65")
+
 global.rodata.def @jinja.json_true = bytes("74727565")
+
 global.rodata.def @jinja.json_false = bytes("66616c7365")
+
 global.rodata.def @jinja.json_null = bytes("6e756c6c")
+
 global.rodata.def @jinja.open_array = bytes("5b")
+
 global.rodata.def @jinja.close_array = bytes("5d")
+
 global.rodata.def @jinja.comma = bytes("2c")
+
 global.rodata.def @jinja.space = bytes("20")
+
 global.rodata.def @jinja.exact_integer_limit = bytes("39303037313939323534373430393932")
 
 func.def @jinja.check(%valid: i1) {
@@ -252,6 +278,7 @@ func.def public @jinja.index(%value: buffer, %kind: i64, %ordinal: i64) -> (buff
 }
 
 global.rodata.def @jinja.index_positive_limit = bytes("39323233333732303336383534373735383037")
+
 global.rodata.def @jinja.index_negative_limit = bytes("39323233333732303336383534373735383038")
 
 // JSON numbers are valid lexemes; callers separately reject floating spellings.

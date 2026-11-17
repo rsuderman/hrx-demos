@@ -11,10 +11,15 @@
 // exists only during startup and requires no global scratch.
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.ffn_prepare_row_packets : index
+
 config.decl @qwen.model.ffn_prepare_group_packets : index
+
 config.decl @qwen.model.ffn_prepare_group_bytes : index
+
 config.decl @qwen.model.ffn_prepare_words : index
+
 config.decl @qwen.model.ffn_size : index
+
 config.decl @qwen.model.hidden_qk_blocks : index
 
 amdgpu.target<gfx11-generic> @qwen38_prepare_q5k_channel8_target {subgroup_size = 64}

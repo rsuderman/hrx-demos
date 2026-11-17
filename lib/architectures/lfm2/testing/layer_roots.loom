@@ -1,8 +1,11 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 config.decl @runner.lfm2.prefill_token_count : index
+
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
 command.decl @loomify.lfm2.layer(%layer: index, %rows: index, %origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
+
 command.def public @validated.lfm2.layer0() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 0 : index
@@ -10,10 +13,11 @@ command.def public @validated.lfm2.layer0() launch(%parameters: buffer, %residua
   %origin = index.constant 12 : offset
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %origin, %epoch, %count) : (index, offset, buffer, buffer)
   command.launch @loomify.lfm2.layer[%layer, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def public @validated.lfm2.layer1() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 0 : index
@@ -21,10 +25,11 @@ command.def public @validated.lfm2.layer1() launch(%parameters: buffer, %residua
   %origin = index.constant 12 : offset
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %origin, %epoch, %count) : (index, offset, buffer, buffer)
   command.launch @loomify.lfm2.layer[%layer, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def public @validated.lfm2.layer2() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
   %layer = index.constant 2 : index
   %phase = index.constant 0 : index
@@ -32,10 +37,11 @@ command.def public @validated.lfm2.layer2() launch(%parameters: buffer, %residua
   %origin = index.constant 12 : offset
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %origin, %epoch, %count) : (index, offset, buffer, buffer)
   command.launch @loomify.lfm2.layer[%layer, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def public @validated.lfm2.layer8() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
   %layer = index.constant 8 : index
   %phase = index.constant 0 : index
@@ -43,10 +49,11 @@ command.def public @validated.lfm2.layer8() launch(%parameters: buffer, %residua
   %origin = index.constant 12 : offset
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %origin, %epoch, %count) : (index, offset, buffer, buffer)
   command.launch @loomify.lfm2.layer[%layer, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def public @validated.lfm2.layer14() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
   %layer = index.constant 14 : index
   %phase = index.constant 0 : index
@@ -54,10 +61,11 @@ command.def public @validated.lfm2.layer14() launch(%parameters: buffer, %residu
   %origin = index.constant 12 : offset
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %origin, %epoch, %count) : (index, offset, buffer, buffer)
   command.launch @loomify.lfm2.layer[%layer, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 command.def public @validated.lfm2.conv_attention_conv() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer) {
   %first = index.constant 1 : index
   %attention = index.constant 2 : index
@@ -67,7 +75,7 @@ command.def public @validated.lfm2.conv_attention_conv() launch(%parameters: buf
   %origin = index.constant 12 : offset
   %bytes = index.constant 12 : offset
   %count = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @llm.epoch.snapshot_count[](%phase, %origin, %epoch, %count) : [](index, offset, buffer, buffer)
+  kernel.launch @llm.epoch.snapshot_count(%phase, %origin, %epoch, %count) : (index, offset, buffer, buffer)
   command.launch @loomify.lfm2.layer[%first, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.launch @loomify.lfm2.layer[%attention, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
   command.launch @loomify.lfm2.layer[%last, %rows, %origin](%parameters, %residual, %epoch, %map, %cache, %count) : [index, index, offset](buffer, buffer, buffer, buffer, buffer, buffer)
@@ -75,6 +83,7 @@ command.def public @validated.lfm2.conv_attention_conv() launch(%parameters: buf
 }
 
 command.decl @loomify.lfm2.head(%rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer, %selected_ids: buffer)
+
 command.def public @validated.lfm2.head() launch(%parameters: buffer, %residual: buffer, %count: buffer, %selected_ids: buffer) {
   %rows = config.get @runner.lfm2.prefill_token_count : index
   command.launch @loomify.lfm2.head[%rows](%parameters, %residual, %count, %selected_ids) : [index](buffer, buffer, buffer, buffer)

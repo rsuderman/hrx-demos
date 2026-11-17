@@ -4,29 +4,50 @@
 // the existing generic Q4/Q5/Q6 contractions with Q8 activation packing.
 
 config.decl @qwen.model.projection_implementation : index
+
 config.decl @qwen.model.ffn_gate_q4_layers : i32
+
 config.decl @qwen.model.ffn_gate_q6_layers : i32
+
 config.decl @qwen.model.ffn_down_q6_layers : i32
+
 config.decl @qwen.model.ffn_gate_q4_weight_bytes : index
+
 config.decl @qwen.model.ffn_gate_q5_weight_bytes : index
+
 config.decl @qwen.model.ffn_gate_q6_weight_bytes : index
+
 config.decl @qwen.model.ffn_down_q5_weight_bytes : index
+
 config.decl @qwen.model.ffn_down_q6_weight_bytes : index
+
 config.decl @qwen.model.ffn_down_weight_bytes : index
+
 config.decl @qwen.model.ffn_gate_weight_bytes : index
+
 config.decl @qwen.model.ffn_row_bytes : index
+
 config.decl @qwen.model.ffn_size : index
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.ffn_capacity_bytes : index
+
 config.decl @qwen.model.hidden_capacity_bytes : index
+
 config.decl @qwen.model.hidden_q8_capacity_bytes : index
+
 config.decl @qwen.model.hidden_q8_depth4_bytes : index
 
 // Tensor names and per-layer encoding policy stay in the model adapter.
 template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+
 template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
+
 template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+
 template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
 command.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer) where [range(%layer, 0, 64)] {

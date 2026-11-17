@@ -6,7 +6,6 @@ template.decl @qwen38.greedy_argmax_f32.row(%row_count0: index, %row0: index, %o
 // reduction provides a one-workgroup oracle. Command programs use the
 // two-stage tiled reduction to expose vocabulary parallelism while keeping
 // logits and intermediate winners device-local.
-
 amdgpu.target<gfx11-generic> @qwen38_greedy_argmax_gfx11_wave64 {subgroup_size = 64}
 
 config.decl @qwen38.greedy_argmax.output_capacity : %value: index where [range(%value, 256, 262144)]

@@ -39,7 +39,6 @@ kernel.def @test.epoch_compute(%capacity0: index) {
     %two = scalar.constant 2 : i32
     %twice = scalar.muli %v, %two : i32
     view.store %twice, %result[%row] : i32, view<[%capacity]xi32>
-    scf.yield
   }
   %last_value = index.sub %n, %one : index
   %last = index.assume %last_value [range(%last_value, 0, 511), lt(%last_value, %capacity)] : index
@@ -55,6 +54,7 @@ kernel.def @test.epoch_compute(%capacity0: index) {
   view.store %token, %winner[0] : i32, view<4xi32>
   kernel.return
 }
+
 kernel.def @test.epoch_continue() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -77,6 +77,7 @@ kernel.def @test.epoch_continue() {
   view.store %pending, %tokens[0] : i32, view<1xi32>
   kernel.return
 }
+
 kernel.def @test.epoch_initialize() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
@@ -124,8 +125,8 @@ kernel.def @test.epoch_initialize() {
 // Combined H/N/B/P/S witness; distinct row-table entries catch ordinal mistakes.
 kernel.def @test.epoch_initialize_offset() {
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%epoch:buffer,%input:buffer) {
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%epoch: buffer, %input: buffer) {
   %origin = index.constant 0 : offset
   %meta = buffer.view %epoch[%origin] : buffer -> view<516xi32>
   %ids = buffer.view %input[%origin] : buffer -> view<8xi32>

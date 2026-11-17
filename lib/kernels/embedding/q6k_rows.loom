@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Owned true-F32 Q6_K gather and vector decoder; no F16 output rounding.
 template.decl @ggml.q6k.f32_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf32>)
+
 template.decl @llm.token_embedding_q6k_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
 
 template.def<@ggml.q6k.f32_vector4> device @ggml_q6k_f32_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf32>) {
@@ -91,4 +92,3 @@ template.def<@llm.token_embedding_q6k_f32.row> device @llm_token_embedding_q6k_f
   }
   template.return
 }
-

@@ -42,7 +42,6 @@ kernel.def export("ggml_linear_q6k_q8_1_x4") @ggml_linear_q6k_q8_1_x4(%token_cou
 
 // Four-row target-verification schedule for wave32 targets. Eight subgroups
 // each own one output channel and retain four independent row accumulators.
-
 config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
 
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
@@ -87,8 +86,3 @@ template.def<@ggml.linear_q6k_q8_1_x4.body> device @ggml_linear_q6k_q8_1_x4_body
   %dot = kernel.subgroup.reduce<addf> %lane_acc : f32
   template.return %dot, %token, %channel, %valid_channel, %launch_token_count, %bounded_output_size : f32, index, index, i1, index, index
 }
-
-// Dense raw-layout baseline. A 256-thread workgroup carries eight independent
-// wave32 output rows so decode launches enough waves without duplicating Q6_K
-// decoding within a row. Workload values size the exact launch; configured
-// capacities only constrain device-body specialization and buffer addressing.

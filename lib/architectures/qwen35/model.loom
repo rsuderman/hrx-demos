@@ -1,40 +1,73 @@
 // Bounds belong to this implemented complete numerical recipe, independently
 // of checkpoint identity. Projection and FFN operations own their own formats.
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.attention_heads : index
+
 config.decl @qwen.model.kv_heads : index
+
 config.decl @qwen.model.vocabulary_size : index
+
 config.decl @qwen.model.gdn_head_size : index
+
 config.decl @qwen.model.gdn_key_heads : index
+
 config.decl @qwen.model.gdn_value_heads : index
+
 config.decl @qwen.model.gdn_convolution_taps : index
+
 config.decl @qwen.model.output_storage_type : index
+
 template.decl @loomify.qwen.model_layout(%hidden: index, %head: index, %query_heads: index, %kv_heads: index, %vocabulary: index, %state_width: index, %key_heads: index, %value_heads: index, %taps: index)
+
 // The convolution primitive's K-channel assumptions start at 2048, requiring
 // sixteen 128-wide key heads. Its two 256-lane V slabs cover the admitted
 // value-head bound (48 * 128 / 16 = 384 channels per key head).
 template.def<@loomify.qwen.model_layout> @loomify_qwen_model_layout(%hidden: index, %head: index, %query_heads: index, %kv_heads: index, %vocabulary: index, %state_width: index, %key_heads: index, %value_heads: index, %taps: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), eq(%head, 256), range(%query_heads, 1, 24), range(%kv_heads, 1, 4), range(%vocabulary, 1, 262144), eq(%state_width, 128), eq(%key_heads, 16), range(%value_heads, 1, 48), eq(%taps, 4)] {
   template.return
 }
+
 template.decl @loomify.qwen.embedding_encoding(%tag: index)
-template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q4(%tag: index) where [eq(%tag, 12)] { template.return }
-template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q6(%tag: index) where [eq(%tag, 14)] { template.return }
+
+template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q4(%tag: index) where [eq(%tag, 12)] {
+  template.return
+}
+
+template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q6(%tag: index) where [eq(%tag, 14)] {
+  template.return
+}
+
 template.decl @loomify.qwen.output_encoding(%tag: index)
-template.def<@loomify.qwen.output_encoding> @loomify_qwen_output_q6(%tag: index) where [eq(%tag, 14)] { template.return }
+
+template.def<@loomify.qwen.output_encoding> @loomify_qwen_output_q6(%tag: index) where [eq(%tag, 14)] {
+  template.return
+}
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Complete text-model sequence. Configuration owns admitted GGUF facts only.
 config.decl @runner.qwen38.prefill_token_count : index
+
 config.decl @qwen.model.base_layers : index
+
 config.decl @qwen.model.embedding_storage_type : index
+
 config.decl @qwen.model.embedding_weight_bytes : index
+
 config.decl @qwen.model.projection_capacity_bytes : index
+
 func.decl pure @loomify.config.layer_route(%slot: index) -> (index, index, index)
+
 kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_token_embedding_q4k_f32_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
+
 command.decl @qwen38_gdn_layer_prefill(%tokens: index, %schedule: index, %layer: index, %ordinal: index, %verification: index, %spans: index) launch(%parameters: buffer, %residual: buffer, %state: buffer, %epoch: buffer, %capture: buffer, %rows: buffer)
+
 command.decl @qwen38_attention_layer_prefill(%tokens: index, %schedule: index, %layer: index, %ordinal: index, %verification: index, %spans: index) launch(%parameters: buffer, %residual: buffer, %state: buffer, %epoch: buffer, %attended: buffer, %rows: buffer)
+
 command.decl @loomify.qwen.head(%tokens: index, %outputs: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer)
 
 command.def @loomify.qwen.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %resident_arena: buffer, %input: buffer, %selected_ids: buffer) {

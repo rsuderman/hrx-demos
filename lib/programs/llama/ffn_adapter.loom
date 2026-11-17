@@ -1,15 +1,19 @@
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-
 template.decl @loomify.ffn(%hidden: index, %ffn: index, %rows: index, %phase: index, %profile: index, %epsilon: f32, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%gate_bytes]xi8>, %down: view<[%down_bytes]xi8>)
+
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.rms_epsilon : f32
+
 config.decl @loomify.ffn.profile : index
 
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
+
 template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
 
 command.def public @loomify.llama.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%layer, 0, 64), range(%phase, 0, 1), range(%rows, 1, 512)] {
@@ -27,6 +31,7 @@ command.def public @loomify.llama.ffn(%layer: index, %phase: index, %rows: index
 }
 
 template.decl @loomify.ffn.normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer)
+
 template.def<@loomify.ffn.normalize> @loomify_llama_ffn_normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), range(%rows, 1, 512), range(%phase, 0, 1)] {
   %begin = index.constant 0 : index
   %origin = index.constant 0 : offset
@@ -35,6 +40,7 @@ template.def<@loomify.ffn.normalize> @loomify_llama_ffn_normalize(%hidden: index
 }
 
 template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer)
+
 template.def<@loomify.ffn.pack_input> @loomify_llama_ffn_pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer) where [eq(%rows, 1), range(%input_size, 1024, 32768), multiple_of(%input_size, 256)] {
   %begin = index.constant 0 : index
   %origin = index.constant 0 : offset
@@ -44,7 +50,8 @@ template.def<@loomify.ffn.pack_input> @loomify_llama_ffn_pack_input(%rows: index
   template.return
 }
 
-kernel.decl @llama32_rmsnorm_f32(%token_count: index) launch(%token_count: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @llama32_rmsnorm_active_f32(%token_count: index) launch(%token_count: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_f32(%token_count$107: index) launch(%token_count$108: index, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows: index, %input_size: index) launch(%rows: index, %input_size: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer, %input: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_active_f32(%token_count$112: index) launch(%token_count$113: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows$120: index, %input_size$121: index) launch(%rows$122: index, %input_size$123: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer, %input: buffer, %output: buffer)

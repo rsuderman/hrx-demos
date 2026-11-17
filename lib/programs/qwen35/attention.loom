@@ -1,33 +1,58 @@
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/qwen/programs/qwen38/attention_layer_prefill.loom.
 // Ordinary canonical 0.8B text branch; verification=0, positive epoch spans.
 // All complete-layer norms/residuals and shared FFN occur exactly once.
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.attention_width : index
+
 config.decl @qwen.model.kv_size : index
+
 config.decl @qwen.model.query_gate_size : index
+
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.rms_epsilon : f32
+
 config.decl @qwen.model.hidden_capacity_bytes : index
+
 config.decl @qwen.model.hidden_q8_capacity_bytes : index
+
 config.decl @qwen.model.query_gate_capacity_bytes : index
+
 config.decl @qwen.model.kv_capacity_bytes : index
+
 config.decl @qwen.model.projection_capacity_bytes : index
+
 config.decl @qwen.model.ffn_capacity_bytes : index
+
 config.decl @qwen.model.kv_plane_token_bytes : index
+
 config.decl @qwen38.attention.pool_capacity : index
+
 kernel.decl @qwen38_rmsnorm_f32_prefill(%token_count: index) launch(%token_capacity: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_residual_add_f32_prefill(%token_count: index) launch(%token_capacity: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
 kernel.decl @qwen38_attention_query_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %epsilon: f32, %projection: buffer, %weight: buffer, %query: buffer, %gate: buffer)
+
 kernel.decl @qwen38_attention_kv_prepare_spans(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %epsilon: f32, %key_projection: buffer, %value_projection: buffer, %weight: buffer, %state: buffer)
+
 kernel.decl @qwen38_attention_spans_f16_wmma(%token_capacity: index, %span_capacity: index) launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %query: buffer, %gate: buffer, %state: buffer, %output: buffer)
-kernel.decl @qwen38_attention_clear_attended(%token_capacity: index) launch(%token_capacity: index, %output: buffer)
+
+kernel.decl @qwen38_attention_clear_attended(%token_capacity$76: index) launch(%token_capacity$77: index, %output: buffer)
+
 command.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+
 command.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
+
 func.decl pure @loomify.config.attention_projections(%ordinal: index) -> (index, index, index, index, index, index, index, index)
+
 command.def public @qwen38_attention_layer_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %attention_ordinal: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %residual: buffer, %attention_cache: buffer, %control: buffer, %attention_output: buffer, %rows: buffer) where [range(%token_count, 1, 512), range(%schedule_token_count, 1, 512), range(%layer, 0, 63), range(%attention_ordinal, 0, 15), eq(%verification_depth, 0), range(%span_capacity, 1, 64)] {
   %canonical = index.constant 1 : index
   %zero = index.constant 0 : index

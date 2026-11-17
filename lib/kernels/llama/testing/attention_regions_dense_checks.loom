@@ -1,16 +1,19 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 func.decl @region_reference(%rows: index, %begin: index, %layer: index, %decode: index, %pooled: index, %control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+
 command.decl @region.dense.partial0() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+
 func.def @reference_partial0(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   %begin = index.constant 2 : index
   %layer = index.constant 0 : index
   %decode = index.constant 0 : index
   %pool = index.constant 0 : index
-  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 func.def @initialize_partial0_n3_p63(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -50,23 +53,27 @@ func.def @initialize_partial0_n3_p63(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_partial0_n3_p63() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_partial0_n3_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_partial0_n3_p63(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_partial0_n3_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_partial0_n3_p63[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.partial0[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_partial0_n3_p63(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_partial0_n3_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_partial0_n3_p63(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_partial0_n3_p63(%control, %map) : (buffer, buffer)
+  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_partial0_n3_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -89,11 +96,12 @@ check.scenario @dense_partial0_n3_p63 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_partial0_n4_p63(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -133,23 +141,27 @@ func.def @initialize_partial0_n4_p63(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_partial0_n4_p63() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_partial0_n4_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_partial0_n4_p63(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_partial0_n4_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_partial0_n4_p63[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.partial0[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_partial0_n4_p63(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_partial0_n4_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_partial0_n4_p63(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_partial0_n4_p63(%control, %map) : (buffer, buffer)
+  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_partial0_n4_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -172,11 +184,12 @@ check.scenario @dense_partial0_n4_p63 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<6144xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_partial0_n3_p255(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -216,23 +229,27 @@ func.def @initialize_partial0_n3_p255(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_partial0_n3_p255() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_partial0_n3_p255(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_partial0_n3_p255(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_partial0_n3_p255() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_partial0_n3_p255[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.partial0[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_partial0_n3_p255(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_partial0_n3_p255(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_partial0_n3_p255(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_partial0_n3_p255(%control, %map) : (buffer, buffer)
+  func.call @reference_partial0(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_partial0_n3_p255 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -255,21 +272,24 @@ check.scenario @dense_partial0_n3_p255 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
     }
   }
   check.return
 }
+
 command.decl @region.dense.partial1() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+
 func.def @reference_partial1(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
   %rows = index.constant 8 : index
   %begin = index.constant 2 : index
   %layer = index.constant 1 : index
   %decode = index.constant 0 : index
   %pool = index.constant 0 : index
-  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 func.def @initialize_partial1_n3_p63(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -309,23 +329,27 @@ func.def @initialize_partial1_n3_p63(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_partial1_n3_p63() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_partial1_n3_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_partial1_n3_p63(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_partial1_n3_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_partial1_n3_p63[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.partial1[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_partial1_n3_p63(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_partial1_n3_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_partial1_n3_p63(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_partial1_n3_p63(%control, %map) : (buffer, buffer)
+  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_partial1_n3_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -348,11 +372,12 @@ check.scenario @dense_partial1_n3_p63 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_partial1_n4_p63(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -392,23 +417,27 @@ func.def @initialize_partial1_n4_p63(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_partial1_n4_p63() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_partial1_n4_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_partial1_n4_p63(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_partial1_n4_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_partial1_n4_p63[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.partial1[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_partial1_n4_p63(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_partial1_n4_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_partial1_n4_p63(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_partial1_n4_p63(%control, %map) : (buffer, buffer)
+  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_partial1_n4_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -431,11 +460,12 @@ check.scenario @dense_partial1_n4_p63 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<6144xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_partial1_n3_p255(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -475,23 +505,27 @@ func.def @initialize_partial1_n3_p255(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_partial1_n3_p255() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_partial1_n3_p255(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_partial1_n3_p255(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_partial1_n3_p255() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_partial1_n3_p255[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.partial1[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_partial1_n3_p255(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_partial1_n3_p255(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_partial1_n3_p255(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_partial1_n3_p255(%control, %map) : (buffer, buffer)
+  func.call @reference_partial1(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_partial1_n3_p255 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -514,21 +548,24 @@ check.scenario @dense_partial1_n3_p255 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<8x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<9216xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<8x3072xf32>, tensor<8x3072xf32>
     }
   }
   check.return
 }
+
 command.decl @region.dense.large() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+
 func.def @reference_large(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
   %rows = index.constant 20 : index
   %begin = index.constant 2 : index
   %layer = index.constant 1 : index
   %decode = index.constant 0 : index
   %pool = index.constant 0 : index
-  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 func.def @initialize_large_n17_p63(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -568,23 +605,27 @@ func.def @initialize_large_n17_p63(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_large_n17_p63() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_large_n17_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_large_n17_p63(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_large_n17_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_large_n17_p63[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.large[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_large_n17_p63(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.large(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_large_n17_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_large_n17_p63(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_large(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_large_n17_p63(%control, %map) : (buffer, buffer)
+  func.call @reference_large(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_large_n17_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -607,21 +648,24 @@ check.scenario @dense_large_n17_p63 {
       check.expect.bitwise actual(%value) expected(%value) : tensor<20x1024xf32>
       check.expect.bitwise actual(%inactive_prefix) expected(%inactive_prefix) : tensor<6144xf32>
       check.expect.bitwise actual(%inactive_suffix) expected(%inactive_suffix) : tensor<3072xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<20x3072xf32>, tensor<20x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<20x3072xf32>, tensor<20x3072xf32>
     }
   }
   check.return
 }
+
 command.decl @region.dense.decode() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer)
+
 func.def @reference_decode(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
   %rows = index.constant 1 : index
   %begin = index.constant 0 : index
   %layer = index.constant 1 : index
   %decode = index.constant 1 : index
   %pool = index.constant 0 : index
-  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @region_reference(%rows, %begin, %layer, %decode, %pool, %control, %map, %cache, %factors, %query, %key, %value, %output) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 func.def @initialize_decode_n1_p0(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -661,23 +705,27 @@ func.def @initialize_decode_n1_p0(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_decode_n1_p0() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_decode_n1_p0(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p0(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_decode_n1_p0() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_decode_n1_p0[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_decode_n1_p0(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_decode_n1_p0(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_decode_n1_p0(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p0(%control, %map) : (buffer, buffer)
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_decode_n1_p0 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -696,11 +744,12 @@ check.scenario @dense_decode_n1_p0 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
       check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_decode_n1_p1(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -740,23 +789,27 @@ func.def @initialize_decode_n1_p1(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_decode_n1_p1() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_decode_n1_p1(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p1(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_decode_n1_p1() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_decode_n1_p1[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_decode_n1_p1(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_decode_n1_p1(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_decode_n1_p1(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p1(%control, %map) : (buffer, buffer)
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_decode_n1_p1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -775,11 +828,12 @@ check.scenario @dense_decode_n1_p1 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
       check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_decode_n1_p63(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -819,23 +873,27 @@ func.def @initialize_decode_n1_p63(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_decode_n1_p63() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_decode_n1_p63(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p63(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_decode_n1_p63() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_decode_n1_p63[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_decode_n1_p63(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_decode_n1_p63(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_decode_n1_p63(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p63(%control, %map) : (buffer, buffer)
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_decode_n1_p63 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -854,11 +912,12 @@ check.scenario @dense_decode_n1_p63 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
       check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_decode_n1_p255(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -898,23 +957,27 @@ func.def @initialize_decode_n1_p255(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_decode_n1_p255() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_decode_n1_p255(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p255(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_decode_n1_p255() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_decode_n1_p255[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_decode_n1_p255(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_decode_n1_p255(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_decode_n1_p255(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p255(%control, %map) : (buffer, buffer)
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_decode_n1_p255 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -933,11 +996,12 @@ check.scenario @dense_decode_n1_p255 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
       check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
     }
   }
   check.return
 }
+
 func.def @initialize_decode_n1_p256(%control: buffer, %map: buffer) {
   %zero = index.constant 0 : offset
   %c = buffer.view %control[%zero] : buffer -> view<7xi32>
@@ -977,23 +1041,27 @@ func.def @initialize_decode_n1_p256(%control: buffer, %map: buffer) {
   view.store %mv8, %m[%mi8] : i32, view<10xi32>
   func.return
 }
+
 kernel.def @initialize_kernel_decode_n1_p256() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%control: buffer, %map: buffer) {
-  func.call @initialize_decode_n1_p256(%control, %map) : (buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p256(%control, %map) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_decode_n1_p256() launch(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  kernel.launch @initialize_kernel_decode_n1_p256[](%control, %map) : [](buffer, buffer)
-  command.launch @region.dense.decode[](%control, %map, %cache, %factors, %query, %key, %value, %output) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @initialize_kernel_decode_n1_p256(%control, %map) : (buffer, buffer)
+  command.launch @region.dense.decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @expected_decode_n1_p256(%control: buffer, %map: buffer, %cache: buffer, %factors: buffer, %query: buffer, %key: buffer, %value: buffer, %output: buffer) {
-  func.call @initialize_decode_n1_p256(%control, %map) : (buffer, buffer) -> ()
-  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @initialize_decode_n1_p256(%control, %map) : (buffer, buffer)
+  func.call @reference_decode(%control, %map, %cache, %factors, %query, %key, %value, %output) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @dense_decode_n1_p256 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %control = check.generate.fill value(-17) : tensor<7xi32>
@@ -1012,7 +1080,7 @@ check.scenario @dense_decode_n1_p256 {
       check.expect.bitwise actual(%query) expected(%query) : tensor<1x3072xf32>
       check.expect.bitwise actual(%key) expected(%key) : tensor<1x1024xf32>
       check.expect.bitwise actual(%value) expected(%value) : tensor<1x1024xf32>
-      check.expect.approximate actual(%output) expected(%output) atol(0.000003) rtol(0.00001) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(3.0000000000000001e-06) rtol(1.0000000000000001e-05) nan(same) : tensor<1x3072xf32>, tensor<1x3072xf32>
     }
   }
   check.return

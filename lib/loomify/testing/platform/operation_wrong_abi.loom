@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 target.decl @platform_test_wave32
+
 kernel.def target(@platform_test_wave32) @selected_operation(%variant: index) {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index

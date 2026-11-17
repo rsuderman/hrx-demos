@@ -4,9 +4,11 @@ template.decl @ggml.q5k.gate_up.f16_wmma.c64t128.wave32.owned_output_f16.body(%t
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.hidden_qk_blocks : index
+
 config.decl @qwen.model.hidden_size : index
 
 config.decl @qwen.model.ffn_size : index
+
 config.decl @qwen.model.gdn_qkv_size : index
 
 template.decl @ggml.q5k.scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32)
@@ -19,7 +21,6 @@ template.decl @ggml.q5k.scale_min(%weight: buffer, %block_byte_base: offset, %gr
 // projections accumulate in F32. The x128 schedule
 // rounds the final SwiGLU value once to the F16 operand type consumed by the
 // following Q6_K down projection instead of rerounding it in every output tile.
-
 func.decl @qwen38_q5k_f16_vector4_prescaled(%weight: buffer, %row_byte_base: offset, %q5_block: index, %q5_group: index, %packet: index, %d_scale: f32, %dmin_scale: f32) -> (vector<4xf16>)
 
 kernel.decl @qwen38_linear_q5k_f16_wmma_c128_t128_wave32(%token_count0: index, %input_size0: index, %output_size0: index) launch(%token_count_data: buffer, %input_size1: index, %output_size1: index, %input: buffer, %weight: buffer, %output: buffer)

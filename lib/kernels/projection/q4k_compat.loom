@@ -1,15 +1,15 @@
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
+
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: MIT
 // Curated from loom-pipeline/llm/motifs/ggml/linear_q4k_q8_1_x4_compat.loom; independently maintained by Loomify.
-
 func.decl @ggml_qk_mmq_compat_select(%capacity: index, %token: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer) -> (i1)
 
 func.decl @ggml_q4k_q8_1_x4_row_lane_policy(%round_weight_scales: i1, %input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane: index) -> (f32)
+
 // Explicit small-MMVQ compatibility policy; canonical entrypoints are unchanged.
 // Wave32 is part of this arithmetic contract. Other logical counts and inactive
 // rows use the existing canonical contraction/reduction, with no new accuracy claim.
-
 template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_block: index, %word_in_block: index) -> (vector<4xi8>, f32)
 
 config.decl @ggml.linear_q4k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
@@ -70,7 +70,6 @@ func.def inline @ggml_q4k_compat_header(%weight: buffer, %block_byte_base: offse
 }
 
 // Two disjoint four-code words from one 32-value quantization group.
-
 func.def inline @ggml_q4k_compat_terms(%weight: buffer, %weight_row: offset, %q8_input: buffer, %q8_row: offset, %block: index, %group: index, %word: index) -> (f32, f32, f32, f32) {
   %c2 = index.constant 2 : index
   %c4 = index.constant 4 : index

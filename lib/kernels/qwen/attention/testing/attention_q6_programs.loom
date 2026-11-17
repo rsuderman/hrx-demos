@@ -9,10 +9,10 @@ func.def public pure inline @loomify.config.attention_projections(%ordinal: inde
   %v7 = index.constant 1441792 : index
   func.return %v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7 : index, index, index, index, index, index, index, index
 }
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Maintained test call wiring; numerical bodies are linked from owned kernels.
-
 config.def @qwen.model.hidden_size = 1024 : index
 
 config.def @qwen.model.ffn_size = 3584 : index
@@ -79,10 +79,6 @@ config.def @qwen.model.value_weight_bytes = 430080 : index
 
 config.def @qwen.model.projection_weight_bytes = 1441792 : index
 
-
-
-
-
 config.def @qwen.model.projection_implementation = 1 : index
 
 config.def @qwen.model.hidden_capacity_bytes = 2097152 : index
@@ -134,4 +130,5 @@ command.def public retain @attention_layer() launch(%v0: buffer, %v1: buffer, %v
 }
 
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 6144 : index

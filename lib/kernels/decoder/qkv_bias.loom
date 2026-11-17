@@ -4,7 +4,9 @@
 // without head normalization. Bias is read; projected Q/K inputs are read;
 // rotated outputs are disjoint and written, with inactive rows zeroed.
 func.decl @llm.decoder.position(%row: index, %rows: index, %capacity: index, %origin: offset, %epoch: buffer) -> (i1, index)
+
 func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
+
 template.decl @llm.attention.rope_neox_value(%head_size: index, %half: index, %rope_size: index, %log_step: f32, %position: i32, %lane: index, %head: buffer) -> (f32)
 
 kernel.def @llm.decoder.prepare_qk_bias_h128(%rows0: index, %heads0: index) {
@@ -55,7 +57,6 @@ kernel.def @llm.decoder.prepare_qk_bias_h128(%rows0: index, %heads0: index) {
   }
   kernel.return
 }
-
 
 // Elementwise in-place bias on active rows only; inactive/padded rows and bias
 // remain unchanged. Count uses the same ordinary decoder packet as projection.

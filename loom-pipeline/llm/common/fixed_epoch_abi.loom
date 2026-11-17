@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Fixed resident profiles retain their prepared storage for their lifetime.
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.def public @resize_state(%state: buffer, %rows: i64) -> (buffer, buffer, buffer, buffer, buffer, buffer) {
   %unsupported = scalar.constant 0 : i32
   %diagnostic = buffer.constant utf8("fixed resident profile does not support state growth") : buffer

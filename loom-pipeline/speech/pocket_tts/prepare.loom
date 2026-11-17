@@ -7,6 +7,7 @@
 func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
 
 func.decl import("prepare") @source(%directory: buffer, %path: buffer) -> (i32)
+
 func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %input: i32, %source: i32, %policy: buffer)
 
 func.decl @pocket.parse_options(%source: buffer) -> (buffer)

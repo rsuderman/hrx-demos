@@ -1,10 +1,12 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-kernel.decl @qwen38_rmsnorm_f32_prefill(%rows: index) launch(%rows: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @qwen38_rmsnorm_f32_prefill(%rows$0: index) launch(%rows$1: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 command.def public @consumer.first(%rows: index, %epsilon: f32) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, f32, buffer, buffer, buffer)
   command.return
 }
+
 command.def public @consumer.second(%rows: index, %epsilon: f32) launch(%input: buffer, %weight: buffer, %output: buffer) {
   kernel.launch @qwen38_rmsnorm_f32_prefill[%rows](%rows, %epsilon, %input, %weight, %output) : [index](index, f32, buffer, buffer, buffer)
   command.return

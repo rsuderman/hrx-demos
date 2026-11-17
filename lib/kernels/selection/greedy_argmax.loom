@@ -7,7 +7,6 @@ template.decl @qwen38.greedy_argmax_f32.row(%row_count0: index, %row0: index, %o
 // reduction provides a one-workgroup oracle. Command programs use the
 // two-stage tiled reduction to expose vocabulary parallelism while keeping
 // logits and intermediate winners device-local.
-
 target.decl @llm.platform.selection.greedy.wave64
 
 config.decl @qwen38.greedy_argmax.output_capacity : %value: index where [range(%value, 256, 262144)]
@@ -197,6 +196,3 @@ kernel.def target(@llm.platform.selection.greedy.wave64) export("qwen38_greedy_a
   }
   kernel.return
 }
-
-// Periodic peaks cross both workitem strides and subgroup boundaries. The
-// first greatest logit is token 1008 even though later periods repeat it.

@@ -14,7 +14,6 @@ template.decl @ggml.q5k.scale_min(%weight: buffer, %block_byte_base: offset, %gr
 // Seven workgroups partition the canonical 5120-wide reduction into aligned
 // Q5_K block ranges. Each produces F32 partials; a deterministic second kernel
 // sums those partials in split order into the F32 model tensor.
-
 func.decl @qwen38_q5k_f16_vector4_prescaled(%weight: buffer, %row_byte_base: offset, %q5_block: index, %q5_group: index, %packet: index, %d_scale: f32, %dmin_scale: f32) -> (vector<4xf16>)
 
 kernel.decl @qwen38_linear_q5k_f16_wmma(%token_count: index, %input_size: index, %output_size: index) launch(%token_count_data: buffer, %input_size_data: index, %output_size_data: index, %input: buffer, %weight: buffer, %output: buffer)

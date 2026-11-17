@@ -9,14 +9,13 @@ template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_
 // size determines how many blocks advance together. The same source therefore
 // uses four-block wave32 and eight-block wave64 schedules without cloning the
 // kernel or naming an architecture in the model program.
-
 config.decl @ggml.linear_q8_0_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
 
 config.decl @ggml.linear_q8_0_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
 
 amdgpu.target<gfx11-generic> @ggml_q8_gfx11_wave32 {subgroup_size = 32}
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$8: index, %input_size$9: index) launch(%token_count$10: index, %input_size$11: index, %input: buffer, %output: buffer)
 
 // Computes one lane's partial for a complete Q8_0 row. The active subgroup
 // profile specializes the loop step before native emission.
@@ -164,7 +163,7 @@ check.case public @ggml_linear_q8_0_q8_1_x4_nonzero_tail_case {
   %expected = check.generate.fill value(8129.50390625) : tensor<9xf32>
   kernel.launch @ggml_quantize_q8_1_x4_f32[%token_count, %input_size](%token_count, %input_size, %input, %q8_input) : [index, index](index, index, tensor<128xf32>, tensor<144xi8>)
   kernel.launch @ggml_linear_q8_0_q8_1_x4[%token_count, %input_size, %output_size](%token_count, %input_size, %output_size, %q8_input, %weight, %output) : [index, index, index](index, index, index, tensor<144xi8>, tensor<9x4x34xi8>, tensor<9xf32>)
-  check.expect.approximate actual(%output) expected(%expected) atol(0.01) rtol(0.000001) nan(same) : tensor<9xf32>, tensor<9xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(0.01) rtol(9.9999999999999995e-07) nan(same) : tensor<9xf32>, tensor<9xf32>
   check.return
 }
 

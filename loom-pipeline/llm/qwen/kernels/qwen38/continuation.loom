@@ -110,7 +110,6 @@ func.def public @qwen38_continue_spans(%context: index, %epoch: buffer, %tokens:
       scf.if %speculative {
         %anchor = index.assume %begin [range(%begin, 0, 508)] : index
         view.store %prediction, %inputs[%anchor] : i32, view<512xi32>
-        scf.yield
       } else {
         %source = index.cast %source_word : i32 to index
         scf.for %token = [%zero to %length step %one] {
@@ -121,7 +120,6 @@ func.def public @qwen38_continue_spans(%context: index, %epoch: buffer, %tokens:
           %id = view.load %queued[%source_index] : view<512xi32> -> i32
           view.store %id, %inputs[%target] : i32, view<512xi32>
         }
-        scf.yield
       }
       %selection_count = scf.if %has_output -> (index) {
         %selection_count = scf.select %speculative, %four, %one : index
@@ -160,6 +158,6 @@ kernel.def @qwen38_continue_dispatch() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%context: index, %epoch: buffer, %tokens: buffer, %results: buffer) {
-  func.call @qwen38_continue_spans(%context, %epoch, %tokens, %results) : (index, buffer, buffer, buffer) -> ()
+  func.call @qwen38_continue_spans(%context, %epoch, %tokens, %results) : (index, buffer, buffer, buffer)
   kernel.return
 }

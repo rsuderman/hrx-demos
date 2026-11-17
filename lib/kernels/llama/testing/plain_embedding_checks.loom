@@ -6,9 +6,13 @@
 // Three logical vocabulary rows keep this adapter proof small. IDs2/0/2
 // exercise last/first/repeated rows; descriptor B2 differs from compact row0.
 config.def @llama.model.hidden_size = 2048 : index
+
 config.def @llama.model.vocabulary_size = 3 : index
+
 kernel.decl @llama32_token_embedding_epoch_q4k_f32(%tokens: index) launch(%epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+
 template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
 func.def @plainq4.d(%row: index, %block: index) -> (f32) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -27,6 +31,7 @@ func.def @plainq4.d(%row: index, %block: index) -> (f32) {
   %value = scf.select %odd, %small, %d : f32
   func.return %value : f32
 }
+
 func.def @plainq4.setup(%weights: buffer, %ids: buffer, %epoch: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -122,15 +127,17 @@ func.def @plainq4.setup(%weights: buffer, %ids: buffer, %epoch: buffer) {
   }
   func.return
 }
+
 kernel.def @plainq4.init() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%weights: buffer, %ids: buffer, %epoch: buffer) {
-  func.call @plainq4.setup(%weights, %ids, %epoch) : (buffer, buffer, buffer) -> ()
+  func.call @plainq4.setup(%weights, %ids, %epoch) : (buffer, buffer, buffer)
   kernel.return
 }
+
 command.def public @plainq4.actual() launch(%weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
-  kernel.launch @plainq4.init[](%weights, %ids, %epoch) : [](buffer, buffer, buffer)
+  kernel.launch @plainq4.init(%weights, %ids, %epoch) : (buffer, buffer, buffer)
   %tokens = index.constant 8 : index
   %weight_begin = index.constant 256 : offset
   %output_begin = index.constant 128 : offset
@@ -139,8 +146,9 @@ command.def public @plainq4.actual() launch(%weights: buffer, %ids: buffer, %epo
   kernel.launch @llama32_token_embedding_epoch_q4k_f32[%tokens](%epoch, %count, %ids, %w, %out) : [index](buffer, buffer, buffer, view<3456xi8>, view<16384xf32>)
   command.return
 }
+
 command.def public @plainq4.generic_actual() launch(%weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
-  kernel.launch @plainq4.init[](%weights, %ids, %epoch) : [](buffer, buffer, buffer)
+  kernel.launch @plainq4.init(%weights, %ids, %epoch) : (buffer, buffer, buffer)
   %tokens = index.constant 8 : index
   %weight_begin = index.constant 256 : offset
   %output_begin = index.constant 128 : offset
@@ -153,8 +161,9 @@ command.def public @plainq4.generic_actual() launch(%weights: buffer, %ids: buff
   template.apply<@llm.embedding.epoch_f32>(%tokens, %hidden, %vocab, %tag, %weight_bytes, %epoch, %count, %ids, %w, %out) : (index, index, index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%tokens]x[%hidden]xf32>)
   command.return
 }
+
 func.def @plainq4.expected(%weights: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
-  func.call @plainq4.setup(%weights, %ids, %epoch) : (buffer, buffer, buffer) -> ()
+  func.call @plainq4.setup(%weights, %ids, %epoch) : (buffer, buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -218,6 +227,7 @@ func.def @plainq4.expected(%weights: buffer, %ids: buffer, %epoch: buffer, %coun
   }
   func.return
 }
+
 check.scenario @q4_embedding_epoch_2048_n3_b2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -235,6 +245,7 @@ check.scenario @q4_embedding_epoch_2048_n3_b2 {
   }
   check.return
 }
+
 check.scenario @q4_embedding_epoch_2048_n3_b2_generic {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -252,6 +263,7 @@ check.scenario @q4_embedding_epoch_2048_n3_b2_generic {
   }
   check.return
 }
+
 check.scenario @q4_embedding_epoch_2048_n1_b2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -269,6 +281,7 @@ check.scenario @q4_embedding_epoch_2048_n1_b2 {
   }
   check.return
 }
+
 check.scenario @q4_embedding_epoch_2048_n1_b2_generic {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -286,6 +299,7 @@ check.scenario @q4_embedding_epoch_2048_n1_b2_generic {
   }
   check.return
 }
+
 check.scenario @q4_embedding_epoch_2048_n0_b2 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>
@@ -303,6 +317,7 @@ check.scenario @q4_embedding_epoch_2048_n0_b2 {
   }
   check.return
 }
+
 check.scenario @q4_embedding_epoch_2048_n0_b2_generic {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(-23) : tensor<3968xi8>

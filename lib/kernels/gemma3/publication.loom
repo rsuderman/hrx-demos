@@ -9,15 +9,18 @@
 // direct epoch publication canonicalizes the two configured EOG IDs to the
 // native terminal. Host publication consumes the same configured token facts.
 config.decl @gemma3.publication.eos_id : i32
+
 config.decl @gemma3.publication.end_turn_id : i32
 
 func.decl pure @llm.publication.map_two_stops(%token: i32, %first_stop: i32, %second_stop: i32, %terminal: i32) -> (i32)
+
 func.def public inline @gemma3_native_token(%token: i32, %eos: i32) -> (i32) {
   %end_text = config.get @gemma3.publication.eos_id : i32
   %end_turn = config.get @gemma3.publication.end_turn_id : i32
   %native = func.call pure @llm.publication.map_two_stops(%token, %end_text, %end_turn, %eos) : (i32, i32, i32, i32) -> (i32)
   func.return %native : i32
 }
+
 // Direct numerical publication: one logical winner, one physical output slot.
 kernel.def @gemma3_publish_epoch_id() {
   %one = index.constant 1 : index

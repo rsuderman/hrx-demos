@@ -4,19 +4,27 @@ func.decl @llm_attention_online_softmax_update(%old_max: f32, %old_sum: f32, %ol
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.head_gate_size : index
+
 config.decl @qwen.model.head_scratch_bytes : index
+
 config.decl @qwen.model.kv_row_bytes : index
 
 config.decl @qwen.model.attention_width : index
+
 config.decl @qwen.model.query_gate_size : index
 
 config.decl @qwen.model.kv_size : index
 
 config.decl @qwen.model.attention_heads : index
+
 config.decl @qwen.model.attention_scale : f32
+
 config.decl @qwen.model.head_divisor : f32
+
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.kv_heads : index
+
 config.decl @qwen.model.query_gate_row_bytes : index
 
 template.decl @qwen38.attention.rope_text_value(%position: i32, %lane0: index, %normalized_head: buffer) -> (f32)

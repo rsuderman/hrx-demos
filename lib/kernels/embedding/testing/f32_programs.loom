@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Test-owned call wiring for the retained F32 primitive, independent of GGUF
 // conversion, model products and the retired embedding demonstration.
-kernel.decl @loomify.embedding.f32(%width: index, %vocab: index) launch(%width: index, %vocab: index, %token: index, %table: view<[%vocab]x[%width]xf32>, %output: buffer)
+kernel.decl @loomify.embedding.f32(%width$0: index, %vocab$1: index) launch(%width$2: index, %vocab$3: index, %token: index, %table: view<[%vocab$3]x[%width$2]xf32>, %output: buffer)
+
 command.def public @embedding.f32(%case: index) launch(%parameters: buffer, %output: buffer) {
   %width = index.constant 4 : index
   %vocab = index.constant 3 : index

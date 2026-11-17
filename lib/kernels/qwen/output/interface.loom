@@ -1,4 +1,5 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_token_embedding_q4k_f32_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)

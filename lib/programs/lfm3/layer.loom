@@ -1,14 +1,23 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
-kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
+kernel.decl @llm.decoder.rmsnorm_active(%rows$0: index, %width$1: index) launch(%rows$2: index, %width$3: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.residual(%rows: index, %width$10: index) launch(%width$11: index, %count: buffer, %source: buffer, %residual: buffer)
+
 config.decl @lfm3.model.hidden_size : index
+
 config.decl @lfm3.model.rms_epsilon : f32
+
 config.decl @lfm3.model.post_rms_epsilon : f32
+
 func.decl pure @loomify.config.layer_info(%layer: index) -> (index, index, index)
+
 command.decl @loomify.lfm3.shortconv(%layer: index, %ordinal: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %cache: buffer, %output: buffer)
+
 command.decl @loomify.lfm3.attention(%layer: index, %ordinal: index, %window: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %count: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %output: buffer)
+
 command.decl @loomify.lfm3.ffn(%layer: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+
 command.def @loomify.lfm3.layer(%layer: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer) where [range(%rows, 1, 512)] {
   %hidden = config.get @lfm3.model.hidden_size : index
   %rms_epsilon = config.get @lfm3.model.rms_epsilon : f32

@@ -10,52 +10,84 @@
 // Generic projections bypass the 27B-specific schedules and use Q8 activations.
 // Layer masks describe the 24-layer 0.8B checkpoint, not runtime encoding discovery.
 config.decl @qwen.model.projection_implementation : index
+
 config.decl @qwen.model.attention_q6_layers : i32
+
 config.decl @qwen.model.query_q5_weight_bytes : index
+
 config.decl @qwen.model.query_q6_weight_bytes : index
+
 config.decl @qwen.model.key_q5_weight_bytes : index
+
 config.decl @qwen.model.key_q6_weight_bytes : index
 
 config.decl @qwen.model.kv_plane_token_bytes : index
+
 config.decl @qwen.model.kv_row_bytes : index
+
 config.decl @qwen.model.projection_row_bytes : index
 
 config.decl @qwen.model.attention_partial_split_bytes : index
+
 config.decl @qwen.model.attention_width : index
+
 config.decl @qwen.model.ffn_row_bytes : index
+
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.hidden_q8_row_bytes : index
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.key_weight_bytes : index
+
 config.decl @qwen.model.kv_size : index
+
 config.decl @qwen.model.projection_q8_row_bytes : index
+
 config.decl @qwen.model.projection_weight_bytes : index
+
 config.decl @qwen.model.query_gate_row_bytes : index
+
 config.decl @qwen.model.query_gate_size : index
+
 config.decl @qwen.model.query_weight_bytes : index
+
 config.decl @qwen.model.rms_epsilon : f32
+
 config.decl @qwen.model.value_weight_bytes : index
 
 config.decl @qwen38.attention.cache_capacity : %value: index where [range(%value, 1, 262144)]
+
 config.decl @qwen38.attention.decode_split_count : %value: index where [range(%value, 1, 64)]
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q8_0_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$27: index, %input_size$28: index) launch(%token_count$29: index, %input_size$30: index, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count$33: index, %input_size$34: index, %output_size$35: index) launch(%token_count$36: index, %input_size$37: index, %output_size$38: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count$42: index, %input_size$43: index, %output_size$44: index) launch(%token_count$45: index, %input_size$46: index, %output_size$47: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q8_0_q8_1_x4(%token_count$51: index, %input_size$52: index, %output_size$53: index) launch(%token_count$54: index, %input_size$55: index, %output_size$56: index, %input: buffer, %weight: buffer, %output: buffer)
 
 kernel.decl @qwen38_rmsnorm_f32_decode() launch(%epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_residual_add_f32_decode() launch(%lhs: buffer, %rhs: buffer, %output: buffer)
+
 kernel.decl @qwen38_attention_query_prepare_decode() launch(%epsilon: f32, %control: buffer, %query_gate_projection: buffer, %norm_weight: buffer, %query: buffer, %gate: buffer)
+
 kernel.decl @qwen38_attention_kv_prepare_decode() launch(%epsilon: f32, %control: buffer, %key_projection: buffer, %value_projection: buffer, %norm_weight: buffer, %key_cache: buffer, %value_cache: buffer)
+
 kernel.decl @qwen38_attention_decode_split_wmma_partial() launch(%token_count: index, %token_ordinal: index, %control_position_index: index, %control: buffer, %query: buffer, %key_cache: buffer, %value_cache: buffer, %partials: buffer)
+
 kernel.decl @qwen38_attention_decode_split_reduce() launch(%token_count: index, %token_ordinal: index, %gate: buffer, %partials: buffer, %output: buffer)
 
 // Advances one full-attention layer. The parameter root is immutable and
 // fixed during command-buffer materialization. The residual, control, and
 // cache roots are rebound for each sequence at issue time.
 command.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
+
 command.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
 
 command.def public @qwen38_attention_layer_decode(%layer: index, %attention_ordinal: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %attention_cache: buffer, %attention_output: buffer) where [range(%layer, 0, 64), range(%attention_ordinal, 0, 15)] {

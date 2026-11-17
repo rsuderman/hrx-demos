@@ -1,21 +1,36 @@
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 config.decl @qwen.model.tie_word_embeddings : index
+
 config.decl @qwen.model.argmax_partial_row_bytes : index
+
 config.decl @qwen.model.logits_row_bytes : index
+
 config.decl @qwen.model.output_weight_bytes : index
+
 config.decl @qwen.model.hidden_q8_row_bytes : index
+
 config.decl @qwen.model.vocabulary_size : index
+
 // Copyright 2026 The IREE Authors
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated ordinary Qwen0.8B closure from loom-pipeline at0aed77a.
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.rms_epsilon : f32
+
 config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : index
+
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : index
+
 template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 target.decl @llm.platform.normalization.output_spans.wave32
+
 kernel.def target(@llm.platform.normalization.output_spans.wave32) export("qwen38_output_normalize_spans") @qwen38_output_normalize_spans(%output_capacity: index) {
   %outputs = index.assume %output_capacity [range(%output_capacity, 1, 64)] : index
   %one = index.constant 1 : index
@@ -54,8 +69,11 @@ kernel.def target(@llm.platform.normalization.output_spans.wave32) export("qwen3
   }
   kernel.return
 }
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count0: index, %output_size: index) launch(%token_count0: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count0: index, %output_size: index) launch(%token_count0: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width: index) launch(%rows: index, %width: index, %input: buffer, %output: buffer)
+kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count0$75: index, %output_size$76: index) launch(%token_count0$77: index, %output_size$78: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count0$82: index, %output_size$83: index) launch(%token_count0$84: index, %output_size$85: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows$89: index, %width$90: index) launch(%rows$91: index, %width$92: index, %input: buffer, %output: buffer)
+
 kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch: buffer, %private_ids: buffer, %output: buffer)

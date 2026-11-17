@@ -1,6 +1,7 @@
 // Test-only distinguishing provider: public shared-family selection must
 // reach decode through the Qwen adapter, prefill, and unchanged Llama callers.
 template.decl @llm.rmsnorm.row(%width: index, %divisor: f32, %rows: index, %row: index, %origin: offset, %half: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 template.def<@llm.rmsnorm.row> device priority(100) @pilot.shared_override(%width: index, %divisor: f32, %rows: index, %row: index, %origin: offset, %half: i1, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
   %lane = kernel.workitem.id<x> : index
   %step = index.constant 256 : index

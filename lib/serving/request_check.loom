@@ -4,10 +4,12 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 global.rodata.def @request_guard.error = bytes("696e76616c69642072657175657374206f7220657865637574696f6e207374617465")
+
 func.def public @loomify.request.check(%condition: i1) {
   %value = scalar.extui %condition : i1 to i32
   %diagnostic = global.load @request_guard.error : buffer
-  func.call @require(%value, %diagnostic) : (i32, buffer) -> ()
+  func.call @require(%value, %diagnostic) : (i32, buffer)
   func.return
 }

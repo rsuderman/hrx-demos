@@ -2,23 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated ordinary Qwen0.8B closure from loom-pipeline at0aed77a.
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 config.decl @qwen.model.tie_word_embeddings : index
+
 config.decl @qwen.model.argmax_partial_row_bytes : index
+
 config.decl @qwen.model.logits_row_bytes : index
+
 config.decl @qwen.model.output_weight_bytes : index
+
 config.decl @qwen.model.hidden_q8_row_bytes : index
+
 config.decl @qwen.model.vocabulary_size : index
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.rms_epsilon : f32
+
 config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : index
+
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : index
+
 template.decl @qwen38.rmsnorm_f32.row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count0: index, %output_size: index) launch(%token_count0: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count0: index, %output_size: index) launch(%token_count0: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
-kernel.decl @ggml_quantize_q8_1_x4_f32(%rows: index, %width: index) launch(%rows: index, %width: index, %input: buffer, %output: buffer)
+
+kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count0$42: index, %output_size$43: index) launch(%token_count0$44: index, %output_size$45: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count0$49: index, %output_size$50: index) launch(%token_count0$51: index, %output_size$52: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows$56: index, %width$57: index) launch(%rows$58: index, %width$59: index, %input: buffer, %output: buffer)
+
 kernel.decl @qwen38_output_normalize_spans(%output_capacity: index) launch(%epoch: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 // One private row retains the selected ordinal and canonical Q6 arithmetic.
 // Selected capacity remains1; the epoch owns all public output publication.
 command.def @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {

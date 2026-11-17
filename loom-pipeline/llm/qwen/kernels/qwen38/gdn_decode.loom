@@ -13,21 +13,35 @@
 config.decl @qwen.model.gdn_column_tiles : index
 
 config.decl @qwen.model.gdn_convolution_taps : index
+
 config.decl @qwen.model.gdn_history_values : index
+
 config.decl @qwen.model.gdn_qk_norm_elements : index
+
 config.decl @qwen.model.gdn_value_channels_per_key_head : index
 
 config.decl @qwen.model.gdn_conv_elements : index
+
 config.decl @qwen.model.gdn_divisor : f32
+
 config.decl @qwen.model.gdn_head_size : index
+
 config.decl @qwen.model.gdn_history_elements : index
+
 config.decl @qwen.model.gdn_key_heads : index
+
 config.decl @qwen.model.gdn_q_channels : index
+
 config.decl @qwen.model.gdn_qkv_size : index
+
 config.decl @qwen.model.gdn_scale : f32
+
 config.decl @qwen.model.gdn_state_elements : index
+
 config.decl @qwen.model.gdn_v_base : index
+
 config.decl @qwen.model.gdn_value_heads : index
+
 config.decl @qwen.model.gdn_width : index
 
 func.decl @qwen38_gdn_key_head_for_value_head(%value_head: index) -> (index)
@@ -509,8 +523,8 @@ check.case public @qwen38_gdn_decode_benchmark_case {
   %shape_gdn_state_elements = config.get @qwen.model.gdn_state_elements : index
   %shape_gdn_value_heads = config.get @qwen.model.gdn_value_heads : index
   %shape_gdn_width = config.get @qwen.model.gdn_width : index
-  %l2_epsilon = check.literal value(0.000001) : f32
-  %rms_epsilon = check.literal value(0.000001) : f32
+  %l2_epsilon = check.literal value(9.9999999999999995e-07) : f32
+  %rms_epsilon = check.literal value(9.9999999999999995e-07) : f32
   %qkv_input = check.generate.fill value(0.125) : tensor<[%shape_gdn_qkv_size]xf32>
   %conv_weight = check.generate.fill value(0.25) : tensor<[%shape_gdn_conv_elements]xf32>
   %conv_history = check.generate.fill value(-0.0625) : tensor<[%shape_gdn_history_elements]xf32>
@@ -538,7 +552,7 @@ check.case public @qwen38_gdn_conv_prepare_decode_known_case {
   %shape_gdn_conv_elements = config.get @qwen.model.gdn_conv_elements : index
   %shape_gdn_history_elements = config.get @qwen.model.gdn_history_elements : index
   %shape_gdn_qkv_size = config.get @qwen.model.gdn_qkv_size : index
-  %l2_epsilon = check.literal value(0.000001) : f32
+  %l2_epsilon = check.literal value(9.9999999999999995e-07) : f32
   %qkv_input = check.generate.fill value(0.125) : tensor<[%shape_gdn_qkv_size]xf32>
   %conv_weight = check.generate.fill value(0.25) : tensor<[%shape_gdn_conv_elements]xf32>
   %conv_history = check.generate.fill value(-0.0625) : tensor<[%shape_gdn_history_elements]xf32>
@@ -547,8 +561,8 @@ check.case public @qwen38_gdn_conv_prepare_decode_known_case {
   %expected_qkv = check.generate.fill value(-0.0077514660854831182) : tensor<[%shape_gdn_qkv_size]xf32>
   %expected_inverse_norm = check.generate.fill value(11.402790991223119) : tensor<[%shape_gdn_qk_norm_elements]xf32>
   kernel.launch @qwen38_gdn_conv_prepare_decode(%l2_epsilon, %qkv_input, %conv_weight, %conv_history, %qkv_silu, %qk_inverse_norm) : (f32, tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_conv_elements]xf32>, tensor<[%shape_gdn_history_elements]xf32>, tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>)
-  check.expect.approximate actual(%qkv_silu) expected(%expected_qkv) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qkv_size]xf32>
-  check.expect.approximate actual(%qk_inverse_norm) expected(%expected_inverse_norm) atol(0.00001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>
+  check.expect.approximate actual(%qkv_silu) expected(%expected_qkv) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qkv_size]xf32>
+  check.expect.approximate actual(%qk_inverse_norm) expected(%expected_inverse_norm) atol(1.0000000000000001e-05) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>
   check.return
 }
 
@@ -557,7 +571,7 @@ check.case public @qwen38_gdn_conv_prepare_decode_benchmark_case {
   %shape_gdn_conv_elements = config.get @qwen.model.gdn_conv_elements : index
   %shape_gdn_history_elements = config.get @qwen.model.gdn_history_elements : index
   %shape_gdn_qkv_size = config.get @qwen.model.gdn_qkv_size : index
-  %l2_epsilon = check.literal value(0.000001) : f32
+  %l2_epsilon = check.literal value(9.9999999999999995e-07) : f32
   %qkv_input = check.generate.fill value(0.125) : tensor<[%shape_gdn_qkv_size]xf32>
   %conv_weight = check.generate.fill value(0.25) : tensor<[%shape_gdn_conv_elements]xf32>
   %conv_history = check.generate.fill value(-0.0625) : tensor<[%shape_gdn_history_elements]xf32>
@@ -609,27 +623,27 @@ check.case public @qwen38_gdn_recurrent_decode_x4_differential_case {
   %shape_gdn_state_elements = config.get @qwen.model.gdn_state_elements : index
   %shape_gdn_value_heads = config.get @qwen.model.gdn_value_heads : index
   %shape_gdn_width = config.get @qwen.model.gdn_width : index
-  %qkv_silu = check.generate.iota offset(-0.25) step(0.00003125) : tensor<[%shape_gdn_qkv_size]xf32>
+  %qkv_silu = check.generate.iota offset(-0.25) step(3.1250000000000001e-05) : tensor<[%shape_gdn_qkv_size]xf32>
   %qk_inverse_norm = check.generate.iota offset(0.0625) step(0.0009765625) : tensor<[%shape_gdn_qk_norm_elements]xf32>
   %alpha = check.generate.iota offset(-0.25) step(0.0078125) : tensor<[%shape_gdn_value_heads]xf32>
   %beta = check.generate.iota offset(-0.5) step(0.015625) : tensor<[%shape_gdn_value_heads]xf32>
   %ssm_a = check.generate.iota offset(-0.75) step(0.0078125) : tensor<[%shape_gdn_value_heads]xf32>
   %dt_bias = check.generate.iota offset(-0.125) step(0.00390625) : tensor<[%shape_gdn_value_heads]xf32>
-  %expected_state = check.generate.iota offset(-0.0625) step(0.000000125) : tensor<[%shape_gdn_state_elements]xf32>
-  %actual_state = check.generate.iota offset(-0.0625) step(0.000000125) : tensor<[%shape_gdn_state_elements]xf32>
+  %expected_state = check.generate.iota offset(-0.0625) step(1.2499999999999999e-07) : tensor<[%shape_gdn_state_elements]xf32>
+  %actual_state = check.generate.iota offset(-0.0625) step(1.2499999999999999e-07) : tensor<[%shape_gdn_state_elements]xf32>
   %expected_output = check.generate.fill value(0.0) : tensor<[%shape_gdn_width]xf32>
   %actual_output = check.generate.fill value(0.0) : tensor<[%shape_gdn_width]xf32>
   kernel.launch @qwen38_gdn_recurrent_decode(%qkv_silu, %qk_inverse_norm, %alpha, %beta, %ssm_a, %dt_bias, %expected_state, %expected_output) : (tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_width]xf32>)
   kernel.launch @qwen38_gdn_recurrent_decode_x4(%qkv_silu, %qk_inverse_norm, %alpha, %beta, %ssm_a, %dt_bias, %actual_state, %actual_output) : (tensor<[%shape_gdn_qkv_size]xf32>, tensor<[%shape_gdn_qk_norm_elements]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_value_heads]xf32>, tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_width]xf32>)
-  check.expect.approximate actual(%actual_state) expected(%expected_state) atol(0.00001) rtol(0.00001) nan(same) : tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_state_elements]xf32>
-  check.expect.approximate actual(%actual_output) expected(%expected_output) atol(0.00001) rtol(0.00001) nan(same) : tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>
+  check.expect.approximate actual(%actual_state) expected(%expected_state) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<[%shape_gdn_state_elements]xf32>, tensor<[%shape_gdn_state_elements]xf32>
+  check.expect.approximate actual(%actual_output) expected(%expected_output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>
   check.return
 }
 
 check.case public @qwen38_gdn_norm_gate_decode_benchmark_case {
   %shape_gdn_head_size = config.get @qwen.model.gdn_head_size : index
   %shape_gdn_width = config.get @qwen.model.gdn_width : index
-  %rms_epsilon = check.literal value(0.000001) : f32
+  %rms_epsilon = check.literal value(9.9999999999999995e-07) : f32
   %raw_output = check.generate.fill value(0.125) : tensor<[%shape_gdn_width]xf32>
   %norm_weight = check.generate.fill value(1.0) : tensor<[%shape_gdn_head_size]xf32>
   %z = check.generate.fill value(0.25) : tensor<[%shape_gdn_width]xf32>
@@ -641,14 +655,14 @@ check.case public @qwen38_gdn_norm_gate_decode_benchmark_case {
 check.case public @qwen38_gdn_norm_gate_decode_known_case {
   %shape_gdn_head_size = config.get @qwen.model.gdn_head_size : index
   %shape_gdn_width = config.get @qwen.model.gdn_width : index
-  %rms_epsilon = check.literal value(0.000001) : f32
+  %rms_epsilon = check.literal value(9.9999999999999995e-07) : f32
   %raw_output = check.generate.fill value(0.125) : tensor<[%shape_gdn_width]xf32>
   %norm_weight = check.generate.fill value(1.0) : tensor<[%shape_gdn_head_size]xf32>
   %z = check.generate.fill value(0.25) : tensor<[%shape_gdn_width]xf32>
   %output = check.generate.fill value(0.0) : tensor<[%shape_gdn_width]xf32>
   %expected = check.generate.fill value(0.14053962802530667) : tensor<[%shape_gdn_width]xf32>
   kernel.launch @qwen38_gdn_norm_gate_decode(%rms_epsilon, %raw_output, %norm_weight, %z, %output) : (f32, tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_head_size]xf32>, tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>)
-  check.expect.approximate actual(%output) expected(%expected) atol(0.000001) rtol(0.000001) nan(same) : tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>
+  check.expect.approximate actual(%output) expected(%expected) atol(9.9999999999999995e-07) rtol(9.9999999999999995e-07) nan(same) : tensor<[%shape_gdn_width]xf32>, tensor<[%shape_gdn_width]xf32>
   check.return
 }
 

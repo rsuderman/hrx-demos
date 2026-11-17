@@ -6,23 +6,36 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.tie_word_embeddings : index
+
 config.decl @qwen.model.argmax_partial_row_bytes : index
 
 config.decl @qwen.model.hidden_q8_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
+
 config.decl @qwen.model.logits_row_bytes : index
+
 config.decl @qwen.model.output_weight_bytes : index
+
 config.decl @qwen.model.rms_epsilon : f32
+
 config.decl @qwen.model.vocabulary_size : index
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$8: index, %input_size$9: index) launch(%token_count$10: index, %input_size$11: index, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count$14: index, %input_size$15: index, %output_size$16: index) launch(%token_count$17: index, %input_size$18: index, %output_size$19: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count$23: index, %input_size$24: index, %output_size$25: index) launch(%token_count$26: index, %input_size$27: index, %output_size$28: index, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_rmsnorm_f32_decode() launch(%epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @qwen38_rmsnorm_f32_prefill(%token_count: index) launch(%token_count: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @qwen38_rmsnorm_f32_prefill(%token_count$36: index) launch(%token_count$37: index, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_rmsnorm_f32_prefill_last() launch(%control: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count: index, %output_size: index) launch(%token_count: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count: index, %output_size: index) launch(%token_count: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count$47: index, %output_size$48: index) launch(%token_count$49: index, %output_size$50: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count$54: index, %output_size$55: index) launch(%token_count$56: index, %output_size$57: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
 
 template.decl @llm.output.project_greedy(%token_count: index, %normalized_origin: offset, %output_origin: offset, %shape_hidden_size: index, %shape_vocabulary_size: index, %shape_argmax_partial_row_bytes: index, %shape_hidden_q8_row_bytes: index, %shape_logits_row_bytes: index, %shape_output_weight_bytes: index, %use_grouped_projection: i1, %use_mmvq_compat: i1, %output_weight: view<[%shape_output_weight_bytes]xi8>, %normalized: buffer, %token_id: buffer)
 

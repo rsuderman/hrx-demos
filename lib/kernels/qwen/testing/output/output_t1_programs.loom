@@ -25,7 +25,9 @@ kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%token_count0: index) launch
 kernel.decl @qwen_output_init_tied_bank() launch(%weight: buffer, %gamma: buffer)
 
 command.decl @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer)
+
 kernel.decl @qwen08_publish_selected_ids(%output_capacity: index) launch(%epoch: buffer, %private_ids: buffer, %output: buffer)
+
 // Test-only composition retains the public-output oracle without restoring a
 // combined production head or giving numerical computation public output.
 command.def @qwen.output.compose_head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %output: buffer) {
@@ -51,7 +53,6 @@ command.def public retain @qwen.output.init() launch(%v0: buffer) {
 // SPDX-License-Identifier: MIT
 // Known tied rows1=[+1,+1 halves],2=[+1,-1 halves], others zero.
 // Gamma=[+1,-2 halves]. Thus embeddingID1 predicts2, ID2 predicts1.
-
 command.def public retain @qwen.output.embedding.t1() launch(%v0: buffer, %v1: buffer, %v2: buffer) {
   command.serial {
     %v3 = index.constant 1 : index

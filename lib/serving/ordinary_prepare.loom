@@ -1,36 +1,52 @@
 config.decl @loomify.serving.hidden_size : index
+
 config.decl @loomify.serving.layer_count : index
+
 config.decl @loomify.serving.kv_size : index
+
 config.decl @loomify.serving.history_capacity : index
+
 config.decl @loomify.serving.token_capacity : index
+
 config.decl @loomify.serving.cache_capacity : index
+
 config.decl @loomify.serving.pool_capacity : index
+
 config.decl @loomify.serving.cache_base : offset
+
 config.decl @loomify.serving.map_origin : offset
+
 config.decl @loomify.serving.trailing_state_bytes : index
+
 func.decl @loomify.tokens.terminal_marker() -> (buffer)
+
 // Shared ordinary single-request preparation; architecture adapters supply facts.
 // Copyright 2026 The IREE Authors
 //
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-
-
 func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
+
 func.decl import("prepare") @source(%directory: buffer, %path: buffer) -> (i32)
+
 func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %input: i32, %source: i32, %policy: buffer)
+
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
 
-
 func.decl @ordinary.epoch_root() -> (buffer)
+
 // weights.loom
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
+
 // <|eot_id|>
 // Empty path component.
 global.rodata.def @empty = bytes("")
+
 func.decl @ordinary.unsupported() -> (buffer)
+
 // Reserved slots0/1 retain T/1 tags; all slots register the same epoch root.
 // Each complete command has one immutable weight root followed by six native
 // issue bindings. No proposal, catch-up, verifier or continuation is declared.
@@ -40,7 +56,7 @@ func.def @ordinary_declare_stage(%root: buffer, %tokens: i64, %weights: buffer) 
   %policy = global.load @policy : buffer
   %zero = scalar.constant 0 : i32
   %registered_source_1 = func.call @source(%empty, %weights) : (buffer, buffer) -> (i32)
-  func.call @parameter(%stage, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer) -> ()
+  func.call @parameter(%stage, %zero, %zero, %registered_source_1, %policy) : (i32, i32, i32, i32, buffer)
   func.return %stage : i32
 }
 
@@ -108,7 +124,7 @@ func.def @ordinary_storage() -> (buffer, buffer, buffer, buffer, buffer) {
   %alloc_bytes = index.constant 264 : offset
   %allocations = buffer.alloca<private> align(8) %alloc_bytes : buffer
   scf.for %slot = [%zero to %eleven step %one] {
-    func.call @ordinary_allocation(%allocations, %slot, %zero64, %zero64) : (buffer, index, i64, i64) -> ()
+    func.call @ordinary_allocation(%allocations, %slot, %zero64, %zero64) : (buffer, index, i64, i64)
   }
   %slot0 = index.constant 0 : index
   %slot1 = index.constant 1 : index
@@ -116,12 +132,12 @@ func.def @ordinary_storage() -> (buffer, buffer, buffer, buffer, buffer) {
   %slot3 = index.constant 3 : index
   %slot4 = index.constant 4 : index
   %slot5 = index.constant 5 : index
-  func.call @ordinary_allocation(%allocations, %slot0, %residual, %residual) : (buffer, index, i64, i64) -> ()
-  func.call @ordinary_allocation(%allocations, %slot1, %arena, %base) : (buffer, index, i64, i64) -> ()
-  func.call @ordinary_allocation(%allocations, %slot2, %metadata, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @ordinary_allocation(%allocations, %slot3, %map_bytes, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @ordinary_allocation(%allocations, %slot4, %history_bytes, %zero64) : (buffer, index, i64, i64) -> ()
-  func.call @ordinary_allocation(%allocations, %slot5, %output, %zero64) : (buffer, index, i64, i64) -> ()
+  func.call @ordinary_allocation(%allocations, %slot0, %residual, %residual) : (buffer, index, i64, i64)
+  func.call @ordinary_allocation(%allocations, %slot1, %arena, %base) : (buffer, index, i64, i64)
+  func.call @ordinary_allocation(%allocations, %slot2, %metadata, %zero64) : (buffer, index, i64, i64)
+  func.call @ordinary_allocation(%allocations, %slot3, %map_bytes, %zero64) : (buffer, index, i64, i64)
+  func.call @ordinary_allocation(%allocations, %slot4, %history_bytes, %zero64) : (buffer, index, i64, i64)
+  func.call @ordinary_allocation(%allocations, %slot5, %output, %zero64) : (buffer, index, i64, i64)
   %views_bytes = index.constant 64 : offset
   %views = buffer.alloca<private> align(8) %views_bytes : buffer
   %views_view = buffer.view %views[%origin] : buffer -> view<8xi64>
@@ -228,7 +244,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %supported = scalar.andi %valid_epochs, %valid_pins : i1
   %supported32 = scalar.extui %supported : i1 to i32
   %diagnostic = func.call @ordinary.unsupported() : () -> (buffer)
-  func.call @require(%supported32, %diagnostic) : (i32, buffer) -> ()
+  func.call @require(%supported32, %diagnostic) : (i32, buffer)
   %expected_context_fact = config.get @loomify.serving.cache_capacity : index
   %expected_context = index.cast %expected_context_fact : index to i64
   %expected_prefill_fact = config.get @loomify.serving.token_capacity : index
@@ -244,7 +260,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %bounded_profile2 = scalar.andi %bounded_profile0, %bounded_profile1 : i1
   %bounded_profile = scalar.andi %bounded_profile2, %no_pins : i1
   %bounded_profile32 = scalar.extui %bounded_profile : i1 to i32
-  func.call @require(%bounded_profile32, %diagnostic) : (i32, buffer) -> ()
+  func.call @require(%bounded_profile32, %diagnostic) : (i32, buffer)
   %bounded = scalar.assume %shape_count [range(%shape_count, 0, 2147483645)] : i64
   %count = index.cast %bounded : i64 to index
   %view = buffer.view %shapes[%origin] : buffer -> view<[%count]x2xi64>
@@ -267,7 +283,7 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
     %span_range = scalar.andi %span_min, %span_bound : i1
     %valid_shape = scalar.andi %token_fit, %span_range : i1
     %valid_shape32 = scalar.extui %valid_shape : i1 to i32
-    func.call @require(%valid_shape32, %diagnostic) : (i32, buffer) -> ()
+    func.call @require(%valid_shape32, %diagnostic) : (i32, buffer)
     %stage = func.call @ordinary_declare_stage(%epoch_root, %tokens, %weights) : (buffer, i64, buffer) -> (i32)
     %larger = scalar.cmpi ugt, %tokens, %previous : i64
     %next = scf.select %larger, %tokens, %previous : i64

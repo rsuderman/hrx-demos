@@ -10,6 +10,3 @@ func.def public inline @qwen38_gdn_key_head_for_value_head(%value_head: index) -
   %key_head = index.rem %value_head, %key_head_count : index
   func.return %key_head : index
 }
-
-// Locks the model's tiled Q/K-to-V head mapping independently of the recurrent
-// schedules that consume it.

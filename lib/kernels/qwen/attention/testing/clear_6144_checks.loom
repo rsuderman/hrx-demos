@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 // Guarded poison regression: every declared raw row must be initialized.
-kernel.decl @qwen38_attention_clear_attended(%tokens: index) launch(%tokens: index, %output: buffer)
+kernel.decl @qwen38_attention_clear_attended(%tokens$0: index) launch(%tokens$1: index, %output: buffer)
 
 check.case @clear_6144_rows1 {
   %tokens = check.literal value(1) : index

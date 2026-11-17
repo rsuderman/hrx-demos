@@ -3,8 +3,11 @@
 // State/cache ordinal contract through actual production numerical children.
 
 command.decl @route_actual_dependent() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer)
+
 func.decl @route_expected_dependent(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer)
+
 command.decl @route_actual_reset() launch(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer)
+
 func.decl @route_expected_reset(%epoch: buffer, %rows: buffer, %qkv: buffer, %inverse: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %raw: buffer, %key: buffer, %value: buffer, %gamma: buffer, %cache: buffer)
 
 check.scenario @alternating_routes_dependent_state_and_cache {
@@ -12,7 +15,7 @@ check.scenario @alternating_routes_dependent_state_and_cache {
     %epoch = check.generate.fill value(0) : tensor<1048xi32>
     %rows = check.generate.fill value(0) : tensor<520xi32>
     %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
-    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %inverse = check.generate.fill value(0.088388347648318447) : tensor<256xf32>
     %alpha = check.generate.fill value(0.0) : tensor<128xf32>
     %beta = check.generate.fill value(0.0) : tensor<128xf32>
     %a = check.generate.fill value(-1.0) : tensor<16xf32>
@@ -29,13 +32,13 @@ check.scenario @alternating_routes_dependent_state_and_cache {
     %cache_prefix = check.tensor.view %cache offset(0) : tensor<524544xf16> -> tensor<128xf16>
     %cache_suffix = check.tensor.view %cache offset(1048832) : tensor<524544xf16> -> tensor<128xf16>
     check.compare<@route_actual_dependent, @route_expected_dependent>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : (tensor<1048xi32>, tensor<520xi32>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<1122432xf32>, tensor<6208xf32>, tensor<1536xf32>, tensor<1536xf32>, tensor<256xf32>, tensor<524544xf16>) -> () {
-      check.expect.approximate actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<1122432xf32>, tensor<1122432xf32>
+      check.expect.approximate actual(%state) expected(%state) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<1122432xf32>, tensor<1122432xf32>
       check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
       check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
       check.expect.bitwise actual(%cache) expected(%cache) : tensor<524544xf16>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<128xf16>
       check.expect.bitwise actual(%cache_suffix) expected(%cache_suffix) : tensor<128xf16>
-      check.expect.approximate actual(%raw) expected(%raw) atol(0.00001) rtol(0.00001) nan(same) : tensor<6208xf32>, tensor<6208xf32>
+      check.expect.approximate actual(%raw) expected(%raw) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<6208xf32>, tensor<6208xf32>
       check.expect.bitwise actual(%raw_suffix) expected(%raw_suffix) : tensor<64xf32>
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
       check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>
@@ -52,7 +55,7 @@ check.scenario @alternating_routes_reset_state_and_cache {
     %epoch = check.generate.fill value(0) : tensor<1048xi32>
     %rows = check.generate.fill value(0) : tensor<520xi32>
     %qkv = check.generate.fill value(1.0) : tensor<49152xf32>
-    %inverse = check.generate.fill value(0.08838834764831845) : tensor<256xf32>
+    %inverse = check.generate.fill value(0.088388347648318447) : tensor<256xf32>
     %alpha = check.generate.fill value(0.0) : tensor<128xf32>
     %beta = check.generate.fill value(0.0) : tensor<128xf32>
     %a = check.generate.fill value(-1.0) : tensor<16xf32>
@@ -69,13 +72,13 @@ check.scenario @alternating_routes_reset_state_and_cache {
     %cache_prefix = check.tensor.view %cache offset(0) : tensor<524544xf16> -> tensor<128xf16>
     %cache_suffix = check.tensor.view %cache offset(1048832) : tensor<524544xf16> -> tensor<128xf16>
     check.compare<@route_actual_reset, @route_expected_reset>(%epoch, %rows, %qkv, %inverse, %alpha, %beta, %a, %bias, %state, %raw, %key, %value, %gamma, %cache) : (tensor<1048xi32>, tensor<520xi32>, tensor<49152xf32>, tensor<256xf32>, tensor<128xf32>, tensor<128xf32>, tensor<16xf32>, tensor<16xf32>, tensor<1122432xf32>, tensor<6208xf32>, tensor<1536xf32>, tensor<1536xf32>, tensor<256xf32>, tensor<524544xf16>) -> () {
-      check.expect.approximate actual(%state) expected(%state) atol(0.00001) rtol(0.00001) nan(same) : tensor<1122432xf32>, tensor<1122432xf32>
+      check.expect.approximate actual(%state) expected(%state) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<1122432xf32>, tensor<1122432xf32>
       check.expect.bitwise actual(%state_prefix) expected(%state_prefix) : tensor<64xf32>
       check.expect.bitwise actual(%state_suffix) expected(%state_suffix) : tensor<64xf32>
       check.expect.bitwise actual(%cache) expected(%cache) : tensor<524544xf16>
       check.expect.bitwise actual(%cache_prefix) expected(%cache_prefix) : tensor<128xf16>
       check.expect.bitwise actual(%cache_suffix) expected(%cache_suffix) : tensor<128xf16>
-      check.expect.approximate actual(%raw) expected(%raw) atol(0.00001) rtol(0.00001) nan(same) : tensor<6208xf32>, tensor<6208xf32>
+      check.expect.approximate actual(%raw) expected(%raw) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<6208xf32>, tensor<6208xf32>
       check.expect.bitwise actual(%raw_suffix) expected(%raw_suffix) : tensor<64xf32>
       check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<1048xi32>
       check.expect.bitwise actual(%rows) expected(%rows) : tensor<520xi32>

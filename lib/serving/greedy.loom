@@ -4,19 +4,30 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 func.decl @loomify.request.check(%condition: i1)
-func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
-func.decl import("json") @members(%text: buffer) -> (buffer, i32, i64)
-func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
-func.decl import("json") @parse_i64(%source: buffer, %offset: i64, %length: i64) -> (i64)
-func.decl import("json") @parse_f64(%source: buffer, %offset: i64, %length: i64) -> (f64)
-func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
-global.rodata.def @greedy.empty = bytes("")
-global.rodata.def @greedy.request_temperature = bytes("74656d7065726174757265")
-global.rodata.def @greedy.request_top_p = bytes("746f705f70")
-global.rodata.def @greedy.request_top_k = bytes("746f705f6b")
-global.rodata.def @greedy.request_seed = bytes("73656564")
-global.rodata.def @greedy.request_sampling_error = bytes("67726565647920726571756573742072657175697265732074656d70657261747572653d302c20746f705f703d312c20746f705f6b3d30206f72203120616e6420696e7465676572207365656473")
 
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+func.decl import("json") @members(%text: buffer) -> (buffer, i32, i64)
+
+func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
+
+func.decl import("json") @parse_i64(%source: buffer, %offset: i64, %length: i64) -> (i64)
+
+func.decl import("json") @parse_f64(%source: buffer, %offset: i64, %length: i64) -> (f64)
+
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
+global.rodata.def @greedy.empty = bytes("")
+
+global.rodata.def @greedy.request_temperature = bytes("74656d7065726174757265")
+
+global.rodata.def @greedy.request_top_p = bytes("746f705f70")
+
+global.rodata.def @greedy.request_top_k = bytes("746f705f6b")
+
+global.rodata.def @greedy.request_seed = bytes("73656564")
+
+global.rodata.def @greedy.request_sampling_error = bytes("67726565647920726571756573742072657175697265732074656d70657261747572653d302c20746f705f703d312c20746f705f6b3d30206f72203120616e6420696e7465676572207365656473")
 
 func.def public @request_defaults(%options: buffer) -> (buffer) {
   %fields, %type, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
@@ -93,4 +104,6 @@ func.def public @request_options(%defaults: buffer, %request: buffer, %nonce: i6
   func.return %defaults : buffer
 }
 
-func.def public @bind_request(%state: buffer, %row: i32, %options: buffer) { func.return }
+func.def public @bind_request(%state: buffer, %row: i32, %options: buffer) {
+  func.return
+}

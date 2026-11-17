@@ -26,9 +26,6 @@ config.def @qwen.model.ffn_gate_weight_bytes = 2523136 : index
 
 config.def @qwen.model.ffn_down_weight_bytes = 3010560 : index
 
-
-
-
 config.def @qwen.model.projection_implementation = 1 : index
 
 config.def @qwen.model.hidden_capacity_bytes = 2097152 : index
@@ -51,13 +48,13 @@ config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %24: index where [ran
 
 config.def @ggml.quantize_q8_1_x4.group_capacity = 32768 : %25: index where [range(%25, 1, 524288)]
 
-kernel.decl @ggml_linear_q4k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q4k_q8_1_x4(%token_count$23: index, %input_size$24: index, %output_size$25: index) launch(%token_count$26: index, %input_size$27: index, %output_size$28: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q5k_q8_1_x4(%token_count$32: index, %input_size$33: index, %output_size$34: index) launch(%token_count$35: index, %input_size$36: index, %output_size$37: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count$41: index, %input_size$42: index, %output_size$43: index) launch(%token_count$44: index, %input_size$45: index, %output_size$46: index, %q8_input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$50: index, %input_size$51: index) launch(%token_count$52: index, %input_size$53: index, %input: buffer, %output: buffer)
 
 kernel.decl @test.init.ffn_0_1() launch(%input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer)
 
@@ -506,7 +503,10 @@ command.def public retain @actual.ffn_5_3() launch(%v0: buffer, %v1: buffer, %v2
 }
 
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 6144 : index
+
 // Q5_0 is unused by these Q4_K/Q5_K/Q6_K cases; match Producer's bounds.
 config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
+
 config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index

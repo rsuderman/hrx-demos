@@ -3,6 +3,7 @@
 // Same known mathematical table/oracle and exterior guards as the former
 // converter fixture; actual work is the retained F32 kernel.
 command.decl @embedding.f32(%token: index) launch(%parameters: buffer, %output: buffer)
+
 func.def @initialize_embedding_parameters(%case: index, %parameters: buffer) {
   %negative = index.constant -1 : index
   %four = index.constant 4 : index
@@ -39,6 +40,7 @@ func.def @initialize_embedding_parameters(%case: index, %parameters: buffer) {
   view.store %token_f32, %table[63] : f32, view<64xf32>
   func.return
 }
+
 // Independent oracle uses a known mathematical fixture, never the parameter
 // tensor, generated kernel, table lookup, GGUF parser or emitter's loaded values.
 func.def @embedding_oracle(%parameters: buffer, %output: buffer) {
@@ -68,10 +70,10 @@ func.def @embedding_oracle(%parameters: buffer, %output: buffer) {
       scf.yield %zero : f32
     }
     view.store %expected, %target[%column] : f32, view<4xf32>
-    scf.yield
   }
   func.return
 }
+
 check.scenario public @f32_embedding_rows configure[6](%token: index, %configuration_entropy: check.entropy) {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %parameter_owner = check.generate.fill value(-777.0) : tensor<144xf32>

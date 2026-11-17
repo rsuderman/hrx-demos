@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Shared owned Q5_K physical decoding for projection and F32 embedding.
 template.decl @ggml.q5k.chunk(%weight: buffer, %row_byte_base: offset, %block: index, %group: index, %half: index) -> (vector<16xi8>, f32, f32)
+
 template.decl @ggml.q5k.scale_min(%weight: buffer, %base: offset, %group: index) -> (f32, f32)
+
 template.decl @ggml.q5k.scale_min.header(%header: vector<4xi32>, %group: index) -> (f32, f32)
+
 template.def<@ggml.q5k.chunk> device @ggml_q5k_chunk(%weight: buffer, %row_byte_base: offset, %q5_block: index, %q5_group: index, %q5_half: index) -> (vector<16xi8>, f32, f32) {
   %c4 = index.constant 4 : index
   %c8 = index.constant 8 : index
@@ -54,7 +57,6 @@ template.def<@ggml.q5k.chunk> device @ggml_q5k_chunk(%weight: buffer, %row_byte_
 // Loads the Q8_1 values and scales paired with one Q5_K half-group. Keeping
 // the activation access separate from weight decoding lets the four-row
 // schedule reuse one decoded weight packet across all four activation rows.
-
 template.def<@ggml.q5k.scale_min> device @ggml_q5k_scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32) {
   %header_view = buffer.view %weight[%block_byte_base] : buffer -> view<4xi32>
   %header_words = vector.load %header_view[0] : view<4xi32> -> vector<4xi32>
@@ -63,7 +65,6 @@ template.def<@ggml.q5k.scale_min> device @ggml_q5k_scale_min(%weight: buffer, %b
 }
 
 // Decodes one 16-value half of a Q5_K scale group and its two physical scales.
-
 template.def<@ggml.q5k.scale_min.header> device @ggml_q5k_scale_min_header(%header_words: vector<4xi32>, %group: index) -> (f32, f32) {
   %c4 = index.constant 4 : index
   %c8 = index.constant 8 : index
@@ -109,7 +110,3 @@ template.def<@ggml.q5k.scale_min.header> device @ggml_q5k_scale_min_header(%head
   %dmin_scale = scalar.mulf %dmin, %minimum_f32 : f32
   template.return %d_scale, %dmin_scale : f32, f32
 }
-
-// Decodes one Q5_K scale/minimum pair from the naturally aligned 16-byte
-// header. Keeping the header in one vector load avoids lane-divergent byte-load
-// paths inside the production contraction loop.

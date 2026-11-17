@@ -11,11 +11,9 @@ template.decl @ggml.qk.unsigned_q8_1_dot(%quantized_values: vector<16xi8>, %d_sc
 // Shared physical-layout helpers for GGML's unsigned K-quant blocks. Q4_K and
 // Q5_K use the same block-wide half scales and eight packed six-bit
 // scale/minimum pairs; only their quantized code payloads differ.
-
 // Decodes the physical scale and minimum for one 32-value group. The caller
 // supplies the byte base of a Q4_K or Q5_K block, both of which place `d`,
 // `dmin`, and `scales[12]` at the same offsets.
-
 template.decl @ggml.q5k.scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32)
 
 template.decl @ggml.q5k.scale_min.header(%header_words: vector<4xi32>, %group: index) -> (f32, f32)
@@ -40,7 +38,6 @@ kernel.def target(@llm.platform.projection.q5k.wave32) export("ggml_linear_q5k_q
 }
 
 // Eight-channel block order retains the same Q8 activation and reduction math.
-
 target.decl @llm.platform.projection.q5k.wave32
 
 config.decl @ggml.linear_q5k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
@@ -173,7 +170,3 @@ func.def inline @ggml_q5k_q8_1_x4_row_lane(%input_size: index, %weight: buffer, 
   }
   func.return %sum : f32
 }
-
-// Computes four activation rows for one output channel while decoding every
-// Q5_K weight packet once. Each returned scalar is reduced independently by
-// the owning subgroup.

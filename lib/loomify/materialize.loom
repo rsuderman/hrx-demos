@@ -3,7 +3,9 @@
 // Pre-target specialization preserves explicit kernel dispatches; optional
 // callable expansion belongs to the target compilation pipeline.
 pass.pipeline<module> @materialize pipeline {
-  for func { canonicalize }
+  for func {
+    canonicalize
+  }
   inline-callables(budget = 0, hot-budget = 0)
   for func {
     canonicalize
@@ -20,6 +22,8 @@ pass.pipeline<module> @materialize pipeline {
     }
   }
   select-templates(mode = "final", rewrite = "inline")
-  for func { canonicalize }
+  for func {
+    canonicalize
+  }
   symbol-dce
 }

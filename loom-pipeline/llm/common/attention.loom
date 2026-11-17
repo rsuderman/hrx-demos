@@ -107,7 +107,9 @@ func.def public inline @llm_attention_pv_f16_blas_boundary(%context_count0: inde
 }
 
 template.decl @llm.attention.row_materialized_pv_policy(%blas_pv: i1, %query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 template.decl @llm.attention.row_f16_pv_blas_boundary(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 template.def<@llm.attention.row_materialized_pv_policy> device @llm_attention_row_materialized_pv_policy(%blas_pv: i1, %query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer) {
   %head_width = index.assume %head_size [range(%head_size, 1, 256)] : index
   %head = index.assume %head0 [range(%head0, 0, 127), lt(%head0, %query_heads)] : index
@@ -173,7 +175,6 @@ template.def<@llm.attention.row_materialized_pv_policy> device @llm_attention_ro
     %weight = view.load %probability_view[%token] : view<256xf32> -> f32
     %probability = scalar.divf %weight, %denominator : f32
     view.store %probability, %probability_view[%token] : f32, view<256xf32>
-    scf.yield
   }
   kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
   %attention = scf.if %blas_pv -> (f32) {

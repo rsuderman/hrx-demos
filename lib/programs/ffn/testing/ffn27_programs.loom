@@ -25,9 +25,6 @@ config.def @qwen.model.ffn_gate_weight_bytes = 50135040 : index
 
 config.def @qwen.model.ffn_down_weight_bytes = 50135040 : index
 
-
-
-
 config.def @qwen.model.projection_implementation = 1 : index
 
 config.def @qwen.model.hidden_capacity_bytes = 10485760 : index
@@ -50,12 +47,13 @@ config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : %24: index where [ran
 
 config.def @ggml.quantize_q8_1_x4.group_capacity = 69632 : %25: index where [range(%25, 1, 524288)]
 
-func.def public pure inline @loomify.config.layer_ffn(%layer:index) -> (index,index,index,index,index,index,index) where [range(%layer,0,63)] {
+func.def public pure inline @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index) where [range(%layer, 0, 63)] {
   %f = index.constant 17408 : index
   %q4 = index.constant 12 : index
   %bytes = index.constant 50135040 : index
-  func.return %f,%q4,%q4,%q4,%bytes,%bytes,%bytes : index,index,index,index,index,index,index
+  func.return %f, %q4, %q4, %q4, %bytes, %bytes, %bytes : index, index, index, index, index, index, index
 }
+
 command.decl @qwen38_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
 
 command.decl @qwen38_ffn_down_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
@@ -64,7 +62,8 @@ command.decl @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters: buffe
 
 command.decl @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_token_count: index, %layer: index, %verification_depth: index, %span_capacity: index) launch(%parameters: buffer, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%rows:index,%width:index) launch(%rows:index,%width:index,%input:buffer,%output:buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%rows$60: index, %width$61: index) launch(%rows$62: index, %width$63: index, %input: buffer, %output: buffer)
+
 func.def @test.init.ffn27_1.body(%channel0: index, %input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer) {
   %channel = index.assume %channel0 [range(%channel0, 0, 17407)] : index
   %zero = index.constant 0 : index
@@ -219,93 +218,95 @@ func.def @test.init.ffn27_1.body(%channel0: index, %input: buffer, %gate: buffer
   %hidden = index.constant 5120 : index
   %small = index.cmp ult, %channel, %hidden : index
   scf.if %small {
-  %b0_d = index.constant 0 : index
-  %bn_d = index.constant 68 : index
-  %stride_d = index.constant 144 : offset
-  %row_bytes_d = index.constant 9792 : offset
-  %row_origin_d = index.scale %channel, %row_bytes_d : index, offset -> offset
-  scf.for %b_d = [%b0_d to %bn_d step %one] {
-    %bo_d = index.scale %b_d, %stride_d : index, offset -> offset
-    %o_d = index.add %row_origin_d, %bo_d : offset
-    %bytes_d = buffer.view %down[%o_d] : buffer -> view<144xi8>
-    %lo_d0 = index.constant 0 : index
-    %hi_d0 = index.constant 4 : index
-    %byte_d0 = scalar.constant 0 : i8
-    scf.for %i_d0 = [%lo_d0 to %hi_d0 step %one] {
-      view.store %byte_d0, %bytes_d[%i_d0] : i8, view<144xi8>
+    %b0_d = index.constant 0 : index
+    %bn_d = index.constant 68 : index
+    %stride_d = index.constant 144 : offset
+    %row_bytes_d = index.constant 9792 : offset
+    %row_origin_d = index.scale %channel, %row_bytes_d : index, offset -> offset
+    scf.for %b_d = [%b0_d to %bn_d step %one] {
+      %bo_d = index.scale %b_d, %stride_d : index, offset -> offset
+      %o_d = index.add %row_origin_d, %bo_d : offset
+      %bytes_d = buffer.view %down[%o_d] : buffer -> view<144xi8>
+      %lo_d0 = index.constant 0 : index
+      %hi_d0 = index.constant 4 : index
+      %byte_d0 = scalar.constant 0 : i8
+      scf.for %i_d0 = [%lo_d0 to %hi_d0 step %one] {
+        view.store %byte_d0, %bytes_d[%i_d0] : i8, view<144xi8>
+      }
+      %lo_d1 = index.constant 4 : index
+      %hi_d1 = index.constant 8 : index
+      %byte_d1 = scalar.constant 1 : i8
+      scf.for %i_d1 = [%lo_d1 to %hi_d1 step %one] {
+        view.store %byte_d1, %bytes_d[%i_d1] : i8, view<144xi8>
+      }
+      %lo_d2 = index.constant 8 : index
+      %hi_d2 = index.constant 12 : index
+      %byte_d2 = scalar.constant 0 : i8
+      scf.for %i_d2 = [%lo_d2 to %hi_d2 step %one] {
+        view.store %byte_d2, %bytes_d[%i_d2] : i8, view<144xi8>
+      }
+      %lo_d3 = index.constant 12 : index
+      %hi_d3 = index.constant 16 : index
+      %byte_d3 = scalar.constant 1 : i8
+      scf.for %i_d3 = [%lo_d3 to %hi_d3 step %one] {
+        view.store %byte_d3, %bytes_d[%i_d3] : i8, view<144xi8>
+      }
+      %lo_d4 = index.constant 16 : index
+      %hi_d4 = index.constant 144 : index
+      %byte_d4 = scalar.constant 17 : i8
+      scf.for %i_d4 = [%lo_d4 to %hi_d4 step %one] {
+        view.store %byte_d4, %bytes_d[%i_d4] : i8, view<144xi8>
+      }
+      %divisor_d = scalar.constant 4096.0 : f32
+      %cf_i_d = index.cast %channel_factor : index to i32
+      %cf_f_d = scalar.uitofp %cf_i_d : i32 to f32
+      %unit_d_d = scalar.divf %cf_f_d, %divisor_d : f32
+      %d_f_d = scalar.mulf %unit_d_d, %float_one : f32
+      %d_d = scalar.fptrunc %d_f_d : f32 to f16
+      %d_add_d = index.constant 0 : offset
+      %d_o_d = index.add %o_d, %d_add_d : offset
+      %d_view_d = buffer.view %down[%d_o_d] : buffer -> view<1xf16>
+      view.store %d_d, %d_view_d[0] : f16, view<1xf16>
+      %min_add_d = index.constant 2 : offset
+      %min_o_d = index.add %o_d, %min_add_d : offset
+      %min_view_d = buffer.view %down[%min_o_d] : buffer -> view<1xf16>
+      %min_f_d = scalar.constant 0.0 : f32
+      %min_d = scalar.fptrunc %min_f_d : f32 to f16
+      view.store %min_d, %min_view_d[0] : f16, view<1xf16>
     }
-    %lo_d1 = index.constant 4 : index
-    %hi_d1 = index.constant 8 : index
-    %byte_d1 = scalar.constant 1 : i8
-    scf.for %i_d1 = [%lo_d1 to %hi_d1 step %one] {
-      view.store %byte_d1, %bytes_d[%i_d1] : i8, view<144xi8>
+    %view_res = buffer.view %residual[%origin] : buffer -> view<1x5120xf32>
+    %v_res0_0 = scalar.constant -0.25 : f32
+    %v_res0_1 = scalar.constant -0.234375 : f32
+    %v_res0_2 = scalar.constant -0.21875 : f32
+    %v_res0_3 = scalar.constant -0.203125 : f32
+    %m2_res0 = index.constant 2 : index
+    %m3_res0 = index.constant 3 : index
+    %p1_res0 = index.cmp eq, %mod, %one : index
+    %p2_res0 = index.cmp eq, %mod, %m2_res0 : index
+    %p3_res0 = index.cmp eq, %mod, %m3_res0 : index
+    %s1_res0 = scf.select %p1_res0, %v_res0_1, %v_res0_0 : f32
+    %s2_res0 = scf.select %p2_res0, %v_res0_2, %s1_res0 : f32
+    %s3_res0 = scf.select %p3_res0, %v_res0_3, %s2_res0 : f32
+    %limit_res = index.constant 5120 : index
+    %valid_res = index.cmp ult, %channel, %limit_res : index
+    scf.if %valid_res {
+      view.store %s3_res0, %view_res[0, %channel] : f32, view<1x5120xf32>
     }
-    %lo_d2 = index.constant 8 : index
-    %hi_d2 = index.constant 12 : index
-    %byte_d2 = scalar.constant 0 : i8
-    scf.for %i_d2 = [%lo_d2 to %hi_d2 step %one] {
-      view.store %byte_d2, %bytes_d[%i_d2] : i8, view<144xi8>
-    }
-    %lo_d3 = index.constant 12 : index
-    %hi_d3 = index.constant 16 : index
-    %byte_d3 = scalar.constant 1 : i8
-    scf.for %i_d3 = [%lo_d3 to %hi_d3 step %one] {
-      view.store %byte_d3, %bytes_d[%i_d3] : i8, view<144xi8>
-    }
-    %lo_d4 = index.constant 16 : index
-    %hi_d4 = index.constant 144 : index
-    %byte_d4 = scalar.constant 17 : i8
-    scf.for %i_d4 = [%lo_d4 to %hi_d4 step %one] {
-      view.store %byte_d4, %bytes_d[%i_d4] : i8, view<144xi8>
-    }
-    %divisor_d = scalar.constant 4096.0 : f32
-    %cf_i_d = index.cast %channel_factor : index to i32
-    %cf_f_d = scalar.uitofp %cf_i_d : i32 to f32
-    %unit_d_d = scalar.divf %cf_f_d, %divisor_d : f32
-    %d_f_d = scalar.mulf %unit_d_d, %float_one : f32
-    %d_d = scalar.fptrunc %d_f_d : f32 to f16
-    %d_add_d = index.constant 0 : offset
-    %d_o_d = index.add %o_d, %d_add_d : offset
-    %d_view_d = buffer.view %down[%d_o_d] : buffer -> view<1xf16>
-    view.store %d_d, %d_view_d[0] : f16, view<1xf16>
-    %min_add_d = index.constant 2 : offset
-    %min_o_d = index.add %o_d, %min_add_d : offset
-    %min_view_d = buffer.view %down[%min_o_d] : buffer -> view<1xf16>
-    %min_f_d = scalar.constant 0.0 : f32
-    %min_d = scalar.fptrunc %min_f_d : f32 to f16
-    view.store %min_d, %min_view_d[0] : f16, view<1xf16>
-  }
-  %view_res = buffer.view %residual[%origin] : buffer -> view<1x5120xf32>
-  %v_res0_0 = scalar.constant -0.25 : f32
-  %v_res0_1 = scalar.constant -0.234375 : f32
-  %v_res0_2 = scalar.constant -0.21875 : f32
-  %v_res0_3 = scalar.constant -0.203125 : f32
-  %m2_res0 = index.constant 2 : index
-  %m3_res0 = index.constant 3 : index
-  %p1_res0 = index.cmp eq, %mod, %one : index
-  %p2_res0 = index.cmp eq, %mod, %m2_res0 : index
-  %p3_res0 = index.cmp eq, %mod, %m3_res0 : index
-  %s1_res0 = scf.select %p1_res0, %v_res0_1, %v_res0_0 : f32
-  %s2_res0 = scf.select %p2_res0, %v_res0_2, %s1_res0 : f32
-  %s3_res0 = scf.select %p3_res0, %v_res0_3, %s2_res0 : f32
-  %limit_res = index.constant 5120 : index
-  %valid_res = index.cmp ult, %channel, %limit_res : index
-  scf.if %valid_res {
-    view.store %s3_res0, %view_res[0, %channel] : f32, view<1x5120xf32>
-  }
   }
 
   func.return
 }
+
 kernel.def @test.init.ffn27_1() {
   %groups = index.constant 17408 : index
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%groups, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer) {
   %channel = kernel.workgroup.id<x> : index
-  func.call @test.init.ffn27_1.body(%channel, %input, %gate, %up, %down, %residual) : (index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @test.init.ffn27_1.body(%channel, %input, %gate, %up, %down, %residual) : (index, buffer, buffer, buffer, buffer, buffer)
   kernel.return
 }
+
 func.def @test.expected.ffn27_1.body(%channel0: index, %input: buffer, %activation: buffer, %residual: buffer) {
   %channel = index.assume %channel0 [range(%channel0, 0, 17407)] : index
   %zero = index.constant 0 : index
@@ -384,16 +385,18 @@ func.def @test.expected.ffn27_1.body(%channel0: index, %input: buffer, %activati
 
   func.return
 }
+
 func.def @reference.ffn27_1(%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %end = index.constant 17408 : index
   scf.for %channel = [%zero to %end step %one] {
-    func.call @test.expected.ffn27_1.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer) -> ()
+    func.call @test.expected.ffn27_1.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer)
   }
   func.return
 }
-command.def public retain @actual.ffn27_1() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {
+
+command.def public retain @actual.ffn27_1() launch(%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer) {
   command.serial {
     %layer = index.constant 0 : index
     %rows = index.constant 1 : index
@@ -401,18 +404,19 @@ command.def public retain @actual.ffn27_1() launch(%root:buffer,%input:buffer,%r
     %zero = index.constant 0 : index
     %one = index.constant 1 : index
     %bytes = index.constant 50135040 : index
-    %gate = command.parameter %root,"blk.{}.ffn_gate.weight"[%layer] : view<[%bytes]xi8>
-    %up = command.parameter %root,"blk.{}.ffn_up.weight"[%layer] : view<[%bytes]xi8>
-    %down = command.parameter %root,"blk.{}.ffn_down.weight"[%layer] : view<[%bytes]xi8>
-    kernel.launch @test.init.ffn27_1(%input,%gate,%up,%down,%residual) : (buffer,view<[%bytes]xi8>,view<[%bytes]xi8>,view<[%bytes]xi8>,buffer)
+    %gate = command.parameter %root, "blk.{}.ffn_gate.weight"[%layer] : view<[%bytes]xi8>
+    %up = command.parameter %root, "blk.{}.ffn_up.weight"[%layer] : view<[%bytes]xi8>
+    %down = command.parameter %root, "blk.{}.ffn_down.weight"[%layer] : view<[%bytes]xi8>
+    kernel.launch @test.init.ffn27_1(%input, %gate, %up, %down, %residual) : (buffer, view<[%bytes]xi8>, view<[%bytes]xi8>, view<[%bytes]xi8>, buffer)
     %packed_bytes = index.constant 5760 : offset
     %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
-    kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%hidden](%rows,%hidden,%input,%packed) : [index,index](index,index,buffer,buffer)
-    command.launch @qwen38_ffn_gate_up_decode[%layer](%root,%packed,%activation) : [index](buffer,buffer,buffer)
-    command.launch @qwen38_ffn_down_decode[%layer](%root,%activation,%residual) : [index](buffer,buffer,buffer)
+    kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %hidden](%rows, %hidden, %input, %packed) : [index, index](index, index, buffer, buffer)
+    command.launch @qwen38_ffn_gate_up_decode[%layer](%root, %packed, %activation) : [index](buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_decode[%layer](%root, %activation, %residual) : [index](buffer, buffer, buffer)
   }
   command.return
 }
+
 func.def @test.init.ffn27_3.body(%channel0: index, %input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer) {
   %channel = index.assume %channel0 [range(%channel0, 0, 17407)] : index
   %zero = index.constant 0 : index
@@ -567,123 +571,125 @@ func.def @test.init.ffn27_3.body(%channel0: index, %input: buffer, %gate: buffer
   %hidden = index.constant 5120 : index
   %small = index.cmp ult, %channel, %hidden : index
   scf.if %small {
-  %b0_d = index.constant 0 : index
-  %bn_d = index.constant 68 : index
-  %stride_d = index.constant 144 : offset
-  %row_bytes_d = index.constant 9792 : offset
-  %row_origin_d = index.scale %channel, %row_bytes_d : index, offset -> offset
-  scf.for %b_d = [%b0_d to %bn_d step %one] {
-    %bo_d = index.scale %b_d, %stride_d : index, offset -> offset
-    %o_d = index.add %row_origin_d, %bo_d : offset
-    %bytes_d = buffer.view %down[%o_d] : buffer -> view<144xi8>
-    %lo_d0 = index.constant 0 : index
-    %hi_d0 = index.constant 4 : index
-    %byte_d0 = scalar.constant 0 : i8
-    scf.for %i_d0 = [%lo_d0 to %hi_d0 step %one] {
-      view.store %byte_d0, %bytes_d[%i_d0] : i8, view<144xi8>
+    %b0_d = index.constant 0 : index
+    %bn_d = index.constant 68 : index
+    %stride_d = index.constant 144 : offset
+    %row_bytes_d = index.constant 9792 : offset
+    %row_origin_d = index.scale %channel, %row_bytes_d : index, offset -> offset
+    scf.for %b_d = [%b0_d to %bn_d step %one] {
+      %bo_d = index.scale %b_d, %stride_d : index, offset -> offset
+      %o_d = index.add %row_origin_d, %bo_d : offset
+      %bytes_d = buffer.view %down[%o_d] : buffer -> view<144xi8>
+      %lo_d0 = index.constant 0 : index
+      %hi_d0 = index.constant 4 : index
+      %byte_d0 = scalar.constant 0 : i8
+      scf.for %i_d0 = [%lo_d0 to %hi_d0 step %one] {
+        view.store %byte_d0, %bytes_d[%i_d0] : i8, view<144xi8>
+      }
+      %lo_d1 = index.constant 4 : index
+      %hi_d1 = index.constant 8 : index
+      %byte_d1 = scalar.constant 1 : i8
+      scf.for %i_d1 = [%lo_d1 to %hi_d1 step %one] {
+        view.store %byte_d1, %bytes_d[%i_d1] : i8, view<144xi8>
+      }
+      %lo_d2 = index.constant 8 : index
+      %hi_d2 = index.constant 12 : index
+      %byte_d2 = scalar.constant 0 : i8
+      scf.for %i_d2 = [%lo_d2 to %hi_d2 step %one] {
+        view.store %byte_d2, %bytes_d[%i_d2] : i8, view<144xi8>
+      }
+      %lo_d3 = index.constant 12 : index
+      %hi_d3 = index.constant 16 : index
+      %byte_d3 = scalar.constant 1 : i8
+      scf.for %i_d3 = [%lo_d3 to %hi_d3 step %one] {
+        view.store %byte_d3, %bytes_d[%i_d3] : i8, view<144xi8>
+      }
+      %lo_d4 = index.constant 16 : index
+      %hi_d4 = index.constant 144 : index
+      %byte_d4 = scalar.constant 17 : i8
+      scf.for %i_d4 = [%lo_d4 to %hi_d4 step %one] {
+        view.store %byte_d4, %bytes_d[%i_d4] : i8, view<144xi8>
+      }
+      %divisor_d = scalar.constant 4096.0 : f32
+      %cf_i_d = index.cast %channel_factor : index to i32
+      %cf_f_d = scalar.uitofp %cf_i_d : i32 to f32
+      %unit_d_d = scalar.divf %cf_f_d, %divisor_d : f32
+      %d_f_d = scalar.mulf %unit_d_d, %float_one : f32
+      %d_d = scalar.fptrunc %d_f_d : f32 to f16
+      %d_add_d = index.constant 0 : offset
+      %d_o_d = index.add %o_d, %d_add_d : offset
+      %d_view_d = buffer.view %down[%d_o_d] : buffer -> view<1xf16>
+      view.store %d_d, %d_view_d[0] : f16, view<1xf16>
+      %min_add_d = index.constant 2 : offset
+      %min_o_d = index.add %o_d, %min_add_d : offset
+      %min_view_d = buffer.view %down[%min_o_d] : buffer -> view<1xf16>
+      %min_f_d = scalar.constant 0.0 : f32
+      %min_d = scalar.fptrunc %min_f_d : f32 to f16
+      view.store %min_d, %min_view_d[0] : f16, view<1xf16>
     }
-    %lo_d1 = index.constant 4 : index
-    %hi_d1 = index.constant 8 : index
-    %byte_d1 = scalar.constant 1 : i8
-    scf.for %i_d1 = [%lo_d1 to %hi_d1 step %one] {
-      view.store %byte_d1, %bytes_d[%i_d1] : i8, view<144xi8>
+    %view_res = buffer.view %residual[%origin] : buffer -> view<3x5120xf32>
+    %v_res0_0 = scalar.constant -0.25 : f32
+    %v_res0_1 = scalar.constant -0.234375 : f32
+    %v_res0_2 = scalar.constant -0.21875 : f32
+    %v_res0_3 = scalar.constant -0.203125 : f32
+    %m2_res0 = index.constant 2 : index
+    %m3_res0 = index.constant 3 : index
+    %p1_res0 = index.cmp eq, %mod, %one : index
+    %p2_res0 = index.cmp eq, %mod, %m2_res0 : index
+    %p3_res0 = index.cmp eq, %mod, %m3_res0 : index
+    %s1_res0 = scf.select %p1_res0, %v_res0_1, %v_res0_0 : f32
+    %s2_res0 = scf.select %p2_res0, %v_res0_2, %s1_res0 : f32
+    %s3_res0 = scf.select %p3_res0, %v_res0_3, %s2_res0 : f32
+    %limit_res = index.constant 5120 : index
+    %valid_res = index.cmp ult, %channel, %limit_res : index
+    scf.if %valid_res {
+      view.store %s3_res0, %view_res[0, %channel] : f32, view<3x5120xf32>
     }
-    %lo_d2 = index.constant 8 : index
-    %hi_d2 = index.constant 12 : index
-    %byte_d2 = scalar.constant 0 : i8
-    scf.for %i_d2 = [%lo_d2 to %hi_d2 step %one] {
-      view.store %byte_d2, %bytes_d[%i_d2] : i8, view<144xi8>
+    %v_res1_0 = scalar.constant -0.1875 : f32
+    %v_res1_1 = scalar.constant -0.171875 : f32
+    %v_res1_2 = scalar.constant -0.15625 : f32
+    %v_res1_3 = scalar.constant -0.140625 : f32
+    %m2_res1 = index.constant 2 : index
+    %m3_res1 = index.constant 3 : index
+    %p1_res1 = index.cmp eq, %mod, %one : index
+    %p2_res1 = index.cmp eq, %mod, %m2_res1 : index
+    %p3_res1 = index.cmp eq, %mod, %m3_res1 : index
+    %s1_res1 = scf.select %p1_res1, %v_res1_1, %v_res1_0 : f32
+    %s2_res1 = scf.select %p2_res1, %v_res1_2, %s1_res1 : f32
+    %s3_res1 = scf.select %p3_res1, %v_res1_3, %s2_res1 : f32
+    scf.if %valid_res {
+      view.store %s3_res1, %view_res[1, %channel] : f32, view<3x5120xf32>
     }
-    %lo_d3 = index.constant 12 : index
-    %hi_d3 = index.constant 16 : index
-    %byte_d3 = scalar.constant 1 : i8
-    scf.for %i_d3 = [%lo_d3 to %hi_d3 step %one] {
-      view.store %byte_d3, %bytes_d[%i_d3] : i8, view<144xi8>
+    %v_res2_0 = scalar.constant -0.125 : f32
+    %v_res2_1 = scalar.constant -0.109375 : f32
+    %v_res2_2 = scalar.constant -0.09375 : f32
+    %v_res2_3 = scalar.constant -0.078125 : f32
+    %m2_res2 = index.constant 2 : index
+    %m3_res2 = index.constant 3 : index
+    %p1_res2 = index.cmp eq, %mod, %one : index
+    %p2_res2 = index.cmp eq, %mod, %m2_res2 : index
+    %p3_res2 = index.cmp eq, %mod, %m3_res2 : index
+    %s1_res2 = scf.select %p1_res2, %v_res2_1, %v_res2_0 : f32
+    %s2_res2 = scf.select %p2_res2, %v_res2_2, %s1_res2 : f32
+    %s3_res2 = scf.select %p3_res2, %v_res2_3, %s2_res2 : f32
+    scf.if %valid_res {
+      view.store %s3_res2, %view_res[2, %channel] : f32, view<3x5120xf32>
     }
-    %lo_d4 = index.constant 16 : index
-    %hi_d4 = index.constant 144 : index
-    %byte_d4 = scalar.constant 17 : i8
-    scf.for %i_d4 = [%lo_d4 to %hi_d4 step %one] {
-      view.store %byte_d4, %bytes_d[%i_d4] : i8, view<144xi8>
-    }
-    %divisor_d = scalar.constant 4096.0 : f32
-    %cf_i_d = index.cast %channel_factor : index to i32
-    %cf_f_d = scalar.uitofp %cf_i_d : i32 to f32
-    %unit_d_d = scalar.divf %cf_f_d, %divisor_d : f32
-    %d_f_d = scalar.mulf %unit_d_d, %float_one : f32
-    %d_d = scalar.fptrunc %d_f_d : f32 to f16
-    %d_add_d = index.constant 0 : offset
-    %d_o_d = index.add %o_d, %d_add_d : offset
-    %d_view_d = buffer.view %down[%d_o_d] : buffer -> view<1xf16>
-    view.store %d_d, %d_view_d[0] : f16, view<1xf16>
-    %min_add_d = index.constant 2 : offset
-    %min_o_d = index.add %o_d, %min_add_d : offset
-    %min_view_d = buffer.view %down[%min_o_d] : buffer -> view<1xf16>
-    %min_f_d = scalar.constant 0.0 : f32
-    %min_d = scalar.fptrunc %min_f_d : f32 to f16
-    view.store %min_d, %min_view_d[0] : f16, view<1xf16>
-  }
-  %view_res = buffer.view %residual[%origin] : buffer -> view<3x5120xf32>
-  %v_res0_0 = scalar.constant -0.25 : f32
-  %v_res0_1 = scalar.constant -0.234375 : f32
-  %v_res0_2 = scalar.constant -0.21875 : f32
-  %v_res0_3 = scalar.constant -0.203125 : f32
-  %m2_res0 = index.constant 2 : index
-  %m3_res0 = index.constant 3 : index
-  %p1_res0 = index.cmp eq, %mod, %one : index
-  %p2_res0 = index.cmp eq, %mod, %m2_res0 : index
-  %p3_res0 = index.cmp eq, %mod, %m3_res0 : index
-  %s1_res0 = scf.select %p1_res0, %v_res0_1, %v_res0_0 : f32
-  %s2_res0 = scf.select %p2_res0, %v_res0_2, %s1_res0 : f32
-  %s3_res0 = scf.select %p3_res0, %v_res0_3, %s2_res0 : f32
-  %limit_res = index.constant 5120 : index
-  %valid_res = index.cmp ult, %channel, %limit_res : index
-  scf.if %valid_res {
-    view.store %s3_res0, %view_res[0, %channel] : f32, view<3x5120xf32>
-  }
-  %v_res1_0 = scalar.constant -0.1875 : f32
-  %v_res1_1 = scalar.constant -0.171875 : f32
-  %v_res1_2 = scalar.constant -0.15625 : f32
-  %v_res1_3 = scalar.constant -0.140625 : f32
-  %m2_res1 = index.constant 2 : index
-  %m3_res1 = index.constant 3 : index
-  %p1_res1 = index.cmp eq, %mod, %one : index
-  %p2_res1 = index.cmp eq, %mod, %m2_res1 : index
-  %p3_res1 = index.cmp eq, %mod, %m3_res1 : index
-  %s1_res1 = scf.select %p1_res1, %v_res1_1, %v_res1_0 : f32
-  %s2_res1 = scf.select %p2_res1, %v_res1_2, %s1_res1 : f32
-  %s3_res1 = scf.select %p3_res1, %v_res1_3, %s2_res1 : f32
-  scf.if %valid_res {
-    view.store %s3_res1, %view_res[1, %channel] : f32, view<3x5120xf32>
-  }
-  %v_res2_0 = scalar.constant -0.125 : f32
-  %v_res2_1 = scalar.constant -0.109375 : f32
-  %v_res2_2 = scalar.constant -0.09375 : f32
-  %v_res2_3 = scalar.constant -0.078125 : f32
-  %m2_res2 = index.constant 2 : index
-  %m3_res2 = index.constant 3 : index
-  %p1_res2 = index.cmp eq, %mod, %one : index
-  %p2_res2 = index.cmp eq, %mod, %m2_res2 : index
-  %p3_res2 = index.cmp eq, %mod, %m3_res2 : index
-  %s1_res2 = scf.select %p1_res2, %v_res2_1, %v_res2_0 : f32
-  %s2_res2 = scf.select %p2_res2, %v_res2_2, %s1_res2 : f32
-  %s3_res2 = scf.select %p3_res2, %v_res2_3, %s2_res2 : f32
-  scf.if %valid_res {
-    view.store %s3_res2, %view_res[2, %channel] : f32, view<3x5120xf32>
-  }
   }
 
   func.return
 }
+
 kernel.def @test.init.ffn27_3() {
   %groups = index.constant 17408 : index
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%groups, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %gate: buffer, %up: buffer, %down: buffer, %residual: buffer) {
   %channel = kernel.workgroup.id<x> : index
-  func.call @test.init.ffn27_3.body(%channel, %input, %gate, %up, %down, %residual) : (index, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @test.init.ffn27_3.body(%channel, %input, %gate, %up, %down, %residual) : (index, buffer, buffer, buffer, buffer, buffer)
   kernel.return
 }
+
 func.def @test.expected.ffn27_3.body(%channel0: index, %input: buffer, %activation: buffer, %residual: buffer) {
   %channel = index.assume %channel0 [range(%channel0, 0, 17407)] : index
   %zero = index.constant 0 : index
@@ -822,16 +828,18 @@ func.def @test.expected.ffn27_3.body(%channel0: index, %input: buffer, %activati
 
   func.return
 }
+
 func.def @reference.ffn27_3(%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %end = index.constant 17408 : index
   scf.for %channel = [%zero to %end step %one] {
-    func.call @test.expected.ffn27_3.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer) -> ()
+    func.call @test.expected.ffn27_3.body(%channel, %input, %activation, %residual) : (index, buffer, buffer, buffer)
   }
   func.return
 }
-command.def public retain @actual.ffn27_3() launch(%root:buffer,%input:buffer,%residual:buffer,%activation:buffer,%control:buffer) {
+
+command.def public retain @actual.ffn27_3() launch(%root: buffer, %input: buffer, %residual: buffer, %activation: buffer, %control: buffer) {
   command.serial {
     %layer = index.constant 0 : index
     %rows = index.constant 3 : index
@@ -839,42 +847,45 @@ command.def public retain @actual.ffn27_3() launch(%root:buffer,%input:buffer,%r
     %zero = index.constant 0 : index
     %one = index.constant 1 : index
     %bytes = index.constant 50135040 : index
-    %gate = command.parameter %root,"blk.{}.ffn_gate.weight"[%layer] : view<[%bytes]xi8>
-    %up = command.parameter %root,"blk.{}.ffn_up.weight"[%layer] : view<[%bytes]xi8>
-    %down = command.parameter %root,"blk.{}.ffn_down.weight"[%layer] : view<[%bytes]xi8>
-    kernel.launch @test.init.ffn27_3(%input,%gate,%up,%down,%residual) : (buffer,view<[%bytes]xi8>,view<[%bytes]xi8>,view<[%bytes]xi8>,buffer)
-    command.launch @qwen38_ffn_gate_up_prefill[%rows,%rows,%layer,%zero,%one](%root,%input,%control,%activation) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
-    command.launch @qwen38_ffn_down_prefill[%rows,%rows,%layer,%zero,%one](%root,%control,%activation,%residual) : [index,index,index,index,index](buffer,buffer,buffer,buffer)
+    %gate = command.parameter %root, "blk.{}.ffn_gate.weight"[%layer] : view<[%bytes]xi8>
+    %up = command.parameter %root, "blk.{}.ffn_up.weight"[%layer] : view<[%bytes]xi8>
+    %down = command.parameter %root, "blk.{}.ffn_down.weight"[%layer] : view<[%bytes]xi8>
+    kernel.launch @test.init.ffn27_3(%input, %gate, %up, %down, %residual) : (buffer, view<[%bytes]xi8>, view<[%bytes]xi8>, view<[%bytes]xi8>, buffer)
+    command.launch @qwen38_ffn_gate_up_prefill[%rows, %rows, %layer, %zero, %one](%root, %input, %control, %activation) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
+    command.launch @qwen38_ffn_down_prefill[%rows, %rows, %layer, %zero, %one](%root, %control, %activation, %residual) : [index, index, index, index, index](buffer, buffer, buffer, buffer)
   }
   command.return
 }
-func.def @test.init.ffn27_quantize_257.body(%row0:index,%input:buffer) {
-  %row = index.assume %row0 [range(%row0,0,256)] : index
+
+func.def @test.init.ffn27_quantize_257.body(%row0: index, %input: buffer) {
+  %row = index.assume %row0 [range(%row0, 0, 256)] : index
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %width = index.constant 17408 : index
-  %rp = index.add %row,%one : index
+  %rp = index.add %row, %one : index
   %ri = index.cast %rp : index to i32
   %rf = scalar.uitofp %ri : i32 to f32
   %u = scalar.constant 0.9921875 : f32
-  %value = scalar.mulf %rf,%u : f32
+  %value = scalar.mulf %rf, %u : f32
   %origin = index.constant 0 : offset
   %view = buffer.view %input[%origin] : buffer -> view<257x17408xf32>
   scf.for %c = [%zero to %width step %one] {
-    view.store %value,%view[%row,%c] : f32,view<257x17408xf32>
+    view.store %value, %view[%row, %c] : f32, view<257x17408xf32>
   }
   func.return
 }
+
 kernel.def @test.init.ffn27_quantize_257() {
   %rows = index.constant 257 : index
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%rows,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%input:buffer) {
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%input: buffer) {
   %row = kernel.workgroup.id<x> : index
-  func.call @test.init.ffn27_quantize_257.body(%row,%input) : (index,buffer) -> ()
+  func.call @test.init.ffn27_quantize_257.body(%row, %input) : (index, buffer)
   kernel.return
 }
-func.def @reference.ffn27_quantize_257(%input:buffer,%packed:buffer) {
+
+func.def @reference.ffn27_quantize_257(%input: buffer, %packed: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 257 : index
@@ -888,69 +899,73 @@ func.def @reference.ffn27_quantize_257(%input:buffer,%packed:buffer) {
   %unit = scalar.constant 0.0078125 : f32
   %qsum = scalar.constant 4064.0 : f32
   scf.for %row = [%zero to %rows step %one] {
-    func.call @test.init.ffn27_quantize_257.body(%row,%input) : (index,buffer) -> ()
-    %rp = index.add %row,%one : index
+    func.call @test.init.ffn27_quantize_257.body(%row, %input) : (index, buffer)
+    %rp = index.add %row, %one : index
     %ri = index.cast %rp : index to i32
     %rf = scalar.uitofp %ri : i32 to f32
-    %d32 = scalar.mulf %rf,%unit : f32
-    %s32 = scalar.mulf %d32,%qsum : f32
+    %d32 = scalar.mulf %rf, %unit : f32
+    %s32 = scalar.mulf %d32, %qsum : f32
     %d = scalar.fptrunc %d32 : f32 to f16
     %sum = scalar.fptrunc %s32 : f32 to f16
-    %first = index.mul %row,%groups : index
+    %first = index.mul %row, %groups : index
     scf.for %group = [%zero to %groups step %one] {
-      %number = index.add %first,%group : index
-      %offset = index.scale %number,%stride : index,offset -> offset
+      %number = index.add %first, %group : index
+      %offset = index.scale %number, %stride : index, offset -> offset
       %header = buffer.view %packed[%offset] : buffer -> view<8xf16>
       %bytes = buffer.view %packed[%offset] : buffer -> view<144xi8>
       scf.for %b = [%zero to %four step %one] {
-        %di = index.mul %b,%two : index
-        %si = index.add %di,%one : index
-        view.store %d,%header[%di] : f16,view<8xf16>
-        view.store %sum,%header[%si] : f16,view<8xf16>
+        %di = index.mul %b, %two : index
+        %si = index.add %di, %one : index
+        view.store %d, %header[%di] : f16, view<8xf16>
+        view.store %sum, %header[%si] : f16, view<8xf16>
       }
       scf.for %b = [%payload_begin to %end step %one] {
-        view.store %payload,%bytes[%b] : i8,view<144xi8>
+        view.store %payload, %bytes[%b] : i8, view<144xi8>
       }
     }
   }
   func.return
 }
-command.def public retain @actual.ffn27_quantize_257() launch(%input:buffer,%packed:buffer) {
+
+command.def public retain @actual.ffn27_quantize_257() launch(%input: buffer, %packed: buffer) {
   command.serial {
     kernel.launch @test.init.ffn27_quantize_257(%input) : (buffer)
     %rows = index.constant 257 : index
     %width = index.constant 17408 : index
-    kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%rows,%width,%input,%packed) : [index,index](index,index,buffer,buffer)
+    kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%rows, %width, %input, %packed) : [index, index](index, index, buffer, buffer)
   }
   command.return
 }
-func.def @test.init.ffn27_quantize_512.body(%row0:index,%input:buffer) {
-  %row = index.assume %row0 [range(%row0,0,511)] : index
+
+func.def @test.init.ffn27_quantize_512.body(%row0: index, %input: buffer) {
+  %row = index.assume %row0 [range(%row0, 0, 511)] : index
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %width = index.constant 17408 : index
-  %rp = index.add %row,%one : index
+  %rp = index.add %row, %one : index
   %ri = index.cast %rp : index to i32
   %rf = scalar.uitofp %ri : i32 to f32
   %u = scalar.constant 0.9921875 : f32
-  %value = scalar.mulf %rf,%u : f32
+  %value = scalar.mulf %rf, %u : f32
   %origin = index.constant 0 : offset
   %view = buffer.view %input[%origin] : buffer -> view<512x17408xf32>
   scf.for %c = [%zero to %width step %one] {
-    view.store %value,%view[%row,%c] : f32,view<512x17408xf32>
+    view.store %value, %view[%row, %c] : f32, view<512x17408xf32>
   }
   func.return
 }
+
 kernel.def @test.init.ffn27_quantize_512() {
   %rows = index.constant 512 : index
   %one = index.constant 1 : index
-  kernel.launch.config workgroups(%rows,%one,%one) workgroup_size(%one,%one,%one) : index
-} launch(%input:buffer) {
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%input: buffer) {
   %row = kernel.workgroup.id<x> : index
-  func.call @test.init.ffn27_quantize_512.body(%row,%input) : (index,buffer) -> ()
+  func.call @test.init.ffn27_quantize_512.body(%row, %input) : (index, buffer)
   kernel.return
 }
-func.def @reference.ffn27_quantize_512(%input:buffer,%packed:buffer) {
+
+func.def @reference.ffn27_quantize_512(%input: buffer, %packed: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 512 : index
@@ -964,39 +979,40 @@ func.def @reference.ffn27_quantize_512(%input:buffer,%packed:buffer) {
   %unit = scalar.constant 0.0078125 : f32
   %qsum = scalar.constant 4064.0 : f32
   scf.for %row = [%zero to %rows step %one] {
-    func.call @test.init.ffn27_quantize_512.body(%row,%input) : (index,buffer) -> ()
-    %rp = index.add %row,%one : index
+    func.call @test.init.ffn27_quantize_512.body(%row, %input) : (index, buffer)
+    %rp = index.add %row, %one : index
     %ri = index.cast %rp : index to i32
     %rf = scalar.uitofp %ri : i32 to f32
-    %d32 = scalar.mulf %rf,%unit : f32
-    %s32 = scalar.mulf %d32,%qsum : f32
+    %d32 = scalar.mulf %rf, %unit : f32
+    %s32 = scalar.mulf %d32, %qsum : f32
     %d = scalar.fptrunc %d32 : f32 to f16
     %sum = scalar.fptrunc %s32 : f32 to f16
-    %first = index.mul %row,%groups : index
+    %first = index.mul %row, %groups : index
     scf.for %group = [%zero to %groups step %one] {
-      %number = index.add %first,%group : index
-      %offset = index.scale %number,%stride : index,offset -> offset
+      %number = index.add %first, %group : index
+      %offset = index.scale %number, %stride : index, offset -> offset
       %header = buffer.view %packed[%offset] : buffer -> view<8xf16>
       %bytes = buffer.view %packed[%offset] : buffer -> view<144xi8>
       scf.for %b = [%zero to %four step %one] {
-        %di = index.mul %b,%two : index
-        %si = index.add %di,%one : index
-        view.store %d,%header[%di] : f16,view<8xf16>
-        view.store %sum,%header[%si] : f16,view<8xf16>
+        %di = index.mul %b, %two : index
+        %si = index.add %di, %one : index
+        view.store %d, %header[%di] : f16, view<8xf16>
+        view.store %sum, %header[%si] : f16, view<8xf16>
       }
       scf.for %b = [%payload_begin to %end step %one] {
-        view.store %payload,%bytes[%b] : i8,view<144xi8>
+        view.store %payload, %bytes[%b] : i8, view<144xi8>
       }
     }
   }
   func.return
 }
-command.def public retain @actual.ffn27_quantize_512() launch(%input:buffer,%packed:buffer) {
+
+command.def public retain @actual.ffn27_quantize_512() launch(%input: buffer, %packed: buffer) {
   command.serial {
     kernel.launch @test.init.ffn27_quantize_512(%input) : (buffer)
     %rows = index.constant 512 : index
     %width = index.constant 17408 : index
-    kernel.launch @ggml_quantize_q8_1_x4_f32[%rows,%width](%rows,%width,%input,%packed) : [index,index](index,index,buffer,buffer)
+    kernel.launch @ggml_quantize_q8_1_x4_f32[%rows, %width](%rows, %width, %input, %packed) : [index, index](index, index, buffer, buffer)
   }
   command.return
 }

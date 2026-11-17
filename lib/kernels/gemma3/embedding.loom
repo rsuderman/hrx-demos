@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Curated from the owned Llama 3B binding; valid IDs are caller preconditions.
 config.decl @gemma3.model.hidden_size : index
+
 config.decl @gemma3.model.vocabulary_size : index
+
 config.decl @gemma3.model.embedding_scale : f32
+
 template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %scale: f32, %weight: buffer, %output: buffer)
 
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)

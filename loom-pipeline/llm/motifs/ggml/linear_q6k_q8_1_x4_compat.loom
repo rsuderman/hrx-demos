@@ -2,13 +2,21 @@
 // Wave32 is part of this arithmetic contract. Other logical counts and inactive
 // rows use the existing canonical contraction/reduction, with no new accuracy claim.
 template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_block: index, %word_in_block: index) -> (vector<4xi8>, f32)
+
 func.decl @ggml_q6k_q8_1_x4_row_lane(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane: index) -> (f32)
+
 config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
+
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+
 amdgpu.target<gfx11-generic> @ggml_q6k_compat_wave32 {subgroup_size = 32}
+
 func.decl @ggml_qk_mmvq_compat_select(%capacity: index, %token: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer) -> (i1, i1, i1)
+
 func.decl @ggml_qk_mmvq_compat_reduce(%lane_acc: f32) -> (f32)
+
 template.decl @ggml.q6k.sign_extend_dot4(%code: vector<1xi32>) -> (vector<4xi8>)
+
 func.def inline @ggml_q6k_compat_weighted_parts(%weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %q6_block: index, %lane: index) -> (f32, f32) {
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
@@ -182,4 +190,3 @@ kernel.def target(@ggml_q6k_compat_wave32) export("ggml_linear_q6k_q8_1_x4_compa
   }
   kernel.return
 }
-

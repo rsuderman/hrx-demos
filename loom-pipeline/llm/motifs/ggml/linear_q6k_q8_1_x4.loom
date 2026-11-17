@@ -1,7 +1,11 @@
 template.decl @ggml.q6k.f32_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf32>)
+
 template.decl @ggml.linear_q6k_q8_1_x4.body(%publish_output: i1, %token_count: index, %token0: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer) -> (f32, index, index, i1, index, index)
+
 template.decl @ggml.q6k.f16_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf16>)
+
 template.decl @ggml.q6k.sign_extend_dot4(%code: vector<1xi32>) -> (vector<4xi8>)
+
 template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_block: index, %word_in_block: index) -> (vector<4xi8>, f32)
 
 // Contracts GGML Q6_K weight rows directly with the Q8_1 x4 activation
@@ -25,7 +29,7 @@ config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : %value: index where [range
 
 config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
 
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$35: index, %input_size$36: index) launch(%token_count$37: index, %input_size$38: index, %input: buffer, %output: buffer)
 
 // Sign-extends four packed six-bit values without scalar lane extraction.
 // Each byte enters with bits [5:0] populated and leaves as signed i8.
@@ -231,7 +235,7 @@ func.def inline @ggml_q6k_q8_1_x4_row_lane_m4(%input_size: index, %weight: buffe
   %c256 = index.constant 256 : index
   %c0_f32 = scalar.constant 0.0 : f32
   %block_count = index.div %bounded_input_size, %c256 : index
-  %row0, %row1, %row2, %row3 = scf.for %block = [%c0 to %block_count step %c1](%row0_acc = %c0_f32, %row1_acc = %c0_f32, %row2_acc = %c0_f32, %row3_acc = %c0_f32 : f32, f32, f32, f32) -> (f32, f32, f32, f32) {
+  %row0, %row1, %row2, %row3 = scf.for %block = [%c0 to %block_count step %c1](%row0_acc = %c0_f32 : f32, %row1_acc = %c0_f32 : f32, %row2_acc = %c0_f32 : f32, %row3_acc = %c0_f32 : f32) -> (f32, f32, f32, f32) {
     %contribution0 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row0_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
     %contribution1 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row1_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
     %contribution2 = func.call @ggml_q6k_q8_1_x4_block_lane(%weight, %weight_row_byte_base, %q8_input, %q8_row2_byte_base, %block, %lane) : (buffer, offset, buffer, offset, index, index) -> (f32)
@@ -302,7 +306,7 @@ func.def inline @ggml_q6k_q8_1_x4_row_lane_m4_wave64_block4(%input_size: index, 
   %block_in_iteration = index.div %bounded_lane, %c16 : index
   %virtual_lane0 = index.rem %bounded_lane, %c16 : index
   %virtual_lane1 = index.add %virtual_lane0, %c16 : index
-  %row0, %row1, %row2, %row3 = scf.for %iteration = [%c0 to %iteration_count step %c1](%row0_acc = %c0_f32, %row1_acc = %c0_f32, %row2_acc = %c0_f32, %row3_acc = %c0_f32 : f32, f32, f32, f32) -> (f32, f32, f32, f32) {
+  %row0, %row1, %row2, %row3 = scf.for %iteration = [%c0 to %iteration_count step %c1](%row0_acc = %c0_f32 : f32, %row1_acc = %c0_f32 : f32, %row2_acc = %c0_f32 : f32, %row3_acc = %c0_f32 : f32) -> (f32, f32, f32, f32) {
     %block_base = index.mul %iteration, %c4 : index
     %block0 = index.add %block_base, %block_in_iteration : index
     %valid_block = index.cmp ult, %block0, %block_count : index

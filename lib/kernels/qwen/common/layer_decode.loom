@@ -26,13 +26,11 @@ kernel.def target(@llm.platform.normalization.decode.wave32) export("qwen38_rmsn
 
 // Selects the final active prefill row from control[0] without baking a
 // prompt-specific residual offset into the reusable command buffer.
-
 target.decl @llm.platform.normalization.decode.wave32
 
 // Callers provide a contiguous F32 row domain, its F32 width divisor, and
 // disjoint input/weight/output buffers. All 256 threads participate in the
 // original reduction order. Output precision specializes only the final store.
-
 template.def<@qwen38.rmsnorm_f32.row> device @qwen38_rmsnorm_f32_row(%input_row_count: index, %input_row: index, %output_origin: offset, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer) {
   %hidden_size = config.get @qwen.model.hidden_size : index
   %divisor = config.get @qwen.model.hidden_divisor : f32
@@ -43,7 +41,6 @@ template.def<@qwen38.rmsnorm_f32.row> device @qwen38_rmsnorm_f32_row(%input_row_
 
 // Contiguous rows, complete 1024-channel tiles, four F32 values per lane.
 // No noalias promise: the output may update either input in place.
-
 kernel.def target(@llm.platform.normalization.decode.wave32) export("qwen38_rmsnorm_f32_prefill_last") @qwen38_rmsnorm_f32_prefill_last() {
   %unit = index.constant 1 : index
   %workgroup_size = index.constant 256 : index
@@ -65,7 +62,6 @@ kernel.def target(@llm.platform.normalization.decode.wave32) export("qwen38_rmsn
 
 // Adds one projection result into its residual stream. Four adjacent F32
 // elements travel together; each workgroup covers up to 1024 hidden channels; the row body masks tails.
-
 kernel.def export("qwen38_residual_add_f32_decode") @qwen38_residual_add_f32_decode() {
   %c1 = index.constant 1 : index
   %hidden_size = config.get @qwen.model.hidden_size : index
@@ -83,7 +79,3 @@ kernel.def export("qwen38_residual_add_f32_decode") @qwen38_residual_add_f32_dec
   template.apply<@llm.residual_add_f32.row>(%hidden_size, %row_count, %row, %lhs, %rhs, %output) : (index, index, index, buffer, buffer, buffer)
   kernel.return
 }
-
-// Applies SwiGLU to paired gate and up projections. This ordinary F32 boundary
-// is the correctness baseline; a later schedule may fuse Q8 publication when
-// the command-program trace proves that extra materialization is significant.

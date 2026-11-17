@@ -3,16 +3,21 @@
 
 // One orchestration body; each linked artifact supplies one numerical profile.
 template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+
 template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+
 template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
+
 template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
 template.decl @loomify.ffn.normalize(%hidden: index, %rows: index, %phase: index, %epsilon: f32, %input: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %normalized: buffer)
+
 template.decl @loomify.ffn.pack_input(%rows: index, %input_size: index, %count: buffer, %input: buffer, %output: buffer)
 
 // Geometry follows existing row kernels; projection operations own their
 // encoding-specific width, capacity and byte-count contracts.
 template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index)
+
 template.def<@loomify.ffn.admit> @loomify_ffn_admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), range(%ffn, 256, 32768), multiple_of(%ffn, 256), range(%profile, 0, 1), range(%gate_tag, 12, 14), range(%down_tag, 12, 14)] {
   template.return
 }
@@ -61,12 +66,14 @@ template.def<@loomify.ffn> @loomify_ffn(%hidden: index, %ffn: index, %rows: inde
 }
 
 template.decl @loomify.ffn.decode_rows(%rows: index)
+
 template.def<@loomify.ffn.decode_rows> @loomify_ffn_decode_rows(%rows: index) where [eq(%rows, 1)] {
   template.return
 }
 
 // Independent up metadata must agree before both views use gate_bytes.
 template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
+
 template.def<@loomify.ffn.match_up> @loomify_ffn_match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index) where [eq(%gate_tag, %up_tag), eq(%gate_bytes, %up_bytes)] {
   template.return
 }

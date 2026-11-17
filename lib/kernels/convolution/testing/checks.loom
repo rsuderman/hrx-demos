@@ -3,6 +3,7 @@
 // Independent host oracle uses direct causal indexing into the immutable chunk
 // and initial history. Device implementation instead advances six registers.
 command.decl @shortconv.actual() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 func.def @shortconv.expected_width(%width0: index, %count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %width = index.assume %width0 [range(%width0, 256, 2048)] : index
@@ -40,7 +41,9 @@ func.def @shortconv.expected_width(%width0: index, %count: buffer, %epoch: buffe
             %value = scalar.mulf %b, %x : f32
             scf.yield %value : f32
           } else {
-            %value = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+            %value = scf.if %fresh -> (f32) {
+              scf.yield %zero_f : f32
+            } else {
               %bounded_joined = index.assume %joined [range(%joined, 0, 5)] : index
               %old = view.load %history[%bounded_joined, %channel] : view<6x[%width]xf32> -> f32
               scf.yield %old : f32
@@ -54,7 +57,9 @@ func.def @shortconv.expected_width(%width0: index, %count: buffer, %epoch: buffe
         %c = view.load %bcx[%row, 1, %channel] : view<8x3x[%width]xf32> -> f32
         %gated = scalar.mulf %sum, %c : f32
         scf.yield %gated : f32
-      } else { scf.yield %zero_f : f32 }
+      } else {
+        scf.yield %zero_f : f32
+      }
       view.store %result, %out[%row, %channel] : f32, view<8x[%width]xf32>
     }
     // Ascending writes are safe: an old source is destination+n, strictly later.
@@ -63,15 +68,17 @@ func.def @shortconv.expected_width(%width0: index, %count: buffer, %epoch: buffe
       %in_chunk = index.cmp uge, %joined, %six : index
       %value = scf.if %in_chunk -> (f32) {
         %source0 = index.sub %joined, %six : index
-            %source = index.assume %source0 [range(%source0, 0, 7)] : index
+        %source = index.assume %source0 [range(%source0, 0, 7)] : index
         %b = view.load %bcx[%source, 0, %channel] : view<8x3x[%width]xf32> -> f32
         %x = view.load %bcx[%source, 2, %channel] : view<8x3x[%width]xf32> -> f32
         %product = scalar.mulf %b, %x : f32
         scf.yield %product : f32
       } else {
-        %prior = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+        %prior = scf.if %fresh -> (f32) {
+          scf.yield %zero_f : f32
+        } else {
           %bounded_joined = index.assume %joined [range(%joined, 0, 5)] : index
-              %old = view.load %history[%bounded_joined, %channel] : view<6x[%width]xf32> -> f32
+          %old = view.load %history[%bounded_joined, %channel] : view<6x[%width]xf32> -> f32
           scf.yield %old : f32
         }
         scf.yield %prior : f32
@@ -81,11 +88,13 @@ func.def @shortconv.expected_width(%width0: index, %count: buffer, %epoch: buffe
   }
   func.return
 }
+
 func.def @shortconv.expected(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %width = index.constant 256 : index
-  func.call @shortconv.expected_width(%width, %count, %epoch, %input, %weight, %state, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @shortconv.expected_width(%width, %count, %epoch, %input, %weight, %state, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @shortconv.n1_fresh_poison {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(1) : tensor<3xi32>
@@ -101,7 +110,7 @@ check.scenario @shortconv.n1_fresh_poison {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -115,6 +124,7 @@ check.scenario @shortconv.n1_fresh_poison {
   }
   check.return
 }
+
 check.scenario @shortconv.n1_append {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(1) : tensor<3xi32>
@@ -130,7 +140,7 @@ check.scenario @shortconv.n1_append {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -144,6 +154,7 @@ check.scenario @shortconv.n1_append {
   }
   check.return
 }
+
 check.scenario @shortconv.n5_fresh_poison {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(5) : tensor<3xi32>
@@ -159,7 +170,7 @@ check.scenario @shortconv.n5_fresh_poison {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -173,6 +184,7 @@ check.scenario @shortconv.n5_fresh_poison {
   }
   check.return
 }
+
 check.scenario @shortconv.n5_append {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(5) : tensor<3xi32>
@@ -188,7 +200,7 @@ check.scenario @shortconv.n5_append {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -202,6 +214,7 @@ check.scenario @shortconv.n5_append {
   }
   check.return
 }
+
 check.scenario @shortconv.n6_fresh_poison {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(6) : tensor<3xi32>
@@ -217,7 +230,7 @@ check.scenario @shortconv.n6_fresh_poison {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -231,6 +244,7 @@ check.scenario @shortconv.n6_fresh_poison {
   }
   check.return
 }
+
 check.scenario @shortconv.n6_append {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(6) : tensor<3xi32>
@@ -246,7 +260,7 @@ check.scenario @shortconv.n6_append {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -260,6 +274,7 @@ check.scenario @shortconv.n6_append {
   }
   check.return
 }
+
 check.scenario @shortconv.n7_fresh_poison {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(7) : tensor<3xi32>
@@ -275,7 +290,7 @@ check.scenario @shortconv.n7_fresh_poison {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -289,6 +304,7 @@ check.scenario @shortconv.n7_fresh_poison {
   }
   check.return
 }
+
 check.scenario @shortconv.n7_append {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(7) : tensor<3xi32>
@@ -304,7 +320,7 @@ check.scenario @shortconv.n7_append {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -318,6 +334,7 @@ check.scenario @shortconv.n7_append {
   }
   check.return
 }
+
 check.scenario @shortconv.n8_fresh_poison {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(8) : tensor<3xi32>
@@ -333,7 +350,7 @@ check.scenario @shortconv.n8_fresh_poison {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -347,6 +364,7 @@ check.scenario @shortconv.n8_fresh_poison {
   }
   check.return
 }
+
 check.scenario @shortconv.n8_append {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(8) : tensor<3xi32>
@@ -362,7 +380,7 @@ check.scenario @shortconv.n8_append {
     %state_suffix = check.tensor.view %state offset(6160) : tensor<1544xf32> -> tensor<4xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.actual, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00001) rtol(0.00001) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8x256xf32>, tensor<8x256xf32>
       check.expect.bitwise actual(%history) expected(%history) : tensor<6x256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -376,6 +394,7 @@ check.scenario @shortconv.n8_append {
   }
   check.return
 }
+
 check.scenario @shortconv.chunked_fresh.full_equivalence {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(8) : tensor<3xi32>
@@ -387,7 +406,7 @@ check.scenario @shortconv.chunked_fresh.full_equivalence {
     %output = check.tensor.view %storage offset(16) : tensor<2056xf32> -> tensor<8x256xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.chunked, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<2056xf32>, tensor<2056xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<2056xf32>, tensor<2056xf32>
       check.expect.bitwise actual(%state) expected(%state) : tensor<1544xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256x7xf32>
@@ -397,7 +416,9 @@ check.scenario @shortconv.chunked_fresh.full_equivalence {
   }
   check.return
 }
+
 command.decl @shortconv.chunked() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 check.scenario @shortconv.chunked_append.full_equivalence {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(8) : tensor<3xi32>
@@ -409,7 +430,7 @@ check.scenario @shortconv.chunked_append.full_equivalence {
     %output = check.tensor.view %storage offset(16) : tensor<2056xf32> -> tensor<8x256xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.chunked, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<2056xf32>, tensor<2056xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<2056xf32>, tensor<2056xf32>
       check.expect.bitwise actual(%state) expected(%state) : tensor<1544xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256x7xf32>
@@ -419,7 +440,9 @@ check.scenario @shortconv.chunked_append.full_equivalence {
   }
   check.return
 }
+
 command.decl @shortconv.reset_replay() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 check.scenario @shortconv.reset_replay.full_equivalence {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(8) : tensor<3xi32>
@@ -431,7 +454,7 @@ check.scenario @shortconv.reset_replay.full_equivalence {
     %output = check.tensor.view %storage offset(16) : tensor<2056xf32> -> tensor<8x256xf32>
     %history = check.tensor.view %state offset(16) : tensor<1544xf32> -> tensor<6x256xf32>
     check.compare<@shortconv.reset_replay, @shortconv.expected>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x256xf32>, tensor<256x7xf32>, tensor<1544xf32>, tensor<8x256xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<2056xf32>, tensor<2056xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<2056xf32>, tensor<2056xf32>
       check.expect.bitwise actual(%state) expected(%state) : tensor<1544xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<256x7xf32>
@@ -441,23 +464,26 @@ check.scenario @shortconv.reset_replay.full_equivalence {
   }
   check.return
 }
+
 command.decl @shortconv.wide1024() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 func.def @shortconv.expected.wide1024(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %width = index.constant 1024 : index
-  func.call @shortconv.expected_width(%width, %count, %epoch, %input, %weight, %state, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @shortconv.expected_width(%width, %count, %epoch, %input, %weight, %state, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @shortconv.wide1024.fresh {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(3) : tensor<3xi32>
     %epoch = check.generate.fill value(0) : tensor<5xi32>
     %input = check.generate.iota offset(0.25) step(0.0001220703125) : tensor<8x3x1024xf32>
-    %weight = check.generate.iota offset(-0.25) step(0.000030517578125) : tensor<1024x7xf32>
+    %weight = check.generate.iota offset(-0.25) step(3.0517578125e-05) : tensor<1024x7xf32>
     %state = check.generate.fill value(-777.0) : tensor<6152xf32>
     %storage = check.generate.fill value(123.5) : tensor<8200xf32>
     %output = check.tensor.view %storage offset(16) : tensor<8200xf32> -> tensor<8x1024xf32>
     check.compare<@shortconv.wide1024, @shortconv.expected.wide1024>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x1024xf32>, tensor<1024x7xf32>, tensor<6152xf32>, tensor<8x1024xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<8200xf32>, tensor<8200xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<8200xf32>, tensor<8200xf32>
       check.expect.bitwise actual(%state) expected(%state) : tensor<6152xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x1024xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<1024x7xf32>
@@ -467,23 +493,26 @@ check.scenario @shortconv.wide1024.fresh {
   }
   check.return
 }
+
 command.decl @shortconv.wide2048() launch(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer)
+
 func.def @shortconv.expected.wide2048(%count: buffer, %epoch: buffer, %input: buffer, %weight: buffer, %state: buffer, %output: buffer) {
   %width = index.constant 2048 : index
-  func.call @shortconv.expected_width(%width, %count, %epoch, %input, %weight, %state, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @shortconv.expected_width(%width, %count, %epoch, %input, %weight, %state, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @shortconv.wide2048.fresh {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %count = check.generate.fill value(5) : tensor<3xi32>
     %epoch = check.generate.fill value(0) : tensor<5xi32>
     %input = check.generate.iota offset(0.25) step(0.0001220703125) : tensor<8x3x2048xf32>
-    %weight = check.generate.iota offset(-0.25) step(0.000030517578125) : tensor<2048x7xf32>
+    %weight = check.generate.iota offset(-0.25) step(3.0517578125e-05) : tensor<2048x7xf32>
     %state = check.generate.fill value(-777.0) : tensor<12296xf32>
     %storage = check.generate.fill value(123.5) : tensor<16392xf32>
     %output = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
     check.compare<@shortconv.wide2048, @shortconv.expected.wide2048>(%count, %epoch, %input, %weight, %state, %output) : (tensor<3xi32>, tensor<5xi32>, tensor<8x3x2048xf32>, tensor<2048x7xf32>, tensor<12296xf32>, tensor<8x2048xf32>) -> () {
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.00001) rtol(0.00001) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(1.0000000000000001e-05) rtol(1.0000000000000001e-05) nan(same) : tensor<16392xf32>, tensor<16392xf32>
       check.expect.bitwise actual(%state) expected(%state) : tensor<12296xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<8x3x2048xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<2048x7xf32>

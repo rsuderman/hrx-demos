@@ -1,3 +1,4 @@
 // SPDX-License-Identifier: MIT
-kernel.decl @llama32_rmsnorm_f32(%token_count: index) launch(%token_count: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @llama32_rmsnorm_active_f32(%token_count: index) launch(%token_count: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_f32(%token_count$0: index) launch(%token_count$1: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llama32_rmsnorm_active_f32(%token_count$5: index) launch(%token_count$6: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)

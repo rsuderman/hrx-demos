@@ -1,23 +1,35 @@
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Maintained decoder attention sequence. Numerical providers own arithmetic,
 // active-row guards, mapped cache addressing and precision-policy selection.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.query_heads : index
+
 config.decl @llama.model.head_size : index
+
 config.decl @llama.model.kv_size : index
+
 config.decl @llama.attention.cache_base : offset
+
 config.decl @llama.attention.map_origin : offset
+
 config.decl @llama.model.has_rope_frequencies : index
+
 func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, index, index, index, index, index, index)
 
-
 kernel.decl @llama32_rotary_query(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %factors: buffer, %projection: buffer, %query: buffer)
+
 kernel.decl @llama32_publish_kv(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
 kernel.decl @llama32_attention_rows(%token_capacity0: index) launch(%layer0: index, %cache_base: offset, %control_kind: index, %control_origin: offset, %token_begin: index, %map_origin: offset, %control: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
 kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
+
 kernel.decl @llama32_unit_rope_factors() launch(%factors: buffer)
 
 command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
@@ -45,7 +57,7 @@ command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index,
     // host-VM operation. Initialize the ordinary-RoPE identity in device memory.
     %factor_bytes = index.constant 256 : offset
     %unit_buffer = buffer.alloca<global> align(256) %factor_bytes : buffer
-    kernel.launch @llama32_unit_rope_factors[](%unit_buffer) : [](buffer)
+    kernel.launch @llama32_unit_rope_factors(%unit_buffer) : (buffer)
     %units = buffer.view %unit_buffer[%origin] : buffer -> view<64xf32>
     scf.yield %units : view<64xf32>
   }

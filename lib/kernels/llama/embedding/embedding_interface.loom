@@ -1,5 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-kernel.decl @llama32_token_embedding_q6k_f32(%token_count: index) launch(%token_count: index, %token_ids: buffer, %weight: buffer, %output: buffer)
-kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count: index) launch(%token_count: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_token_embedding_q6k_f32(%token_count$0: index) launch(%token_count$1: index, %token_ids: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llama32_token_embedding_active_q6k_f32(%token_count$5: index) launch(%token_count$6: index, %begin: index, %count_origin: offset, %count: buffer, %token_ids: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @llama32_token_embedding_epoch_q6k_f32(%rows: index) launch(%epoch: buffer, %count: buffer, %tokens: buffer, %weight: buffer, %output: buffer)

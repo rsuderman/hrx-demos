@@ -2,16 +2,29 @@
 // SPDX-License-Identifier: MIT
 // Concrete requirements for the maintained gfx11 recipe; numerical code only declares them.
 amdgpu.target<gfx11-generic> @llm.platform.attention.h256_prefill.wave64 {subgroup_size = 64}
+
 amdgpu.target<gfx11-generic> @llm.platform.attention.h256_spans.wave64 {subgroup_size = 64}
+
 amdgpu.target<gfx11-generic> @llm.platform.attention.llama_prepare.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.attention.llama_rows.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.normalization.decode.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.normalization.output_spans.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.q4k.canonical.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.q4k.compatible.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.q5_0.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.q5k.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.q6k.compatible.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.q8_0.wave32 {subgroup_size = 32}
+
 amdgpu.target<gfx11-generic> @llm.platform.selection.greedy.wave64 {subgroup_size = 64}
+
 amdgpu.target<gfx11-generic> @llm.platform.projection.scaled_f16.wave32 {subgroup_size = 32}

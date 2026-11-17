@@ -2,22 +2,39 @@
 // SPDX-License-Identifier: MIT
 // Request data projection for generated Jinja input. No chat framing lives here.
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+
 func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+
 func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.range(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
 func.decl @text.json_quote(%text: buffer) -> (buffer)
+
 func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
 global.rodata.def @generated_input.empty = bytes("")
+
 global.rodata.def @generated_input.open_object = bytes("7b")
+
 global.rodata.def @generated_input.close_object = bytes("7d")
+
 global.rodata.def @generated_input.comma = bytes("2c")
+
 global.rodata.def @generated_input.colon = bytes("3a")
+
 global.rodata.def @generated_input.content = bytes("636f6e74656e74")
+
 global.rodata.def @generated_input.text = bytes("74657874")
+
 global.rodata.def @generated_input.type = bytes("74797065")
+
 global.rodata.def @generated_input.invalid = bytes("696e76616c69642067656e65726174656420696e7075742072657175657374")
 
 func.def @generated_input.check(%valid: i1) {

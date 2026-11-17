@@ -2,21 +2,37 @@
 // SPDX-License-Identifier: MIT
 // Gemma packet adaptation; arithmetic remains in shared row operations.
 config.decl @gemma3.model.head_size : index
+
 config.decl @gemma3.model.query_heads : index
+
 config.decl @gemma3.model.kv_heads : index
+
 config.decl @gemma3.model.query_size : index
+
 config.decl @gemma3.model.kv_size : index
+
 config.decl @gemma3.model.layer_count : index
+
 config.decl @gemma3.model.rms_epsilon : f32
+
 config.decl @gemma3.model.attention_scale : f32
+
 config.decl @gemma3.model.rope_log_step_local : f32
+
 config.decl @gemma3.model.rope_log_step_global : f32
+
 config.decl @gemma3.attention.cache_capacity : index
+
 config.decl @gemma3.attention.pool_capacity : index
+
 func.decl pure @loomify.config.layer_window(%layer: index) -> (index, index)
+
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
+
 template.decl @llm.attention.head_rms_value(%raw: f32, %head_divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %norm_weight: buffer) -> (f32)
+
 template.decl @llm.attention.rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane: index, %head_data: buffer) -> (f32)
+
 template.decl @llm.attention.row_window_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %window: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
 
 // Numerical rows are compact; B belongs to input IDs and P remains absolute.

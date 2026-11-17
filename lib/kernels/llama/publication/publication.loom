@@ -9,7 +9,9 @@
 // direct epoch publication canonicalizes the three configured EOG IDs to the
 // native terminal. Host publication consumes the same configured token facts.
 config.decl @llama.publication.end_text_id : i32
+
 config.decl @llama.publication.end_message_id : i32
+
 config.decl @llama.publication.end_turn_id : i32
 
 func.def public inline @llama32_native_token(%token: i32, %eos: i32) -> (i32) {
@@ -24,6 +26,7 @@ func.def public inline @llama32_native_token(%token: i32, %eos: i32) -> (i32) {
   %native = scf.select %stop, %eos, %token : i32
   func.return %native : i32
 }
+
 // Direct numerical publication: one logical winner, one physical output slot.
 kernel.def @llama32_publish_epoch_id() {
   %one = index.constant 1 : index

@@ -88,7 +88,7 @@ template.def<@llm.rotary.adjacent128_value> device @llm_rotary_adjacent128_value
   %inv_two_pi = scalar.constant 0.15915494309189535 : f32
   %two_pi_high = scalar.constant 6.28125 : f32
   %two_pi_mid = scalar.constant 0.001934051513671875 : f32
-  %two_pi_low = scalar.constant 0.0000012556659144769253 : f32
+  %two_pi_low = scalar.constant 1.2556659144769252e-06 : f32
   %turns0 = scalar.mulf %phase, %inv_two_pi : f32
   %turns = scalar.roundf %turns0 : f32
   %high_product = scalar.mulf %turns, %two_pi_high : f32
@@ -157,8 +157,6 @@ template.def<@llm.rotary.kv_row128> device @llm_rotary_kv_row128(%row_count: ind
   template.return
 }
 
-
-
 template.def<@llm.rotary.kv_separate_row128> device @llm_rotary_kv_separate_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer) {
   %physical = index.assume %physical_position [lt(%physical_position, %physical_capacity)] : index
   %c2 = index.constant 2 : index
@@ -189,6 +187,7 @@ template.def<@llm.rotary.kv_separate_row128> device @llm_rotary_kv_separate_row1
   view.store %value_f16, %value_cache_view[%physical, %output_index] : f16, view<[%physical_capacity]x[%width]xf16>
   template.return
 }
+
 // Ordinary RoPE has no checkpoint factor tensor. Its command binding owns
 // this small scratch buffer, initialized before query/KV readers consume it.
 kernel.def @llama32_unit_rope_factors() {

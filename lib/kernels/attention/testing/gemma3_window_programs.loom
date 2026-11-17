@@ -67,7 +67,9 @@ func.def @window.fixture.element(%paged: i1, %physical_arg: index, %lane_arg: in
   }
   func.return
 }
+
 template.decl @llm.attention.row_window_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %window: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 kernel.def @window.fixture() {
   %groups = index.constant 576 : index
   %threads = index.constant 256 : index
@@ -76,9 +78,10 @@ kernel.def @window.fixture() {
 } launch(%paged: i1, %q: buffer, %k: buffer, %v: buffer, %map: buffer) {
   %physical = kernel.workgroup.id<x> : index
   %lane = kernel.workitem.id<x> : index
-  func.call @window.fixture.element(%paged, %physical, %lane, %q, %k, %v, %map) : (i1, index, index, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.element(%paged, %physical, %lane, %q, %k, %v, %map) : (i1, index, index, buffer, buffer, buffer, buffer)
   kernel.return
 }
+
 kernel.def @window.compute() {
   %heads = index.constant 4 : index
   %threads = index.constant 256 : index
@@ -104,111 +107,111 @@ kernel.def @window.compute() {
 
 command.def public @actual.p510_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant false : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 0 : index
   %p0 = scalar.constant 510 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p511_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 511 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p512_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 512 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p513_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant false : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 0 : index
   %p0 = scalar.constant 513 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p512_w0_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 0 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 512 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p63_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 63 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p64_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 64 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p511_w512_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 511 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   %p1 = scalar.constant 512 : i32
   %origin1 = index.constant 4112 : offset
-  kernel.launch @window.compute[](%p1, %window, %pool, %origin1, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p1, %window, %pool, %origin1, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   %p2 = scalar.constant 513 : i32
   %origin2 = index.constant 8208 : offset
-  kernel.launch @window.compute[](%p2, %window, %pool, %origin2, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p2, %window, %pool, %origin2, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
 
 command.def public @actual.p511_w0_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  kernel.launch @window.fixture[](%paged, %q, %k, %v, %map) : [](i1, buffer, buffer, buffer, buffer)
+  kernel.launch @window.fixture(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 0 : index
   %pool = index.constant 576 : index
   %p0 = scalar.constant 511 : i32
   %origin0 = index.constant 16 : offset
-  kernel.launch @window.compute[](%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p0, %window, %pool, %origin0, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   %p1 = scalar.constant 512 : i32
   %origin1 = index.constant 4112 : offset
-  kernel.launch @window.compute[](%p1, %window, %pool, %origin1, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p1, %window, %pool, %origin1, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   %p2 = scalar.constant 513 : i32
   %origin2 = index.constant 8208 : offset
-  kernel.launch @window.compute[](%p2, %window, %pool, %origin2, %q, %k, %v, %map, %out) : [](i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @window.compute(%p2, %window, %pool, %origin2, %q, %k, %v, %map, %out) : (i32, index, index, offset, buffer, buffer, buffer, buffer, buffer)
   command.return
 }

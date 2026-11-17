@@ -3,19 +3,33 @@
 // Bounded capture and canonical XML mechanics. Generated source owns the
 // actual wire sequence and repetitions; no grammar descriptor is interpreted.
 func.decl @text.output_check(%condition: i1)
+
 func.decl @text.at(%text: buffer, %at: offset, %marker: buffer) -> (i1)
+
 func.decl @text.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1)
+
 func.decl @text.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer)
+
 func.decl @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer)
+
 func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
 func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+
 func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+
 func.decl @output_schema.admit_mapping(%json: buffer)
+
 func.decl @output_schema.properties(%schemas: buffer, %name: buffer) -> (buffer)
+
 func.decl @text.trim(%text: buffer) -> (buffer)
+
 func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+
 func.decl @output_json.known_tool(%schemas: buffer, %name: buffer) -> (i1)
+
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
 func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer)
 
 // Required literals are always nonempty, so success strictly advances. Limit
@@ -65,7 +79,9 @@ func.def public @output_tagged.unframe(%value: buffer, %prefix: buffer, %suffix:
     %has_suffix = func.call @text.at(%value, %at, %suffix) : (buffer, offset, buffer) -> (i1)
     %end = scf.select %has_suffix, %at, %length : offset
     scf.yield %end : offset
-  } else { scf.yield %length : offset }
+  } else {
+    scf.yield %length : offset
+  }
   %result = func.call @text.slice(%value, %begin, %end) : (buffer, offset, offset) -> (buffer)
   func.return %result : buffer
 }

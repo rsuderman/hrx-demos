@@ -3,12 +3,19 @@
 // Shared generated host hooks. Original wire history is adapted only by the
 // same request composer used for live rendering and output grammar selection.
 func.decl @text.request_environment(%request: buffer, %operation: i32) -> (buffer)
+
 func.decl @jinja.evaluate(%environment: buffer) -> (buffer)
+
 func.decl @jinja.select_format(%environment: buffer) -> (i64, i64)
+
 func.decl @text.output_initial(%format: i64, %startup: i64) -> (i64)
+
 func.decl @text.completion_initial(%environment: buffer, %state: i64) -> (i64)
+
 func.decl @text.output_check_environment(%environment: buffer, %format: i64)
+
 func.decl @text.json_quote(%text: buffer) -> (buffer)
+
 func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
 
 func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {

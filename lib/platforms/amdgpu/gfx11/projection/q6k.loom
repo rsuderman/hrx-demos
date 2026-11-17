@@ -3,6 +3,7 @@
 // Curated base64 schedule from the Qwen3-0.6B reference; no model config.
 // Target/fragment layout and tile ownership are platform implementation policy.
 target.decl @llm.platform.projection.scaled_f16.wave32
+
 template.decl @ggml.q6k.f16_fma16(%weight: buffer, %row_origin: offset, %column: index) -> (vector<16xf16>)
 
 kernel.def target(@llm.platform.projection.scaled_f16.wave32) export("llm.platform.q6k_scaled_f16_store") @llm.platform.q6k_scaled_f16_store(%rows: index, %input_width: index, %n: index) {

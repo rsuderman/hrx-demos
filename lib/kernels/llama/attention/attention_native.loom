@@ -6,18 +6,31 @@
 // Q/K/V and output projections consume the qualified canonical Q4/Q6 bindings.
 // All temporary projection, Q8 and attention storage is command-local.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.query_heads : index
+
 config.decl @llama.model.kv_heads : index
+
 config.decl @llama.model.head_size : index
+
 config.decl @llama.model.kv_size : index
+
 config.decl @llama.model.layer_count : index
+
 config.decl @llama.model.attention_scale : f32
+
 config.decl @llama.attention.cache_capacity : %value: index where [range(%value, 1, 131072)]
+
 config.decl @llama.attention.pool_capacity : %value: index where [range(%value, 0, 4194304), multiple_of(%value, 64)]
+
 func.decl @llama32_rotary_position(%token_capacity: index, %token: index, %position_limit: index, %token_begin: index, %control_kind: index, %control_origin: offset, %control: buffer) -> (i1, index, i32)
+
 template.decl @llm.attention.row_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 template.decl @llm.attention.row_f16_pv_small(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 template.decl @llm.attention.row_f16_pv_blas_boundary(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
+
 template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
 target.decl @llm.platform.attention.llama_rows.wave32
@@ -91,7 +104,6 @@ kernel.def target(@llm.platform.attention.llama_rows.wave32) @llama32_attention_
     %small_half_pv = scalar.andi %short_prefix, %small_queries : i1
     scf.if %small_half_pv {
       template.apply<@llm.attention.row_f16_pv_small>(%q_heads, %kv_heads, %head_size, %q_width, %kv_width, %capacity, %pool, %map_origin, %row_origin, %row_origin, %key_origin, %value_origin, %map, %scale, %position_i32, %head, %lane, %gate, %query, %query, %cache, %cache, %output) : (index, index, index, index, index, index, index, offset, offset, offset, offset, offset, buffer, f32, i32, index, index, i1, buffer, buffer, buffer, buffer, buffer)
-      scf.yield
     } else {
       // RDNA3 nonquantized F16 MMVF covers <=3 query columns and MMF
       // covers <=16. Larger columns use BLAS with visible F16 P/output.
@@ -101,12 +113,9 @@ kernel.def target(@llm.platform.attention.llama_rows.wave32) @llama32_attention_
       %blas_pv = scalar.andi %short_prefix, %large_queries : i1
       scf.if %blas_pv {
         template.apply<@llm.attention.row_f16_pv_blas_boundary>(%q_heads, %kv_heads, %head_size, %q_width, %kv_width, %capacity, %pool, %map_origin, %row_origin, %row_origin, %key_origin, %value_origin, %map, %scale, %position_i32, %head, %lane, %gate, %query, %query, %cache, %cache, %output) : (index, index, index, index, index, index, index, offset, offset, offset, offset, offset, buffer, f32, i32, index, index, i1, buffer, buffer, buffer, buffer, buffer)
-        scf.yield
       } else {
         template.apply<@llm.attention.row_f32>(%q_heads, %kv_heads, %head_size, %q_width, %kv_width, %capacity, %pool, %map_origin, %row_origin, %row_origin, %key_origin, %value_origin, %map, %scale, %position_i32, %head, %lane, %gate, %query, %query, %cache, %cache, %output) : (index, index, index, index, index, index, index, offset, offset, offset, offset, offset, buffer, f32, i32, index, index, i1, buffer, buffer, buffer, buffer, buffer)
-        scf.yield
       }
-      scf.yield
     }
   } else {
     %origin = index.constant 0 : offset

@@ -1,9 +1,13 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 template.decl @llm.ffn.matrix_swiglu(%rows: index, %hidden: index, %ffn: index, %epsilon: f32, %gt: index, %dt: index, %gb: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gb]xi8>, %up: view<[%gb]xi8>, %down: view<[%db]xi8>)
+
 config.decl @qwen2.model.hidden_size : index
+
 config.decl @qwen2.model.rms_epsilon : f32
+
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
+
 command.def @loomify.qwen2.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @qwen2.model.hidden_size : index
   %epsilon = config.get @qwen2.model.rms_epsilon : f32

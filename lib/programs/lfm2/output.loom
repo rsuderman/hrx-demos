@@ -35,8 +35,13 @@ command.def @loomify.lfm2.head(%rows: index) launch(%parameters: buffer, %residu
   template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %policy, %output_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }
+
 config.decl @lfm2.model.hidden_size : index
+
 config.decl @lfm2.model.vocabulary_size : index
+
 config.decl @lfm2.model.output_weight_bytes : index
+
 config.decl @lfm2.model.output_tag : index
+
 config.decl @lfm2.model.tied_output : index

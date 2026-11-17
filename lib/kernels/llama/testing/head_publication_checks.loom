@@ -5,6 +5,7 @@
 // the private raw winner and selected public output are distinct guarded buffers.
 // M3 tests row selection numerically. No isolated history/progress mutation remains.
 command.decl @head.full.prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
+
 func.def @init_prefill(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %descriptor_origin = index.constant 12 : offset
@@ -39,20 +40,23 @@ func.def @init_prefill(%epoch: buffer) {
   view.store %zero, %options[1] : i32, view<2xi32>
   func.return
 }
+
 kernel.def @init_kernel_prefill() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer) {
-  func.call @init_prefill(%epoch) : (buffer) -> ()
+  func.call @init_prefill(%epoch) : (buffer)
   kernel.return
 }
+
 command.def public @actual_prefill() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
-  kernel.launch @init_kernel_prefill[](%epoch) : [](buffer)
-  command.launch @head.full.prefill[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @init_kernel_prefill(%epoch) : (buffer)
+  command.launch @head.full.prefill(%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
-  func.call @init_prefill(%epoch) : (buffer) -> ()
+  func.call @init_prefill(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %public = buffer.view %output_ids[%origin] : buffer -> view<20xi32>
   %private = buffer.view %selected_ids[%origin] : buffer -> view<8xi32>
@@ -67,7 +71,7 @@ func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %e
   %zero_idx = index.constant 0 : index
   %c128 = index.constant 128 : index
   %c32 = index.constant 32 : index
-  %delta = scalar.constant 0.00001531839370727539 : f32
+  %delta = scalar.constant 1.5318393707275391e-05 : f32
   %code0 = scalar.constant -15.0 : f32
   %code1 = scalar.constant -31.0 : f32
   %code2 = scalar.constant -32.0 : f32
@@ -85,6 +89,7 @@ func.def @reference_prefill(%weights: buffer, %input: buffer, %gamma: buffer, %e
   }
   func.return
 }
+
 check.scenario @registered_head_then_publication_prefill {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(1) : tensor<323205120xi8>
@@ -106,7 +111,9 @@ check.scenario @registered_head_then_publication_prefill {
   }
   check.return
 }
+
 command.decl @head.full.decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer)
+
 func.def @init_decode(%epoch: buffer) {
   %origin = index.constant 0 : offset
   %descriptor_origin = index.constant 12 : offset
@@ -141,20 +148,23 @@ func.def @init_decode(%epoch: buffer) {
   view.store %zero, %options[1] : i32, view<2xi32>
   func.return
 }
+
 kernel.def @init_kernel_decode() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%epoch: buffer) {
-  func.call @init_decode(%epoch) : (buffer) -> ()
+  func.call @init_decode(%epoch) : (buffer)
   kernel.return
 }
+
 command.def public @actual_decode() launch(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
-  kernel.launch @init_kernel_decode[](%epoch) : [](buffer)
-  command.launch @head.full.decode[](%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : [](buffer, buffer, buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @init_kernel_decode(%epoch) : (buffer)
+  command.launch @head.full.decode(%weights, %input, %gamma, %epoch, %input_ids, %output_ids, %selected_ids) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %epoch: buffer, %input_ids: buffer, %output_ids: buffer, %selected_ids: buffer) {
-  func.call @init_decode(%epoch) : (buffer) -> ()
+  func.call @init_decode(%epoch) : (buffer)
   %origin = index.constant 0 : offset
   %public = buffer.view %output_ids[%origin] : buffer -> view<20xi32>
   %private = buffer.view %selected_ids[%origin] : buffer -> view<8xi32>
@@ -169,7 +179,7 @@ func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %ep
   %zero_idx = index.constant 0 : index
   %c128 = index.constant 128 : index
   %c32 = index.constant 32 : index
-  %delta = scalar.constant 0.00001531839370727539 : f32
+  %delta = scalar.constant 1.5318393707275391e-05 : f32
   %code0 = scalar.constant -15.0 : f32
   %code1 = scalar.constant -31.0 : f32
   %code2 = scalar.constant -32.0 : f32
@@ -187,6 +197,7 @@ func.def @reference_decode(%weights: buffer, %input: buffer, %gamma: buffer, %ep
   }
   func.return
 }
+
 check.scenario @registered_head_then_publication_decode {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %weights = check.generate.fill value(1) : tensor<323205120xi8>

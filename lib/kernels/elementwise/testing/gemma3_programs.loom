@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Test-only launch adapters: actual shared row operations, independent checks.
 template.decl @llm.rmsnorm.row(%width: index, %divisor: f32, %rows: index, %row: index, %origin: offset, %f16_output: i1, %epsilon: f32, %input: buffer, %gamma: buffer, %output: buffer)
+
 template.decl @llm.residual_add_f32.row(%width: index, %rows: index, %row: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
 template.decl @llm.geglu_tanh_f32.row(%width: index, %rows: index, %row: index, %gate: buffer, %up: buffer, %output: buffer)
 
 kernel.def @gemma.test.rms(%width: index, %rows: index, %active: index) {
@@ -20,7 +22,7 @@ kernel.def @gemma.test.rms(%width: index, %rows: index, %active: index) {
   scf.if %live {
     %width_i32 = index.cast %width : index to i32
     %divisor = scalar.uitofp %width_i32 : i32 to f32
-    %epsilon = scalar.constant 9.999999974752427e-7 : f32
+    %epsilon = scalar.constant 9.9999999747524271e-07 : f32
     %row_bytes = index.constant 4 : offset
     %stride = index.scale %width, %row_bytes : index, offset -> offset
     %origin = index.scale %row, %stride : index, offset -> offset
@@ -167,7 +169,9 @@ command.def public @actual.residual_1152_3_3_rhs() launch(%lhs: buffer, %rhs: bu
 }
 
 template.decl @llm.attention.head_rms_value(%raw: f32, %divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %gamma: buffer) -> (f32)
+
 template.decl @llm.attention.rope_neox_value(%head_size: index, %half: index, %size: index, %log_step: f32, %position: i32, %lane: index, %input: buffer) -> (f32)
+
 kernel.def @gemma.test.head_norm() {
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
@@ -177,7 +181,7 @@ kernel.def @gemma.test.head_norm() {
   %origin = index.constant 0 : offset
   %width = index.constant 256 : index
   %divisor = scalar.constant 256.0 : f32
-  %epsilon = scalar.constant 9.999999974752427e-7 : f32
+  %epsilon = scalar.constant 9.9999999747524271e-07 : f32
   %x = buffer.view %input[%origin] : buffer -> view<256xf32>
   %y = buffer.view %out[%origin] : buffer -> view<256xf32>
   %raw = view.load %x[%lane] : view<256xf32> -> f32
@@ -185,6 +189,7 @@ kernel.def @gemma.test.head_norm() {
   view.store %value, %y[%lane] : f32, view<256xf32>
   kernel.return
 }
+
 kernel.def @gemma.test.rotary() {
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
@@ -206,36 +211,36 @@ kernel.def @gemma.test.rotary() {
 command.def public @actual.head_local() launch(%input: buffer, %gamma: buffer, %out: buffer) {
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @gemma.test.head_norm[](%input, %gamma, %normalized) : [](buffer, buffer, buffer)
+  kernel.launch @gemma.test.head_norm(%input, %gamma, %normalized) : (buffer, buffer, buffer)
   %size = index.constant 256 : index
   %half = index.constant 128 : index
   %step = scalar.constant -0.071955784156063934 : f32
   %position = scalar.constant 11 : i32
-  kernel.launch @gemma.test.rotary[](%size, %half, %step, %position, %normalized, %out) : [](index, index, f32, i32, buffer, buffer)
+  kernel.launch @gemma.test.rotary(%size, %half, %step, %position, %normalized, %out) : (index, index, f32, i32, buffer, buffer)
   command.return
 }
 
 command.def public @actual.head_global() launch(%input: buffer, %gamma: buffer, %out: buffer) {
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @gemma.test.head_norm[](%input, %gamma, %normalized) : [](buffer, buffer, buffer)
+  kernel.launch @gemma.test.head_norm(%input, %gamma, %normalized) : (buffer, buffer, buffer)
   %size = index.constant 256 : index
   %half = index.constant 128 : index
   %step = scalar.constant -0.10793367623409589 : f32
   %position = scalar.constant 513 : i32
-  kernel.launch @gemma.test.rotary[](%size, %half, %step, %position, %normalized, %out) : [](index, index, f32, i32, buffer, buffer)
+  kernel.launch @gemma.test.rotary(%size, %half, %step, %position, %normalized, %out) : (index, index, f32, i32, buffer, buffer)
   command.return
 }
 
 command.def public @actual.head_partial_qwen() launch(%input: buffer, %gamma: buffer, %out: buffer) {
   %bytes = index.constant 1024 : offset
   %normalized = buffer.alloca<global> align(256) %bytes : buffer
-  kernel.launch @gemma.test.head_norm[](%input, %gamma, %normalized) : [](buffer, buffer, buffer)
+  kernel.launch @gemma.test.head_norm(%input, %gamma, %normalized) : (buffer, buffer, buffer)
   %size = index.constant 64 : index
   %half = index.constant 32 : index
   %step = scalar.constant -0.50369048909244751 : f32
   %position = scalar.constant 17 : i32
-  kernel.launch @gemma.test.rotary[](%size, %half, %step, %position, %normalized, %out) : [](index, index, f32, i32, buffer, buffer)
+  kernel.launch @gemma.test.rotary(%size, %half, %step, %position, %normalized, %out) : (index, index, f32, i32, buffer, buffer)
   command.return
 }
 

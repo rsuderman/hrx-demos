@@ -1,8 +1,10 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows: index, %input_size: index) launch(%rows: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows: index, %input_size: index, %output_size: index) launch(%rows: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows: index, %input_size: index, %output_size: index) launch(%rows: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows$0: index, %input_size$1: index) launch(%rows$2: index, %input_size$3: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows$10: index, %input_size$11: index, %output_size$12: index) launch(%rows$13: index, %input_size$14: index, %output_size$15: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%rows$23: index, %input_size$24: index, %output_size$25: index) launch(%rows$26: index, %input_size$27: index, %output_size$28: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
@@ -26,7 +28,7 @@ func.def @init_q4_1(%input: buffer, %weight: buffer) {
       %group = index.div %c, %c32 : index
       %gp = index.add %group, %one : index
       %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+      %gf = scalar.uitofp %gi : i32 to f32
       %v0 = scalar.mulf %rf, %gf : f32
       %v = scalar.mulf %v0, %eighth : f32
       view.store %v, %x[%r, %c] : f32, view<1x256xf32>
@@ -51,15 +53,17 @@ func.def @init_q4_1(%input: buffer, %weight: buffer) {
   }
   func.return
 }
+
 kernel.def @fixture_q4_1() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %weight: buffer) {
-  func.call @init_q4_1(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q4_1(%input, %weight) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_q4_1() launch(%input: buffer, %weight: buffer, %output: buffer) {
-  kernel.launch @fixture_q4_1[](%input, %weight) : [](buffer, buffer)
+  kernel.launch @fixture_q4_1(%input, %weight) : (buffer, buffer)
   %n = index.constant 1 : index
   %in = index.constant 256 : index
   %out = index.constant 13 : index
@@ -72,8 +76,9 @@ command.def public @actual_q4_1() launch(%input: buffer, %weight: buffer, %outpu
   kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%n, %in, %out](%n, %in, %out, %zero, %count, %origin, %packed, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_q4_1(%input: buffer, %weight: buffer, %output: buffer) {
-  func.call @init_q4_1(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q4_1(%input, %weight) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 1 : index
@@ -94,12 +99,12 @@ func.def @reference_q4_1(%input: buffer, %weight: buffer, %output: buffer) {
     scf.for %c = [%zero to %cols step %one] {
       %cp = index.add %c, %one : index
       %ci = index.cast %cp : index to i32
-    %cf = scalar.uitofp %ci : i32 to f32
+      %cf = scalar.uitofp %ci : i32 to f32
       %d = scalar.mulf %cf, %eighth : f32
       %sum = scf.for %g = [%zero to %eight step %one](%acc = %zero_f : f32) -> (f32) {
         %gp = index.add %g, %one : index
         %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+        %gf = scalar.uitofp %gi : i32 to f32
         %x0 = scalar.mulf %rf, %gf : f32
         %x = scalar.mulf %x0, %eighth : f32
         %scale = scalar.divf %x, %c127 : f32
@@ -131,6 +136,7 @@ func.def @reference_q4_1(%input: buffer, %weight: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @projection_q4_1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<256xf32>
@@ -140,13 +146,14 @@ check.scenario @projection_q4_1 {
     check.compare<@actual_q4_1, @reference_q4_1>(%input, %weight, %output) : (tensor<256xf32>, tensor<1872xi8>, tensor<13xf32>) -> () {
       // MMQ native reciprocal may move the published F16 scale by one ULP.
       // Allow its 0.1% quantization-scale bound; all other paths use tight F32 tolerance.
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5e-05) nan(same) : tensor<17xf32>, tensor<17xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<17xf32>, tensor<17xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
     }
   }
   check.return
 }
+
 func.def @init_q4_3(%input: buffer, %weight: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -166,7 +173,7 @@ func.def @init_q4_3(%input: buffer, %weight: buffer) {
       %group = index.div %c, %c32 : index
       %gp = index.add %group, %one : index
       %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+      %gf = scalar.uitofp %gi : i32 to f32
       %v0 = scalar.mulf %rf, %gf : f32
       %v = scalar.mulf %v0, %eighth : f32
       view.store %v, %x[%r, %c] : f32, view<3x256xf32>
@@ -191,15 +198,17 @@ func.def @init_q4_3(%input: buffer, %weight: buffer) {
   }
   func.return
 }
+
 kernel.def @fixture_q4_3() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %weight: buffer) {
-  func.call @init_q4_3(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q4_3(%input, %weight) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_q4_3() launch(%input: buffer, %weight: buffer, %output: buffer) {
-  kernel.launch @fixture_q4_3[](%input, %weight) : [](buffer, buffer)
+  kernel.launch @fixture_q4_3(%input, %weight) : (buffer, buffer)
   %n = index.constant 3 : index
   %in = index.constant 256 : index
   %out = index.constant 13 : index
@@ -212,8 +221,9 @@ command.def public @actual_q4_3() launch(%input: buffer, %weight: buffer, %outpu
   kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%n, %in, %out](%n, %in, %out, %zero, %count, %origin, %packed, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_q4_3(%input: buffer, %weight: buffer, %output: buffer) {
-  func.call @init_q4_3(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q4_3(%input, %weight) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 3 : index
@@ -234,12 +244,12 @@ func.def @reference_q4_3(%input: buffer, %weight: buffer, %output: buffer) {
     scf.for %c = [%zero to %cols step %one] {
       %cp = index.add %c, %one : index
       %ci = index.cast %cp : index to i32
-    %cf = scalar.uitofp %ci : i32 to f32
+      %cf = scalar.uitofp %ci : i32 to f32
       %d = scalar.mulf %cf, %eighth : f32
       %sum = scf.for %g = [%zero to %eight step %one](%acc = %zero_f : f32) -> (f32) {
         %gp = index.add %g, %one : index
         %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+        %gf = scalar.uitofp %gi : i32 to f32
         %x0 = scalar.mulf %rf, %gf : f32
         %x = scalar.mulf %x0, %eighth : f32
         %scale = scalar.divf %x, %c127 : f32
@@ -271,6 +281,7 @@ func.def @reference_q4_3(%input: buffer, %weight: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @projection_q4_3 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<768xf32>
@@ -280,13 +291,14 @@ check.scenario @projection_q4_3 {
     check.compare<@actual_q4_3, @reference_q4_3>(%input, %weight, %output) : (tensor<768xf32>, tensor<1872xi8>, tensor<39xf32>) -> () {
       // MMQ native reciprocal may move the published F16 scale by one ULP.
       // Allow its 0.1% quantization-scale bound; all other paths use tight F32 tolerance.
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5e-05) nan(same) : tensor<43xf32>, tensor<43xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<43xf32>, tensor<43xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<768xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<1872xi8>
     }
   }
   check.return
 }
+
 func.def @init_q4_9(%input: buffer, %weight: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -306,7 +318,7 @@ func.def @init_q4_9(%input: buffer, %weight: buffer) {
       %group = index.div %c, %c32 : index
       %gp = index.add %group, %one : index
       %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+      %gf = scalar.uitofp %gi : i32 to f32
       %v0 = scalar.mulf %rf, %gf : f32
       %v = scalar.mulf %v0, %eighth : f32
       view.store %v, %x[%r, %c] : f32, view<9x256xf32>
@@ -331,15 +343,17 @@ func.def @init_q4_9(%input: buffer, %weight: buffer) {
   }
   func.return
 }
+
 kernel.def @fixture_q4_9() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %weight: buffer) {
-  func.call @init_q4_9(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q4_9(%input, %weight) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_q4_9() launch(%input: buffer, %weight: buffer, %output: buffer) {
-  kernel.launch @fixture_q4_9[](%input, %weight) : [](buffer, buffer)
+  kernel.launch @fixture_q4_9(%input, %weight) : (buffer, buffer)
   %n = index.constant 9 : index
   %in = index.constant 256 : index
   %out = index.constant 13 : index
@@ -352,8 +366,9 @@ command.def public @actual_q4_9() launch(%input: buffer, %weight: buffer, %outpu
   kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%n, %in, %out](%n, %in, %out, %zero, %count, %origin, %packed, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_q4_9(%input: buffer, %weight: buffer, %output: buffer) {
-  func.call @init_q4_9(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q4_9(%input, %weight) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 9 : index
@@ -374,12 +389,12 @@ func.def @reference_q4_9(%input: buffer, %weight: buffer, %output: buffer) {
     scf.for %c = [%zero to %cols step %one] {
       %cp = index.add %c, %one : index
       %ci = index.cast %cp : index to i32
-    %cf = scalar.uitofp %ci : i32 to f32
+      %cf = scalar.uitofp %ci : i32 to f32
       %d = scalar.mulf %cf, %eighth : f32
       %sum = scf.for %g = [%zero to %eight step %one](%acc = %zero_f : f32) -> (f32) {
         %gp = index.add %g, %one : index
         %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+        %gf = scalar.uitofp %gi : i32 to f32
         %x0 = scalar.mulf %rf, %gf : f32
         %x = scalar.mulf %x0, %eighth : f32
         %scale = scalar.divf %x, %c127 : f32
@@ -411,6 +426,7 @@ func.def @reference_q4_9(%input: buffer, %weight: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @projection_q4_9 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<2304xf32>
@@ -427,6 +443,7 @@ check.scenario @projection_q4_9 {
   }
   check.return
 }
+
 func.def @init_q6_1(%input: buffer, %weight: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -446,7 +463,7 @@ func.def @init_q6_1(%input: buffer, %weight: buffer) {
       %group = index.div %c, %c32 : index
       %gp = index.add %group, %one : index
       %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+      %gf = scalar.uitofp %gi : i32 to f32
       %v0 = scalar.mulf %rf, %gf : f32
       %v = scalar.mulf %v0, %eighth : f32
       view.store %v, %x[%r, %c] : f32, view<1x256xf32>
@@ -466,15 +483,17 @@ func.def @init_q6_1(%input: buffer, %weight: buffer) {
   }
   func.return
 }
+
 kernel.def @fixture_q6_1() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %weight: buffer) {
-  func.call @init_q6_1(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q6_1(%input, %weight) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_q6_1() launch(%input: buffer, %weight: buffer, %output: buffer) {
-  kernel.launch @fixture_q6_1[](%input, %weight) : [](buffer, buffer)
+  kernel.launch @fixture_q6_1(%input, %weight) : (buffer, buffer)
   %n = index.constant 1 : index
   %in = index.constant 256 : index
   %out = index.constant 13 : index
@@ -487,8 +506,9 @@ command.def public @actual_q6_1() launch(%input: buffer, %weight: buffer, %outpu
   kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%n, %in, %out](%n, %in, %out, %zero, %count, %origin, %packed, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_q6_1(%input: buffer, %weight: buffer, %output: buffer) {
-  func.call @init_q6_1(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q6_1(%input, %weight) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 1 : index
@@ -509,12 +529,12 @@ func.def @reference_q6_1(%input: buffer, %weight: buffer, %output: buffer) {
     scf.for %c = [%zero to %cols step %one] {
       %cp = index.add %c, %one : index
       %ci = index.cast %cp : index to i32
-    %cf = scalar.uitofp %ci : i32 to f32
+      %cf = scalar.uitofp %ci : i32 to f32
       %d = scalar.mulf %cf, %eighth : f32
       %sum = scf.for %g = [%zero to %eight step %one](%acc = %zero_f : f32) -> (f32) {
         %gp = index.add %g, %one : index
         %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+        %gf = scalar.uitofp %gi : i32 to f32
         %x0 = scalar.mulf %rf, %gf : f32
         %x = scalar.mulf %x0, %eighth : f32
         %scale = scalar.divf %x, %c127 : f32
@@ -548,6 +568,7 @@ func.def @reference_q6_1(%input: buffer, %weight: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @projection_q6_1 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<256xf32>
@@ -557,13 +578,14 @@ check.scenario @projection_q6_1 {
     check.compare<@actual_q6_1, @reference_q6_1>(%input, %weight, %output) : (tensor<256xf32>, tensor<2730xi8>, tensor<13xf32>) -> () {
       // MMQ native reciprocal may move the published F16 scale by one ULP.
       // Allow its 0.1% quantization-scale bound; all other paths use tight F32 tolerance.
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5e-05) nan(same) : tensor<17xf32>, tensor<17xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<17xf32>, tensor<17xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
     }
   }
   check.return
 }
+
 func.def @init_q6_3(%input: buffer, %weight: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -583,7 +605,7 @@ func.def @init_q6_3(%input: buffer, %weight: buffer) {
       %group = index.div %c, %c32 : index
       %gp = index.add %group, %one : index
       %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+      %gf = scalar.uitofp %gi : i32 to f32
       %v0 = scalar.mulf %rf, %gf : f32
       %v = scalar.mulf %v0, %eighth : f32
       view.store %v, %x[%r, %c] : f32, view<3x256xf32>
@@ -603,15 +625,17 @@ func.def @init_q6_3(%input: buffer, %weight: buffer) {
   }
   func.return
 }
+
 kernel.def @fixture_q6_3() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %weight: buffer) {
-  func.call @init_q6_3(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q6_3(%input, %weight) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_q6_3() launch(%input: buffer, %weight: buffer, %output: buffer) {
-  kernel.launch @fixture_q6_3[](%input, %weight) : [](buffer, buffer)
+  kernel.launch @fixture_q6_3(%input, %weight) : (buffer, buffer)
   %n = index.constant 3 : index
   %in = index.constant 256 : index
   %out = index.constant 13 : index
@@ -624,8 +648,9 @@ command.def public @actual_q6_3() launch(%input: buffer, %weight: buffer, %outpu
   kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%n, %in, %out](%n, %in, %out, %zero, %count, %origin, %packed, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_q6_3(%input: buffer, %weight: buffer, %output: buffer) {
-  func.call @init_q6_3(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q6_3(%input, %weight) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 3 : index
@@ -646,12 +671,12 @@ func.def @reference_q6_3(%input: buffer, %weight: buffer, %output: buffer) {
     scf.for %c = [%zero to %cols step %one] {
       %cp = index.add %c, %one : index
       %ci = index.cast %cp : index to i32
-    %cf = scalar.uitofp %ci : i32 to f32
+      %cf = scalar.uitofp %ci : i32 to f32
       %d = scalar.mulf %cf, %eighth : f32
       %sum = scf.for %g = [%zero to %eight step %one](%acc = %zero_f : f32) -> (f32) {
         %gp = index.add %g, %one : index
         %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+        %gf = scalar.uitofp %gi : i32 to f32
         %x0 = scalar.mulf %rf, %gf : f32
         %x = scalar.mulf %x0, %eighth : f32
         %scale = scalar.divf %x, %c127 : f32
@@ -685,6 +710,7 @@ func.def @reference_q6_3(%input: buffer, %weight: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @projection_q6_3 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<768xf32>
@@ -694,13 +720,14 @@ check.scenario @projection_q6_3 {
     check.compare<@actual_q6_3, @reference_q6_3>(%input, %weight, %output) : (tensor<768xf32>, tensor<2730xi8>, tensor<39xf32>) -> () {
       // MMQ native reciprocal may move the published F16 scale by one ULP.
       // Allow its 0.1% quantization-scale bound; all other paths use tight F32 tolerance.
-      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5e-05) nan(same) : tensor<43xf32>, tensor<43xf32>
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.01) rtol(5.0000000000000002e-05) nan(same) : tensor<43xf32>, tensor<43xf32>
       check.expect.bitwise actual(%input) expected(%input) : tensor<768xf32>
       check.expect.bitwise actual(%weight) expected(%weight) : tensor<2730xi8>
     }
   }
   check.return
 }
+
 func.def @init_q6_9(%input: buffer, %weight: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
@@ -720,7 +747,7 @@ func.def @init_q6_9(%input: buffer, %weight: buffer) {
       %group = index.div %c, %c32 : index
       %gp = index.add %group, %one : index
       %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+      %gf = scalar.uitofp %gi : i32 to f32
       %v0 = scalar.mulf %rf, %gf : f32
       %v = scalar.mulf %v0, %eighth : f32
       view.store %v, %x[%r, %c] : f32, view<9x256xf32>
@@ -740,15 +767,17 @@ func.def @init_q6_9(%input: buffer, %weight: buffer) {
   }
   func.return
 }
+
 kernel.def @fixture_q6_9() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%input: buffer, %weight: buffer) {
-  func.call @init_q6_9(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q6_9(%input, %weight) : (buffer, buffer)
   kernel.return
 }
+
 command.def public @actual_q6_9() launch(%input: buffer, %weight: buffer, %output: buffer) {
-  kernel.launch @fixture_q6_9[](%input, %weight) : [](buffer, buffer)
+  kernel.launch @fixture_q6_9(%input, %weight) : (buffer, buffer)
   %n = index.constant 9 : index
   %in = index.constant 256 : index
   %out = index.constant 13 : index
@@ -761,8 +790,9 @@ command.def public @actual_q6_9() launch(%input: buffer, %weight: buffer, %outpu
   kernel.launch @ggml_linear_q6k_q8_1_x4_compat[%n, %in, %out](%n, %in, %out, %zero, %count, %origin, %packed, %packed, %weight, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
   command.return
 }
+
 func.def @reference_q6_9(%input: buffer, %weight: buffer, %output: buffer) {
-  func.call @init_q6_9(%input, %weight) : (buffer, buffer) -> ()
+  func.call @init_q6_9(%input, %weight) : (buffer, buffer)
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %rows = index.constant 9 : index
@@ -783,12 +813,12 @@ func.def @reference_q6_9(%input: buffer, %weight: buffer, %output: buffer) {
     scf.for %c = [%zero to %cols step %one] {
       %cp = index.add %c, %one : index
       %ci = index.cast %cp : index to i32
-    %cf = scalar.uitofp %ci : i32 to f32
+      %cf = scalar.uitofp %ci : i32 to f32
       %d = scalar.mulf %cf, %eighth : f32
       %sum = scf.for %g = [%zero to %eight step %one](%acc = %zero_f : f32) -> (f32) {
         %gp = index.add %g, %one : index
         %gi = index.cast %gp : index to i32
-    %gf = scalar.uitofp %gi : i32 to f32
+        %gf = scalar.uitofp %gi : i32 to f32
         %x0 = scalar.mulf %rf, %gf : f32
         %x = scalar.mulf %x0, %eighth : f32
         %scale = scalar.divf %x, %c127 : f32
@@ -822,6 +852,7 @@ func.def @reference_q6_9(%input: buffer, %weight: buffer, %output: buffer) {
   }
   func.return
 }
+
 check.scenario @projection_q6_9 {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(0.0) : tensor<2304xf32>

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT
 // Independent gate/up/down encodings; callers own normalization and residual order.
 template.decl @llm.projection.canonical_rows(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
-template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
-template.decl @llm.ffn.swiglu_packed(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %ffn_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %activated: buffer)
 
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.ffn.swiglu_packed(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %ffn_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %activated: buffer)
 
 template.decl @llm.ffn.canonical_swiglu(%rows: index, %hidden: index, %ffn: index, %gt: index, %ut: index, %dt: index, %gb: index, %ub: index, %db: index, %count: buffer, %normal: buffer, %gate_weight: view<[%gb]xi8>, %up_weight: view<[%ub]xi8>, %down_weight: view<[%db]xi8>, %down: buffer)
 

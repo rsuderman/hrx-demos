@@ -2,7 +2,9 @@
 // kind0 is isolated prefill, kind1 decode, kind2 native packed epoch.
 // All full-capacity source rows are finite; only active residual rows publish.
 config.decl @llama.model.hidden_size : index
+
 config.decl @llama.model.ffn_size : index
+
 func.decl @llama32_active_row(%capacity: index, %row: index, %kind: index, %control: buffer) -> (i1)
 
 // Copies active rows only. This is publication policy, not residual arithmetic.
@@ -28,19 +30,27 @@ kernel.def @llama32_publish_rows(%token_capacity0: index) {
     scf.for %element = [%lane to %hidden step %step] {
       %v = view.load %src[%row, %element] : view<[%tokens]x[%hidden]xf32> -> f32
       view.store %v, %dst[%row, %element] : f32, view<[%tokens]x[%hidden]xf32>
-      scf.yield
     }
   }
   kernel.return
 }
+
 command.decl @llama32_attention_norm(%layer: index, %token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer)
+
 command.decl @llama32_ffn_norm(%layer: index, %token_count: index) launch(%parameters: buffer, %input: buffer, %output: buffer)
+
 command.decl @llama32_attention(%layer: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset, %control_kind: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %control: buffer, %map: buffer, %cache: buffer)
+
 command.decl @llama32_attention_native(%layer: index, %token_capacity: index, %span_capacity: index) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %metadata: buffer, %origins: buffer, %arena: buffer)
+
 command.decl @llama32_ffn_gate_up_decode(%layer: index) launch(%parameters: buffer, %post_normalized_q8: buffer, %swiglu: buffer)
+
 command.decl @llama32_ffn_down_decode(%layer: index) launch(%parameters: buffer, %swiglu: buffer, %residual: buffer)
+
 command.decl @llama32_ffn_gate_up_prefill(%layer: index, %token_count: index) launch(%parameters: buffer, %control: buffer, %post_normalized: buffer, %swiglu: buffer)
+
 command.decl @llama32_ffn_down_prefill(%layer: index, %token_count: index) launch(%parameters: buffer, %control: buffer, %swiglu: buffer, %residual: buffer)
+
 command.decl @llama32_quantize_q8_controlled(%capacity: index, %input_size: index, %row_origin: index, %count_origin: offset, %kind: index) launch(%input: buffer, %control: buffer, %output: buffer)
 
 command.def public @llama32_layer(%layer: index, %tokens: index, %spans: index, %kind: index) launch(%parameters: buffer, %residual: buffer, %control: buffer, %origins: buffer, %arena: buffer) where [range(%layer, 0, 27), range(%tokens, 1, 512), range(%spans, 1, 16), range(%kind, 0, 2)] {

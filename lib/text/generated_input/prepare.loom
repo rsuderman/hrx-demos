@@ -3,12 +3,19 @@
 // Shared native input mechanics. Actual source analysis supplies continuation
 // text and boundary fragments; this module owns no conversation framing.
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
 func.decl import("input") @encode(%text: buffer, %flags: i32, %capacity: i64) -> (buffer, i64)
+
 func.decl @text.input_fresh(%text: buffer) -> (buffer)
+
 func.decl @text.input_user_continuation(%text: buffer) -> (buffer)
+
 func.decl @text.input_open_separator() -> (buffer)
+
 func.decl @text.input_terminated_separator() -> (buffer)
+
 func.decl @loomify.tokens.vocabulary_size() -> (i64)
+
 func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
 
 func.def @input_prepare.check(%valid: i1, %diagnostic: buffer) {
@@ -88,7 +95,6 @@ func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64,
     %id = scalar.extui %id32 : i32 to i64
     %inside = scalar.cmpi ult, %id, %vocabulary : i64
     func.call @input_prepare.check(%inside, %token_error) : (i1, buffer)
-    scf.yield
   }
   func.return %tokens, %count, %empty : buffer, i64, buffer
 }

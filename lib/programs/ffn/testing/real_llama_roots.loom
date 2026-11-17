@@ -1,45 +1,51 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-command.decl @loomify.llama.ffn(%layer:index,%phase:index,%rows:index) launch(%parameters:buffer,%residual:buffer,%count:buffer)
-command.def public @real.llama.ffn.layer0.prefill() launch(%parameters:buffer,%residual:buffer,%count:buffer) {
+command.decl @loomify.llama.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+
+command.def public @real.llama.ffn.layer0.prefill() launch(%parameters: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 0 : index
   %rows = index.constant 4 : index
-  command.launch @loomify.llama.ffn[%layer,%phase,%rows](%parameters,%residual,%count) : [index,index,index](buffer,buffer,buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
-command.def public @real.llama.ffn.layer0.decode() launch(%parameters:buffer,%residual:buffer,%count:buffer) {
+
+command.def public @real.llama.ffn.layer0.decode() launch(%parameters: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 0 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
-  command.launch @loomify.llama.ffn[%layer,%phase,%rows](%parameters,%residual,%count) : [index,index,index](buffer,buffer,buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
-command.def public @real.llama.ffn.layer1.prefill() launch(%parameters:buffer,%residual:buffer,%count:buffer) {
+
+command.def public @real.llama.ffn.layer1.prefill() launch(%parameters: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 0 : index
   %rows = index.constant 4 : index
-  command.launch @loomify.llama.ffn[%layer,%phase,%rows](%parameters,%residual,%count) : [index,index,index](buffer,buffer,buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
-command.def public @real.llama.ffn.layer1.decode() launch(%parameters:buffer,%residual:buffer,%count:buffer) {
+
+command.def public @real.llama.ffn.layer1.decode() launch(%parameters: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 1 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
-  command.launch @loomify.llama.ffn[%layer,%phase,%rows](%parameters,%residual,%count) : [index,index,index](buffer,buffer,buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
-command.def public @real.llama.ffn.layer3.prefill() launch(%parameters:buffer,%residual:buffer,%count:buffer) {
+
+command.def public @real.llama.ffn.layer3.prefill() launch(%parameters: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 3 : index
   %phase = index.constant 0 : index
   %rows = index.constant 4 : index
-  command.launch @loomify.llama.ffn[%layer,%phase,%rows](%parameters,%residual,%count) : [index,index,index](buffer,buffer,buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
-command.def public @real.llama.ffn.layer3.decode() launch(%parameters:buffer,%residual:buffer,%count:buffer) {
+
+command.def public @real.llama.ffn.layer3.decode() launch(%parameters: buffer, %residual: buffer, %count: buffer) {
   %layer = index.constant 3 : index
   %phase = index.constant 1 : index
   %rows = index.constant 1 : index
-  command.launch @loomify.llama.ffn[%layer,%phase,%rows](%parameters,%residual,%count) : [index,index,index](buffer,buffer,buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }

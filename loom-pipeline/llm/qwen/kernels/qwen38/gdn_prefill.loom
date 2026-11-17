@@ -1,28 +1,46 @@
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.gdn_column_tiles : index
+
 config.decl @qwen.model.gdn_gate_capture_elements : index
+
 config.decl @qwen.model.gdn_gate_row_bytes : index
+
 config.decl @qwen.model.gdn_inverse_row_bytes : index
+
 config.decl @qwen.model.projection_row_bytes : index
 
 config.decl @qwen.model.gdn_qkv_size : index
+
 config.decl @qwen.model.gdn_width : index
 
 config.decl @qwen.model.gdn_convolution_taps : index
+
 config.decl @qwen.model.gdn_history_values : index
+
 config.decl @qwen.model.gdn_qk_norm_elements : index
+
 config.decl @qwen.model.gdn_value_channels_per_key_head : index
 
 config.decl @qwen.model.gdn_capture_elements : index
+
 config.decl @qwen.model.gdn_capture_qkv_elements : index
+
 config.decl @qwen.model.gdn_conv_elements : index
+
 config.decl @qwen.model.gdn_divisor : f32
+
 config.decl @qwen.model.gdn_head_size : index
+
 config.decl @qwen.model.gdn_history_elements : index
+
 config.decl @qwen.model.gdn_key_heads : index
+
 config.decl @qwen.model.gdn_q_channels : index
+
 config.decl @qwen.model.gdn_state_elements : index
+
 config.decl @qwen.model.gdn_v_base : index
+
 config.decl @qwen.model.gdn_value_heads : index
 
 template.decl @qwen38.gdn_conv_prepare_prefill.body(%publish_history: i1, %head: index, %thread: index, %token_count_data: buffer, %l2_epsilon: f32, %qkv_input: buffer, %conv_weight: buffer, %conv_history: buffer, %qkv_silu: buffer, %qk_inverse_norm: buffer, %control_origin: offset, %token_begin: index, %history_origin: offset, %next_history_origin: offset)
@@ -386,7 +404,7 @@ template.def<@qwen38.gdn_conv_prepare_prefill.parallel_body> device @qwen38_gdn_
     %c3 = index.constant 3 : index
     %c128 = config.get @qwen.model.gdn_head_size : index
     %c256 = index.constant 256 : index
-      %q_channel_count = config.get @qwen.model.gdn_q_channels : index
+    %q_channel_count = config.get @qwen.model.gdn_q_channels : index
     %v_channel_base = config.get @qwen.model.gdn_v_base : index
     %values_per_key_head = config.get @qwen.model.gdn_value_channels_per_key_head : index
     %c0_f32 = scalar.constant 0.0 : f32

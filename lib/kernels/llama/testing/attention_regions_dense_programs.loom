@@ -144,5 +144,6 @@ command.def public retain @region.dense.decode() launch(%v0: buffer, %v1: buffer
   command.return
 }
 
-config.def @llama.model.rotary_step = 0.8146172165870667 : f32
-config.def @llama.model.attention_scale = 0.08838834764831845 : f32
+config.def @llama.model.rotary_step = 0.81461721658706665 : f32
+
+config.def @llama.model.attention_scale = 0.088388347648318447 : f32

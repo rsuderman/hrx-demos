@@ -3,6 +3,7 @@
 // Span recurrence only publishes active rows. Define all raw rows consumed by
 // the retained full-capacity norm-gate route; persistent state is never cleared.
 config.decl @qwen.model.gdn_width : index
+
 kernel.def @qwen08_gdn_clear_raw(%tokens0: index) {
   %tokens = index.assume %tokens0 [range(%tokens0, 1, 512)] : index
   %width = config.get @qwen.model.gdn_width : index

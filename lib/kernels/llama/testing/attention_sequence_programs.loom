@@ -12,8 +12,6 @@ config.def @llama.model.head_size = 128 : index
 
 config.def @llama.model.kv_size = 1024 : index
 
-
-
 config.def @llama.model.hidden_size = 3072 : index
 
 kernel.decl @llama32_attention_residual(%token_capacity0: index) launch(%control_kind: index, %control_origin: offset, %token_begin: index, %control: buffer, %projected: buffer, %residual: buffer)
@@ -82,5 +80,6 @@ command.def public retain @native.attention.decode() launch(%v0: buffer, %v1: bu
   command.return
 }
 
-config.def @llama.model.rotary_step = 0.8146172165870667 : f32
-config.def @llama.model.attention_scale = 0.08838834764831845 : f32
+config.def @llama.model.rotary_step = 0.81461721658706665 : f32
+
+config.def @llama.model.attention_scale = 0.088388347648318447 : f32

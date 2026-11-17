@@ -75,11 +75,12 @@ func.def @window.fixture.reference(%paged: i1, %q: buffer, %k: buffer, %v: buffe
   %width = index.constant 256 : index
   scf.for %p = [%zero to %capacity step %one] {
     scf.for %lane = [%zero to %width step %one] {
-      func.call @window.fixture.reference_element(%paged, %p, %lane, %q, %k, %v, %map) : (i1, index, index, buffer, buffer, buffer, buffer) -> ()
+      func.call @window.fixture.reference_element(%paged, %p, %lane, %q, %k, %v, %map) : (i1, index, index, buffer, buffer, buffer, buffer)
     }
   }
   func.return
 }
+
 func.def @window.oracle(%position_arg: index, %window: index, %row_arg: index, %out: buffer) {
   %position = index.assume %position_arg [range(%position_arg, 0, 575)] : index
   %row = index.assume %row_arg [range(%row_arg, 0, 2)] : index
@@ -120,15 +121,17 @@ func.def @window.oracle(%position_arg: index, %window: index, %row_arg: index, %
 }
 
 command.decl @actual.p510_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p510_w512_paged0_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant false : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 510 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p510_w512_paged0_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -139,7 +142,7 @@ check.scenario @p510_w512_paged0_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p510_w512_paged0_rows1, @expected.p510_w512_paged0_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -152,15 +155,17 @@ check.scenario @p510_w512_paged0_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p511_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p511_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 511 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p511_w512_paged1_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -171,7 +176,7 @@ check.scenario @p511_w512_paged1_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p511_w512_paged1_rows1, @expected.p511_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -184,15 +189,17 @@ check.scenario @p511_w512_paged1_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p512_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p512_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 512 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p512_w512_paged1_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -203,7 +210,7 @@ check.scenario @p512_w512_paged1_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p512_w512_paged1_rows1, @expected.p512_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -216,15 +223,17 @@ check.scenario @p512_w512_paged1_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p513_w512_paged0_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p513_w512_paged0_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant false : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 513 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p513_w512_paged0_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -235,7 +244,7 @@ check.scenario @p513_w512_paged0_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p513_w512_paged0_rows1, @expected.p513_w512_paged0_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -248,15 +257,17 @@ check.scenario @p513_w512_paged0_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p512_w0_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p512_w0_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 0 : index
   %p0 = index.constant 512 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p512_w0_paged1_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -267,7 +278,7 @@ check.scenario @p512_w0_paged1_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p512_w0_paged1_rows1, @expected.p512_w0_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -280,15 +291,17 @@ check.scenario @p512_w0_paged1_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p63_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p63_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 63 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p63_w512_paged1_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -299,7 +312,7 @@ check.scenario @p63_w512_paged1_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p63_w512_paged1_rows1, @expected.p63_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -312,15 +325,17 @@ check.scenario @p63_w512_paged1_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p64_w512_paged1_rows1() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p64_w512_paged1_rows1(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 64 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p64_w512_paged1_rows1_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -331,7 +346,7 @@ check.scenario @p64_w512_paged1_rows1_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p64_w512_paged1_rows1, @expected.p64_w512_paged1_rows1>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -344,21 +359,23 @@ check.scenario @p64_w512_paged1_rows1_causal_window_gqa_guards {
 }
 
 command.decl @actual.p511_w512_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p511_w512_paged1_rows3(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 512 : index
   %p0 = index.constant 511 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   %p1 = index.constant 512 : index
   %r1 = index.constant 1 : index
-  func.call @window.oracle(%p1, %window, %r1, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p1, %window, %r1, %out) : (index, index, index, buffer)
   %p2 = index.constant 513 : index
   %r2 = index.constant 2 : index
-  func.call @window.oracle(%p2, %window, %r2, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p2, %window, %r2, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p511_w512_paged1_rows3_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -369,7 +386,7 @@ check.scenario @p511_w512_paged1_rows3_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p511_w512_paged1_rows3, @expected.p511_w512_paged1_rows3>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>
@@ -382,21 +399,23 @@ check.scenario @p511_w512_paged1_rows3_causal_window_gqa_guards {
 }
 
 command.decl @actual.p511_w0_paged1_rows3() launch(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer)
+
 func.def @expected.p511_w0_paged1_rows3(%q: buffer, %k: buffer, %v: buffer, %map: buffer, %out: buffer) {
   %paged = scalar.constant true : i1
-  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer) -> ()
+  func.call @window.fixture.reference(%paged, %q, %k, %v, %map) : (i1, buffer, buffer, buffer, buffer)
   %window = index.constant 0 : index
   %p0 = index.constant 511 : index
   %r0 = index.constant 0 : index
-  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p0, %window, %r0, %out) : (index, index, index, buffer)
   %p1 = index.constant 512 : index
   %r1 = index.constant 1 : index
-  func.call @window.oracle(%p1, %window, %r1, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p1, %window, %r1, %out) : (index, index, index, buffer)
   %p2 = index.constant 513 : index
   %r2 = index.constant 2 : index
-  func.call @window.oracle(%p2, %window, %r2, %out) : (index, index, index, buffer) -> ()
+  func.call @window.oracle(%p2, %window, %r2, %out) : (index, index, index, buffer)
   func.return
 }
+
 check.scenario @p511_w0_paged1_rows3_causal_window_gqa_guards {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %q = check.generate.fill value(-123.5) : tensor<3080xf32>
@@ -407,7 +426,7 @@ check.scenario @p511_w0_paged1_rows3_causal_window_gqa_guards {
     %prefix = check.tensor.view %out offset(0) : tensor<3080xf32> -> tensor<4xf32>
     %suffix = check.tensor.view %out offset(12304) : tensor<3080xf32> -> tensor<4xf32>
     check.compare<@actual.p511_w0_paged1_rows3, @expected.p511_w0_paged1_rows3>(%q, %k, %v, %map, %out) : (tensor<3080xf32>, tensor<147464xf16>, tensor<147464xf16>, tensor<11xi32>, tensor<3080xf32>) -> () {
-      check.expect.approximate actual(%out) expected(%out) atol(0.00002) rtol(0.00002) nan(same) : tensor<3080xf32>, tensor<3080xf32>
+      check.expect.approximate actual(%out) expected(%out) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3080xf32>, tensor<3080xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
       check.expect.bitwise actual(%q) expected(%q) : tensor<3080xf32>

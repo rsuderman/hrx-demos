@@ -13,10 +13,13 @@ config.decl @qwen.model.output_projection_iterations : index
 config.decl @qwen.model.output_weight_row_bytes : index
 
 config.decl @qwen.model.hidden_q8_row_bytes : index
+
 config.decl @qwen.model.logits_row_bytes : index
+
 config.decl @qwen.model.vocabulary_size : index
 
 func.decl @ggml_q6k_q8_1_x4_block_lane(%weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %q6_block: index, %lane: index) -> (f32)
+
 amdgpu.target<gfx11-generic> @qwen38_output_projection_wave64 {subgroup_size = 64}
 
 // Explicit canonical Q6_K/Q8_1-x4 contraction. The caller supplies complete

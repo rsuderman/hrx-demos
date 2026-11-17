@@ -12,7 +12,7 @@ func.def @factored.qk.expected(%use_factors: i1, %step: f32, %epoch: buffer, %in
   %width = index.constant 256 : index
   %zero_f = scalar.constant 0.0 : f32
   %divisor = scalar.constant 128.0 : f32
-  %epsilon = scalar.constant 0.00001 : f32
+  %epsilon = scalar.constant 1.0000000000000001e-05 : f32
   %input_view = buffer.view %input[%origin] : buffer -> view<3x256xf32>
   %weights = buffer.view %gamma[%origin] : buffer -> view<128xf32>
   %divisors = buffer.view %factors[%origin] : buffer -> view<64xf32>
@@ -34,7 +34,9 @@ func.def @factored.qk.expected(%use_factors: i1, %step: f32, %epoch: buffer, %in
           scf.yield %next : f32
         }
         scf.yield %total : f32
-      } else { scf.yield %zero_f : f32 }
+      } else {
+        scf.yield %zero_f : f32
+      }
       %mean = scalar.divf %sum, %divisor : f32
       %stable = scalar.addf %mean, %epsilon : f32
       %inverse = scalar.rsqrtf %stable : f32
@@ -46,7 +48,9 @@ func.def @factored.qk.expected(%use_factors: i1, %step: f32, %epoch: buffer, %in
           %partner_lane = scf.if %low -> (index) {
             %next = index.add %lane, %half : index
             scf.yield %next : index
-          } else { scf.yield %pair : index }
+          } else {
+            scf.yield %pair : index
+          }
           %partner = index.add %head_base, %partner_lane : index
           %a = view.load %input_view[%row, %element] : view<3x256xf32> -> f32
           %b = view.load %input_view[%row, %partner] : view<3x256xf32> -> f32
@@ -84,20 +88,25 @@ func.def @factored.qk.expected(%use_factors: i1, %step: f32, %epoch: buffer, %in
             scf.yield %v : f32
           }
           scf.yield %rotated : f32
-        } else { scf.yield %zero_f : f32 }
+        } else {
+          scf.yield %zero_f : f32
+        }
         view.store %result, %out[%row, %element] : f32, view<3x256xf32>
       }
     }
   }
   func.return
 }
+
 command.decl @factored.qk.global() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer)
+
 func.def @factored.qk.expected.global(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
   %flag = scalar.constant true : i1
   %step = scalar.constant -0.21586735546588898 : f32
-  func.call @factored.qk.expected(%flag, %step, %epoch, %input, %gamma, %factors, %output) : (i1, f32, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @factored.qk.expected(%flag, %step, %epoch, %input, %gamma, %factors, %output) : (i1, f32, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @factored.qk.global_case {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(2) step(15) : tensor<5xi32>
@@ -110,7 +119,7 @@ check.scenario @factored.qk.global_case {
     %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
     %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
     check.compare<@factored.qk.global, @factored.qk.expected.global>(%epoch, %input, %gamma, %factors, %output) : (tensor<5xi32>, tensor<3x256xf32>, tensor<128xf32>, tensor<64xf32>, tensor<3x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.0001) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(2.0000000000000002e-05) rtol(0.0001) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -122,13 +131,16 @@ check.scenario @factored.qk.global_case {
   }
   check.return
 }
+
 command.decl @factored.qk.local() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer)
+
 func.def @factored.qk.expected.local(%epoch: buffer, %input: buffer, %gamma: buffer, %factors: buffer, %output: buffer) {
   %flag = scalar.constant false : i1
   %step = scalar.constant -0.14391157031059265 : f32
-  func.call @factored.qk.expected(%flag, %step, %epoch, %input, %gamma, %factors, %output) : (i1, f32, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @factored.qk.expected(%flag, %step, %epoch, %input, %gamma, %factors, %output) : (i1, f32, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @factored.qk.local_case {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(2) step(15) : tensor<5xi32>
@@ -141,7 +153,7 @@ check.scenario @factored.qk.local_case {
     %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
     %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
     check.compare<@factored.qk.local, @factored.qk.expected.local>(%epoch, %input, %gamma, %factors, %output) : (tensor<5xi32>, tensor<3x256xf32>, tensor<128xf32>, tensor<64xf32>, tensor<3x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.0001) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(2.0000000000000002e-05) rtol(0.0001) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -153,6 +165,7 @@ check.scenario @factored.qk.local_case {
   }
   check.return
 }
+
 // Independent uniform-attention oracle: the fixture's keys are zero, so every
 // included logical token has equal weight. No production softmax/map helpers.
 func.def @gated.expected(%window: index, %epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
@@ -221,19 +234,24 @@ func.def @gated.expected(%window: index, %epoch: buffer, %map: buffer, %query: b
           %sigmoid = scalar.divf %unit_f, %denom : f32
           %value = scalar.mulf %mean, %sigmoid : f32
           scf.yield %value : f32
-        } else { scf.yield %zero_f : f32 }
+        } else {
+          scf.yield %zero_f : f32
+        }
         view.store %result, %out[%row, %head, %lane] : f32, view<3x2x128xf32>
       }
     }
   }
   func.return
 }
+
 command.decl @gated.global() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+
 func.def @gated.expected.global(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
   %window = index.constant 0 : index
-  func.call @gated.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @gated.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @gated.global.page_boundary {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(2) step(61) : tensor<5xi32>
@@ -249,7 +267,7 @@ check.scenario @gated.global.page_boundary {
     %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
     %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
     check.compare<@gated.global, @gated.expected.global>(%epoch, %map, %query, %gate, %cache, %output) : (tensor<5xi32>, tensor<2xi32>, tensor<3x256xf32>, tensor<3x2xf32>, tensor<32784xf16>, tensor<3x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
@@ -264,12 +282,15 @@ check.scenario @gated.global.page_boundary {
   }
   check.return
 }
+
 command.decl @gated.local() launch(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer)
+
 func.def @gated.expected.local(%epoch: buffer, %map: buffer, %query: buffer, %gate: buffer, %cache: buffer, %output: buffer) {
   %window = index.constant 2 : index
-  func.call @gated.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer) -> ()
+  func.call @gated.expected(%window, %epoch, %map, %query, %gate, %cache, %output) : (index, buffer, buffer, buffer, buffer, buffer, buffer)
   func.return
 }
+
 check.scenario @gated.local.page_boundary {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %epoch = check.generate.iota offset(2) step(61) : tensor<5xi32>
@@ -285,7 +306,7 @@ check.scenario @gated.local.page_boundary {
     %suffix = check.tensor.view %storage offset(3088) : tensor<776xf32> -> tensor<4xf32>
     %inactive = check.tensor.view %output offset(2048) : tensor<3x256xf32> -> tensor<256xf32>
     check.compare<@gated.local, @gated.expected.local>(%epoch, %map, %query, %gate, %cache, %output) : (tensor<5xi32>, tensor<2xi32>, tensor<3x256xf32>, tensor<3x2xf32>, tensor<32784xf16>, tensor<3x256xf32>) -> () {
-      check.expect.approximate actual(%output) expected(%output) atol(0.00002) rtol(0.00002) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
+      check.expect.approximate actual(%output) expected(%output) atol(2.0000000000000002e-05) rtol(2.0000000000000002e-05) nan(same) : tensor<3x256xf32>, tensor<3x256xf32>
       check.expect.bitwise actual(%inactive) expected(%inactive) : tensor<256xf32>
       check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>

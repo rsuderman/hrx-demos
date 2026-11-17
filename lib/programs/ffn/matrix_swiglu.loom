@@ -2,11 +2,17 @@
 // SPDX-License-Identifier: MIT
 // Shared matrix SwiGLU sequence; callers bind actual GGUF facts and weights.
 func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
+
 template.decl @llm.projection.matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
 template.decl @llm.projection.gated_matrix(%rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %gate: view<[%weight_bytes]xi8>, %up: view<[%weight_bytes]xi8>, %output: buffer)
-kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)
-kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.residual(%rows: index, %width$22: index) launch(%width$23: index, %count: buffer, %source: buffer, %residual: buffer)
+
+kernel.decl @llm.decoder.rmsnorm_active(%rows$27: index, %width$28: index) launch(%rows$29: index, %width$30: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 template.decl @llm.ffn.matrix_swiglu(%rows: index, %hidden: index, %ffn: index, %epsilon: f32, %gt: index, %dt: index, %gb: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gb]xi8>, %up: view<[%gb]xi8>, %down: view<[%db]xi8>)
+
 template.def<@llm.ffn.matrix_swiglu> @llm_ffn_matrix_swiglu(%rows: index, %hidden: index, %ffn: index, %epsilon: f32, %gt: index, %dt: index, %gb: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gb]xi8>, %up: view<[%gb]xi8>, %down: view<[%db]xi8>) where [range(%rows, 1, 512)] {
   %word = index.constant 4 : offset
   %physical_rows = func.call pure @llm.projection.matrix_output_rows(%rows) : (index) -> (index)

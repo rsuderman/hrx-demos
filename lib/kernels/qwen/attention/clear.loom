@@ -3,6 +3,7 @@
 // Initialize every transient row consumed by dense output projection. The
 // following span attention writes only active N; no persistent bytes are touched.
 config.decl @qwen.model.attention_width : index
+
 kernel.def @qwen38_attention_clear_attended(%token_capacity: index) {
   %tokens = index.assume %token_capacity [range(%token_capacity, 1, 512)] : index
   %one = index.constant 1 : index

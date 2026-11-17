@@ -1,5 +1,7 @@
 template.decl @ggml.quantize_q8_1_x4.group_body_policy(%native_estimate: i1, %mmq_estimate: i1, %publish_output: i1, %group_count0: index, %group0: index, %input: buffer, %output: buffer)
+
 template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_block: index, %word_in_block: index) -> (vector<4xi8>, f32)
+
 template.decl @ggml.quantize_q8_1_x4.group_body(%publish_output: i1, %group_count0: index, %group0: index, %input: buffer, %output: buffer)
 
 // Defines GGML's block_q8_1_x4 physical-layout accessors and packs contiguous
@@ -198,7 +200,7 @@ template.def<@ggml.quantize_q8_1_x4.group_body_policy> device @ggml_quantize_q8_
     } else {
       %d = scf.if %native_estimate -> (f32) {
         // F32(1/127), paired with the native reciprocal MMVQ policy.
-        %one_over_127 = scalar.constant 0.007874015718698502 : f32
+        %one_over_127 = scalar.constant 0.0078740157186985016 : f32
         %estimate_d = scalar.mulf %amax, %one_over_127 : f32
         scf.yield %estimate_d : f32
       } else {

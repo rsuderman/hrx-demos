@@ -4,10 +4,13 @@ config.decl @qwen.model.hidden_qk_blocks : index
 config.decl @qwen.model.embedding_row_bytes : index
 
 config.decl @qwen.model.embedding_chunks : index
+
 config.decl @qwen.model.hidden_row_bytes : index
+
 config.decl @qwen.model.hidden_size : index
 
 template.decl @ggml.q5k.chunk(%weight: buffer, %row_byte_base: offset, %q5_block: index, %q5_group: index, %q5_half: index) -> (vector<16xi8>, f32, f32)
+
 template.decl @qwen38.token_embedding_q5k_f32.row(%token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
 
 // Exact Qwen3.8 Q5_K token embedding gather.
@@ -15,7 +18,6 @@ template.decl @qwen38.token_embedding_q5k_f32.row(%token_id_i32: i32, %output_by
 // Token IDs remain device resident across generation steps. Each workgroup
 // gathers one immutable GGUF embedding row and expands it directly to the F32
 // residual ABI consumed by the base-model command programs.
-
 // Expands one selected embedding row at an explicit output byte offset. The
 // prefill and decode wrappers differ only in how they select that row.
 template.decl @llm.token_embedding_q5k_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
@@ -94,10 +96,13 @@ kernel.def export("qwen38_token_embedding_q5k_f32_decode") @qwen38_token_embeddi
 // The 0.8B checkpoint stores Q6_K embeddings. Reuse the existing FP16
 // staging decoder, including its FP16 rounding, then widen to the residual ABI.
 template.decl @ggml.q6k.f16_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf16>)
+
 template.decl @qwen38.token_embedding_q6k_f16.row(%token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
 
 template.decl @llm.token_embedding_q6k_f16.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
+
 template.decl @llm.token_embedding_q6k_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %weight: buffer, %output: buffer)
+
 template.decl @ggml.q6k.f32_vector4(%weight: buffer, %weight_row_byte_base: offset, %q6_block: index, %q6_group: index, %packet: index) -> (vector<4xf32>)
 
 // F16 staging and true F32 lookup are distinct numerical contracts.

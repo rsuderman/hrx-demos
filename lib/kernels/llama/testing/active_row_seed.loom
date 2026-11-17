@@ -27,6 +27,7 @@ kernel.def @test.seed_active_f32(%rows0: index, %width0: index) {
   view.store %v, %target[%destination, %col] : f32, view<[%capacity]x[%width]xf32>
   kernel.return
 }
+
 kernel.def @test.seed_active_i32(%rows0: index) {
   %one = index.constant 1 : index
   %bounded_rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
@@ -68,14 +69,18 @@ kernel.def @test.compare_ffn(%rows0: index, %capacity0: index) {
       %relative = index.sub %r, %begin : index
       %in = index.cmp ult, %relative, %rows : index
       scf.yield %in : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     %row_valid = scf.for %c = [%zero to %residual_width step %one](%ok = %valid : i1) -> (i1) {
       %expected = scf.if %active -> (f32) {
         %relative0 = index.sub %r, %begin : index
         %relative = index.assume %relative0 [range(%relative0, 0, 511), lt(%relative0, %rows)] : index
         %v = view.load %c_residual[%relative, %c] : view<[%rows]x3072xf32> -> f32
         scf.yield %v : f32
-      } else { scf.yield %canary : f32 }
+      } else {
+        scf.yield %canary : f32
+      }
       %actual = view.load %a_residual[%r, %c] : view<[%capacity]x3072xf32> -> f32
       %equal = scalar.cmpf oeq, %actual, %expected : f32
       %next = scalar.andi %ok, %equal : i1
@@ -92,14 +97,18 @@ kernel.def @test.compare_ffn(%rows0: index, %capacity0: index) {
       %relative = index.sub %r, %begin : index
       %in = index.cmp ult, %relative, %rows : index
       scf.yield %in : i1
-    } else { scf.yield %false : i1 }
+    } else {
+      scf.yield %false : i1
+    }
     %row_valid = scf.for %c = [%zero to %swiglu_width step %one](%ok = %valid : i1) -> (i1) {
       %expected = scf.if %active -> (f32) {
         %relative0 = index.sub %r, %begin : index
         %relative = index.assume %relative0 [range(%relative0, 0, 511), lt(%relative0, %rows)] : index
         %v = view.load %c_swiglu[%relative, %c] : view<[%rows]x8192xf32> -> f32
         scf.yield %v : f32
-      } else { scf.yield %canary : f32 }
+      } else {
+        scf.yield %canary : f32
+      }
       %actual = view.load %a_swiglu[%r, %c] : view<[%capacity]x8192xf32> -> f32
       %equal = scalar.cmpf oeq, %actual, %expected : f32
       %next = scalar.andi %ok, %equal : i1

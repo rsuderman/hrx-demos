@@ -9,11 +9,9 @@ template.decl @ggml.qk.unsigned_q8_1_dot(%quantized_values: vector<16xi8>, %d_sc
 // Shared physical-layout helpers for GGML's unsigned K-quant blocks. Q4_K and
 // Q5_K use the same block-wide half scales and eight packed six-bit
 // scale/minimum pairs; only their quantized code payloads differ.
-
 // Decodes the physical scale and minimum for one 32-value group. The caller
 // supplies the byte base of a Q4_K or Q5_K block, both of which place `d`,
 // `dmin`, and `scales[12]` at the same offsets.
-
 template.def<@ggml.qk.scale_min> device @ggml_qk_scale_min(%weight: buffer, %block_byte_base: offset, %group: index) -> (f32, f32) {
   %c4 = index.constant 4 : index
   %scale_byte_add = index.constant 4 : offset
@@ -68,7 +66,6 @@ template.def<@ggml.qk.scale_min> device @ggml_qk_scale_min(%weight: buffer, %blo
 // Contracts one 16-value unsigned K-quant half-group with Q8_1. Paired lanes
 // use the same minimum and each apply half the Q8_1 block sum; their subgroup
 // reduction therefore applies the 32-value minimum correction exactly once.
-
 template.def<@ggml.qk.unsigned_q8_1_dot> device @ggml_qk_unsigned_q8_1_dot(%quantized_values: vector<16xi8>, %d_scale: f32, %dmin_scale: f32, %q8_values: vector<16xi8>, %q8_d: f32, %q8_s: f32) -> (f32) {
   %c0_i32 = scalar.constant 0 : i32
   %c0_i32v = vector.splati 0 : vector<4xi32>

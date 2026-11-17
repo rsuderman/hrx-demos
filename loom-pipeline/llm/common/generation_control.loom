@@ -51,7 +51,6 @@ func.def public @generation.copy_tokens(%source: buffer, %source_origin: offset,
     %target = index.assume %target_value [range(%target_value, 5, 20)] : index
     %token = view.load %tokens[%i] : view<[%count]xi32> -> i32
     view.store %token, %published[%row, %target] : i32, view<16x21xi32>
-    scf.yield
   }
   func.return
 }
@@ -66,4 +65,3 @@ func.def public @generation.plan_step(%initialize: i32, %source_position: i32, %
   %next_source_position = scalar.addi %source_position, %input_count : i32
   func.return %stage, %next_source_position : i32, i32
 }
-

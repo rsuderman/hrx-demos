@@ -171,7 +171,7 @@ func.def inline @ggml_q6k_f32_row_lane2(%input_size: index, %input: buffer, %inp
   %block_in_iteration = index.div %lane, %c16 : index
   %lane_in_block0 = index.rem %lane, %c16 : index
   %lane_in_block = index.assume %lane_in_block0 [range(%lane_in_block0, 0, 15)] : index
-  %row0, %row1 = scf.for %iteration = [%c0 to %iteration_count step %c1](%row0_acc = %c0_f32, %row1_acc = %c0_f32 : f32, f32) -> (f32, f32) {
+  %row0, %row1 = scf.for %iteration = [%c0 to %iteration_count step %c1](%row0_acc = %c0_f32 : f32, %row1_acc = %c0_f32 : f32) -> (f32, f32) {
     %block_base = index.mul %iteration, %blocks_per_iteration : index
     %block0 = index.add %block_base, %block_in_iteration : index
     %valid_block = index.cmp ult, %block0, %block_count : index
@@ -208,7 +208,7 @@ func.def inline @ggml_q6k_f32_row_lane2_m4(%input_size: index, %input: buffer, %
   %block_in_iteration = index.div %lane, %c16 : index
   %lane_in_block0 = index.rem %lane, %c16 : index
   %lane_in_block = index.assume %lane_in_block0 [range(%lane_in_block0, 0, 15)] : index
-  %token0_row0, %token0_row1, %token1_row0, %token1_row1, %token2_row0, %token2_row1, %token3_row0, %token3_row1 = scf.for %iteration = [%c0 to %iteration_count step %c1](%token0_row0_acc = %c0_f32, %token0_row1_acc = %c0_f32, %token1_row0_acc = %c0_f32, %token1_row1_acc = %c0_f32, %token2_row0_acc = %c0_f32, %token2_row1_acc = %c0_f32, %token3_row0_acc = %c0_f32, %token3_row1_acc = %c0_f32 : f32, f32, f32, f32, f32, f32, f32, f32) -> (f32, f32, f32, f32, f32, f32, f32, f32) {
+  %token0_row0, %token0_row1, %token1_row0, %token1_row1, %token2_row0, %token2_row1, %token3_row0, %token3_row1 = scf.for %iteration = [%c0 to %iteration_count step %c1](%token0_row0_acc = %c0_f32 : f32, %token0_row1_acc = %c0_f32 : f32, %token1_row0_acc = %c0_f32 : f32, %token1_row1_acc = %c0_f32 : f32, %token2_row0_acc = %c0_f32 : f32, %token2_row1_acc = %c0_f32 : f32, %token3_row0_acc = %c0_f32 : f32, %token3_row1_acc = %c0_f32 : f32) -> (f32, f32, f32, f32, f32, f32, f32, f32) {
     %block_base = index.mul %iteration, %blocks_per_iteration : index
     %block0 = index.add %block_base, %block_in_iteration : index
     %valid_block = index.cmp ult, %block0, %block_count : index

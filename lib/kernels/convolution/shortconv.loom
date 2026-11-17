@@ -5,6 +5,7 @@
 // A channel-owning thread computes the ordered chunk in registers, then commits
 // all six history samples. Fresh position zero never reads poisoned old state.
 func.decl @llm.decoder.active_row(%row: index, %rows: index, %count: buffer) -> (i1)
+
 kernel.def @llm.convolution.shortconv7(%rows0: index, %width0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
   %width = index.assume %width0 [range(%width0, 256, 32768), multiple_of(%width0, 256)] : index
@@ -35,47 +36,71 @@ kernel.def @llm.convolution.shortconv7(%rows0: index, %width0: index) {
   %bcx = buffer.view %input[%origin] : buffer -> view<[%rows]x3x[%width]xf32>
   %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
   %old0 = scf.if %active -> (f32) {
-    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+    %v = scf.if %fresh -> (f32) {
+      scf.yield %zero_f : f32
+    } else {
       %h = view.load %history[0, %channel] : view<6x[%width]xf32> -> f32
       scf.yield %h : f32
     }
     scf.yield %v : f32
-  } else { scf.yield %zero_f : f32 }
+  } else {
+    scf.yield %zero_f : f32
+  }
   %old1 = scf.if %active -> (f32) {
-    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+    %v = scf.if %fresh -> (f32) {
+      scf.yield %zero_f : f32
+    } else {
       %h = view.load %history[1, %channel] : view<6x[%width]xf32> -> f32
       scf.yield %h : f32
     }
     scf.yield %v : f32
-  } else { scf.yield %zero_f : f32 }
+  } else {
+    scf.yield %zero_f : f32
+  }
   %old2 = scf.if %active -> (f32) {
-    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+    %v = scf.if %fresh -> (f32) {
+      scf.yield %zero_f : f32
+    } else {
       %h = view.load %history[2, %channel] : view<6x[%width]xf32> -> f32
       scf.yield %h : f32
     }
     scf.yield %v : f32
-  } else { scf.yield %zero_f : f32 }
+  } else {
+    scf.yield %zero_f : f32
+  }
   %old3 = scf.if %active -> (f32) {
-    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+    %v = scf.if %fresh -> (f32) {
+      scf.yield %zero_f : f32
+    } else {
       %h = view.load %history[3, %channel] : view<6x[%width]xf32> -> f32
       scf.yield %h : f32
     }
     scf.yield %v : f32
-  } else { scf.yield %zero_f : f32 }
+  } else {
+    scf.yield %zero_f : f32
+  }
   %old4 = scf.if %active -> (f32) {
-    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+    %v = scf.if %fresh -> (f32) {
+      scf.yield %zero_f : f32
+    } else {
       %h = view.load %history[4, %channel] : view<6x[%width]xf32> -> f32
       scf.yield %h : f32
     }
     scf.yield %v : f32
-  } else { scf.yield %zero_f : f32 }
+  } else {
+    scf.yield %zero_f : f32
+  }
   %old5 = scf.if %active -> (f32) {
-    %v = scf.if %fresh -> (f32) { scf.yield %zero_f : f32 } else {
+    %v = scf.if %fresh -> (f32) {
+      scf.yield %zero_f : f32
+    } else {
       %h = view.load %history[5, %channel] : view<6x[%width]xf32> -> f32
       scf.yield %h : f32
     }
     scf.yield %v : f32
-  } else { scf.yield %zero_f : f32 }
+  } else {
+    scf.yield %zero_f : f32
+  }
   %next0, %next1, %next2, %next3, %next4, %next5 = scf.for %row = [%zero to %rows step %one](%h0 = %old0 : f32, %h1 = %old1 : f32, %h2 = %old2 : f32, %h3 = %old3 : f32, %h4 = %old4 : f32, %h5 = %old5 : f32) -> (f32, f32, f32, f32, f32, f32) {
     %live = func.call @llm.decoder.active_row(%row, %rows, %count) : (index, index, buffer) -> (i1)
     %n0, %n1, %n2, %n3, %n4, %n5 = scf.if %live -> (f32, f32, f32, f32, f32, f32) {

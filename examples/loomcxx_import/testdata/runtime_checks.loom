@@ -20,7 +20,6 @@ func.def @expected_affine(%input: buffer, %output: buffer) {
     %scaled = scalar.muli %x, %factor : i32
     %result = scalar.addi %scaled, %bias : i32
     view.store %result, %dst[%i] : i32, view<11xi32>
-    scf.yield
   }
   func.return
 }

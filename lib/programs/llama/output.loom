@@ -1,8 +1,10 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Llama normalization adapter for the shared Q6 last-active head.
-kernel.decl @llama32_output_norm_last_f32(%capacity: index) launch(%capacity: index, %begin: index, %origin: offset, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+kernel.decl @llama32_output_norm_last_f32(%capacity$0: index) launch(%capacity$1: index, %begin: index, %origin: offset, %control: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 template.decl @llm.output.norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer)
+
 template.def<@llm.output.norm_last> @loomify_llama_output_norm_last(%capacity: index, %begin: index, %origin: offset, %hidden: index, %control: buffer, %input: buffer, %gamma: view<[%hidden]xf32>, %output: buffer) {
   kernel.launch @llama32_output_norm_last_f32[%capacity](%capacity, %begin, %origin, %control, %input, %gamma, %output) : [index](index, index, offset, buffer, buffer, view<[%hidden]xf32>, buffer)
   template.return

@@ -1,18 +1,31 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 config.decl @qwen3.model.hidden_size : index
+
 config.decl @qwen3.model.query_size : index
+
 config.decl @qwen3.model.kv_size : index
+
 config.decl @qwen3.model.head_size : index
+
 config.decl @qwen3.model.query_heads : index
+
 config.decl @qwen3.model.kv_heads : index
+
 config.decl @qwen3.model.layer_count : index
+
 config.decl @qwen3.model.rms_epsilon : f32
+
 config.decl @qwen3.model.rope_log_step : f32
+
 config.decl @qwen3.model.attention_scale : f32
-kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows: index, %width: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.rmsnorm_active(%rows$10: index, %width$11: index) launch(%rows$12: index, %width$13: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
 command.decl @loomify.qwen3.attention(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %normalized: buffer, %residual: buffer, %count: buffer, %control: buffer, %map: buffer, %cache: buffer)
+
 command.decl @loomify.qwen3.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer)
+
 command.def @loomify.qwen3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
   %hidden = config.get @qwen3.model.hidden_size : index
   %epsilon = config.get @qwen3.model.rms_epsilon : f32

@@ -6,20 +6,29 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.gdn_gate_capture_elements : index
+
 config.decl @qwen.model.gdn_gate_row_bytes : index
 
 config.decl @qwen.model.gdn_column_tiles : index
+
 config.decl @qwen.model.gdn_gate_span_bytes : index
+
 config.decl @qwen.model.gdn_key_heads : index
+
 config.decl @qwen.model.gdn_qkv_capture_bytes : index
+
 config.decl @qwen.model.gdn_value_heads : index
 
 config.decl @qwen.model.gdn_capture_qkv_elements : index
 
 func.decl @qwen38_span_active(%epoch: buffer, %span: index) -> (i1)
+
 func.decl @qwen38_span_binding(%epoch: buffer, %span: index) -> (offset, index, index)
+
 func.decl @qwen38_row_gdn_binding(%epoch: buffer, %control_origin: offset, %rows: buffer, %row: index, %layer_origin: offset) -> (offset, offset, i1)
+
 template.decl @qwen38.gdn_conv_prepare_prefill.body(%publish: i1, %head: index, %thread: index, %epoch: buffer, %epsilon: f32, %qkv: buffer, %weight: buffer, %state: buffer, %output: buffer, %inverse_norm: buffer, %control_origin: offset, %token_begin: index, %history_origin: offset, %next_history_origin: offset)
+
 template.decl @qwen38.gdn_recurrent_prefill_x4.body(%publish: i1, %head: index, %column: index, %lane: index, %epoch: buffer, %qkv: buffer, %inverse_norm: buffer, %alpha: buffer, %beta: buffer, %a: buffer, %bias: buffer, %state: buffer, %output: buffer, %control_origin: offset, %token_begin: index, %state_origin: offset, %next_state_origin: offset)
 
 // Verification extends the immutable epoch after its 64 selected-row slots:

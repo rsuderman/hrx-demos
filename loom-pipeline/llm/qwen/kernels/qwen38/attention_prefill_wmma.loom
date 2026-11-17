@@ -10,11 +10,15 @@
 
 // Model geometry is supplied by the selected architecture catalog.
 config.decl @qwen.model.kv_heads : index
+
 config.decl @qwen.model.attention_heads : index
+
 config.decl @qwen.model.head_size : index
+
 config.decl @qwen.model.kv_size : index
 
 config.decl @qwen.model.attention_scale : f32
+
 config.decl @qwen.model.attention_width : index
 
 amdgpu.target<gfx11-generic> @qwen38_attention_prefill_gfx11_wave64 {subgroup_size = 64}

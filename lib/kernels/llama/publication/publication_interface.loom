@@ -1,3 +1,4 @@
 // SPDX-License-Identifier: MIT
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
+
 kernel.decl @llama32_publish_epoch_id() launch(%epoch: buffer, %selected_ids: buffer, %output_ids: buffer)

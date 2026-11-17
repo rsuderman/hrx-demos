@@ -21,7 +21,8 @@ template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocabul
 
 command.decl @loomify.lfm2.head(%rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer, %selected_ids: buffer)
 
-kernel.decl @loomify.lfm2.validate_chunk(%rows: index, %capacity: index) launch(%rows: index, %capacity: index, %origin: offset, %count: buffer, %epoch: buffer, %checked_count: buffer, %checked_epoch: buffer)
+kernel.decl @loomify.lfm2.validate_chunk(%rows$35: index, %capacity$36: index) launch(%rows$37: index, %capacity$38: index, %origin: offset, %count: buffer, %epoch: buffer, %checked_count: buffer, %checked_epoch: buffer)
+
 config.decl @lfm2.attention.cache_capacity : index
 
 command.def @loomify.lfm2.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %input_ids: buffer, %selected_ids: buffer) {

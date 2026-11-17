@@ -1,5 +1,7 @@
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%capacity: index, %input_size: index) launch(%capacity: index, %input_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%capacity: index, %input_size: index, %output_size: index) launch(%capacity: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%capacity$0: index, %input_size$1: index) launch(%capacity$2: index, %input_size$3: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%capacity$10: index, %input_size$11: index, %output_size$12: index) launch(%capacity$13: index, %input_size$14: index, %output_size$15: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
 // Shared deterministic output sequence for canonical Q6_K weights.
 // Model adapters bind tied/untied weights and normalization. Explicit F32 row
 // geometry, packed strides and a static schedule choice own this composition.
@@ -8,13 +10,19 @@ kernel.decl @ggml_linear_q6k_q8_1_x4_compat(%capacity: index, %input_size: index
 // T is1..64, H is a full K256 width, and partial-row bytes are ceil(V/4096)*4.
 // Normalized input, immutable weights and output IDs are disjoint; logits and
 // packing/reduction scratch are transient command-local storage.
-kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count: index, %input_size: index) launch(%token_count: index, %input_size: index, %input: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count: index, %input_size: index, %output_size: index) launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_f32(%token_count$23: index, %input_size$24: index) launch(%token_count$25: index, %input_size$26: index, %input: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4(%token_count$29: index, %input_size$30: index, %output_size$31: index) launch(%token_count$32: index, %input_size$33: index, %output_size$34: index, %input: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @ggml_linear_q6k_q8_1_x4_m4(%token_count$38: index, %input_size$39: index, %output_size$40: index) launch(%token_count$41: index, %input_size$42: index, %output_size$43: index, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_output_projection_q6k_m8(%vocabulary_size: index) launch(%input: buffer, %weight: buffer, %output: buffer)
+
 kernel.decl @qwen38_output_projection_q6k_m32(%vocabulary_size: index) launch(%input: buffer, %weight: buffer, %output: buffer)
-kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count: index, %output_size: index) launch(%token_count: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
-kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count: index, %output_size: index) launch(%token_count: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_partial_rows_f32(%token_count$55: index, %output_size$56: index) launch(%token_count$57: index, %output_size$58: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer)
+
+kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%token_count$62: index, %output_size$63: index) launch(%token_count$64: index, %output_size$65: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer)
 
 template.decl @llm.output.project_greedy(%token_count: index, %normalized_origin: offset, %output_origin: offset, %shape_hidden_size: index, %shape_vocabulary_size: index, %shape_argmax_partial_row_bytes: index, %shape_hidden_q8_row_bytes: index, %shape_logits_row_bytes: index, %shape_output_weight_bytes: index, %use_grouped_projection: i1, %use_mmvq_compat: i1, %output_weight: view<[%shape_output_weight_bytes]xi8>, %normalized: buffer, %token_id: buffer)
 

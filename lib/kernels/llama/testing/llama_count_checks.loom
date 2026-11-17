@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 command.decl @native.count.prefill() launch(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer)
+
 func.def @reference_prefill(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -24,6 +25,7 @@ func.def @reference_prefill(%raw: buffer, %control: buffer, %history: buffer, %p
   view.store %generated, %c[1] : i32, view<3xi32>
   func.return
 }
+
 check.scenario @count_replay_prefill {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %raw = check.generate.fill value(7) : tensor<1xi32>
@@ -43,7 +45,9 @@ check.scenario @count_replay_prefill {
   }
   check.return
 }
+
 command.decl @native.count.decode() launch(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer)
+
 func.def @reference_decode(%raw: buffer, %control: buffer, %history: buffer, %progress: buffer, %first: buffer, %second: buffer) {
   %origin = index.constant 0 : offset
   %c = buffer.view %control[%origin] : buffer -> view<3xi32>
@@ -67,6 +71,7 @@ func.def @reference_decode(%raw: buffer, %control: buffer, %history: buffer, %pr
   view.store %generated, %c[1] : i32, view<3xi32>
   func.return
 }
+
 check.scenario @count_replay_decode {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %raw = check.generate.fill value(7) : tensor<1xi32>

@@ -21,7 +21,6 @@ template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_
 // by dense and routed projections; prefill schedules can reuse the inline
 // packed-row primitive while staging weights across multiple activation rows.
 // The shared packer is linked beside this module.
-
 template.def<@ggml.q6k.sign_extend_dot4> device @ggml_q6k_sign_extend_dot4(%code: vector<1xi32>) -> (vector<4xi8>) {
   %c1_i32v = vector.splati 1 : vector<1xi32>
   %c2_i32v = vector.splati 2 : vector<1xi32>
@@ -44,7 +43,6 @@ template.def<@ggml.q6k.sign_extend_dot4> device @ggml_q6k_sign_extend_dot4(%code
 // The group and packet coordinates match the contiguous K dimension
 // consumed by WMMA tiles, unlike the lane/part mapping used by the Q8_1 dot
 // contraction below.
-
 func.def public inline @ggml_q6k_q8_1_x4_block_lane(%weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %q6_block: index, %lane: index) -> (f32) {
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
@@ -125,7 +123,6 @@ func.def public inline @ggml_q6k_q8_1_x4_block_lane(%weight: buffer, %weight_row
 
 // Computes one lane's partial for a complete Q6_K row. Callers choose how
 // rows and activations are tiled, then reduce the returned value by subgroup.
-
 func.def public inline @ggml_q6k_q8_1_x4_row_lane(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane: index) -> (f32) {
   %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
   %c0 = index.constant 0 : index
@@ -140,8 +137,3 @@ func.def public inline @ggml_q6k_q8_1_x4_row_lane(%input_size: index, %weight: b
   }
   func.return %result : f32
 }
-
-// Computes four activation rows for one output channel. Inlining exposes the
-// common immutable Q6_K loads from the four contractions to canonical CSE;
-// the resulting target program retains four independent accumulators while
-// issuing one weight-packet load sequence.
