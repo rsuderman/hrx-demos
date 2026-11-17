@@ -6,6 +6,58 @@
 
 namespace hrx::loomify_gguf::jinja::internal {
 
+bool ToJsonIndent(const Expr &expression, int64_t *indent) {
+  if (!indent || expression.kind != Expr::Kind::Filter ||
+      expression.text != "tojson" || expression.args.empty())
+    return false;
+  int64_t mode = -1;
+  bool formatting = false, ensure_ascii = false;
+  for (size_t i = 1; i < expression.args.size(); ++i) {
+    const auto &arg = expression.args[i];
+    std::string_view keyword = i < expression.keywords.size()
+                                   ? expression.keywords[i]
+                                   : std::string_view{};
+    // HF's override is tojson(value, ensure_ascii=False, indent=None, ...),
+    // unlike stock Jinja's tojson(value, indent=None). Bind only the two
+    // supported positional options rather than interpreting the first as
+    // indent.
+    if (keyword.empty()) {
+      if (i == 1)
+        keyword = "ensure_ascii";
+      else if (i == 2)
+        keyword = "indent";
+      else
+        return false;
+    }
+    if (keyword == "ensure_ascii") {
+      if (ensure_ascii || arg.kind != Expr::Kind::Boolean ||
+          arg.text != "false")
+        return false;
+      ensure_ascii = true;
+      continue;
+    }
+    // The public helper has one formatting mode: indent and separators cannot
+    // be combined, and a positional indent cannot be supplied twice.
+    if (formatting)
+      return false;
+    if (keyword == "indent" && arg.kind == Expr::Kind::Integer &&
+        (arg.text == "2" || arg.text == "4")) {
+      mode = arg.text == "2" ? 2 : 4;
+    } else if (keyword == "separators" && arg.kind == Expr::Kind::Tuple &&
+               arg.args.size() == 2 && arg.args[0].kind == Expr::Kind::String &&
+               arg.args[1].kind == Expr::Kind::String &&
+               ((arg.args[0].text == "," && arg.args[1].text == ":") ||
+                (arg.args[0].text == ", " && arg.args[1].text == ": "))) {
+      mode = arg.args[0].text == "," ? -2 : -1;
+    } else {
+      return false;
+    }
+    formatting = true;
+  }
+  *indent = mode;
+  return true;
+}
+
 bool SourceTemplate::Parse(std::string_view source,
                            std::string_view source_name,
                            std::unique_ptr<SourceTemplate> *out,

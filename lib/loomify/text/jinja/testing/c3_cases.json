@@ -258,6 +258,22 @@
     }
   },
   {
+    "id": "json-literal-options",
+    "source": "{{ value|tojson(ensure_ascii=False) }}|{{ value|tojson(indent=2) }}|{{ value|tojson(indent=2, ensure_ascii=False) }}|{{ value|tojson(ensure_ascii=False, indent=2) }}|{{ value|tojson(indent=4, ensure_ascii=False) }}|{{ value|tojson(ensure_ascii=false, indent=4) }}|{{ value|tojson(separators=(',', ':'), ensure_ascii=False) }}|{{ value|tojson(ensure_ascii=False, separators=(', ', ': ')) }}|{{ value|tojson(False) }}|{{ value|tojson(False, 2) }}",
+    "environment": {
+      "value": {
+        "é": [1, true, null, {"quoted": "[{},:] \" \\ 🌍"}],
+        "empty_array": [],
+        "empty_object": {}
+      }
+    }
+  },
+  {
+    "id": "json-pretty-scalar-and-empty",
+    "source": "{{ value|tojson(indent=2, ensure_ascii=False) }}|{{ none|tojson(indent=2) }}|{{ []|tojson(indent=2) }}|{{ {}|tojson(indent=2) }}",
+    "environment": {"value": "[{},:] \" \\ é🌍"}
+  },
+  {
     "id": "template-mutation-original",
     "source": "{% macro title(x='old') %}{{ x }}{% endmacro %}{{ title() }}",
     "environment": {}

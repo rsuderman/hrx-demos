@@ -4,6 +4,7 @@
 #define HRX_SOLUTIONS_LIB_LOOMIFY_TEXT_JINJA_SOURCE_TEMPLATE_H_
 
 #include <map>
+#include <cstdint>
 #include <memory>
 #include <set>
 #include <string>
@@ -13,6 +14,11 @@
 #include "lib/loomify/text/jinja/parser.h"
 
 namespace hrx::loomify_gguf::jinja::internal {
+
+// Recognizes the literal JSON formatting subset shared by lowering and codec
+// analysis. On failure leaves indent unchanged. Modes are default(-1),
+// compact(-2), or pretty-print widths 2 and 4.
+bool ToJsonIndent(const Expr &expression, int64_t *indent);
 
 // Owns immutable original syntax and source-only analysis indexes. These
 // indexes do not replace validation of each renderer/selector/recipe AST by

@@ -33,6 +33,7 @@ cc_test(
     ],
     linkstatic = True,
     deps = [
+        "//lib/loomify:template_analysis",
         "//lib/loomify:template_probe_runner",
         "//lib/loomify/text/jinja:compiler",
         "//lib/loomify/text/jinja:format_analysis",

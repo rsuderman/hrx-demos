@@ -52,6 +52,10 @@ struct Value {
   size_t prefix_drop = 0;
   bool append_preserving = true;
   bool target_ordinal = false;
+  // Equality of this scalar before/after appending this Analysis mode's target.
+  // Derived from source, never from Origin::Request or folded truth alone.
+  bool append_invariant = false;
+  bool root_index_identity = false;
   std::vector<Expr> target_survival;
   // Original source expression with only last-sensitive local aliases expanded.
   // This is provenance for compiler lowering, not a second evaluator.
@@ -82,6 +86,8 @@ struct Path {
   std::vector<std::pair<size_t, Expr>> retained_validations;
   TextAdaptation adaptation;
   bool rejected = false;
+  // Only the original root's explicit empty-history rejection establishes this.
+  bool source_nonempty = false;
   std::optional<Expr> rejection;
   std::map<Origin, unsigned> domains;
   std::map<Origin, bool> future_truth;
@@ -587,6 +593,7 @@ public:
     Path initial;
     initial.bindings["messages"] = {Origin::Messages, Name("messages")};
     initial.bindings["messages"].truth = true;
+    initial.bindings["messages"].root_index_identity = true;
     initial.bindings["messages"].defined = true;
     // The shared LIVE/COMPLETED environment always supplies the generation
     // control. Unlike ordinary kwargs, it is not an omitted source option.
@@ -798,6 +805,7 @@ public:
     initial.bindings["messages"] = {Origin::Messages, Name("messages")};
     initial.bindings["messages"].defined = true;
     initial.bindings["messages"].truth = true;
+    initial.bindings["messages"].root_index_identity = true;
     initial.bindings["add_generation_prompt"] =
         Constant(true, Name("add_generation_prompt"));
     for (const auto &[name, bytes] : globals_.strings)
@@ -1242,7 +1250,7 @@ private:
   }
   void JoinBindings(const Expr &condition, const Bindings &yes,
                     const Bindings &no, Bindings *out, bool module = false,
-                    size_t join_offset = 0) {
+                    size_t join_offset = 0, bool invariant_condition = false) {
     std::set<std::string> names;
     for (const auto &[name, value] : yes)
       names.insert(name);
@@ -1315,7 +1323,10 @@ private:
           (*out)[name] = std::move(sequence);
           continue;
         }
-        if (module && !Relevant(name, literal_needed_) &&
+        const bool invariant_join = invariant_condition &&
+                                    a->second.append_invariant &&
+                                    b->second.append_invariant;
+        if (module && !invariant_join && !Relevant(name, literal_needed_) &&
             (CountDependent(condition) ||
              CountDependent(a->second.expression) ||
              CountDependent(b->second.expression)) &&
@@ -1331,6 +1342,7 @@ private:
           // The original source prelude already owns this runtime phi. Do not
           // recursively substitute its computation into every later read.
           Value reference{Origin::Request, Name(name)};
+          reference.append_invariant = invariant_join;
           if (a->second.boolean && b->second.boolean &&
               *a->second.boolean == *b->second.boolean)
             reference.boolean = a->second.boolean;
@@ -1345,6 +1357,9 @@ private:
           (*out)[name] = std::move(reference);
         } else {
           (*out)[name] = Phi(condition, a->second, b->second);
+          (*out)[name].append_invariant = invariant_join;
+          (*out)[name].root_index_identity =
+              a->second.root_index_identity && b->second.root_index_identity;
           if (module && (*out)[name].origin == Origin::Request)
             (*out)[name].expression = Name(name);
         }
@@ -4034,17 +4049,112 @@ private:
   bool MentionsGeneration(const Expr &expression) const {
     return ContainsName(expression, "add_generation_prompt");
   }
-  std::string BranchSnapshot(const Node &node, const Expr &condition) {
+  bool RootMessageSequence(const Expr &expression, const Path &path) const {
+    if (expression.kind != Expr::Kind::Name)
+      return false;
+    const auto binding = path.bindings.find(expression.text);
+    return binding != path.bindings.end() &&
+           binding->second.origin == Origin::Messages &&
+           binding->second.root_index_identity;
+  }
+  // Finite positive role sets, all excluding the actual appended target role.
+  // Return their one unchanged root-message index; no arbitrary list analysis.
+  std::optional<int64_t> PrefixRoleIndex(const Expr &expression,
+                                         const Path &path) const {
+    if (expression.kind != Expr::Kind::Binary || expression.args.size() != 2)
+      return std::nullopt;
+    if (expression.text == "or") {
+      const auto a = PrefixRoleIndex(expression.args[0], path);
+      const auto b = PrefixRoleIndex(expression.args[1], path);
+      return a && b && *a == *b ? a : std::nullopt;
+    }
+    const auto &role = expression.args[0];
+    const auto member = MemberName(role);
+    if (!member || *member != "role" || role.args.empty())
+      return std::nullopt;
+    const auto &item = role.args[0];
+    if (item.kind != Expr::Kind::GetItem || item.args.size() != 2 ||
+        !RootMessageSequence(item.args[0], path))
+      return std::nullopt;
+    const auto index = GuardInteger(item.args[1]);
+    if (!index || *index < 0)
+      return std::nullopt;
+    const auto target = continuation_mode_ ? "user" : "assistant";
+    const auto excluded = [&](const Expr &value) {
+      return value.kind == Expr::Kind::String && value.text != target;
+    };
+    const auto &roles = expression.args[1];
+    if (expression.text == "==")
+      return excluded(roles) ? index : std::nullopt;
+    if (expression.text == "in" &&
+        (roles.kind == Expr::Kind::List || roles.kind == Expr::Kind::Tuple) &&
+        !roles.args.empty() &&
+        std::all_of(roles.args.begin(), roles.args.end(), excluded))
+      return index;
+    return std::nullopt;
+  }
+  bool AppendInvariant(const Expr &expression, const Path &path) const {
+    if (expression.kind == Expr::Kind::Integer ||
+        expression.kind == Expr::Kind::Boolean ||
+        expression.kind == Expr::Kind::String ||
+        expression.kind == Expr::Kind::None)
+      return true;
+    if (expression.kind == Expr::Kind::Name) {
+      const auto binding = path.bindings.find(expression.text);
+      return binding != path.bindings.end() && binding->second.append_invariant;
+    }
+    if (expression.kind == Expr::Kind::Unary && expression.text == "not" &&
+        expression.args.size() == 1)
+      return AppendInvariant(expression.args[0], path);
+    if (const auto index = PrefixRoleIndex(expression, path))
+      return *index == 0 && path.source_nonempty;
+    if (expression.kind != Expr::Kind::Binary || expression.args.size() != 2 ||
+        (expression.text != "and" && expression.text != "or"))
+      return false;
+    if (expression.text == "and") {
+      const auto &bound = expression.args[0];
+      const auto index = PrefixRoleIndex(expression.args[1], path);
+      if (index && bound.kind == Expr::Kind::Binary && bound.text == ">" &&
+          bound.args.size() == 2) {
+        const auto &length = bound.args[0];
+        if (length.kind == Expr::Kind::Filter &&
+            (length.text == "length" || length.text == "count") &&
+            length.args.size() == 1 &&
+            RootMessageSequence(length.args[0], path) &&
+            GuardInteger(bound.args[1]) == index)
+          return true;
+      }
+    }
+    return AppendInvariant(expression.args[0], path) &&
+           AppendInvariant(expression.args[1], path);
+  }
+  bool RejectsEmptyRoot(const Node &node, const Path &path) const {
+    const auto &condition = node.expression;
+    return condition.kind == Expr::Kind::Unary && condition.text == "not" &&
+           condition.args.size() == 1 &&
+           RootMessageSequence(condition.args[0], path) &&
+           node.body.size() == 1 && node.otherwise.empty() &&
+           node.body.front().kind == Node::Kind::Output && Raises(node.body);
+  }
+  std::string BranchSnapshot(const Node &node, const Expr &condition,
+                             bool invariant) {
     auto found = branch_snapshots_.find(node.offset);
-    if (found != branch_snapshots_.end())
+    if (found != branch_snapshots_.end()) {
+      if (invariant_snapshots_.count(found->second) != invariant &&
+          CountDependent(condition))
+        Fail(node.offset,
+             "branch target invariance differs across source paths");
       return found->second;
+    }
     std::string name = "__text_branch_" + std::to_string(node.offset);
     while (source_names_.count(name) || snapshot_names_.count(name))
       name += '_';
     snapshot_names_.insert(name);
     selector_binding_expressions_[name] = condition;
     References(condition, &definitions_[name]);
-    if (CountDependent(condition)) {
+    if (invariant)
+      invariant_snapshots_.insert(name);
+    if (CountDependent(condition) && !invariant) {
       const auto target =
           FreshCountName("__text_target_branch_" + std::to_string(node.offset));
       count_targets_[name] = target;
@@ -4081,7 +4191,11 @@ private:
             path.module_bindings[node.text] = path.bindings[node.text];
             continue;
           }
+          const bool invariant = AppendInvariant(node.expression, path);
+          const bool root_identity = RootMessageSequence(node.expression, path);
           Value value = Resolve(node.expression, path, {});
+          value.append_invariant = invariant;
+          value.root_index_identity = root_identity;
           if (!projection_mode_ && value.origin != Origin::Messages &&
               CountDependent(value.expression) &&
               PureCountScalar(value.expression)) {
@@ -4172,9 +4286,14 @@ private:
       } else if (node.kind == Node::Kind::If) {
         std::vector<Path> joined;
         for (auto &path : paths) {
+          const bool nonempty_source = RejectsEmptyRoot(node, path);
+          const bool invariant = AppendInvariant(node.expression, path);
+          if (nonempty_source && !continuation_mode_)
+            selector_effect_outputs_.insert(node.body.front().offset);
           Value condition = Resolve(node.expression, path, {});
           if (continuation_mode_) {
-            const auto name = BranchSnapshot(node, condition.expression);
+            const auto name =
+                BranchSnapshot(node, condition.expression, invariant);
             const auto known = Truth(condition);
             const auto [record, inserted] =
                 default_conditions_.emplace(name, known);
@@ -4185,16 +4304,20 @@ private:
             auto selected =
                 ScanTop(*Truth(condition) ? node.body : node.otherwise,
                         {std::move(path)});
-            for (auto &item : selected)
+            for (auto &item : selected) {
+              if (nonempty_source && !item.rejected)
+                item.source_nonempty = true;
               joined.push_back(std::move(item));
+            }
           } else {
             const auto incoming_guards = path.guards;
             Path otherwise = path;
             // Preserve the value at its original source point: re-evaluating
             // "x is undefined" after its default assignment, or messages[0]
             // after slicing messages, changes the guard's meaning.
-            Expr guard = Name(BranchSnapshot(node, condition.expression),
-                              {node.offset, node.end});
+            Expr guard =
+                Name(BranchSnapshot(node, condition.expression, invariant),
+                     {node.offset, node.end});
             path.guards.push_back(guard);
             otherwise.guards.push_back(Unary("not", guard));
             auto yes = ScanTop(node.body, {std::move(path)});
@@ -4206,10 +4329,13 @@ private:
             } else if (yes.size() == 1 && no.size() == 1) {
               Path merged = yes[0];
               merged.guards = incoming_guards;
+              merged.source_nonempty =
+                  yes[0].source_nonempty && no[0].source_nonempty;
               JoinBindings(guard, yes[0].bindings, no[0].bindings,
-                           &merged.bindings, true, node.offset);
+                           &merged.bindings, true, node.offset, invariant);
               JoinBindings(guard, yes[0].module_bindings, no[0].module_bindings,
-                           &merged.module_bindings, true, node.offset);
+                           &merged.module_bindings, true, node.offset,
+                           invariant);
               joined.push_back(std::move(merged));
             } else if (yes.empty()) {
               for (auto &item : no)
@@ -4822,6 +4948,7 @@ private:
   std::map<std::string, TextCapture> predicate_bindings_;
   std::map<size_t, std::string> branch_snapshots_;
   std::set<std::string> snapshot_names_;
+  std::set<std::string> invariant_snapshots_;
   std::map<std::string, Expr> selector_binding_expressions_;
   std::string worker_message_;
   std::string worker_message_index_;
@@ -5025,22 +5152,8 @@ private:
     return std::nullopt;
   }
   bool JsonArguments(const Expr &expression) const {
-    if (expression.args.size() == 1)
-      return true;
-    if (expression.args.size() != 2)
-      return false;
-    const auto &arg = expression.args[1];
-    const auto keyword = expression.keywords.size() > 1
-                             ? std::string_view(expression.keywords[1])
-                             : std::string_view{};
-    if (arg.kind == Expr::Kind::Integer && arg.text == "4" &&
-        (keyword.empty() || keyword == "indent"))
-      return true;
-    return keyword == "separators" && arg.kind == Expr::Kind::Tuple &&
-           arg.args.size() == 2 && arg.args[0].kind == Expr::Kind::String &&
-           arg.args[1].kind == Expr::Kind::String &&
-           ((arg.args[0].text == "," && arg.args[1].text == ":") ||
-            (arg.args[0].text == ", " && arg.args[1].text == ": "));
+    int64_t indent;
+    return internal::ToJsonIndent(expression, &indent);
   }
   bool LiteralExpression(const Expr &expression, std::string *out) const {
     if (expression.kind == Expr::Kind::String) {

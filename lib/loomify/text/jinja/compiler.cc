@@ -1114,25 +1114,13 @@ private:
       return {ToString(value), I64(0), KnownKind::String};
     if (expr.text == "string" && expr.args.size() == 1)
       return {ToString(value), I64(0), KnownKind::String};
-    if (expr.text == "tojson" && expr.args.size() <= 2) {
+    if (expr.text == "tojson") {
       int64_t indent = -1;
-      if (expr.args.size() == 2) {
-        const auto &arg = expr.args[1];
-        if (expr.keywords.size() > 1 && expr.keywords[1] == "separators" &&
-            arg.kind == Expr::Kind::Tuple && arg.args.size() == 2 &&
-            arg.args[0].kind == Expr::Kind::String &&
-            arg.args[1].kind == Expr::Kind::String &&
-            ((arg.args[0].text == "," && arg.args[1].text == ":") ||
-             (arg.args[0].text == ", " && arg.args[1].text == ": "))) {
-          indent = arg.args[0].text == "," ? -2 : -1;
-        } else if (arg.kind != Expr::Kind::Integer || arg.text != "4" ||
-                   (expr.keywords.size() > 1 && !expr.keywords[1].empty() &&
-                    expr.keywords[1] != "indent")) {
-          Fail(expr.offset,
-               "tojson supports only default formatting or indent=4");
-          return Undefined();
-        } else
-          indent = 4;
+      if (!internal::ToJsonIndent(expr, &indent)) {
+        Fail(expr.offset,
+             "tojson supports literal indent=2/4 or supported separators, "
+             "optionally with ensure_ascii=False");
+        return Undefined();
       }
       return {Call("jinja.tojson", {value.data, value.kind, I64(indent)},
                    {"buffer", "i64", "i64"}, "buffer"),

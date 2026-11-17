@@ -866,16 +866,21 @@ func.def public @jinja.contains(%container: buffer, %kind: i64, %item: buffer, %
   func.return %found : i1
 }
 
-func.def @jinja.indent(%depth: i64) -> (buffer) {
+func.def @jinja.indent(%depth: i64, %width: i64) -> (buffer) {
   %zero64 = scalar.constant 0 : i64
+  %two64 = scalar.constant 2 : i64
   %four64 = scalar.constant 4 : i64
   %one64 = scalar.constant 1 : i64
   %limit = scalar.constant 2305843009213693951 : i64
   %positive = scalar.cmpi sge, %depth, %zero64 : i64
   %bounded = scalar.cmpi sle, %depth, %limit : i64
-  %valid = scalar.andi %positive, %bounded : i1
+  %depth_valid = scalar.andi %positive, %bounded : i1
+  %two_spaces = scalar.cmpi eq, %width, %two64 : i64
+  %four_spaces = scalar.cmpi eq, %width, %four64 : i64
+  %width_valid = scalar.ori %two_spaces, %four_spaces : i1
+  %valid = scalar.andi %depth_valid, %width_valid : i1
   func.call @jinja.check(%valid) : (i1)
-  %spaces = scalar.muli %depth, %four64 : i64
+  %spaces = scalar.muli %depth, %width : i64
   %length64 = scalar.addi %spaces, %one64 : i64
   %length_bounded = scalar.assume %length64 [range(%length64, 1, 9223372036854775807)] : i64
   %length = index.cast %length_bounded : i64 to offset
@@ -893,8 +898,8 @@ func.def @jinja.indent(%depth: i64) -> (buffer) {
 }
 
 // Reformat canonical JSON punctuation outside strings. Existing quote/dump owns
-// escaping and numeric spelling; this helper only adds indent=4 layout.
-func.def @jinja.pretty(%source: buffer) -> (buffer) {
+// escaping and numeric spelling; this helper only adds indent=2/4 layout.
+func.def @jinja.pretty(%source: buffer, %width: i64) -> (buffer) {
   %text = func.call @text.json_dump_compact(%source) : (buffer) -> (buffer)
   %zero = index.constant 0 : offset
   %one = index.constant 1 : offset
@@ -944,7 +949,7 @@ func.def @jinja.pretty(%source: buffer) -> (buffer) {
         %result = scf.if %empty_container -> (buffer) {
           scf.yield %prefix : buffer
         } else {
-          %whitespace = func.call @jinja.indent(%next_depth) : (i64) -> (buffer)
+          %whitespace = func.call @jinja.indent(%next_depth, %width) : (i64, i64) -> (buffer)
           %result = func.call @jinja.join(%prefix, %whitespace) : (buffer, buffer) -> (buffer)
           scf.yield %result : buffer
         }
@@ -961,7 +966,7 @@ func.def @jinja.pretty(%source: buffer) -> (buffer) {
           %prefix = scf.if %empty_container -> (buffer) {
             scf.yield %output : buffer
           } else {
-            %whitespace = func.call @jinja.indent(%next_depth) : (i64) -> (buffer)
+            %whitespace = func.call @jinja.indent(%next_depth, %width) : (i64, i64) -> (buffer)
             %result = func.call @jinja.join(%output, %whitespace) : (buffer, buffer) -> (buffer)
             scf.yield %result : buffer
           }
@@ -972,7 +977,7 @@ func.def @jinja.pretty(%source: buffer) -> (buffer) {
           %is_colon = scalar.cmpi eq, %byte, %colon : i32
           %prefix = func.call @jinja.join(%output, %character) : (buffer, buffer) -> (buffer)
           %result = scf.if %is_comma -> (buffer) {
-            %whitespace = func.call @jinja.indent(%depth) : (i64) -> (buffer)
+            %whitespace = func.call @jinja.indent(%depth, %width) : (i64, i64) -> (buffer)
             %result = func.call @jinja.join(%prefix, %whitespace) : (buffer, buffer) -> (buffer)
             scf.yield %result : buffer
           } else {
@@ -997,6 +1002,7 @@ func.def @jinja.pretty(%source: buffer) -> (buffer) {
 
 func.def public @jinja.tojson(%value: buffer, %kind: i64, %indent: i64) -> (buffer) {
   %zero64 = scalar.constant 0 : i64
+  %two64 = scalar.constant 2 : i64
   %four64 = scalar.constant 4 : i64
   %five64 = scalar.constant 5 : i64
   %six64 = scalar.constant 6 : i64
@@ -1004,7 +1010,9 @@ func.def public @jinja.tojson(%value: buffer, %kind: i64, %indent: i64) -> (buff
   %compact = scalar.constant -2 : i64
   %is_default = scalar.cmpi eq, %indent, %default : i64
   %is_compact = scalar.cmpi eq, %indent, %compact : i64
-  %is_pretty = scalar.cmpi eq, %indent, %four64 : i64
+  %is_two = scalar.cmpi eq, %indent, %two64 : i64
+  %is_four = scalar.cmpi eq, %indent, %four64 : i64
+  %is_pretty = scalar.ori %is_two, %is_four : i1
   %ordinary = scalar.ori %is_default, %is_compact : i1
   %valid_indent = scalar.ori %ordinary, %is_pretty : i1
   func.call @jinja.check(%valid_indent) : (i1)
@@ -1027,7 +1035,7 @@ func.def public @jinja.tojson(%value: buffer, %kind: i64, %indent: i64) -> (buff
   %with_false = scf.select %is_false, %no, %with_true : buffer
   %raw = scf.select %is_none, %null, %with_false : buffer
   %output = scf.if %is_pretty -> (buffer) {
-    %pretty = func.call @jinja.pretty(%raw) : (buffer) -> (buffer)
+    %pretty = func.call @jinja.pretty(%raw, %indent) : (buffer, i64) -> (buffer)
     scf.yield %pretty : buffer
   } else {
     %ordinary = scf.if %is_compact -> (buffer) {

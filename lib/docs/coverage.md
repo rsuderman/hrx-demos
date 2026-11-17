@@ -449,8 +449,18 @@ compiler; they are not runtime JSON objects. Container equality, unsafe mixed
 integer/float comparisons and compound mapping keys have explicit capability
 boundaries. Tuple data cannot cross macro or namespace-storage boundaries or
 participate in addition; supported constant tuple arguments remain available.
-Exact floating-point JSON spelling remains separate from the
-lexical-preserving serializer.
+JSON formatting supports default and compact separators, indent2/4, and literal
+`ensure_ascii=False` with either formatting choice. The latter uses the existing
+Unicode-preserving serializer. Dynamic options, `ensure_ascii=True` and combined
+indent/separators remain unsupported. One source-option parser is shared by
+rendering and JSON codec recognition. Exact floating-point JSON spelling remains
+separate from the lexical-preserving serializer.
+
+Format analysis can preserve a source-proven leading system/developer prefix
+count when appending the analysis mode's target role cannot change that count.
+The proof preserves guarded indexing and original runtime assignments; unproved
+mutable count aliases still diagnose. This is shared source analysis, not an
+Ornith/Qwen template lookup or complete-model qualification.
 
 The [native proof consumer](../loomify/text/jinja/testing/consumer.BUILD.bazel)
 executes generated SOURCE and bytecode against the independent

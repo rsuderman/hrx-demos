@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/text/jinja/format_analysis.h"
 #include "lib/loomify/template_probe_runner.h"
+#include "lib/loomify/template_analysis_internal.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -228,6 +229,51 @@ TextFormatBindings Globals() {
   bindings.strings["bos_token"] = "<explicit-bos>";
   bindings.strings["eos_token"] = "<explicit-eos>";
   return bindings;
+}
+
+TEST(TextFormatAnalysisTest, JsonCodecRecognizesLiteralFormattingOptions) {
+  TextFormatAnalysis analysis;
+  analysis.predicate_bindings["captured"] = TextCapture::Arguments;
+  for (const char *options : {"", "(ensure_ascii=False)", "(indent=2)",
+                              "(indent=2, ensure_ascii=False)", "(False)",
+                              "(False, 2)", "(ensure_ascii=False, indent=4)",
+                              "(separators=(',', ':'), ensure_ascii=False)"}) {
+    SCOPED_TRACE(options);
+    Template ast;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(ParseTemplate(
+        std::string("{{ captured|tojson") + options + " }}", &ast, &diagnostic))
+        << diagnostic.message;
+    ASSERT_EQ(ast.body.size(), 1u);
+    TextFormatPart part;
+    part.capture = TextCapture::Arguments;
+    part.value_expression = ast.body[0].expression;
+    TextValueCodec codec;
+    std::string error;
+    ASSERT_TRUE(ClassifyTextValueCodec(part, analysis, &codec, &error))
+        << error;
+    EXPECT_EQ(codec.wire, TextValueWire::Json);
+    EXPECT_FALSE(codec.trim);
+  }
+  for (const char *options :
+       {"(ensure_ascii=True)", "(2)", "(4)", "(indent=width)",
+        "(indent=2, separators=(',', ':'))"}) {
+    SCOPED_TRACE(options);
+    Template ast;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(ParseTemplate(
+        std::string("{{ captured|tojson") + options + " }}", &ast, &diagnostic))
+        << diagnostic.message;
+    TextFormatPart part;
+    part.capture = TextCapture::Arguments;
+    part.value_expression = ast.body[0].expression;
+    TextValueCodec codec{TextValueWire::RawScalar, true};
+    std::string error;
+    EXPECT_FALSE(ClassifyTextValueCodec(part, analysis, &codec, &error));
+    EXPECT_EQ(codec.wire, TextValueWire::RawScalar);
+    EXPECT_TRUE(codec.trim);
+    EXPECT_FALSE(error.empty());
+  }
 }
 
 TEST(TextFormatAnalysisTest, PlainFrameComesFromStructure) {
@@ -1667,6 +1713,267 @@ TEST(TextFormatAnalysisTest,
                 joins + 2 - dropped == 2 ? "</two>" : "</many>");
       EXPECT_EQ(result.alternatives[id].generation_prefix, "<A>");
       EXPECT_EQ(mode, 0);
+    }
+  }
+}
+
+std::string LeadingPrefixSource(std::string_view second_role = "developer",
+                                bool varying_suffix = true) {
+  return "{% if not messages %}{{ raise_exception('No messages provided.') }}"
+         "{% endif %}{% set num_sys = 0 %}"
+         "{% if messages[0].role == 'system' or messages[0].role == '" +
+         std::string(second_role) +
+         "' %}{% if messages | length > 1 and "
+         "(messages[1].role == 'system' or messages[1].role == '" +
+         std::string(second_role) +
+         "') %}{% set num_sys = 2 %}{% else %}{% set num_sys = 1 %}"
+         "{% endif %}{% endif %}"
+         "{% for m in messages %}{% if m.role == 'user' %}"
+         "{{ '<U>' + m.content + '</U>' }}"
+         "{% elif m.role == 'assistant' and loop.index0 >= num_sys %}"
+         "{{ '<A>' + m.content }}" +
+         (varying_suffix ? std::string("{% if num_sys == 2 %}{{ '</two>' }}"
+                                       "{% elif num_sys == 1 %}{{ '</one>' }}"
+                                       "{% else %}{{ '</zero>' }}{% endif %}")
+                         : std::string("{{ '</turn>' }}")) +
+         "{% endif %}{% endfor %}{% if add_generation_prompt %}{{ '<A>' }}"
+         "{% endif %}";
+}
+
+TEST(TextFormatAnalysisTest, LeadingPrefixCountsKeepOriginalBranchAnchors) {
+  const auto source = LeadingPrefixSource();
+  TextFormatAnalysis result;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "leading-prefix.jinja", {}, &result,
+                                &diagnostic))
+      << diagnostic.message;
+  GeneratedInputRenderer generated;
+  ASSERT_TRUE(CompileChatTemplate(source, "leading-prefix.jinja", &generated,
+                                  &diagnostic))
+      << diagnostic.message;
+  struct Case {
+    std::vector<std::string> roles;
+    const char *suffix;
+  };
+  const Case cases[] = {{{"user"}, "</zero>"},
+                        {{"system"}, "</one>"},
+                        {{"developer"}, "</one>"},
+                        {{"system", "developer"}, "</two>"},
+                        {{"system", "system"}, "</two>"},
+                        {{"user", "system", "developer"}, "</zero>"}};
+  for (bool bytecode : {false, true}) {
+    SCOPED_TRACE(bytecode ? "bytecode" : "source");
+    auto renderer = PrepareProduct(generated, bytecode);
+    ASSERT_NE(renderer, nullptr);
+    for (bool completed : {false, true}) {
+      SCOPED_TRACE(completed ? "completed" : "live");
+      auto selection = result.selector_template;
+      // The production completion consumer uses the same selector with the
+      // conceptual-target increment disabled for an already-present target.
+      if (completed && !result.target_missing_binding.empty())
+        for (auto &node : selection.body)
+          if (node.kind == Node::Kind::Set &&
+              node.text == result.target_missing_binding) {
+            node.expression.kind = Expr::Kind::Integer;
+            node.expression.text = "0";
+          }
+      auto selector = PrepareSelection(source, selection, bytecode);
+      ASSERT_NE(selector, nullptr);
+      for (const auto &item : cases) {
+        std::string messages;
+        for (const auto &role : item.roles) {
+          if (!messages.empty())
+            messages += ',';
+          messages += "{\"role\":" + Quote(role) + ",\"content\":\"H\"}";
+        }
+        if (completed)
+          messages += ",{\"role\":\"assistant\",\"content\":\"payload\"}";
+        const auto environment =
+            "{\"messages\":[" + messages +
+            "],\"add_generation_prompt\":" + (completed ? "false}" : "true}");
+        SCOPED_TRACE(environment);
+        int64_t id = -1, mode = -1;
+        ASSERT_TRUE(Select(*selector, environment, &id, &mode));
+        ASSERT_GE(id, 0);
+        ASSERT_LT(static_cast<size_t>(id), result.alternatives.size());
+        EXPECT_EQ(result.alternatives[id].frame_suffix, item.suffix);
+        std::string rendered, error;
+        ASSERT_TRUE(renderer->Render(environment, &rendered, &error)) << error;
+        const auto tail = completed ? "<A>payload" + std::string(item.suffix)
+                                    : std::string("<A>");
+        ASSERT_GE(rendered.size(), tail.size());
+        EXPECT_EQ(rendered.substr(rendered.size() - tail.size()), tail);
+      }
+      // The direct source rejection must remain ahead of any indexed read.
+      const std::string empty =
+          R"({"messages":[],"add_generation_prompt":true})";
+      std::string rendered, error;
+      EXPECT_FALSE(renderer->Render(empty, &rendered, &error));
+      int64_t id = -41, mode = -42;
+      EXPECT_FALSE(selector->SelectFormat(empty, &id, &mode, &error));
+      EXPECT_EQ(id, -41);
+      EXPECT_EQ(mode, -42);
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, LeadingPrefixProofUsesEachTargetMode) {
+  TextFormatAnalysis formats;
+  Diagnostic diagnostic;
+  // USER continuation requires one source-qualified assistant closure. Keep
+  // the prefix count observable in assistant headers, while every arm has the
+  // same closure. The full count-filter shape is exercised by the prior test;
+  // it admits an empty assistant route without an additional range proof.
+  const auto user_source = [](std::string_view role) {
+    auto source = LeadingPrefixSource(role, false);
+    const std::string filter =
+        "m.role == 'assistant' and loop.index0 >= num_sys";
+    source.replace(source.find(filter), filter.size(), "m.role == 'assistant'");
+    const std::string body = "{{ '<A>' + m.content }}";
+    source.replace(source.find(body), body.size(),
+                   "{% if num_sys == 2 %}{{ '<TWO>' }}{% else %}{{ '<A>' }}"
+                   "{% endif %}{{ m.content }}");
+    return source;
+  };
+  const auto safe = user_source("developer");
+  ASSERT_TRUE(
+      AnalyzeTextFormat(safe, "prefix-modes.jinja", {}, &formats, &diagnostic))
+      << diagnostic.message;
+  TextUserContinuation continuation;
+  ASSERT_TRUE(AnalyzeUserContinuation(safe, "prefix-modes.jinja", {}, formats,
+                                      &continuation, &diagnostic))
+      << diagnostic.message;
+  internal::RecipeBuilder builder(formats, safe);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildContinuation(continuation, &recipe, &error))
+      << error;
+  GeneratedInputRenderer user_generated, original_generated;
+  ASSERT_TRUE(CompileTemplateRenderer(safe, "prefix-user.jinja", recipe,
+                                      &user_generated, &diagnostic))
+      << diagnostic.message;
+  ASSERT_TRUE(CompileChatTemplate(safe, "prefix-user.jinja",
+                                  &original_generated, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    SCOPED_TRACE(bytecode ? "bytecode" : "source");
+    auto user = PrepareProduct(user_generated, bytecode);
+    auto original = PrepareProduct(original_generated, bytecode);
+    ASSERT_NE(user, nullptr);
+    ASSERT_NE(original, nullptr);
+    std::string fragment;
+    ASSERT_TRUE(
+        user->Render("{" + Quote(continuation.text_binding) + ":\"payload\"}",
+                     &fragment, &error))
+        << error;
+    EXPECT_EQ(fragment, "<U>payload</U><A>");
+    for (
+        const char *prefix :
+        {"", R"({"role":"system","content":"S"},)",
+         R"({"role":"system","content":"S"},{"role":"developer","content":"D"},)"}) {
+      const auto environment =
+          "{\"messages\":[" + std::string(prefix) +
+          "{\"role\":\"user\",\"content\":\"payload\"}],\"add_generation_prompt\":true}";
+      std::string rendered;
+      ASSERT_TRUE(original->Render(environment, &rendered, &error)) << error;
+      ASSERT_GE(rendered.size(), fragment.size());
+      EXPECT_EQ(rendered.substr(rendered.size() - fragment.size()), fragment);
+    }
+  }
+  // User is not the normal assistant target, but becomes the target for USER
+  // continuation. Do not share the first mode's append-invariance conclusion.
+  auto user_prefix = user_source("user");
+  // Make the count observable in USER framing too: appending the user after a
+  // singleton system can change num_sys from1 to2. An assistant-only proof
+  // cannot justify a history-free USER fragment for this source.
+  const std::string user_body = "{{ '<U>' + m.content + '</U>' }}";
+  user_prefix.replace(
+      user_prefix.find(user_body), user_body.size(),
+      "{% if num_sys == 2 %}{{ '<U2>' + m.content + '</U2>' }}{% else %}"
+      "{{ '<U>' + m.content + '</U>' }}{% endif %}");
+  ASSERT_TRUE(AnalyzeTextFormat(user_prefix, "user-prefix.jinja", {}, &formats,
+                                &diagnostic))
+      << diagnostic.message;
+  EXPECT_FALSE(AnalyzeUserContinuation(user_prefix, "user-prefix.jinja", {},
+                                       formats, &continuation, &diagnostic));
+  EXPECT_NE(diagnostic.message.find("mutable count-derived scalar alias"),
+            std::string::npos)
+      << diagnostic.message;
+  const auto assistant_prefix = user_source("assistant");
+  EXPECT_FALSE(AnalyzeTextFormat(assistant_prefix, "assistant-prefix.jinja", {},
+                                 &formats, &diagnostic));
+  EXPECT_NE(diagnostic.message.find("mutable count-derived scalar alias"),
+            std::string::npos)
+      << diagnostic.message;
+}
+
+TEST(TextFormatAnalysisTest, LeadingPrefixProofRejectsUnprovedCountAliases) {
+  const char *cases[] = {"mutable count arm", "changed root/index mapping",
+                         "absent source nonempty guard",
+                         "unguarded second index"};
+  for (int variant = 0; variant < 4; ++variant) {
+    SCOPED_TRACE(cases[variant]);
+    auto source = LeadingPrefixSource();
+    if (variant == 0) {
+      const auto assignment = source.find("set num_sys = 2");
+      ASSERT_NE(assignment, std::string::npos);
+      source.replace(assignment, std::string("set num_sys = 2").size(),
+                     "set num_sys = messages | length");
+    } else if (variant == 1) {
+      const auto count = source.find("{% set num_sys");
+      ASSERT_NE(count, std::string::npos);
+      source.insert(count, "{% set messages = messages[1:] %}");
+    } else if (variant == 2) {
+      const auto count = source.find("{% set num_sys");
+      ASSERT_NE(count, std::string::npos);
+      source.erase(0, count);
+    } else {
+      const std::string bound = "messages | length > 1 and ";
+      const auto guard = source.find(bound);
+      ASSERT_NE(guard, std::string::npos);
+      source.erase(guard, bound.size());
+    }
+    TextFormatAnalysis result;
+    Diagnostic diagnostic;
+    if (variant < 2) {
+      EXPECT_FALSE(AnalyzeTextFormat(source, "unproved-prefix.jinja", {},
+                                     &result, &diagnostic));
+      EXPECT_NE(diagnostic.message.find("mutable count-derived scalar alias"),
+                std::string::npos)
+          << diagnostic.message;
+      continue;
+    }
+    // These invalid requests already have an ordinary source-index error.
+    // Declining the new proof need not reject an otherwise supported template,
+    // but must not synthesize a target which masks that original source error.
+    if (!AnalyzeTextFormat(source, "unsafe-prefix.jinja", {}, &result,
+                           &diagnostic)) {
+      EXPECT_NE(diagnostic.message.find("mutable count-derived scalar alias"),
+                std::string::npos)
+          << diagnostic.message;
+      continue;
+    }
+    GeneratedInputRenderer generated;
+    ASSERT_TRUE(CompileChatTemplate(source, "unsafe-prefix.jinja", &generated,
+                                    &diagnostic))
+        << diagnostic.message;
+    const std::string invalid =
+        variant == 2
+            ? R"({"messages":[],"add_generation_prompt":true})"
+            : R"({"messages":[{"role":"system","content":"S"}],"add_generation_prompt":true})";
+    for (bool bytecode : {false, true}) {
+      SCOPED_TRACE(bytecode ? "bytecode" : "source");
+      auto renderer = PrepareProduct(generated, bytecode);
+      auto selector =
+          PrepareSelection(source, result.selector_template, bytecode);
+      ASSERT_NE(renderer, nullptr);
+      ASSERT_NE(selector, nullptr);
+      std::string rendered, error;
+      EXPECT_FALSE(renderer->Render(invalid, &rendered, &error));
+      int64_t id = -41, mode = -42;
+      EXPECT_FALSE(selector->SelectFormat(invalid, &id, &mode, &error));
+      EXPECT_EQ(id, -41);
+      EXPECT_EQ(mode, -42);
     }
   }
 }
