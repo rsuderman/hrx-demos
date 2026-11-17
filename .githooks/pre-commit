@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Copyright 2026 The HRX Authors
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+exec bash "$root/build_tools/pre-commit.sh"

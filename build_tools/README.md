@@ -19,8 +19,17 @@ bash build_tools/format.sh --check
 ```
 
 With no option the command checks only. Both modes require the versions in
-`build_tools/format-tools.env`; they never download tools. Formatting is also
+`build_tools/format-tools.env` for Black, clang-format, and Buildifier; these
+three tools must already be installed. Formatting is also
 checked by the lightweight GitHub workflow and local CI before source capture.
+Loom formatting uses `loom-format` built by Bazel from the HRX revision already
+pinned in `MODULE.bazel`; no separate formatter version or HRX pin change is
+needed. Install Bazelisk as `bazel` (or the version in `.bazelversion`). The first
+Loom check builds the native tool and downloads pinned build inputs; subsequent
+checks reuse Bazel's cache. A C/C++ toolchain is required, but no GPU or model
+assets are needed. `BAZEL` may select an explicit Bazel executable.
+`HRX_FORMAT_BAZEL_ROOT` may select an absolute external Bazel state directory;
+the default is the project workspace's `tools/formatting-bazel` directory.
 The tools are not dependencies of the installed wheel. Setup on Linux x86-64:
 
 ```bash
@@ -35,6 +44,10 @@ curl --fail --location --silent --show-error \
   --output "$format_tools/bin/buildifier"
 echo "$BUILDIFIER_LINUX_AMD64_SHA256  $format_tools/bin/buildifier" | sha256sum --check --status
 chmod +x "$format_tools/bin/buildifier"
+curl --fail --location --silent --show-error \
+  "https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64" \
+  --output "$format_tools/bin/bazel"
+chmod +x "$format_tools/bin/bazel"
 export PATH="$format_tools/bin:$PATH"
 ```
 
@@ -43,10 +56,31 @@ target. Clang-format uses the LLVM-based root configuration with include sorting
 disabled. Buildifier formatting does not enable lint fixes. Its `listsort` and
 `label` rewrites are disabled with separate repeated flags so custom Loom merge
 rules retain source order and literal label spellings. The command formats
-tracked Bazel/Starlark, C/C++ (including `.cxx`), and Python files. It skips
-symlinks, deleted/untracked files, build/vendor trees, and unsupported types such
-as `.loom`, Jinja, JSON, and TypeScript. Tracked candidates resolving outside the
-checkout are rejected before modification.
+tracked Bazel/Starlark, C/C++ (including `.cxx`), Python, `.loom`, and
+`.loom-test` files. Loom uses `--in-place` for fixes and `--check` for
+verification. It skips symlinks, deleted/untracked files, build/vendor trees,
+and unsupported types such as Jinja, JSON, and TypeScript. Tracked candidates
+resolving outside the checkout are rejected before modification.
+
+Install the tracked commit hook once per clone (shared by its worktrees):
+
+```bash
+git config --local core.hooksPath .githooks
+```
+
+The hook requires Bash, Git, `flock`, and `sha256sum` on Linux.
+It checks a disposable snapshot of the **staged contents**, including
+partially staged files, through the same `format.sh --check` command. It never
+rewrites files or stages fixes. On failure, run `format.sh --fix`, review the
+changes, and stage the fixes you intend to commit. The runner automatically
+uses the documented external `tools/formatting/bin` installation, including from editor Git hooks.
+`HRX_FORMAT_TOOLS` can select another installation directory; otherwise the
+pinned tools must be on `PATH`. Hook snapshots are serialized per checkout and removed on exit. Their locks live under the external project
+workspace's `tools/formatting-hooks`; `HRX_FORMAT_HOOK_ROOT` can select another
+external directory. Git does not enable tracked hooks automatically on clones;
+CI remains the shared enforcement point. If you already use a custom hooks
+path, arrange for its pre-commit hook to call `bash build_tools/pre-commit.sh`
+instead of replacing it.
 
 Two Python preparers are intentionally excluded because their exact bytes are
 trusted by operation descriptors and release catalogs:

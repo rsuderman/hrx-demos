@@ -24,7 +24,12 @@ class FormatRunnerTest(unittest.TestCase):
         self.log = self.base / "calls.jsonl"
         source = Path(__file__).resolve().parents[1]
         (self.root / "build_tools").mkdir()
-        for name in ("format.sh", "format-tools.env"):
+        for name in (
+            "format.sh",
+            "format-tools.env",
+            "loom-format.sh",
+            "pre-commit.sh",
+        ):
             shutil.copyfile(
                 source / "build_tools" / name, self.root / "build_tools" / name
             )
@@ -35,11 +40,30 @@ class FormatRunnerTest(unittest.TestCase):
             if line and not line.startswith("#"):
                 key, value = line.split("=", 1)
                 self.pins[key] = value
-        self.env = dict(os.environ, PATH=str(self.bin), FORMAT_TEST_LOG=str(self.log))
-        for tool in ("git", "dirname", "realpath", "mktemp", "rm"):
+        self.env = dict(
+            os.environ,
+            PATH=str(self.bin),
+            FORMAT_TEST_LOG=str(self.log),
+            HRX_FORMAT_BAZEL_ROOT=str(self.base / "bazel"),
+            HRX_FORMAT_HOOK_ROOT=str(self.base / "hooks"),
+            HRX_FORMAT_TOOLS=str(self.base / "unused-tools"),
+            BAZEL="bazel",
+        )
+        for tool in (
+            "git",
+            "dirname",
+            "realpath",
+            "mktemp",
+            "rm",
+            "mkdir",
+            "bash",
+            "flock",
+            "sha256sum",
+            "chmod",
+        ):
             (self.bin / tool).symlink_to(shutil.which(tool))
         self.git("init", "-q")
-        for tool in ("buildifier", "clang-format", "black"):
+        for tool in ("buildifier", "clang-format", "black", "bazel"):
             self.fake_tool(tool)
 
     def git(self, *arguments):
@@ -53,6 +77,7 @@ class FormatRunnerTest(unittest.TestCase):
 
     def fake_tool(self, name):
         version = {
+            "bazel": "bazel fake",
             "buildifier": "buildifier version: "
             + self.pins["BUILDIFIER_VERSION"]
             + " ",
@@ -120,7 +145,8 @@ class FormatRunnerTest(unittest.TestCase):
         self.track("odd name\npart.cc")
         self.track("normal.py")
         self.track("kernel.cxx")
-        self.track("skip.loom")
+        self.track("kernel.loom")
+        self.track("odd name\npart.loom-test")
         self.track("vendor/skip.py")
         self.track("loom-pipeline/recognition/moonshine/preparer/prepare_assets.py")
         self.track("loom-pipeline/speech/pocket_tts/preparer/prepare_assets.py")
@@ -139,6 +165,15 @@ class FormatRunnerTest(unittest.TestCase):
         self.assertEqual(calls["black"][-1], "normal.py")
         self.assertIn("--check", calls["black"])
         self.assertIn("--dry-run", calls["clang-format"])
+        self.assertEqual(
+            calls["bazel"][-3:],
+            [
+                "--check",
+                str(self.root / "kernel.loom"),
+                str(self.root / "odd name\npart.loom-test"),
+            ],
+        )
+        self.assertIn("@hrx_system//loom/src/loom/tools/loom-format", calls["bazel"])
 
     def test_check_reports_drift_without_source_or_index_writes(self):
         target = self.track("test.py")
@@ -149,7 +184,7 @@ class FormatRunnerTest(unittest.TestCase):
         self.assertEqual((self.root / ".git/index").read_bytes(), index)
 
     def test_fix_uses_each_tool_write_mode(self):
-        for name in ("BUILD", "test.c", "test.py"):
+        for name in ("BUILD", "test.c", "test.py", "test.loom"):
             self.track(name)
         result = self.run_format("--fix")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -159,6 +194,100 @@ class FormatRunnerTest(unittest.TestCase):
         self.assertIn("-buildifier_disable=label", calls["buildifier"])
         self.assertIn("-i", calls["clang-format"])
         self.assertNotIn("--check", calls["black"])
+        self.assertIn("--in-place", calls["bazel"])
+
+    def run_hook(self):
+        # Model the environment Git supplies, including its index override.
+        env = dict(self.env, GIT_INDEX_FILE=str(self.root / ".git/index"))
+        return subprocess.run(
+            ["/bin/bash", str(self.root / "build_tools/pre-commit.sh")],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+
+    def test_hook_checks_index_and_preserves_unstaged_content(self):
+        self.track(
+            "build_tools/format.sh", "#!/bin/bash\n! /bin/grep -q bad source.loom\n"
+        )
+        target = self.track("source.loom", "good\n")
+        target.write_text("bad unstaged\n")
+        index = (self.root / ".git/index").read_bytes()
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_text(), "bad unstaged\n")
+        self.assertEqual((self.root / ".git/index").read_bytes(), index)
+        self.assertEqual(list((self.base / "hooks").glob("*/staged")), [])
+
+    def test_hook_blocks_bad_index_even_when_worktree_is_fixed(self):
+        self.track(
+            "build_tools/format.sh", "#!/bin/bash\n! /bin/grep -q bad source.loom\n"
+        )
+        target = self.track("source.loom", "bad\n")
+        target.write_text("good unstaged\n")
+        index = (self.root / ".git/index").read_bytes()
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Commit blocked by formatting", result.stderr)
+        self.assertEqual(target.read_text(), "good unstaged\n")
+        self.assertEqual((self.root / ".git/index").read_bytes(), index)
+        self.assertEqual(list((self.base / "hooks").glob("*/staged")), [])
+
+    def test_hook_uses_raw_blobs_without_smudge_filters(self):
+        self.git("config", "filter.replace.smudge", "/bin/sed s/good/bad/g")
+        self.git("config", "filter.replace.clean", "/bin/cat")
+        self.track(".gitattributes", "source.loom filter=replace\n")
+        self.track(
+            "build_tools/format.sh", "#!/bin/bash\n! /bin/grep -q bad source.loom\n"
+        )
+        self.track("source.loom", "good\n")
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_bazel_fails_before_other_tools_write(self):
+        self.track("source.loom")
+        self.track("test.py")
+        (self.bin / "bazel").unlink()
+        result = self.run_format("--fix")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Missing Bazel", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_git_commit_invokes_tracked_hook(self):
+        source = Path(__file__).resolve().parents[1]
+        hook = self.track(
+            ".githooks/pre-commit", (source / ".githooks/pre-commit").read_text()
+        )
+        hook.chmod(0o755)
+        self.git("add", ".githooks/pre-commit")
+        self.track(
+            "build_tools/pre-commit.sh",
+            (source / "build_tools/pre-commit.sh").read_text(),
+        )
+        self.track(
+            "build_tools/format.sh", "#!/bin/bash\n! /bin/grep -q bad source.loom\n"
+        )
+        self.track("source.loom", "bad\n")
+        self.git("config", "core.hooksPath", ".githooks")
+        self.git("config", "user.name", "Formatter test")
+        self.git("config", "user.email", "formatter@example.invalid")
+        result = subprocess.run(
+            [str(self.bin / "git"), "commit", "-qm", "fixture"],
+            cwd=self.root,
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Commit blocked by formatting", result.stderr)
+        self.track("source.loom", "good\n")
+        self.git("commit", "-qm", "fixture")
+
+    def test_loom_failure_propagates(self):
+        self.track("source.loom")
+        self.env["FORMAT_TEST_DRIFT"] = "bazel"
+        self.assertEqual(self.run_format("--check").returncode, 1)
 
     def test_git_selector_failure_rejects_and_cleans_list_before_formatting(self):
         target = self.track("test.py")

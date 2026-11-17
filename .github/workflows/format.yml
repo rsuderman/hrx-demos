@@ -14,7 +14,7 @@ permissions:
 jobs:
   format:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install pinned formatters
@@ -32,6 +32,10 @@ jobs:
             --output "$tool_dir/bin/buildifier"
           echo "$BUILDIFIER_LINUX_AMD64_SHA256  $tool_dir/bin/buildifier" | sha256sum --check --status
           chmod +x "$tool_dir/bin/buildifier"
+          curl --fail --location --silent --show-error \
+            "https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64" \
+            --output "$tool_dir/bin/bazel"
+          chmod +x "$tool_dir/bin/bazel"
           echo "$tool_dir/bin" >> "$GITHUB_PATH"
       - name: Check formatting
         shell: bash

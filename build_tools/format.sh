@@ -27,6 +27,11 @@ if [[ $(git rev-parse --show-toplevel) != "$root" ]]; then
 fi
 # shellcheck source=build_tools/format-tools.env
 source "$root/build_tools/format-tools.env"
+# Make the documented external tool installation usable from editor Git hooks.
+format_tools=${HRX_FORMAT_TOOLS:-${CODEX_PROJECT_WORKSPACES:-$HOME/codex/project-workspaces}/hrx-solutions/tools/formatting}
+if [[ -d $format_tools/bin ]]; then
+  export PATH="$format_tools/bin:$PATH"
+fi
 
 missing() {
   echo "$1 Install the pinned tools using build_tools/README.md." >&2
@@ -69,6 +74,7 @@ fi
 bazel_files=()
 cpp_files=()
 python_files=()
+loom_files=()
 while IFS= read -r -d '' name; do
   case "$name" in
     .deps/*|build/*|dist/*|bazel-*/*|third_party/*|vendor/*) continue ;;
@@ -79,6 +85,7 @@ while IFS= read -r -d '' name; do
     BUILD|*/BUILD|BUILD.bazel|*/BUILD.bazel|WORKSPACE|*/WORKSPACE|WORKSPACE.bazel|*/WORKSPACE.bazel|MODULE.bazel|*/MODULE.bazel|*.bzl) kind=bazel ;;
     *.c|*.cc|*.cpp|*.cxx|*.h|*.hh|*.hpp) kind=cpp ;;
     *.py) kind=python ;;
+    *.loom|*.loom-test) kind=loom ;;
     *) continue ;;
   esac
   # Symlinks, deleted entries, generated output and untracked files are not inputs.
@@ -92,10 +99,14 @@ while IFS= read -r -d '' name; do
     bazel) bazel_files+=("$name") ;;
     cpp) cpp_files+=("$name") ;;
     python) python_files+=("$name") ;;
+    loom) loom_files+=("$root/$name") ;;
   esac
 done < "$selection"
 
-echo "Formatting $mode: ${#bazel_files[@]} Bazel/Starlark, ${#cpp_files[@]} C/C++, ${#python_files[@]} Python files."
+echo "Formatting $mode: ${#bazel_files[@]} Bazel/Starlark, ${#cpp_files[@]} C/C++, ${#python_files[@]} Python, ${#loom_files[@]} Loom files."
+if (( ${#loom_files[@]} )); then
+  command -v "${BAZEL:-bazel}" >/dev/null || missing 'Missing Bazel for the pinned Loom formatter.'
+fi
 status=0
 if (( ${#bazel_files[@]} )); then
   # Loom merge macros consume ordered sources and literal label spellings.
@@ -118,6 +129,13 @@ if (( ${#python_files[@]} )); then
     black --no-cache --config "$root/pyproject.toml" -- "${python_files[@]}" || status=1
   else
     black --no-cache --check --diff --config "$root/pyproject.toml" -- "${python_files[@]}" || status=1
+  fi
+fi
+if (( ${#loom_files[@]} )); then
+  if [[ $mode == --fix ]]; then
+    bash "$root/build_tools/loom-format.sh" --in-place "${loom_files[@]}" || status=1
+  else
+    bash "$root/build_tools/loom-format.sh" --check "${loom_files[@]}" || status=1
   fi
 fi
 exit "$status"
