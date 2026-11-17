@@ -34,13 +34,6 @@ struct BoundTokenPolicy {
 // Data-only bytes emitter shared by package binding and focused native
 // fixtures.
 std::string EmitTerminalMarkerSource(std::string_view piece);
-// Called once during Open with the same immutable catalog FILE. An unsupported
-// template or external tokenizer cannot affect this source-only operation.
-// Failure preserves output; Qwen35 succeeds with an empty optional result.
-bool DerivePublicationTokenFacts(FILE *, std::string_view family,
-                                 const model::TextMetadata &,
-                                 std::optional<PublicationTokenFacts> *out,
-                                 std::string *error);
 // Native HF JSON binding for a reviewed text provider, not exhaustive tokenizer
 // equivalence. Requirements come from the selected text protocol, not numerical
 // ABI. Optional publication facts are numerical requirements checked

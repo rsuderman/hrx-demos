@@ -258,6 +258,15 @@ TEST_F(GgufPackageTest, ConfigurationOwnsPackageInputsAndExactNumericalSource) {
   std::unique_ptr<GgufConfiguration> prepared;
   ASSERT_TRUE(builder->Configure(build, &package, &prepared, &error)) << error;
   const auto numerical = prepared->configuration_source();
+  std::unique_ptr<GgufConfiguration> numerical_only, delegated_numerical;
+  ASSERT_TRUE(builder->ConfigureNumerical(build, &numerical_only, &error))
+      << error;
+  ASSERT_TRUE(builder->Configure(build, nullptr, &delegated_numerical, &error))
+      << error;
+  EXPECT_EQ(numerical_only->configuration_source(), numerical);
+  EXPECT_EQ(delegated_numerical->configuration_source(), numerical);
+  EXPECT_FALSE(numerical_only->has_package_configuration());
+  EXPECT_TRUE(numerical_only->package_data_source().empty());
   const auto data = prepared->package_data_source();
   EXPECT_TRUE(prepared->has_package_configuration());
   EXPECT_NE(numerical.find("@llama.publication.end_turn_id"),
@@ -693,7 +702,13 @@ TEST_F(GgufPackageTest, ChatAdmissionIsSeparateFromNumericalConstruction) {
       ASSERT_TRUE(GgufModelBuilder::Open(fixture.string(), &builder, &error))
           << error;
       std::unique_ptr<BuiltGgufModule> numerical;
-      ASSERT_TRUE(Build(*builder, BuildOptions(), &numerical, &error)) << error;
+      std::unique_ptr<GgufConfiguration> numerical_configuration;
+      ASSERT_TRUE(builder->ConfigureNumerical(BuildOptions(),
+                                              &numerical_configuration, &error))
+          << error;
+      ASSERT_TRUE(numerical_configuration->BuildModule(context_, workspace_,
+                                                       &numerical, &error))
+          << error;
       ASSERT_TRUE(numerical->module());
       GgufPackageOptions package{(fixture.string() + ".output"), Tokenizer(i)};
       EXPECT_FALSE(Publish(*builder, BuildOptions(), package, &error));

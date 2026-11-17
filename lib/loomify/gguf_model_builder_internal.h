@@ -5,21 +5,12 @@
 #include "lib/loomify/gguf_model_builder.h"
 #include "lib/loomify/architectures.h"
 #include "lib/loomify/platforms.h"
-#include "lib/loomify/chat_policy.h"
 #include "lib/loomify/configuration.h"
-#include "lib/loomify/token_policy.h"
+#include "lib/loomify/publication.h"
 namespace hrx::loomify_gguf {
-// Package-only prepared facts. No native products or module references.
-struct PackageConfiguration {
-  GgufPackageOptions options;
-  ChatPolicySelection chat;
-  std::string source;
-};
-bool ConfigurePackageData(const std::string &source_asset,
-                          const model::TextMetadata &,
-                          const std::optional<PublicationTokenFacts> &,
-                          const ArchitectureFiles &, const GgufPackageOptions &,
-                          PackageConfiguration *out, std::string *error);
+// Package implementation owns the complete text state; numerical callers only
+// retain its lifetime without a text compiler or tokenizer dependency.
+struct PackageConfiguration;
 struct GgufModelBuilder::Impl {
   model::ModelDescriptor descriptor;
   model::TextMetadata text_metadata;
@@ -41,7 +32,7 @@ struct GgufConfiguration::Impl {
   GgufBuildOptions options;
   const ArchitectureFiles *architecture = nullptr;
   const PlatformFiles *platform = nullptr;
-  std::optional<PackageConfiguration> package;
+  std::shared_ptr<PackageConfiguration> package;
 };
 } // namespace hrx::loomify_gguf
 #endif

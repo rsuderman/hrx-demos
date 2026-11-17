@@ -31,12 +31,8 @@ const std::string &GgufConfiguration::configuration_source() const {
 const std::string &GgufConfiguration::platform() const {
   return impl_->options.platform;
 }
-const std::string &GgufConfiguration::package_data_source() const {
-  static const std::string empty;
-  return impl_->package ? impl_->package->source : empty;
-}
 bool GgufConfiguration::has_package_configuration() const {
-  return impl_->package.has_value();
+  return bool(impl_->package);
 }
 BuiltGgufModule::BuiltGgufModule(std::unique_ptr<Impl> impl)
     : impl_(std::move(impl)) {}
@@ -49,6 +45,10 @@ const model::ModelDescriptor &GgufModelBuilder::descriptor() const {
 }
 const model::TextMetadata &GgufModelBuilder::text_metadata() const {
   return impl_->text_metadata;
+}
+const std::optional<PublicationTokenFacts> &
+GgufModelBuilder::publication_tokens() const {
+  return impl_->publication_tokens;
 }
 const std::string &BuiltGgufModule::configuration_source() const {
   return impl_->configuration_source;
@@ -103,10 +103,9 @@ bool GgufModelBuilder::Open(const std::string &path,
     error->clear();
   return true;
 }
-bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
-                                 const GgufPackageOptions *package,
-                                 std::unique_ptr<GgufConfiguration> *out,
-                                 std::string *error) const {
+bool GgufModelBuilder::ConfigureNumerical(
+    const GgufBuildOptions &options, std::unique_ptr<GgufConfiguration> *out,
+    std::string *error) const {
   std::string ignored_error;
   if (!error)
     error = &ignored_error;
@@ -137,14 +136,6 @@ bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
   prepared->options = options;
   prepared->architecture = architecture;
   prepared->platform = platform;
-  if (package) {
-    PackageConfiguration data;
-    if (!ConfigurePackageData(impl_->source_asset, impl_->text_metadata,
-                              impl_->publication_tokens, *architecture,
-                              *package, &data, error))
-      return false;
-    prepared->package = std::move(data);
-  }
   auto configured = std::unique_ptr<GgufConfiguration>(
       new GgufConfiguration(std::move(prepared)));
   *out = std::move(configured);

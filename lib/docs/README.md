@@ -5,6 +5,7 @@ and numerical modules. C++ owns configuration, native linking and export; Loom
 owns model sequencing, temporary storage and preparation records.
 
 - [GGUF export](gguf-export.md): the public module/package builder, CLI and supported profiles.
+- [Standalone benchmarks](benchmark-export.md): numerical GGUF workload export, explicit coverage and native measurement reports.
 - [Component coverage](coverage.md): available numerical programs, kernels, text/token policies and generation pieces, their limits and test entrypoints. Start here for model onboarding; update affected entries with coverage changes in the same source change.
 - [Examples](examples.md): actual Loomcxx imports and the independent F32 embedding example.
 

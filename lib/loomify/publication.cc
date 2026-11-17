@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/publication_internal.h"
+#include "lib/loomify/architectures.h"
 #include <limits>
 #include <utility>
 namespace hrx::loomify_gguf::internal {
@@ -172,3 +173,25 @@ bool DeriveSourcePublication(FILE *file, PublicationLayout layout,
   return true;
 }
 } // namespace hrx::loomify_gguf::internal
+
+namespace hrx::loomify_gguf {
+bool DerivePublicationTokenFacts(FILE *file, std::string_view family,
+                                 const model::TextMetadata &text,
+                                 std::optional<PublicationTokenFacts> *out,
+                                 std::string *error) {
+  if (!out) {
+    if (error)
+      *error = "publication token output is required";
+    return false;
+  }
+  const auto *architecture = SelectArchitecture(family);
+  if (!architecture) {
+    if (error)
+      *error = "unsupported publication token provider";
+    return false;
+  }
+  return internal::DeriveSourcePublication(
+      file, architecture->publication_layout, architecture->family, text, out,
+      error);
+}
+} // namespace hrx::loomify_gguf

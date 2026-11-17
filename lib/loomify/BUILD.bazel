@@ -49,7 +49,10 @@ iree_cc_library(
         ":assembly_registry.h",
     ],
     cxxopts = _CXXOPTS,
-    visibility = ["//lib/loomify/testing:__pkg__"],
+    visibility = [
+        "//lib/loomify/benchmark:__pkg__",
+        "//lib/loomify/testing:__pkg__",
+    ],
     deps = [
         ":architecture_types",
         "//tools/model:model_descriptor",
@@ -203,27 +206,61 @@ cc_test(
     ],
 )
 
+# Numerical selection/linking has no package compiler or tokenizer dependency.
 iree_cc_library(
-    name = "gguf_model_builder",
+    name = "gguf_numerical_builder",
     srcs = [
-        "package.cc",
         "gguf_model_builder.cc",
-        "gguf_model_builder_internal.h",
         "platforms.cc",
     ],
-    hdrs = ["gguf_model_builder.h"],
+    hdrs = [
+        "gguf_model_builder.h",
+        "gguf_model_builder_internal.h",
+    ],
     cxxopts = _CXXOPTS,
     visibility = ["//visibility:public"],
     deps = [
-        "//lib/serving:library_resources",
         ":architecture_selection",
+        ":architecture_types",
         ":configuration",
         ":native_linking",
-        ":token_policy",
-        ":chat_policy",
+        "//lib/serving:library_resources",
         "//tools/model:model_descriptor",
         "//tools/model:text_metadata",
         "@hrx_system//loom/binding/c:loomc",
+    ],
+)
+
+iree_cc_library(
+    name = "gguf_model_builder",
+    srcs = ["package.cc"],
+    cxxopts = _CXXOPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":architecture_types",
+        ":chat_policy",
+        ":gguf_numerical_builder",
+        ":native_linking",
+        ":token_policy",
+        "//lib/serving:library_resources",
+        "//tools/model:model_descriptor",
+        "//tools/model:text_metadata",
+        "@hrx_system//loom/binding/c:loomc",
+    ],
+)
+
+cc_test(
+    name = "numerical_builder_real_assets_test",
+    size = "medium",
+    srcs = ["//lib/loomify/testing:numerical_builder_test.cc"],
+    copts = _CXXOPTS,
+    data = ["//lib/serving:export_products"],
+    linkstatic = True,
+    tags = ["manual"],
+    deps = [
+        ":gguf_numerical_builder",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
 

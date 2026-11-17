@@ -49,19 +49,6 @@ std::string EmitTerminalMarkerSource(std::string_view piece) {
          "  %value = global.load @loomify.tokens.terminal : buffer\n"
          "  func.return %value : buffer\n}\n";
 }
-bool DerivePublicationTokenFacts(FILE *file, std::string_view family,
-                                 const model::TextMetadata &text,
-                                 std::optional<PublicationTokenFacts> *out,
-                                 std::string *error) {
-  if (!out)
-    return Fail(error, "publication token output is required");
-  const auto *architecture = SelectArchitecture(family);
-  if (!architecture)
-    return Fail(error, "unsupported publication token provider");
-  return internal::DeriveSourcePublication(
-      file, architecture->publication_layout, architecture->family, text, out,
-      error);
-}
 bool BindTokenPolicy(FILE *gguf, const TextTokenRequirements &requirements,
                      const model::TextMetadata &text,
                      const std::optional<PublicationTokenFacts> &publication,

@@ -1,0 +1,27 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary")
+
+_CXXOPTS = select({
+    "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
+    "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
+    "//conditions:default": ["-std=c++17"],
+})
+
+cc_binary(
+    name = "loomify-benchmark",
+    srcs = ["main.cc"],
+    cxxopts = _CXXOPTS,
+    data = ["//lib/serving:export_products"],
+    linkstatic = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/loomify/benchmark:export",
+        "//lib/loomify/benchmark:report_io",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@hrx_system//loom/src/loom/util:digest",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/base/tooling:flags",
+    ],
+)

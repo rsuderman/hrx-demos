@@ -15,6 +15,12 @@
 #include <utility>
 
 namespace hrx::loomify_gguf {
+// Package-only state is deliberately completed outside the numerical library.
+struct PackageConfiguration {
+  GgufPackageOptions options;
+  ChatPolicySelection chat;
+  std::string source;
+};
 namespace {
 namespace fs = std::filesystem;
 bool Fail(std::string *error, const std::string &message) {
@@ -216,6 +222,35 @@ bool ConfigurePackageData(
   return true;
 }
 
+const std::string &GgufConfiguration::package_data_source() const {
+  static const std::string empty;
+  return impl_->package ? impl_->package->source : empty;
+}
+bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
+                                 const GgufPackageOptions *package,
+                                 std::unique_ptr<GgufConfiguration> *out,
+                                 std::string *error) const {
+  std::string ignored_error;
+  if (!error)
+    error = &ignored_error;
+  if (!out)
+    return Fail(error, "configuration output is required");
+  std::unique_ptr<GgufConfiguration> configured;
+  if (!ConfigureNumerical(options, &configured, error))
+    return false;
+  if (package) {
+    auto data = std::make_shared<PackageConfiguration>();
+    if (!ConfigurePackageData(impl_->source_asset, impl_->text_metadata,
+                              impl_->publication_tokens,
+                              *configured->impl_->architecture, *package,
+                              data.get(), error))
+      return false;
+    configured->impl_->package = std::move(data);
+  }
+  *out = std::move(configured);
+  error->clear();
+  return true;
+}
 bool GgufConfiguration::WritePackage(loomc_context_t *context,
                                      loomc_workspace_t *workspace,
                                      std::string *error) const {

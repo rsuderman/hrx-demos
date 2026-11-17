@@ -4,6 +4,7 @@
 #define HRX_SOLUTIONS_LIB_LOOMIFY_GGUF_MODEL_BUILDER_H_
 #include "loomc/module.h"
 #include "tools/model/model_descriptor.h"
+#include "lib/loomify/publication.h"
 #include "tools/model/text_metadata.h"
 #include <memory>
 #include <optional>
@@ -57,7 +58,7 @@ public:
   GgufConfiguration &operator=(const GgufConfiguration &) = delete;
   const std::string &configuration_source() const;
   const std::string &platform() const;
-  // Supplemental definitions only; join with configuration_source for serving.
+  // Complete owned serving supplement, exactly as later consumed by LINK.
   const std::string &package_data_source() const;
   bool has_package_configuration() const;
   // Native inputs are borrowed synchronously; workspace use is externally
@@ -89,11 +90,22 @@ public:
   const model::ModelDescriptor &descriptor() const;
   // Owned snapshot with independent issues; inspection needs no native build.
   const model::TextMetadata &text_metadata() const;
+  // Source-only facts already derived during Open; no external tokenizer or
+  // chat-template admission. Empty for host-managed numerical publication.
+  const std::optional<PublicationTokenFacts> &publication_tokens() const;
+  // Data-only numerical configuration, including GGUF source publication facts.
+  // Links through :gguf_numerical_builder without package text/tokenizer code.
+  // Failure preserves *out; all options/facts are copied and success clears
+  // error.
+  bool ConfigureNumerical(const GgufBuildOptions &,
+                          std::unique_ptr<GgufConfiguration> *out,
+                          std::string *error) const;
   // nullptr package prepares numerical data only, independently of tokenizer
-  // or chat admission. Package preparation uses the existing native tokenizer
-  // parser and may scan source GGUF vocabulary; it never loads Loom products.
-  // Empty resource/output roots are allowed for inspection. All inputs are
-  // copied; failure preserves *out, success clears error.
+  // or chat admission. This package-facing method links :gguf_model_builder.
+  // Package preparation uses the existing native tokenizer parser and may scan
+  // source GGUF vocabulary; it never loads Loom products. Empty resource/output
+  // roots are allowed for inspection. All inputs are copied; failure preserves
+  // *out, success clears error.
   bool Configure(const GgufBuildOptions &, const GgufPackageOptions *package,
                  std::unique_ptr<GgufConfiguration> *out,
                  std::string *error) const;

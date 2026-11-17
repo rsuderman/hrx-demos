@@ -1,0 +1,28 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Benchmark-only exact-byte restoration. Seed and live storage must be disjoint.
+// The command subject orders this copy before the selected mutable operation.
+kernel.def @loomify.benchmark.reset_bytes(%bytes0: index) {
+  %bytes = index.assume %bytes0 [range(%bytes0, 1, 2147483647)] : index
+  %tile = index.constant 256 : index
+  %bias = index.constant 255 : index
+  %rounded = index.add %bytes, %bias : index
+  %groups = index.div %rounded, %tile : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%groups, %one, %one) workgroup_size(%tile, %one, %one) : index
+} launch(%bytes0: index, %seed_origin: offset, %live_origin: offset, %seed: buffer, %live: buffer) {
+  %bytes = index.assume %bytes0 [range(%bytes0, 1, 2147483647)] : index
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %tile = index.constant 256 : index
+  %base = index.mul %group, %tile : index
+  %byte = index.add %base, %lane : index
+  %inside = index.cmp ult, %byte, %bytes : index
+  scf.if %inside {
+    %source = buffer.view %seed[%seed_origin] : buffer -> view<[%bytes]xi8>
+    %target = buffer.view %live[%live_origin] : buffer -> view<[%bytes]xi8>
+    %value = view.load %source[%byte] : view<[%bytes]xi8> -> i8
+    view.store %value, %target[%byte] : i8, view<[%bytes]xi8>
+  }
+  kernel.return
+}
