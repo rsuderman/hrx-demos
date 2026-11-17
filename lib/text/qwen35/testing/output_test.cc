@@ -460,6 +460,15 @@ TEST(QwenOutput, ModelGeneratedOpenerAtEverySplitAndBytecode) {
     EXPECT_GE(vm.Initial(true, true), 0);
     EXPECT_GE(vm.Initial(false, true), 0);
     EXPECT_GE(vm.Initial(true, false), 0);
+    // The source's enabled/default generation suffix is neutral. Allowing
+    // thinking does not itself open a reasoning frame in the response.
+    const std::string suffix = "<|im_start|>assistant\n";
+    for (auto startup : {Startup::Default, Startup::Enabled}) {
+      std::string prompt;
+      ASSERT_GE(vm.Begin(vm.Request(startup, true), &prompt), 0);
+      ASSERT_GE(prompt.size(), suffix.size());
+      EXPECT_EQ(prompt.substr(prompt.size() - suffix.size()), suffix);
+    }
     const std::vector<Fixture> fixtures = {
         {"<think>\nreason 🦙</think>\n\nanswer", "reason 🦙", "answer", "",
          Startup::Enabled},
@@ -467,9 +476,17 @@ TEST(QwenOutput, ModelGeneratedOpenerAtEverySplitAndBytecode) {
          Startup::Enabled},
         {"<think>\nreason</think>answer", "reason", "answer", "",
          Startup::Default},
-        {"reason</think>answer", "reason", "answer", "", Startup::Enabled},
+        {"reason</think>answer", "", "reason</think>answer", "",
+         Startup::Enabled},
+        {"reason</think>answer", "", "reason</think>answer", "",
+         Startup::Default},
+        {"plain 🦙", "", "plain 🦙", "", Startup::Enabled},
+        {"plain 🦙", "", "plain 🦙", "", Startup::Default},
         {"<think>\n<tool_call>{}", "", "", "<tool_call>{}", Startup::Enabled},
-        {"<thi", "<thi", "", "", Startup::Enabled},
+        // A partial opener is buffered while streaming, then flushed as
+        // content at finalization when it never establishes a frame.
+        {"<thi", "", "<thi", "", Startup::Enabled},
+        {"<thi", "", "<thi", "", Startup::Default},
         {"plain", "", "plain", "", Startup::Disabled},
         {"", "", "", "", Startup::Enabled},
     };
