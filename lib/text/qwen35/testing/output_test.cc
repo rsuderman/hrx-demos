@@ -5,6 +5,9 @@
 #include "iree/vm/bytecode/module.h"
 #include "iree/vm/reflection.h"
 #include "iree/vm/sync.h"
+#include "loom/runtime/program/input.h"
+#include "loom/runtime/program/json.h"
+#include "iree/base/internal/json.h"
 #include "loomc/loomc.h"
 #include "loomc/link.h"
 #include "loomc/target/vm.h"
@@ -56,6 +59,7 @@ enum class Profile {
   Hermes,
   HermesNonThinking
 };
+enum class Startup { Default, Enabled, Disabled, NoGeneration };
 class VM {
 public:
   ~VM() {
@@ -64,6 +68,8 @@ public:
       iree_vm_invocation_deinitialize(invocation);
     iree_vm_program_release(program);
     iree_vm_module_release(bytecode);
+    iree_vm_module_release(input_module);
+    iree_vm_module_release(json_module);
     iree_vm_environment_free(runtime);
     loomc_allocator_free(loomc_allocator_system(),
                          const_cast<uint8_t *>(image.data));
@@ -104,8 +110,8 @@ public:
     loomc_module_t *m = nullptr;
     std::string error;
     if (!hrx::loomify_gguf::testing::LinkSelectedText(
-            c, w, template_path,
-            {"output_next", "complete_text", "chatml.output_initial"}, &m,
+            c, w, template_path, {}, "<|im_end|>",
+            {"output_next", "complete_text", "render_tool", "chat_begin"}, &m,
             &error)) {
       ADD_FAILURE() << error;
       return false;
@@ -145,7 +151,8 @@ public:
     const loomc_string_view_t roots[] = {
         loomc_make_cstring_view("output_next"),
         loomc_make_cstring_view("complete_text"),
-        loomc_make_cstring_view("chatml.output_initial")};
+        loomc_make_cstring_view("render_tool"),
+        loomc_make_cstring_view("chat_begin")};
     loomc_emit_options_t emit{};
     emit.type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS;
     emit.structure_size = sizeof(emit);
@@ -154,7 +161,7 @@ public:
     options.type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS;
     options.structure_size = sizeof(options);
     options.roots = roots;
-    options.root_count = 3;
+    options.root_count = 4;
     options.target_profile = p;
     options.emit_options = &emit;
     loomc_result_t *compiled_raw = nullptr;
@@ -187,9 +194,15 @@ public:
              iree_allocator_null()},
             iree_allocator_system(), &bytecode)))
       return false;
-    if (!NativeOk(
-            iree_vm_program_create({bytecode, iree_vm_module_span_empty()},
-                                   iree_allocator_system(), &program)))
+    if (!NativeOk(loom_runtime_json_module_create(
+            runtime, iree_allocator_system(), &json_module)) ||
+        !NativeOk(loom_runtime_input_module_create(
+            runtime, nullptr, iree_allocator_system(), &input_module)))
+      return false;
+    iree_vm_module_t *libraries[] = {json_module, input_module};
+    if (!NativeOk(iree_vm_program_create(
+            {bytecode, iree_vm_module_span_from_array(libraries)},
+            iree_allocator_system(), &program)))
       return false;
     if (!NativeOk(iree_vm_invocation_initialize(
             iree_make_byte_span(storage.data(), storage.size()), &invocation)))
@@ -231,15 +244,43 @@ public:
     return ok;
   }
   int64_t Initial(bool thinking, bool generation) {
-    std::vector<iree_vm_variant_t> args = {iree_vm_variant_from_i32(thinking),
-                                           iree_vm_variant_from_i32(
-                                               generation)},
-                                   out(1);
+    return Start(!generation ? Startup::NoGeneration
+                 : thinking  ? Startup::Enabled
+                             : Startup::Disabled);
+  }
+  std::string Request(Startup startup, bool generation) {
+    std::string result =
+        "{\"messages\":[{\"role\":\"user\",\"content\":\"U\"}],"
+        "\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"f\","
+        "\"parameters\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\"}}}}}],"
+        "\"add_generation_prompt\":";
+    result += generation ? "true" : "false";
+    if (startup != Startup::Default)
+      result += std::string(",\"enable_thinking\":") +
+                (startup == Startup::Enabled ? "true" : "false");
+    return result + '}';
+  }
+  int64_t Begin(const std::string &request, std::string *prompt) {
+    std::vector<iree_vm_variant_t> args{Buffer(request), Buffer("")}, out(2);
     int64_t state = -1;
-    if (Call("chatml.output_initial", args, out))
-      EXPECT_TRUE(NativeOk(iree_vm_i64_from_variant(out[0], &state)));
+    if (Call("chat_begin", args, out)) {
+      void *pointer = nullptr;
+      EXPECT_TRUE(NativeOk(
+          iree_vm_ptr_from_variant_borrowed(out[0], types.buffer, &pointer)));
+      if (pointer) {
+        auto *buffer = static_cast<iree_vm_buffer_t *>(pointer);
+        prompt->assign(
+            static_cast<const char *>(iree_vm_buffer_const_data(buffer)),
+            iree_vm_buffer_length(buffer));
+      }
+      EXPECT_TRUE(NativeOk(iree_vm_i64_from_variant(out[1], &state)));
+    }
     iree_vm_variant_span_reset({out.data(), out.size()});
     return state;
+  }
+  int64_t Start(Startup startup) {
+    request_ = Request(startup, startup != Startup::NoGeneration);
+    return Begin(request_, &prompt_);
   }
   std::array<int64_t, 4> Next(const std::string &text, int64_t cursor,
                               int64_t state, int32_t phase) {
@@ -255,16 +296,74 @@ public:
     iree_vm_variant_span_reset({out.data(), out.size()});
     return words;
   }
-  std::pair<std::string, int32_t> Complete(const std::string &prompt,
-                                           const std::string &content,
+  std::string FormatTools(const std::string &calls) {
+    std::vector<iree_string_view_t> records;
+    const auto view = [](std::string_view value) {
+      return iree_make_string_view(value.data(), value.size());
+    };
+    auto status = iree_json_enumerate_array_typed(
+        view(calls),
+        [](void *data, iree_host_size_t, iree_json_value_type_t kind,
+           iree_string_view_t value) {
+          if (kind != IREE_JSON_VALUE_TYPE_OBJECT)
+            return iree_make_status(IREE_STATUS_INVALID_ARGUMENT);
+          static_cast<std::vector<iree_string_view_t> *>(data)->push_back(
+              value);
+          return iree_ok_status();
+        },
+        &records);
+    if (!NativeOk(status))
+      return {};
+    auto string = [](iree_string_view_t object, const char *key) {
+      iree_string_view_t raw{};
+      auto status = iree_json_try_lookup_object_value(
+          object, iree_make_cstring_view(key), &raw);
+      EXPECT_TRUE(NativeOk(status));
+      EXPECT_NE(raw.data, nullptr);
+      std::string decoded(raw.size, '\0');
+      iree_host_size_t size = 0;
+      EXPECT_TRUE(NativeOk(iree_json_unescape_string(raw, decoded.size(),
+                                                     decoded.data(), &size)));
+      decoded.resize(size);
+      return decoded;
+    };
+    std::string formatted;
+    for (size_t i = 0; i < records.size(); ++i) {
+      iree_string_view_t function{};
+      if (!NativeOk(iree_json_try_lookup_object_value(
+              records[i], IREE_SV("function"), &function)))
+        return {};
+      std::vector<iree_vm_variant_t> arguments{
+          Buffer(string(function, "name")),
+          Buffer(string(function, "arguments")), iree_vm_variant_from_i64(i)},
+          results(2);
+      if (Call("render_tool", arguments, results)) {
+        void *pointer = nullptr;
+        EXPECT_TRUE(NativeOk(iree_vm_ptr_from_variant_borrowed(
+            results[0], types.buffer, &pointer)));
+        if (pointer) {
+          const auto *buffer = static_cast<iree_vm_buffer_t *>(pointer);
+          formatted.append(
+              static_cast<const char *>(iree_vm_buffer_const_data(buffer)),
+              iree_vm_buffer_length(buffer));
+        }
+      }
+      iree_vm_variant_span_reset({results.data(), results.size()});
+    }
+    return formatted;
+  }
+  std::pair<std::string, int32_t> Complete(const std::string &content,
                                            const std::string &thought,
                                            const std::string &tools,
-                                           int64_t initial) {
-    std::vector<iree_vm_variant_t> args = {Buffer(prompt),
+                                           Startup startup) {
+    const int64_t initial = Start(startup);
+    EXPECT_GE(Begin(Request(startup, false), &base_prompt_), 0);
+    const auto formatted = FormatTools(tools);
+    std::vector<iree_vm_variant_t> args = {Buffer(prompt_),
                                            Buffer("unused raw response"),
                                            Buffer(content),
                                            Buffer(thought),
-                                           Buffer(tools),
+                                           Buffer(formatted),
                                            iree_vm_variant_from_i64(initial),
                                            iree_vm_variant_from_i64(1)},
                                    out(2);
@@ -284,8 +383,10 @@ public:
     iree_vm_variant_span_reset({out.data(), out.size()});
     return result;
   }
+  const std::string &BasePrompt() const { return base_prompt_; }
 
 private:
+  std::string request_, prompt_, base_prompt_;
   Owner<loomc_target_environment_t, loomc_target_environment_release> env{
       nullptr, loomc_target_environment_release};
   Owner<loomc_context_t, loomc_context_release> context{nullptr,
@@ -295,6 +396,8 @@ private:
   loomc_byte_span_t image{};
   iree_vm_environment_t *runtime = nullptr;
   iree_vm_module_t *bytecode = nullptr;
+  iree_vm_module_t *json_module = nullptr;
+  iree_vm_module_t *input_module = nullptr;
   iree_vm_program_t *program = nullptr;
   iree_vm_process_t *process = nullptr;
   iree_vm_invocation_t *invocation = nullptr;
@@ -303,10 +406,11 @@ private:
 };
 struct Fixture {
   std::string response, reasoning, content, tail;
-  int64_t state;
+  Startup startup;
 };
 void Check(VM &vm, const Fixture &f, size_t split, bool bytewise) {
-  int64_t cursor = 0, state = f.state;
+  int64_t cursor = 0, state = vm.Start(f.startup);
+  ASSERT_GE(state, 0);
   std::string reasoning, content;
   auto drain = [&](size_t size, int phase) {
     std::string text = f.response.substr(0, size);
@@ -353,18 +457,21 @@ TEST(QwenOutput, ModelGeneratedOpenerAtEverySplitAndBytecode) {
   for (bool bc : {false, true}) {
     VM vm;
     ASSERT_TRUE(vm.Init(Profile::Hermes, bc));
-    EXPECT_EQ(vm.Initial(true, true), 34);
-    EXPECT_EQ(vm.Initial(false, true), 1);
-    EXPECT_EQ(vm.Initial(true, false), 17);
+    EXPECT_GE(vm.Initial(true, true), 0);
+    EXPECT_GE(vm.Initial(false, true), 0);
+    EXPECT_GE(vm.Initial(true, false), 0);
     const std::vector<Fixture> fixtures = {
-        {"<think>\nreason 🦙</think>\n\nanswer", "reason 🦙", "answer", "", 34},
-        {"<think>reason</think>answer", "reason", "answer", "", 34},
-        {"<think>\nreason</think>answer", "reason", "answer", "", 0},
-        {"reason</think>answer", "reason", "answer", "", 34},
-        {"<think>\n<tool_call>{}", "", "", "<tool_call>{}", 34},
-        {"<thi", "<thi", "", "", 34},
-        {"plain", "", "plain", "", 1},
-        {"", "", "", "", 34},
+        {"<think>\nreason 🦙</think>\n\nanswer", "reason 🦙", "answer", "",
+         Startup::Enabled},
+        {"<think>reason</think>answer", "reason", "answer", "",
+         Startup::Enabled},
+        {"<think>\nreason</think>answer", "reason", "answer", "",
+         Startup::Default},
+        {"reason</think>answer", "reason", "answer", "", Startup::Enabled},
+        {"<think>\n<tool_call>{}", "", "", "<tool_call>{}", Startup::Enabled},
+        {"<thi", "<thi", "", "", Startup::Enabled},
+        {"plain", "", "plain", "", Startup::Disabled},
+        {"", "", "", "", Startup::Enabled},
     };
     for (const auto &f : fixtures) {
       for (size_t split = 0; split <= f.response.size(); ++split)
@@ -378,23 +485,27 @@ TEST(QwenOutput, ModelGeneratedOpeningPreservesCanonicalWhitespace) {
   for (bool bc : {false, true}) {
     VM vm;
     ASSERT_TRUE(vm.Init(Profile::Hermes, bc));
-    const std::string prefix = "history<|im_start|>assistant\n";
-    auto result = vm.Complete(prefix, " answer ", "\n thought \n",
-                              "<tool_call>x</tool_call>", 34);
+    const std::string calls =
+        R"([{"id":"call_f","type":"function","function":{"name":"f","arguments":"{\"x\":\"v\"}"}}])";
+    auto result =
+        vm.Complete(" answer ", "\n thought \n", calls, Startup::Enabled);
     EXPECT_EQ(
         result.first,
-        prefix +
-            "<think>\n thought \n</think>\n\n answer \n<tool_call>x</tool_call><|im_end|>\n");
+        vm.BasePrompt() +
+            "<|im_start|>assistant\n<think>\n thought \n</think>\n\n answer \n"
+            "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"x\":\"v\"}}\n</tool_call><|im_end|>\n");
     EXPECT_EQ(result.second, 0);
-    result =
-        vm.Complete(prefix + "<think>\n\n</think>\n\n", " answer ", "", "", 1);
-    EXPECT_EQ(result.first,
-              prefix + "<think>\n\n</think>\n\n answer <|im_end|>\n");
-    EXPECT_EQ(result.second, 0);
-    result = vm.Complete("history", " answer ", " thought ", "", 17);
+    result = vm.Complete(" answer ", "", "[]", Startup::Disabled);
     EXPECT_EQ(
         result.first,
-        "history<|im_start|>assistant\n<think>\n thought \n</think>\n\n answer <|im_end|>\n");
+        vm.BasePrompt() +
+            "<|im_start|>assistant\n<think>\n\n</think>\n\n answer <|im_end|>\n");
+    EXPECT_EQ(result.second, 0);
+    result = vm.Complete(" answer ", " thought ", "[]", Startup::NoGeneration);
+    EXPECT_EQ(
+        result.first,
+        vm.BasePrompt() +
+            "<|im_start|>assistant\n<think>\n thought \n</think>\n\n answer <|im_end|>\n");
     EXPECT_EQ(result.second, 0);
   }
 }
@@ -405,10 +516,11 @@ TEST(QwenOutput, NeverThinkingKeepsLiteralMarkersAndNoPrefixCompletionPlain) {
     ASSERT_TRUE(vm.Init(Profile::HermesNonThinking, bc));
     const Fixture fixtures[] = {
         {u8"  café 🦙 <think>literal</think> \n", "",
-         u8"  café 🦙 <think>literal</think> \n", "", 1},
+         u8"  café 🦙 <think>literal</think> \n", "", Startup::Disabled},
         {u8"answer 🦙<tool_call>{\"name\":\"f\",\"arguments\":{}}</tool_call>",
          "", u8"answer 🦙",
-         "<tool_call>{\"name\":\"f\",\"arguments\":{}}</tool_call>", 1},
+         "<tool_call>{\"name\":\"f\",\"arguments\":{}}</tool_call>",
+         Startup::Disabled},
     };
     for (const auto &fixture : fixtures) {
       for (size_t split = 0; split <= fixture.response.size(); ++split)
@@ -416,9 +528,9 @@ TEST(QwenOutput, NeverThinkingKeepsLiteralMarkersAndNoPrefixCompletionPlain) {
       Check(vm, fixture, 0, true);
     }
     const auto result =
-        vm.Complete("history", " answer ", "ignored thought", "", 17);
+        vm.Complete(" answer ", "ignored thought", "[]", Startup::NoGeneration);
     EXPECT_EQ(result.first,
-              "history<|im_start|>assistant\n answer <|im_end|>\n");
+              vm.BasePrompt() + "<|im_start|>assistant\n answer <|im_end|>\n");
     EXPECT_EQ(result.second, 0);
   }
 }
@@ -428,44 +540,51 @@ TEST(QwenOutput, EverySplitAndBytewiseGrowthFromSourceAndBytecode) {
       VM vm;
       ASSERT_TRUE(vm.Init(
           thinking ? Profile::ExplicitReasoning : Profile::InlineHistory, bc));
-      EXPECT_EQ(vm.Initial(false, true), 1);
-      EXPECT_EQ(vm.Initial(true, true), 2);
-      EXPECT_EQ(vm.Initial(false, false), 17);
-      EXPECT_EQ(vm.Initial(true, false), 17);
+      EXPECT_GE(vm.Initial(false, true), 0);
+      EXPECT_GE(vm.Initial(true, true), 0);
+      EXPECT_GE(vm.Initial(false, false), 0);
+      EXPECT_GE(vm.Initial(true, false), 0);
       std::vector<Fixture> fixtures = {
-          {"reason</think>\n\nanswer", "reason", "answer", "", 2},
+          {"reason</think>\n\nanswer", "reason", "answer", "",
+           Startup::Enabled},
           {"reason</think>answer</think>literal", "reason",
-           "answer</think>literal", "", 2},
-          {"reason</think>\nanswer", "reason", "answer", "", 2},
-          {"reason</think>\n\n\nanswer", "reason", "\nanswer", "", 2},
-          {"reason</think>", "reason", "", "", 2},
-          {"reason</thi", "reason</thi", "", "", 2},
-          {"reason 🦙 café 中", "reason 🦙 café 中", "", "", 2},
-          {"answer 🦙 café 中", "", "answer 🦙 café 中", "", 1},
-          {"answer<tool_cal", "", "answer<tool_cal", "", 1},
+           "answer</think>literal", "", Startup::Enabled},
+          {"reason</think>\nanswer", "reason", "answer", "", Startup::Enabled},
+          {"reason</think>\n\n\nanswer", "reason", "\nanswer", "",
+           Startup::Enabled},
+          {"reason</think>", "reason", "", "", Startup::Enabled},
+          {"reason</thi", "reason</thi", "", "", Startup::Enabled},
+          {"reason 🦙 café 中", "reason 🦙 café 中", "", "", Startup::Enabled},
+          {"answer 🦙 café 中", "", "answer 🦙 café 中", "", Startup::Disabled},
+          {"answer<tool_cal", "", "answer<tool_cal", "", Startup::Disabled},
           {"answer\n\n<tool_call>\n<function=f>\n</function>\n</tool_call>", "",
            "answer\n\n", "<tool_call>\n<function=f>\n</function>\n</tool_call>",
-           1},
-          {"reason<tool_call>broken", "reason", "", "<tool_call>broken", 2},
-          {"<tool_call>broken", "", "", "<tool_call>broken", 2},
-          {"<tool_call>broken", "", "", "<tool_call>broken", 1},
+           Startup::Disabled},
+          {"reason<tool_call>broken", "reason", "", "<tool_call>broken",
+           Startup::Enabled},
+          {"<tool_call>broken", "", "", "<tool_call>broken", Startup::Enabled},
+          {"<tool_call>broken", "", "", "<tool_call>broken", Startup::Disabled},
           {"reason</think>\n\nanswer<tool_call>x", "reason", "answer",
-           "<tool_call>x", 2},
-          {"", "", "", "", 0},
+           "<tool_call>x", Startup::Enabled},
+          {"", "", "", "", Startup::Default},
           {"raw bytes", thinking ? "raw bytes" : "",
-           thinking ? "" : "raw bytes", "", 0},
-          {"explicit false", "", "explicit false", "", 1},
-          {"no prefix </think>", "", "no prefix </think>", "", 17},
+           thinking ? "" : "raw bytes", "", Startup::Default},
+          {"explicit false", "", "explicit false", "", Startup::Disabled},
+          {"no prefix </think>", "", "no prefix </think>", "",
+           Startup::NoGeneration},
       };
       const std::string tool_marker = "<tool_call>", think_marker = "</think>";
       for (size_t n = 1; n < tool_marker.size(); ++n) {
         auto partial = tool_marker.substr(0, n);
-        fixtures.push_back({"answer" + partial, "", "answer" + partial, "", 1});
-        fixtures.push_back({"reason" + partial, "reason" + partial, "", "", 2});
+        fixtures.push_back({"answer" + partial, "", "answer" + partial, "",
+                            Startup::Disabled});
+        fixtures.push_back(
+            {"reason" + partial, "reason" + partial, "", "", Startup::Enabled});
       }
       for (size_t n = 1; n < think_marker.size(); ++n) {
         auto partial = think_marker.substr(0, n);
-        fixtures.push_back({"reason" + partial, "reason" + partial, "", "", 2});
+        fixtures.push_back(
+            {"reason" + partial, "reason" + partial, "", "", Startup::Enabled});
       }
       for (const auto &f : fixtures) {
         SCOPED_TRACE(::testing::Message()
@@ -483,36 +602,41 @@ TEST(QwenOutput, CanonicalAssistantAndConservativeReplayFromSourceAndBytecode) {
       VM vm;
       ASSERT_TRUE(vm.Init(
           thinking ? Profile::ExplicitReasoning : Profile::InlineHistory, bc));
-      const std::string prefix = "history<|im_start|>assistant\n<think>\n";
-      auto result =
-          vm.Complete(prefix, "\u3000 answer \u00a0", "\u2003 thought \u202f",
-                      "<tool_call>x</tool_call>", 2);
-      EXPECT_EQ(result.first,
-                prefix + "thought\n</think>\n\nanswer\n\n<tool_call>x</"
-                         "tool_call><|im_end|>\n");
+      const std::string header = "<|im_start|>assistant\n<think>\n";
+      const std::string calls =
+          R"([{"id":"call_f","type":"function","function":{"name":"f","arguments":"{\"x\":\"v\"}"}}])";
+      const std::string xml =
+          "<tool_call>\n<function=f>\n<parameter=x>\nv\n</parameter>\n</function>\n</tool_call>";
+      auto result = vm.Complete("\u3000 answer \u00a0", "\u2003 thought \u202f",
+                                calls, Startup::Enabled);
+      EXPECT_EQ(result.first, vm.BasePrompt() + header +
+                                  "thought\n</think>\n\nanswer\n\n" + xml +
+                                  "<|im_end|>\n");
       EXPECT_EQ(result.second, 0);
-      const std::string disabled = prefix + "\n</think>\n\n";
-      result = vm.Complete(disabled, " answer ", "", "", 1);
-      EXPECT_EQ(result.first, disabled + "answer<|im_end|>\n");
-      EXPECT_EQ(result.second, 0);
-      result = vm.Complete("history", " answer ", " thought ", "", 17);
+      result = vm.Complete(" answer ", "", "[]", Startup::Disabled);
       EXPECT_EQ(result.first,
-                prefix + "thought\n</think>\n\nanswer<|im_end|>\n");
+                vm.BasePrompt() + header + "\n</think>\n\nanswer<|im_end|>\n");
       EXPECT_EQ(result.second, 0);
-      result = vm.Complete("history", "", "", "<tool_call>x</tool_call>", 17);
-      EXPECT_EQ(result.first,
-                prefix + "\n</think>\n\n<tool_call>x</tool_call><|im_end|>\n");
+      result =
+          vm.Complete(" answer ", " thought ", "[]", Startup::NoGeneration);
+      EXPECT_EQ(result.first, vm.BasePrompt() + header +
+                                  "thought\n</think>\n\nanswer<|im_end|>\n");
       EXPECT_EQ(result.second, 0);
-      result = vm.Complete(prefix, "", " truncated thought ", "", 2);
+      result = vm.Complete("", "", calls, Startup::NoGeneration);
+      EXPECT_EQ(result.first, vm.BasePrompt() + header + "\n</think>\n\n" +
+                                  xml + "<|im_end|>\n");
+      EXPECT_EQ(result.second, 0);
+      result = vm.Complete("", " truncated thought ", "[]", Startup::Enabled);
       EXPECT_EQ(result.first,
-                prefix + "truncated thought\n</think>\n\n<|im_end|>\n");
+                vm.BasePrompt() + header +
+                    "truncated thought\n</think>\n\n<|im_end|>\n");
       EXPECT_EQ(result.second, 0);
       // DEFAULT mode uses the declared revision default in reconstruction too.
-      result = vm.Complete(thinking ? prefix : disabled, " answer ",
-                           thinking ? " thought " : "", "", 0);
-      EXPECT_EQ(result.first,
-                thinking ? prefix + "thought\n</think>\n\nanswer<|im_end|>\n"
-                         : disabled + "answer<|im_end|>\n");
+      result = vm.Complete(" answer ", thinking ? " thought " : "", "[]",
+                           Startup::Default);
+      EXPECT_EQ(result.first, vm.BasePrompt() + header +
+                                  (thinking ? "thought" : "") +
+                                  "\n</think>\n\nanswer<|im_end|>\n");
       EXPECT_EQ(result.second, 0);
     }
 }

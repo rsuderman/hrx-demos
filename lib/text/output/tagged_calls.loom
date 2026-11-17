@@ -1,0 +1,235 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Bounded capture and canonical XML mechanics. Generated source owns the
+// actual wire sequence and repetitions; no grammar descriptor is interpreted.
+func.decl @text.output_check(%condition: i1)
+func.decl @text.at(%text: buffer, %at: offset, %marker: buffer) -> (i1)
+func.decl @text.find(%text: buffer, %start: offset, %marker: buffer) -> (offset, i1)
+func.decl @text.slice(%text: buffer, %begin: offset, %end: offset) -> (buffer)
+func.decl @text.range(%text: buffer, %begin: i64, %length: i64) -> (buffer)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+func.decl @output_schema.admit_mapping(%json: buffer)
+func.decl @output_schema.properties(%schemas: buffer, %name: buffer) -> (buffer)
+func.decl @text.trim(%text: buffer) -> (buffer)
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+func.decl @output_json.known_tool(%schemas: buffer, %name: buffer) -> (i1)
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+func.decl import("tools") @parse_xml(%schemas: buffer, %response: buffer, %truncated: i64) -> (buffer)
+
+// Required literals are always nonempty, so success strictly advances. Limit
+// is an already established containing span, not an unbounded search window.
+func.def public @output_tagged.expect(%text: buffer, %at: offset, %limit: offset, %marker: buffer) -> (offset) {
+  %zero = index.constant 0 : offset
+  %length = buffer.length %text
+  %size = buffer.length %marker
+  %nonempty = index.cmp ne, %size, %zero : offset
+  func.call @text.output_check(%nonempty) : (i1)
+  %bounded_limit = index.cmp ule, %limit, %length : offset
+  %bounded_at = index.cmp ule, %at, %limit : offset
+  %bounded = scalar.andi %bounded_limit, %bounded_at : i1
+  func.call @text.output_check(%bounded) : (i1)
+  %remaining = index.sub %limit, %at : offset
+  %fits = index.cmp ule, %size, %remaining : offset
+  func.call @text.output_check(%fits) : (i1)
+  %matched = func.call @text.at(%text, %at, %marker) : (buffer, offset, buffer) -> (i1)
+  func.call @text.output_check(%matched) : (i1)
+  %next = index.add %at, %size : offset
+  func.return %next : offset
+}
+
+// Capture before a required closing boundary and consume that boundary. Empty
+// captures are permitted; an empty boundary never creates a no-progress loop.
+func.def public @output_tagged.capture(%text: buffer, %at: offset, %limit: offset, %marker: buffer) -> (buffer, offset) {
+  %end, %found = func.call @text.find(%text, %at, %marker) : (buffer, offset, buffer) -> (offset, i1)
+  func.call @text.output_check(%found) : (i1)
+  %next = func.call @output_tagged.expect(%text, %end, %limit, %marker) : (buffer, offset, offset, buffer) -> (offset)
+  %value = func.call @text.slice(%text, %at, %end) : (buffer, offset, offset) -> (buffer)
+  func.return %value, %next : buffer, offset
+}
+
+// Remove only the source's bounded optional framing. The canonical adapter
+// adds its own single LF, so intentional payload LFs remain payload bytes.
+func.def public @output_tagged.unframe(%value: buffer, %prefix: buffer, %suffix: buffer) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %length = buffer.length %value
+  %prefix_length = buffer.length %prefix
+  %suffix_length = buffer.length %suffix
+  %has_prefix = func.call @text.at(%value, %zero, %prefix) : (buffer, offset, buffer) -> (i1)
+  %begin = scf.select %has_prefix, %prefix_length, %zero : offset
+  %remaining = index.sub %length, %begin : offset
+  %fits_suffix = index.cmp ule, %suffix_length, %remaining : offset
+  %end = scf.if %fits_suffix -> (offset) {
+    %at = index.sub %length, %suffix_length : offset
+    %has_suffix = func.call @text.at(%value, %at, %suffix) : (buffer, offset, buffer) -> (i1)
+    %end = scf.select %has_suffix, %at, %length : offset
+    scf.yield %end : offset
+  } else { scf.yield %length : offset }
+  %result = func.call @text.slice(%value, %begin, %end) : (buffer, offset, offset) -> (buffer)
+  func.return %result : buffer
+}
+
+// Native tool_xml_name takes bytes up to the first literal '>'. It does not
+// impose an ASCII alphabet or byte-count limit. Entity/escape decoding is not
+// part of that native name grammar, so a literal '>' cannot be represented.
+func.def public @output_tagged.name(%name: buffer) {
+  %zero = index.constant 0 : offset
+  %delimiter = buffer.constant utf8(">") : buffer
+  %at, %found = func.call @text.find(%name, %zero, %delimiter) : (buffer, offset, buffer) -> (offset, i1)
+  %false = scalar.constant false : i1
+  %safe = scalar.cmpi eq, %found, %false : i1
+  func.call @text.output_check(%safe) : (i1)
+  func.return
+}
+
+func.def public @output_tagged.begin(%name: buffer) -> (buffer) {
+  func.call @output_tagged.name(%name) : (buffer)
+  %open = buffer.constant utf8("<tool_call>\n<function=") : buffer
+  %end = buffer.constant utf8(">\n") : buffer
+  %empty = buffer.constant utf8("") : buffer
+  %result = func.call @text.join8(%open, %name, %end, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+func.def @output_tagged.no_collision(%value: buffer, %marker: buffer) {
+  %zero = index.constant 0 : offset
+  %false = scalar.constant false : i1
+  %at, %found = func.call @text.find(%value, %zero, %marker) : (buffer, offset, buffer) -> (offset, i1)
+  %safe = scalar.cmpi eq, %found, %false : i1
+  func.call @text.output_check(%safe) : (i1)
+  func.return
+}
+
+// Opaque value bytes are copied, never globally rewritten. Reject structural
+// collisions before constructing canonical XML for the native parser.
+func.def public @output_tagged.parameter(%prior: buffer, %key: buffer, %value: buffer) -> (buffer) {
+  func.call @output_tagged.name(%key) : (buffer)
+  // The native parser finds the first literal </parameter> while consuming
+  // a value. Other XML-looking bytes remain opaque data in that bounded span.
+  %parameter_close = buffer.constant utf8("</parameter>") : buffer
+  func.call @output_tagged.no_collision(%value, %parameter_close) : (buffer, buffer)
+  %begin = buffer.constant utf8("<parameter=") : buffer
+  %middle = buffer.constant utf8(">\n") : buffer
+  %end = buffer.constant utf8("\n</parameter>\n") : buffer
+  %empty = buffer.constant utf8("") : buffer
+  %result = func.call @text.join8(%prior, %begin, %key, %middle, %value, %end, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+// Only one explicit literal type proves this rewrite. Unions and absent
+// schemas remain the native parser's domain; no schema inference is attempted.
+func.def @output_tagged.is_literal_type(%properties: buffer, %key: buffer, %expected: buffer) -> (i1) {
+  %zero = index.constant 0 : offset
+  %length = buffer.length %properties
+  %has_properties = index.cmp ne, %length, %zero : offset
+  %empty = buffer.constant utf8("{}") : buffer
+  %selected = scf.select %has_properties, %properties, %empty : buffer
+  %property, %kind, %found = func.call @text.lookup(%selected, %key) : (buffer, buffer) -> (buffer, i64, i1)
+  %object = scalar.constant 2 : i64
+  %is_object = scalar.cmpi eq, %kind, %object : i64
+  %valid = scalar.andi %found, %is_object : i1
+  %result = scf.if %valid -> (i1) {
+    %type_key = buffer.constant utf8("type") : buffer
+    %type, %has_type = func.call @text.string(%property, %type_key) : (buffer, buffer) -> (buffer, i1)
+    %same = func.call @text.equal(%type, %expected) : (buffer, buffer) -> (i1)
+    %matches = scalar.andi %has_type, %same : i1
+    scf.yield %matches : i1
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
+  func.return %result : i1
+}
+
+// Called only for a source-proven Python scalar spelling. Schema lookup uses
+// decoded runtime names directly, including Unicode; no identifier regex is
+// involved. Strings and containers are never searched/replaced internally.
+func.def public @output_tagged.python_scalar(%schemas: buffer, %function: buffer, %key: buffer, %value: buffer) -> (buffer) {
+  %properties = func.call @output_schema.properties(%schemas, %function) : (buffer, buffer) -> (buffer)
+  %boolean_type = buffer.constant utf8("boolean") : buffer
+  %null_type = buffer.constant utf8("null") : buffer
+  %boolean = func.call @output_tagged.is_literal_type(%properties, %key, %boolean_type) : (buffer, buffer, buffer) -> (i1)
+  %null = func.call @output_tagged.is_literal_type(%properties, %key, %null_type) : (buffer, buffer, buffer) -> (i1)
+  %trimmed = func.call @text.trim(%value) : (buffer) -> (buffer)
+  %python_true = buffer.constant utf8("True") : buffer
+  %python_false = buffer.constant utf8("False") : buffer
+  %python_none = buffer.constant utf8("None") : buffer
+  %json_true = buffer.constant utf8("true") : buffer
+  %json_false = buffer.constant utf8("false") : buffer
+  %json_null = buffer.constant utf8("null") : buffer
+  %is_true = func.call @text.equal(%trimmed, %python_true) : (buffer, buffer) -> (i1)
+  %is_false = func.call @text.equal(%trimmed, %python_false) : (buffer, buffer) -> (i1)
+  %is_none = func.call @text.equal(%trimmed, %python_none) : (buffer, buffer) -> (i1)
+  %rewrite_true = scalar.andi %boolean, %is_true : i1
+  %rewrite_false = scalar.andi %boolean, %is_false : i1
+  %rewrite_none = scalar.andi %null, %is_none : i1
+  %none_or_value = scf.select %rewrite_none, %json_null, %value : buffer
+  %false_or_value = scf.select %rewrite_false, %json_false, %none_or_value : buffer
+  %result = scf.select %rewrite_true, %json_true, %false_or_value : buffer
+  func.return %result : buffer
+}
+
+// Only an all-JSON source capture authorizes decoding a JSON string here.
+// Other wire modes preserve an opaque string such as the literal "true".
+func.def public @output_tagged.json_value(%value: buffer) -> (buffer) {
+  %open = buffer.constant utf8("{\"value\":") : buffer
+  %close = buffer.constant utf8("}") : buffer
+  %empty = buffer.constant utf8("") : buffer
+  %wrapped = func.call @text.join8(%open, %value, %close, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.call @output_schema.admit_mapping(%wrapped) : (buffer)
+  %fields, %kind, %count = func.call @members(%wrapped) : (buffer) -> (buffer, i32, i64)
+  %one = scalar.constant 1 : i64
+  %single = scalar.cmpi eq, %count, %one : i64
+  func.call @text.output_check(%single) : (i1)
+  %key = buffer.constant utf8("value") : buffer
+  %decoded, %is_string = func.call @text.string(%wrapped, %key) : (buffer, buffer) -> (buffer, i1)
+  %result = scf.select %is_string, %decoded, %value : buffer
+  func.return %result : buffer
+}
+
+func.def public @output_tagged.end(%prior: buffer) -> (buffer) {
+  %close = buffer.constant utf8("</function>\n</tool_call>") : buffer
+  %empty = buffer.constant utf8("") : buffer
+  %result = func.call @text.join8(%prior, %close, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+// Preserve the key/value backend's existing additional known-name and strict
+// argument-mapping checks. Named-tag backends retain native parser validation.
+func.def @output_tagged.check_calls(%schemas: buffer, %calls: buffer) {
+  %records, %kind, %count = func.call @members(%calls) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+  %function_key = buffer.constant utf8("function") : buffer
+  %arguments_key = buffer.constant utf8("arguments") : buffer
+  %name_key = buffer.constant utf8("name") : buffer
+  scf.for %i = [%zero to %extent step %one] {
+    %begin = view.load %fields[%i, 2] : view<[%extent]x5xi64> -> i64
+    %length = view.load %fields[%i, 3] : view<[%extent]x5xi64> -> i64
+    %call = func.call @text.range(%calls, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    %function, %fk, %ff = func.call @text.lookup(%call, %function_key) : (buffer, buffer) -> (buffer, i64, i1)
+    %name, %has_name = func.call @text.string(%function, %name_key) : (buffer, buffer) -> (buffer, i1)
+    func.call @text.output_check(%has_name) : (i1)
+    %known = func.call @output_json.known_tool(%schemas, %name) : (buffer, buffer) -> (i1)
+    func.call @text.output_check(%known) : (i1)
+    %arguments, %has_arguments = func.call @text.string(%function, %arguments_key) : (buffer, buffer) -> (buffer, i1)
+    func.call @text.output_check(%has_arguments) : (i1)
+    func.call @output_schema.admit_mapping(%arguments) : (buffer)
+  }
+  func.return
+}
+
+func.def public @output_tagged.finish(%schemas: buffer, %xml: buffer, %check_calls: i1) -> (buffer) {
+  // Existing XML semantics require complete calls even on truncated generation.
+  %strict = scalar.constant 0 : i64
+  %calls = func.call @parse_xml(%schemas, %xml, %strict) : (buffer, buffer, i64) -> (buffer)
+  scf.if %check_calls {
+    func.call @output_tagged.check_calls(%schemas, %calls) : (buffer, buffer)
+  }
+  func.return %calls : buffer
+}

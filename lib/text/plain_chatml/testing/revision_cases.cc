@@ -8,8 +8,9 @@ constexpr const char *kHeader = "<|im_start|>assistant\n";
 void CheckPlainInput(ChatVM &vm, const RenderReferences &refs) {
   const std::string body = u8" \u2003Hello\u00a0 ";
   const std::string framed = "<|im_start|>user\n" + body + "<|im_end|>\n";
-  CheckInputPolicy(vm, {std::string(kHeader) + body, body, kHeader, framed,
-                        "<|im_end|>\n", "\n", framed + kHeader, 100273});
+  CheckInputPolicy(vm,
+                   {std::string(kHeader) + body, body, kHeader, framed,
+                    "<|im_end|>\n", "\n", framed + kHeader, kHeader, 100273});
   std::string parsed;
   ASSERT_TRUE(
       Ok(vm.ParseTools("[]", "<tool_call>literal</tool_call>", &parsed)));
@@ -17,12 +18,12 @@ void CheckPlainInput(ChatVM &vm, const RenderReferences &refs) {
   auto status = vm.ParseTools(
       R"([{"type":"function","function":{"name":"f","parameters":{}}}])", "",
       &parsed);
-  EXPECT_FALSE(iree_status_is_ok(status));
-  Diagnostic(status);
+  ASSERT_TRUE(Ok(status));
+  EXPECT_EQ(parsed, "[]");
 }
 const TextRevisionCase kCase{"58c1a1f0", "58C1A1F0", "loomify-llama",
-                             "one-user", 28,         3,
-                             7,          false,      CheckPlainInput};
+                             "one-user", 28,         0,
+                             0,          false,      CheckPlainInput};
 class PlainChatmlTest : public ::testing::TestWithParam<bool> {};
 void InitPlain(ChatVM &vm, bool bc) {
   ASSERT_TRUE(vm.Init(
@@ -132,9 +133,17 @@ TEST_P(PlainChatmlTest, OutputWhitespaceMarkupUtf8AndCanonicalFollowup) {
   for (
       const char *request :
       {R"({"messages":[{"role":"user","content":"Hello"}],"model_options":{"unknown":true}})",
-       R"({"messages":[{"role":"user","content":"Hello"}],"reasoning_effort":"low"})",
-       R"({"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"file://image"}}]}]})"}) {
+       R"({"messages":[{"role":"user","content":"Hello"}],"reasoning_effort":"low"})"}) {
     loom_serve_text_chat_t chat{};
+    ASSERT_TRUE(Ok(vm.Render(request, &chat)));
+    EXPECT_EQ(Copy(iree_string_builder_view(&chat.prompt)),
+              "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n");
+    loom_serve_text_chat_deinitialize(&chat);
+  }
+  {
+    loom_serve_text_chat_t chat{};
+    const char *request =
+        R"({"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"file://image"}}]}]})";
     auto status = vm.Render(request, &chat);
     const bool accepted = iree_status_is_ok(status);
     Diagnostic(status);

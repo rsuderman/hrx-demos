@@ -57,8 +57,8 @@ bool Check(loomc_status_t status) {
   return ok;
 }
 fs::path LibraryRoot(const char *executable) {
-  // Choose the conventional caller resource root without reading products.
-  // Availability is checked only after optional inspection publication.
+  // Choose the conventional BUILD-owned resource root. Text-inclusive
+  // configuration validates its helpers before inspection can be published.
   if (const auto *root = std::getenv("RUNFILES_DIR"))
     if (*root)
       return fs::path(root) / "_main";
@@ -121,7 +121,8 @@ int main(int argc, char **argv) {
       "  --gguf=MODEL --tokenizer=JSON --output-dir=NEW_DIRECTORY\n"
       "  --gguf=MODEL --configuration-output=NEW_DIRECTORY [--tokenizer=JSON]\n"
       "Configuration inspection may accompany either export; numerical export rejects tokenizer/template flags.\n"
-      "Inspection alone performs no Loom compilation or product loading. Successful inspection is retained\n"
+      "Numerical-only inspection needs no Loom products. Text-inclusive inspection compiles and validates text on CPU.\n"
+      "Successful inspection is retained\n"
       "if a later native export fails. Existing output paths are never replaced.\n");
   iree_flags_parse_checked(IREE_FLAGS_PARSE_MODE_DEFAULT, &argc, &argv);
   const bool module = FLAG_output != nullptr,
@@ -161,9 +162,9 @@ int main(int argc, char **argv) {
   build.platform = FLAG_platform;
   build.prefill_capacity = FLAG_prefill_capacity;
   build.context_capacity = FLAG_context_capacity;
-  // Copy the conventional resource root without reading any model products.
-  // Actual availability checks follow successful optional inspection.
-  if (module || package)
+  // Text-inclusive inspection needs the same declared helpers as export;
+  // numerical-only inspection stays independent of all Loom resources.
+  if (module || package || tokenizer)
     build.library_root = LibraryRoot(argv[0]).string();
   GgufPackageOptions options;
   if (package)

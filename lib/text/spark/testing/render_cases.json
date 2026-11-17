@@ -459,8 +459,6 @@
   },
   {
     "id": "tool-array",
-    "native_unsupported": "Python collection repr in tool result is outside the current compiler checkpoint",
-    "native_admission_error": "unsupported",
     "request": {
       "messages": [
         {
@@ -480,7 +478,6 @@
   },
   {
     "id": "tool-null",
-    "native_admission_error": "unsupported",
     "request": {
       "messages": [
         {
@@ -495,7 +492,6 @@
   },
   {
     "id": "tool-missing",
-    "native_admission_error": "unsupported",
     "request": {
       "messages": [
         {

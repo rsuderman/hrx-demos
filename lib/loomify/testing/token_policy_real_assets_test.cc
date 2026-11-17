@@ -50,14 +50,19 @@ TEST(TokenPolicyRealAssets, BindsActualLlamaAndQwenTokenizers) {
                                          "<|start_header_id|>",
                                          "<|end_header_id|>", "<|eot_id|>"}
               : std::vector<std::string>{"<|im_start|>", "<|im_end|>"};
-    ASSERT_TRUE(BindTokenPolicy(
-        file.get(),
-        !llama
-            ? TextTokenRequirements{"gpt2", "qwen35", false, "", "<|im_end|>"}
-            : TextTokenRequirements{"gpt2", "llama-bpe", true,
-                                    "<|begin_of_text|>", "<|eot_id|>"},
-        text, publication, markers, json, &bound, &error))
+    PreparedTokenBindings prepared;
+    ASSERT_TRUE(PrepareTokenBindings(llama
+                                         ? std::vector<std::string>{"bos_token"}
+                                         : std::vector<std::string>{},
+                                     text, json, &prepared, &error))
         << error;
+    EXPECT_EQ(prepared.facts().tokenizer_model, "gpt2");
+    EXPECT_EQ(prepared.facts().pre_tokenizer, llama ? "llama-bpe" : "qwen35");
+    ASSERT_TRUE(FinalizeTokenPolicy(file.get(), prepared, text, publication,
+                                    {llama ? "<|eot_id|>" : "<|im_end|>\n"},
+                                    markers, &bound, &error))
+        << error;
+    EXPECT_EQ(prepared.globals().count("bos_token"), llama ? 1u : 0u);
     EXPECT_EQ(bound.terminal.piece, llama ? "<|eot_id|>" : "<|im_end|>");
     EXPECT_EQ(bound.encode_flags, 0u);
     if (llama) {
@@ -103,19 +108,24 @@ TEST(TokenPolicyRealAssets, BindsActualGemmaSourceStopsAndNativeTokenizer) {
   EXPECT_EQ(publication->raw_stops[1].piece, "<end_of_turn>");
   EXPECT_EQ(publication->terminal_index, 1u);
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(file.get(),
-                              TextTokenRequirements{"llama", "default", true,
-                                                    "", "<end_of_turn>", false},
-                              text, publication,
-                              {"<start_of_turn>", "<end_of_turn>"}, json,
-                              &bound, &error))
+  PreparedTokenBindings prepared;
+  ASSERT_TRUE(
+      PrepareTokenBindings({"bos_token"}, text, json, &prepared, &error))
       << error;
+  EXPECT_EQ(prepared.facts().tokenizer_model, "llama");
+  EXPECT_EQ(prepared.facts().pre_tokenizer, "default");
+  ASSERT_TRUE(FinalizeTokenPolicy(
+      file.get(), prepared, text, publication, {"<end_of_turn>\n"},
+      {"<start_of_turn>", "<end_of_turn>"}, &bound, &error))
+      << error;
+  EXPECT_EQ(bound.terminal.id, 106);
+  EXPECT_EQ(prepared.globals().at("bos_token"), "<bos>");
   EXPECT_EQ(bound.terminal.id, 106);
   EXPECT_EQ(bound.encode_flags, 0u);
   EXPECT_EQ(bound.roles.at("tokenizer.ggml.bos_token_id").id, 2);
   EXPECT_EQ(bound.roles.at("tokenizer.ggml.padding_token_id").id, 0);
   EXPECT_EQ(bound.roles.at("tokenizer.ggml.unknown_token_id").id, 3);
-  EXPECT_NE(bound.text_source.find("@loomify.tokens.bos_marker"),
+  EXPECT_EQ(bound.text_source.find("@loomify.tokens.bos_marker"),
             std::string::npos);
   // JSON contains added media ID262144 outside model vocabulary: it is not a
   // consumed ordinary-text marker or raw-stop identity and must not block
@@ -153,10 +163,17 @@ TEST(TokenPolicyRealAssets, BindsActualQwenSourceStopsWithoutBosInsertion) {
     EXPECT_EQ(publication->raw_stops[1].id, 151645);
     EXPECT_EQ(publication->terminal_index, 1u);
     BoundTokenPolicy bound;
-    ASSERT_TRUE(BindTokenPolicy(
-        file.get(), {"gpt2", "qwen2", false, "", "<|im_end|>"}, text,
-        publication, {"<|im_start|>", "<|im_end|>"}, json, &bound, &error))
+    PreparedTokenBindings prepared;
+    ASSERT_TRUE(PrepareTokenBindings({}, text, json, &prepared, &error))
         << error;
+    EXPECT_EQ(prepared.facts().tokenizer_model, "gpt2");
+    EXPECT_EQ(prepared.facts().pre_tokenizer, "qwen2");
+    ASSERT_TRUE(FinalizeTokenPolicy(
+        file.get(), prepared, text, publication, {"<|im_end|>\n"},
+        {"<|im_start|>", "<|im_end|>"}, &bound, &error))
+        << error;
+    EXPECT_EQ(bound.terminal.id, 151645);
+    EXPECT_TRUE(prepared.globals().empty());
     EXPECT_EQ(bound.terminal.id, 151645);
     EXPECT_EQ(bound.encode_flags, 0u);
     if (qwen2)
@@ -373,20 +390,34 @@ TEST(TokenPolicyRealAssets, CompactChatmlBindsSourceBosAndTwoStops) {
   EXPECT_EQ(facts->raw_stops[1].id, 124900);
   EXPECT_EQ(facts->terminal_index, 1u);
   BoundTokenPolicy bound;
-  ASSERT_TRUE(BindTokenPolicy(
-      file.get(), {"gpt2", "lfm2", true, "", "<|im_end|>"}, text, facts,
-      {"<|im_start|>", "<|im_end|>"}, json, &bound, &error))
+  PreparedTokenBindings prepared;
+  ASSERT_TRUE(
+      PrepareTokenBindings({"bos_token"}, text, json, &prepared, &error))
+      << error;
+  EXPECT_EQ(prepared.facts().tokenizer_model, "gpt2");
+  EXPECT_EQ(prepared.facts().pre_tokenizer, "lfm2");
+  ASSERT_TRUE(
+      FinalizeTokenPolicy(file.get(), prepared, text, facts, {"<|im_end|>\n"},
+                          {"<|im_start|>", "<|im_end|>"}, &bound, &error))
       << error;
   EXPECT_EQ(bound.roles.at("tokenizer.ggml.bos_token_id").id, 124894);
   EXPECT_EQ(bound.encode_flags, 0u);
-  EXPECT_NE(bound.text_source.find("@loomify.tokens.bos_marker"),
+  EXPECT_EQ(bound.text_source.find("@loomify.tokens.bos_marker"),
             std::string::npos);
+  EXPECT_EQ(bound.terminal.id, 124900);
+  EXPECT_EQ(prepared.globals().at("bos_token"),
+            bound.roles.at("tokenizer.ggml.bos_token_id").piece);
   auto wrong = text;
   wrong.pre_tokenizer = "qwen2";
   const auto source = bound.text_source;
-  EXPECT_FALSE(BindTokenPolicy(
-      file.get(), {"gpt2", "lfm2", true, "", "<|im_end|>"}, wrong, facts,
-      {"<|im_start|>", "<|im_end|>"}, json, &bound, &error));
+  PreparedTokenBindings renamed;
+  ASSERT_TRUE(
+      PrepareTokenBindings({"bos_token"}, wrong, json, &renamed, &error))
+      << error;
+  EXPECT_EQ(renamed.facts().pre_tokenizer, "qwen2");
+  ASSERT_TRUE(FinalizeTokenPolicy(file.get(), renamed, wrong, facts,
+                                  {"<|im_end|>\n"}, {}, &bound, &error))
+      << error;
   EXPECT_EQ(bound.text_source, source);
 }
 } // namespace

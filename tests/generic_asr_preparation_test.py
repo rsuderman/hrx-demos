@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests/fixtures/generic_modalities"
@@ -274,11 +275,21 @@ class GenericAsrPreparationTest(unittest.TestCase):
             for c in json.loads((FIXTURES / "cases.json").read_bytes())
             if c["reference"] == "weather/rain/executable.json"
         )
-        for name in case["source_files"]:
-            shutil.copyfile(
-                ROOT / "loom-pipeline" / case["source_root"] / name,
-                catalog / "weather/rain" / name,
-            )
+        # The declarations describe the frozen native fixture, not today's
+        # maintained Moonshine sources, whose native ABI may have changed.
+        manifest = json.loads((FIXTURES / "native-fixture.json").read_bytes())
+        archive = FIXTURES / manifest["archive"]
+        self.assertEqual(
+            hashlib.sha256(archive.read_bytes()).hexdigest(), manifest["sha256"]
+        )
+        with zipfile.ZipFile(archive) as bundle:
+            for name in case["source_files"]:
+                member = "source/" + case["source_root"] + "/" + name
+                content = bundle.read(member)
+                self.assertEqual(
+                    hashlib.sha256(content).hexdigest(), manifest["members"][member]
+                )
+                (catalog / "weather/rain" / name).write_bytes(content)
 
     def _run(self, action):
         environment = {

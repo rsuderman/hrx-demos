@@ -47,8 +47,10 @@ private:
   explicit BuiltGgufModule(std::unique_ptr<Impl>);
   std::unique_ptr<Impl> impl_;
 };
-// Owned source configuration, prepared before Loom compilation or LINK. No
-// compiler context, product files or output directory are needed to inspect it.
+// Owned source configuration. Numerical-only preparation is data-only; package
+// preparation compiles and validates text on CPU using declared helper
+// resources. No native context or output directory survives or is needed to
+// inspect it.
 class GgufConfiguration final {
 public:
   ~GgufConfiguration();
@@ -102,10 +104,11 @@ public:
                           std::string *error) const;
   // nullptr package prepares numerical data only, independently of tokenizer
   // or chat admission. This package-facing method links :gguf_model_builder.
-  // Package preparation uses the existing native tokenizer parser and may scan
-  // source GGUF vocabulary; it never loads Loom products. Empty resource/output
-  // roots are allowed for inspection. All inputs are copied; failure preserves
-  // *out, success clears error.
+  // Package preparation uses the existing native tokenizer parser and source
+  // GGUF vocabulary, then compiles/probes the selected template with declared
+  // helpers under library_root. Inspection requires that resource root, but
+  // permits an empty output directory and publishes nothing. All inputs are
+  // copied; failure preserves *out, success clears error.
   bool Configure(const GgufBuildOptions &, const GgufPackageOptions *package,
                  std::unique_ptr<GgufConfiguration> *out,
                  std::string *error) const;

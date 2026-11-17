@@ -3,8 +3,9 @@
 #ifndef HRX_SOLUTIONS_LIB_TEXT_TESTING_RENDER_HARNESS_H_
 #define HRX_SOLUTIONS_LIB_TEXT_TESTING_RENDER_HARNESS_H_
 
-// Test-only SDK consumer support. The transport headers are SDK-private; the
-// external consumer explicitly records its isolated visibility exception.
+// Historical request-aware component consumer, preserved for later assertion
+// transfer. These private native owners are not current a401 acceptance. Active
+// fixed-pin package tests use the public checker and never a visibility bypass.
 #include "iree/base/internal/json.h"
 #include "iree/base/internal/unicode.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
@@ -51,6 +52,8 @@ public:
   bool Init(const std::string &product, const std::string &tokenizer_path,
             std::string_view expected_name);
   bool SupportsReasoning() const;
+  uint32_t ReasoningEfforts() const;
+  uint32_t DefaultReasoningEffort() const;
   std::string_view name() const;
   iree_status_t RequestOptions(const std::string &body);
   iree_status_t Render(const std::string &body, loom_serve_text_chat_t *chat);
@@ -82,6 +85,7 @@ iree_status_t PrepareMode(const loom_serve_text_chat_t &,
 struct RenderReferences {
   std::string one_user, schema_request, history_request, history_text;
   std::vector<int32_t> history_ids;
+  std::string typed_thinking;
 };
 struct TextRevisionCase {
   const char *id;
@@ -91,15 +95,23 @@ struct TextRevisionCase {
   size_t expected_rows, expected_template_errors, expected_host_rejections;
   bool supports_reasoning;
   void (*check_policy)(ChatVM &, const RenderReferences &);
+  size_t expected_deferred_rows = 0;
 };
 struct InputPolicyExpectations {
   std::string raw_input, user_input, assistant_header, framed_user_turn;
   std::string open_separator, terminated_separator, fresh_user_reference;
+  std::string continued_assistant_suffix;
   int32_t terminal_anchor; // Exact baseline retained-prefix fixture ID.
 };
 void CheckInputPolicy(ChatVM &, const InputPolicyExpectations &);
+void CheckGreedySamplingOptions(ChatVM &);
+void CheckPreservedChatmlInput(ChatVM &, const RenderReferences &,
+                               int32_t terminal_anchor);
 void CheckRenderRevision(const TextRevisionCase &, bool bytecode,
-                         const std::string &reference_path);
+                         const std::string &reference_path,
+                         const std::string &product_path = {},
+                         const std::string &tokenizer_path = {},
+                         const InputPolicyExpectations *input_policy = nullptr);
 
 } // namespace hrx::loomify_gguf::testing
 #endif // HRX_SOLUTIONS_LIB_TEXT_TESTING_RENDER_HARNESS_H_

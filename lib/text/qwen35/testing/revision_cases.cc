@@ -14,11 +14,12 @@ std::string ToolRequest(std::string_view escaped_arguments,
          std::string(escaped_arguments) + R"("}}]}],"tools":)" +
          std::string(schemas) + "}";
 }
-void CheckAdmission(ChatVM &vm, std::string_view revision) {
+void CheckAdmission(ChatVM &vm, std::string_view revision,
+                    const RenderReferences &references) {
   auto rejects = [&](std::string_view label, const std::string &request) {
     SCOPED_TRACE(std::string(label));
-    // These are transport-valid JSON/JSONC inputs. Admission failures must
-    // exercise the selected source contract, not a malformed outer fixture.
+    // These are well-formed JSON inputs. Exercise source/native shape admission
+    // separately from malformed outer JSON syntax.
     auto cursor = View(request);
     iree_string_view_t parsed{};
     ASSERT_TRUE(Ok(iree_json_consume_value(&cursor, &parsed)));
@@ -31,40 +32,49 @@ void CheckAdmission(ChatVM &vm, std::string_view revision) {
     if (accepted)
       loom_serve_text_chat_deinitialize(&chat);
   };
-  rejects("duplicate literal argument keys",
-          ToolRequest(R"({\"n\":1,\"n\":2})"));
-  rejects("duplicate escaped-equivalent argument keys",
-          ToolRequest(R"({\"n\":1,\"\\u006e\":2})"));
-  rejects("nested duplicate argument keys",
-          ToolRequest(R"({\"nested\":{\"x\":1,\"x\":2}})"));
-  rejects("JSONC argument comment", ToolRequest(R"({\"n\":1/*comment*/})"));
-  rejects("argument trailing comma", ToolRequest(R"({\"n\":1,})"));
+  // Duplicate names and JSONC/trailing commas are outside common/json's
+  // strict-unique serialization input contract. No profile validator or new
+  // advertised support for those extensions is part of generated controls.
+  rejects("tools native ARRAY boundary",
+          R"({"messages":[{"role":"user","content":"Hello"}],"tools":null})");
   rejects(
-      "JSONC schema comment",
-      ToolRequest(
-          R"({})",
-          R"([{"type":"function","function":{"name":"fetch","parameters":{"type":/*comment*/"object","properties":{}}}}])"));
+      "model options object boundary",
+      R"({"messages":[{"role":"user","content":"Hello"}],"model_options":[]})");
+  rejects("message object boundary", R"({"messages":[1]})");
   rejects(
-      "schema trailing comma",
-      ToolRequest(
-          R"({})",
-          R"([{"type":"function","function":{"name":"fetch","parameters":{"type":"object","properties":{}}},}])"));
-  rejects(
-      "unknown model option",
-      R"({"messages":[{"role":"user","content":"hello"}],"model_options":{"typo":true}})");
-  rejects(
-      "wrong thinking boolean type",
-      R"({"messages":[{"role":"user","content":"hello"}],"enable_thinking":"true"})");
+      "function argument native STRING boundary",
+      R"({"messages":[{"role":"user","content":"Hello"},{"role":"assistant","tool_calls":[{"type":"function","function":{"name":"f","arguments":[]}}]}]})");
+  const auto accepts = [&](std::string_view label, const std::string &request,
+                           const std::string &expected) {
+    SCOPED_TRACE(std::string(label));
+    loom_serve_text_chat_t chat{};
+    ASSERT_TRUE(Ok(vm.Render(request, &chat)));
+    EXPECT_EQ(Copy(iree_string_builder_view(&chat.prompt)), expected);
+    loom_serve_text_chat_deinitialize(&chat);
+  };
+  accepts(
+      "source ignores unknown model option",
+      R"({"messages":[{"role":"user","content":"Hello"}],"model_options":{"typo":true}})",
+      references.one_user);
+  ASSERT_FALSE(references.typed_thinking.empty());
+  // Like integer 1 in the independent oracle, string "true" is neither
+  // boolean true nor boolean false under the source's identity tests.
+  accepts(
+      "source owns thinking type semantics",
+      R"({"messages":[{"role":"user","content":"Hello"}],"enable_thinking":"true"})",
+      references.typed_thinking);
   if (revision == "7f0e5290") {
-    rejects(
-        "unsupported 0.8B effort",
-        R"({"messages":[{"role":"user","content":"hello"}],"model_options":{"reasoning_effort":"low"}})");
+    accepts(
+        "source ignores unused effort",
+        R"({"messages":[{"role":"user","content":"Hello"}],"model_options":{"reasoning_effort":"low"}})",
+        references.one_user);
   } else {
+    accepts(
+        "source owns preserve control truthiness",
+        R"({"messages":[{"role":"user","content":"Hello"}],"model_options":{"preserve_thinking":"false"}})",
+        references.one_user);
     rejects(
-        "wrong preserve boolean type",
-        R"({"messages":[{"role":"user","content":"hello"}],"model_options":{"preserve_thinking":"false"}})");
-    rejects(
-        "wrong effort type",
+        "source finite effort guard",
         R"({"messages":[{"role":"user","content":"hello"}],"model_options":{"reasoning_effort":true}})");
   }
   std::string plain_prompt;
@@ -274,11 +284,15 @@ bool IsFloatCase(std::string_view name) {
 void CheckThinkingPolicy(ChatVM &vm, const RenderReferences &refs,
                          const char *revision) {
   auto fresh = refs.one_user;
+  const std::string continued =
+      std::string("<|im_start|>assistant\n") +
+      (std::string_view(revision) == "7f0e5290" ? "<think>\n\n</think>\n\n"
+                                                : "<think>\n");
   CheckInputPolicy(vm, {u8"<|im_start|>assistant\n \u2003Hello\u00a0 ",
                         u8" \u2003Hello\u00a0 ", "<|im_start|>assistant\n",
                         "<|im_start|>user\nHello<|im_end|>\n", "<|im_end|>\n",
-                        "\n", fresh, 248046});
-  CheckAdmission(vm, revision);
+                        "\n", fresh, continued, 248046});
+  CheckAdmission(vm, revision, refs);
   CheckPublicToolParser(vm, revision);
   ASSERT_FALSE(refs.schema_request.empty());
   ASSERT_FALSE(refs.history_request.empty());
@@ -293,19 +307,26 @@ void CheckExplicitReasoning(ChatVM &vm, const RenderReferences &refs) {
   CheckThinkingPolicy(vm, refs, "c3cf9e34");
 }
 void CheckDateOptions(ChatVM &vm, bool accepts_numeric_date) {
-  // Both are well-formed requests. Only the policy-specific date value differs;
-  // no chat_begin/rendering call can supply the expected Llama failure here.
+  // Date admission is owned by the original template, not generic sampling.
   const std::string valid =
       R"({"messages":[{"role":"user","content":"Hello"}],"date_string":"26 Jul 2024"})";
   const std::string invalid =
       R"({"messages":[{"role":"user","content":"Hello"}],"date_string":26})";
-  ASSERT_TRUE(Ok(vm.RequestOptions(valid)));
-  auto status = vm.RequestOptions(invalid);
+  loom_serve_text_chat_t chat{};
+  ASSERT_TRUE(Ok(vm.Render(valid, &chat)));
+  loom_serve_text_chat_deinitialize(&chat);
+  chat = {};
+  auto status = vm.Render(invalid, &chat);
   const bool accepted = iree_status_is_ok(status);
   const auto diagnostic = Diagnostic(status);
   EXPECT_EQ(accepted, accepts_numeric_date) << diagnostic;
+  if (accepted)
+    loom_serve_text_chat_deinitialize(&chat);
   // A rejected call must not prevent subsequent valid use of the same binding.
-  EXPECT_TRUE(Ok(vm.RequestOptions(valid)));
+  chat = {};
+  ASSERT_TRUE(Ok(vm.Render(valid, &chat)));
+  loom_serve_text_chat_deinitialize(&chat);
+  CheckGreedySamplingOptions(vm);
 }
 void CheckQwen35Revision(const TextRevisionCase &revision, bool bytecode,
                          const std::string &reference) {
@@ -324,7 +345,7 @@ void CheckQwen35Revision(const TextRevisionCase &revision, bool bytecode,
   ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(data), Row, &rows)));
   size_t count = 0, exact = 0, negative = 0, deferred = 0;
   std::string one_user_reference, schema_request, history_request,
-      history_reference;
+      history_reference, typed_thinking;
   std::vector<int32_t> history_ids;
   for (const auto row : rows) {
     iree_string_view_t raw_revision{}, raw_name{};
@@ -364,6 +385,8 @@ void CheckQwen35Revision(const TextRevisionCase &revision, bool bytecode,
     ASSERT_TRUE(Decode(text, &expected));
     if (name == "one-user")
       one_user_reference = expected;
+    if (name == "numeric-thinking-source")
+      typed_thinking = expected;
     ASSERT_TRUE(ids.data) << "oracle must include complete token vectors";
     std::vector<int32_t> expected_ids, actual_ids, prepared_ids;
     ASSERT_TRUE(Ok(iree_json_enumerate_array(ids, Token, &expected_ids)));
@@ -402,8 +425,9 @@ void CheckQwen35Revision(const TextRevisionCase &revision, bool bytecode,
     }
   }
   ASSERT_FALSE(one_user_reference.empty());
-  revision.check_policy(vm, {one_user_reference, schema_request,
-                             history_request, history_reference, history_ids});
+  revision.check_policy(vm,
+                        {one_user_reference, schema_request, history_request,
+                         history_reference, history_ids, typed_thinking});
   EXPECT_EQ(count, revision.expected_rows);
   EXPECT_EQ(negative, revision.expected_template_errors);
   EXPECT_EQ(exact + deferred + negative, count);
@@ -419,10 +443,10 @@ struct RevisionRun {
   bool bytecode;
 };
 const TextRevisionCase kInline{"7f0e5290", "7F0E5290", "loomify-qwen35",
-                               "one-user", 34,         6,
+                               "one-user", 35,         6,
                                0,          true,       CheckInlineHistory};
 const TextRevisionCase kExplicit{
-    "c3cf9e34", "C3CF9E34", "loomify-qwen35",      "one-user", 41, 7,
+    "c3cf9e34", "C3CF9E34", "loomify-qwen35",      "one-user", 42, 7,
     0,          true,       CheckExplicitReasoning};
 class Qwen35RevisionTest : public ::testing::TestWithParam<RevisionRun> {};
 TEST_P(Qwen35RevisionTest, ActualTransportMatchesPinnedReference) {
@@ -432,7 +456,7 @@ TEST_P(Qwen35RevisionTest, ActualTransportMatchesPinnedReference) {
       Env(std::string("LOOMIFY_RENDER_REFERENCE_") + run.test_case->key));
 }
 TEST_P(Qwen35RevisionTest,
-       DirectRequestOptionsPreservesDateValidationBeforeChatBegin) {
+       OriginalSourceOwnsDateAdmissionAndSamplingRemainsIndependent) {
   const auto run = GetParam();
   ChatVM vm;
   ASSERT_TRUE(vm.Init(

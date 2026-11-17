@@ -39,12 +39,24 @@ def error_record(error):
 def check_reference(rows, source_override: bool):
     assert len(rows) == 41
     assert sum("error" in row for row in rows) == 1
-    assert sum("native_admission_error" in row for row in rows) == 7
-    r = {row["case"]: row for row in rows}
-    assert r["one-user"]["text"] == (
-        "<|startoftext|><|im_start|>user\nHello<|im_end|>\n"
-        "<|im_start|>assistant\n<think>"
+    assert sum("native_admission_error" in row for row in rows) == 4
+    # This raw-source mapping error also fails a401's earlier native history
+    # type admission. Both facts belong to the same unchanged request row.
+    string_arguments = next(
+        row for row in rows if row["case"] == "string-arguments-error"
     )
+    assert string_arguments["error_type"] == "TemplateError"
+    assert string_arguments["error"].startswith("Tool call arguments must be a mapping")
+    assert (
+        string_arguments["native_admission_error"]
+        == "assistant tool_calls must be functions"
+    )
+    r = {row["case"]: row for row in rows}
+    if not source_override:
+        assert r["one-user"]["text"] == (
+            "<|startoftext|><|im_start|>user\nHello<|im_end|>\n"
+            "<|im_start|>assistant\n<think>"
+        )
     assert r["thinking-off"]["text"].endswith("<think></think>")
     assert r["no-generation"]["text"] == r["missing-generation"]["text"]
     assert "<think>first</think>Answer" in r["reasoning-precedence"]["text"]

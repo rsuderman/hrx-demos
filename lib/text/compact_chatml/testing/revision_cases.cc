@@ -8,11 +8,11 @@ void CheckCompactInput(ChatVM &vm, const RenderReferences &) {
   const std::string header = "<|im_start|>assistant\n<think>";
   const std::string user = "<|im_start|>user\n" + text + "<|im_end|>\n";
   CheckInputPolicy(vm, {header + text, text, header, user, "<|im_end|>\n", "\n",
-                        "<|startoftext|>" + user + header, 124900});
+                        "<|startoftext|>" + user + header, header, 124900});
 }
 const TextRevisionCase kCase{"f45005c5", "F45005C5", "loomify-lfm3",
                              "one-user", 41,         1,
-                             7,          true,       CheckCompactInput};
+                             3,          true,       CheckCompactInput};
 class CompactChatmlTest : public ::testing::TestWithParam<bool> {};
 void Init(ChatVM &vm, bool bytecode) {
   ASSERT_TRUE(vm.Init(Env(bytecode ? "LOOMIFY_RENDER_F45005C5_BC"

@@ -8,6 +8,9 @@
       "qwen/qwen_08b/control.loom",
       "qwen/qwen_08b/prepare.loom",
       "qwen/qwen_08b/weights.loom",
+      "common/generation_control.loom",
+      "common/ffn.loom",
+      "common/output_head.loom",
       "qwen/prefill.loom",
       "qwen/weights_prepare.loom",
       "qwen/epoch.loom",
@@ -20,7 +23,11 @@
       "motifs/ggml/linear_q6k_q8_1_x4.loom",
       "motifs/ggml/linear_q8_0_q8_1_x4.loom",
       "motifs/ggml/linear_qk_common.loom",
+      "motifs/ggml/linear_qk_mmvq_compat.loom",
+      "motifs/ggml/linear_q4k_q8_1_x4_compat.loom",
+      "motifs/ggml/linear_q6k_q8_1_x4_compat.loom",
       "motifs/ggml/quantize_q8_1_x4.loom",
+      "motifs/ggml/quantize_q8_1_x4_mmvq_compat.loom",
       "qwen/kernels/qwen38/attention_common.loom",
       "qwen/kernels/qwen38/continuation.loom",
       "qwen/kernels/qwen38/attention_decode.loom",
@@ -61,7 +68,8 @@
       "qwen/programs/qwen38/model_prefill.loom",
       "qwen/programs/qwen38/output_head_decode.loom",
       "qwen/programs/qwen38/ffn.loom",
-      "qwen/programs/qwen38/embedding.loom"
+      "qwen/programs/qwen38/embedding.loom",
+      "common/fixed_epoch_abi.loom"
     ],
     "compiled_members": {
       "pipeline.loombc": "hrx_solutions/loom-pipeline/llm/qwen/qwen_08b/pipeline.loombc"
@@ -76,6 +84,9 @@
       "qwen/qwen_08b/control.loom",
       "qwen/qwen_08b/prepare.loom",
       "qwen/qwen_08b/weights.loom",
+      "common/generation_control.loom",
+      "common/ffn.loom",
+      "common/output_head.loom",
       "qwen/prefill.loom",
       "qwen/weights_prepare.loom",
       "qwen/epoch.loom",
@@ -88,7 +99,11 @@
       "motifs/ggml/linear_q6k_q8_1_x4.loom",
       "motifs/ggml/linear_q8_0_q8_1_x4.loom",
       "motifs/ggml/linear_qk_common.loom",
+      "motifs/ggml/linear_qk_mmvq_compat.loom",
+      "motifs/ggml/linear_q4k_q8_1_x4_compat.loom",
+      "motifs/ggml/linear_q6k_q8_1_x4_compat.loom",
       "motifs/ggml/quantize_q8_1_x4.loom",
+      "motifs/ggml/quantize_q8_1_x4_mmvq_compat.loom",
       "qwen/kernels/qwen38/attention_common.loom",
       "qwen/kernels/qwen38/continuation.loom",
       "qwen/kernels/qwen38/attention_decode.loom",
@@ -129,7 +144,8 @@
       "qwen/programs/qwen38/model_prefill.loom",
       "qwen/programs/qwen38/output_head_decode.loom",
       "qwen/programs/qwen38/ffn.loom",
-      "qwen/programs/qwen38/embedding.loom"
+      "qwen/programs/qwen38/embedding.loom",
+      "common/fixed_epoch_abi.loom"
     ],
     "compiled_members": {
       "pipeline.loombc": "hrx_solutions/loom-pipeline/llm/qwen/qwen_08b/pipeline.loombc"

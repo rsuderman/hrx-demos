@@ -99,7 +99,12 @@ def main():
             "kwargs": recorded_kwargs,
             "tools": tools,
         }
-        for key in ("native_admission_error", "native_counterpart", "template_case"):
+        for key in (
+            "native_admission_error",
+            "native_counterpart",
+            "template_case",
+            "deferred_float",
+        ):
             if key in case:
                 row[key] = copy.deepcopy(case[key])
         try:
@@ -143,12 +148,13 @@ def main():
         "tokenizer": identity(a.tokenizer),
         "template": {
             **identity(a.template),
-            "canonical_skeleton_sha256": adapter.TEMPLATE_SHA256,
+            "original_template_sha256": adapter.TEMPLATE_SHA256,
             "override": a.source_override,
         },
         "script": identity(Path(__file__)),
         "rows": len(rows),
         "token_vector_rows": sum("token_ids" in row for row in rows),
+        "deferred_float_rows": sum("deferred_float" in row for row in rows),
         "scope": "independent reference only; no native Loom parity claimed",
     }
     (a.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

@@ -6,16 +6,71 @@ load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
 package(default_visibility = ["//visibility:private"])
 
 iree_cc_library(
+    name = "output_emitter",
+    srcs = ["output_emitter.cc"],
+    hdrs = ["output_emitter.h"],
+    cxxopts = ["-std=c++17"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/text/testing:__pkg__",
+    ],
+    deps = [
+        ":compiler",
+        ":format_analysis",
+    ],
+)
+
+iree_cc_library(
+    name = "request_emitter",
+    srcs = ["request_emitter.cc"],
+    hdrs = ["request_emitter.h"],
+    cxxopts = ["-std=c++17"],
+    visibility = [
+        "//internal_consumer:__pkg__",
+        "//lib/loomify:__pkg__",
+        "//lib/loomify/text/jinja/testing:__pkg__",
+        "//lib/text/testing:__pkg__",
+    ],
+    deps = [
+        ":compiler",
+        ":format_analysis",
+    ],
+)
+
+iree_cc_library(
+    name = "format_analysis",
+    srcs = ["format_analysis.cc"],
+    hdrs = ["format_analysis.h"],
+    cxxopts = ["-std=c++17"],
+    visibility = [
+        "//internal_consumer:__pkg__",
+        "//lib/loomify:__pkg__",
+        "//lib/loomify/text/jinja/testing:__pkg__",
+    ],
+    deps = [
+        ":compiler",
+        "@hrx_system//runtime/src/iree/base/internal:json",
+    ],
+)
+
+iree_cc_library(
     name = "compiler",
     srcs = [
         "compiler.cc",
         "parser.cc",
-        "parser.h",
+        "source_template.cc",
     ],
-    hdrs = ["compiler.h"],
+    hdrs = [
+        "compiler.h",
+        "parser.h",
+        "source_template.h",
+    ],
     cxxopts = ["-std=c++17"],
     visibility = [
         "//internal_consumer:__pkg__",
+        "//lib/loomify:__pkg__",
+        "//lib/loomify/testing:__pkg__",
         "//lib/loomify/text/jinja/testing:__pkg__",
+        "//lib/text/testing:__pkg__",
     ],
 )

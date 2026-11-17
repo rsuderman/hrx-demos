@@ -4,8 +4,10 @@
 #include "lib/loomify/linking.h"
 #include "lib/loomify/chat_policy.h"
 #include "lib/loomify/token_policy.h"
+#include "lib/loomify/template_analysis.h"
 #include "lib/serving/library_resources.h"
 #include <cstdio>
+#include <cstdint>
 #include "loomc/source.h"
 #include <filesystem>
 #include <fstream>
@@ -13,13 +15,15 @@
 #include <sstream>
 #include <string_view>
 #include <utility>
+#include <algorithm>
 
 namespace hrx::loomify_gguf {
 // Package-only state is deliberately completed outside the numerical library.
 struct PackageConfiguration {
   GgufPackageOptions options;
-  ChatPolicySelection chat;
-  std::string source;
+  PreparedTextControl text;
+  std::string source_key;
+  size_t source_size = 0;
 };
 namespace {
 namespace fs = std::filesystem;
@@ -111,7 +115,6 @@ struct CompanionSources {
 
 // Preserve the existing publication contract: only a newly created directory
 // is owned by this call; model.json is closed and renamed into place last.
-// Old serving renderers retire with their final consumers in delivery10.
 bool Publish(const fs::path &gguf, const fs::path &tokenizer,
              const GgufBuildOptions &build, const GgufPackageOptions &package,
              const char *name, const CompanionSources &sources,
@@ -171,9 +174,10 @@ bool Publish(const fs::path &gguf, const fs::path &tokenizer,
 bool ConfigurePackageData(
     const std::string &source_asset, const model::TextMetadata &text_metadata,
     const std::optional<PublicationTokenFacts> &publication_tokens,
-    const ArchitectureFiles &files, const GgufPackageOptions &package,
-    PackageConfiguration *out, std::string *error) {
-  if (!out || !ValidPath(package.tokenizer) ||
+    const ArchitectureFiles &files, const GgufBuildOptions &build,
+    const GgufPackageOptions &package, PackageConfiguration *out,
+    std::string *error) {
+  if (!out || !ValidPath(package.tokenizer) || !ValidPath(build.library_root) ||
       (package.format != LOOMC_SOURCE_FORMAT_BYTECODE &&
        package.format != LOOMC_SOURCE_FORMAT_TEXT))
     return Fail(error, "invalid serving package input configuration");
@@ -184,10 +188,11 @@ bool ConfigurePackageData(
   const auto tokenizer = fs::canonical(package.tokenizer, ec);
   if (ec || !fs::is_regular_file(tokenizer, ec) || ec)
     return Fail(error, "tokenizer must be an existing tokenizer.json file");
-  // Revision recognition and tokenizer association are package-only. Numerical
-  // BuildModule never depends on an external tokenizer or chat admission.
-  ChatPolicySelection chat;
-  if (!SelectChatPolicy(text_metadata, package.template_name, &chat, error))
+  // Actual source selection and tokenizer association are package-only.
+  // Numerical BuildModule has no chat compiler or tokenizer dependency.
+  ChatTemplateSelection selected;
+  if (!SelectChatTemplateSource(text_metadata, package.template_name, &selected,
+                                error))
     return false;
   std::string tokenizer_json;
   if (!ReadText(tokenizer, &tokenizer_json, error))
@@ -196,14 +201,18 @@ bool ConfigurePackageData(
       std::fopen(gguf.c_str(), "rb"), std::fclose);
   if (!input || std::setvbuf(input.get(), nullptr, _IONBF, 0))
     return Fail(error, "cannot open unbuffered GGUF for package token binding");
-  std::vector<std::string> atomic_markers;
-  for (const auto &marker : chat.markers)
-    if (marker.require_single_token)
-      atomic_markers.push_back(marker.text);
-  BoundTokenPolicy tokens;
-  if (!BindTokenPolicy(input.get(), chat.tokens, text_metadata,
-                       publication_tokens, atomic_markers, tokenizer_json,
-                       &tokens, error))
+  const auto scratch_parent = fs::temp_directory_path(ec);
+  if (ec)
+    return Fail(error,
+                "cannot resolve text preparation scratch: " + ec.message());
+  // Each CPU preparation owns its unique scratch children and destroys them
+  // before returning. Inspection never uses or creates the publication path.
+  const jinja::TemplateAnalysisOptions analysis_options{
+      build.library_root, scratch_parent.string(), false};
+  PreparedTextControl text;
+  if (!PrepareGeneratedText(selected, input.get(), text_metadata,
+                            publication_tokens, tokenizer_json,
+                            analysis_options, &text, error))
     return false;
   if (std::fclose(input.release()) != 0)
     return Fail(error, "cannot close package GGUF token input");
@@ -211,11 +220,35 @@ bool ConfigurePackageData(
   PackageConfiguration prepared;
   prepared.options = package;
   prepared.options.tokenizer = tokenizer.string();
-  prepared.source =
-      tokens.text_source + chat.configuration_source +
+  text.source +=
       "\nglobal.rodata.def public @loomify.text.model_name = bytes(\"" +
       Hex(files.package_name) + "\")\n";
-  prepared.chat = std::move(chat);
+  for (const char *root :
+       {"step", "epoch", "encode_epoch", "publish_epoch", "encode_state",
+        "resize_state", "request_defaults", "request_options", "bind_request",
+        "model_name", "chat_image_limits", "loomify.text.model_name"})
+    if (std::find(text.roots.begin(), text.roots.end(), root) ==
+        text.roots.end())
+      text.roots.push_back(root);
+  for (const char *helper :
+       {resources::kTextIdentity, resources::kControlInterface})
+    if (std::find(text.helper_requirements.begin(),
+                  text.helper_requirements.end(),
+                  helper) == text.helper_requirements.end())
+      text.helper_requirements.push_back(helper);
+  for (const auto &helper : text.helper_requirements) {
+    bool declared = false;
+    for (const char *product : resources::kAllProducts)
+      declared |= helper == product;
+    if (!declared)
+      return Fail(error, "undeclared generated text helper: " + helper);
+    ec.clear();
+    if (!fs::is_regular_file(fs::path(build.library_root) / helper, ec) || ec)
+      return Fail(error, "missing generated text helper: " + helper);
+  }
+  prepared.source_key = std::move(selected.source_key);
+  prepared.source_size = selected.source_text.size();
+  prepared.text = std::move(text);
   *out = std::move(prepared);
   if (error)
     error->clear();
@@ -224,7 +257,7 @@ bool ConfigurePackageData(
 
 const std::string &GgufConfiguration::package_data_source() const {
   static const std::string empty;
-  return impl_->package ? impl_->package->source : empty;
+  return impl_->package ? impl_->package->text.source : empty;
 }
 bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
                                  const GgufPackageOptions *package,
@@ -242,8 +275,8 @@ bool GgufModelBuilder::Configure(const GgufBuildOptions &options,
     auto data = std::make_shared<PackageConfiguration>();
     if (!ConfigurePackageData(impl_->source_asset, impl_->text_metadata,
                               impl_->publication_tokens,
-                              *configured->impl_->architecture, *package,
-                              data.get(), error))
+                              *configured->impl_->architecture, options,
+                              *package, data.get(), error))
       return false;
     configured->impl_->package = std::move(data);
   }
@@ -264,7 +297,7 @@ bool GgufConfiguration::WritePackage(loomc_context_t *context,
     return Fail(error,
                 "Serve package context_capacity must be a multiple of 64");
   const auto &package = impl_->package->options;
-  const auto &chat = impl_->package->chat;
+  const auto &text = impl_->package->text;
   const fs::path gguf(impl_->source_asset), tokenizer(package.tokenizer);
   std::error_code ec;
   if (!fs::is_regular_file(gguf, ec) || ec)
@@ -284,11 +317,12 @@ bool GgufConfiguration::WritePackage(loomc_context_t *context,
     return false;
   const auto &files = *impl_->architecture;
   const fs::path library_root(impl_->options.library_root);
-  // Both native paths consume exactly the prepared, inspectable source bytes.
-  const auto joined_configuration =
-      impl_->numerical.source + impl_->package->source;
+  // Weight preparation needs the bound terminal marker, but no input renderer.
+  const auto preparation_configuration =
+      impl_->numerical.source + text.token_source;
+  const auto joined_configuration = impl_->numerical.source + text.source;
   loomc_module_t *raw_prepare = nullptr;
-  if (!LinkConfiguredProducts(context, workspace, joined_configuration,
+  if (!LinkConfiguredProducts(context, workspace, preparation_configuration,
                               {(library_root / files.preparation).string()},
                               {"prepare"}, false, &raw_prepare, error))
     return false;
@@ -296,18 +330,22 @@ bool GgufConfiguration::WritePackage(loomc_context_t *context,
       raw_prepare, loomc_module_release);
   // A cross-unit rodata declaration is not sufficient to retain its definition.
   // Keep this package-owned data alongside the fixed public control functions.
-  auto control_roots = chat.roots;
-  control_roots.push_back("loomify.text.model_name");
-  control_roots.insert(control_roots.end(), chat.data_roots.begin(),
-                       chat.data_roots.end());
+  std::vector<const char *> control_roots;
+  for (const auto &root : text.roots)
+    control_roots.push_back(root.c_str());
   loomc_module_t *raw_control = nullptr;
-  if (!LinkConfiguredProducts(
-          context, workspace, joined_configuration,
-          {(library_root / files.execution).string(),
-           (library_root / chat.text_product).string(),
-           (library_root / resources::kGreedy).string(),
-           (library_root / resources::kTextCommon).string()},
-          control_roots, false, &raw_control, error))
+  std::vector<std::string> control_products{
+      (library_root / files.execution).string(),
+      (library_root / resources::kGreedy).string()};
+  for (const auto &product : text.helper_requirements) {
+    const auto path = (library_root / product).string();
+    if (std::find(control_products.begin(), control_products.end(), path) ==
+        control_products.end())
+      control_products.push_back(path);
+  }
+  if (!LinkConfiguredProducts(context, workspace, joined_configuration,
+                              control_products, control_roots, false,
+                              &raw_control, error))
     return false;
   std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> control(
       raw_control, loomc_module_release);
@@ -318,12 +356,9 @@ bool GgufConfiguration::WritePackage(loomc_context_t *context,
     return false;
   // The effective manifest rejects arbitrary metadata. Documentary identity is
   // kept in the existing text provider, without changing the runtime contract.
-  companions.control =
-      "// GGUF template " + Json(chat.source_key) +
-      " Semantic skeleton SHA256 " + chat.skeleton_sha256 +
-      "\n// Text policy " + Json(chat.text_product) +
-      (chat.preserved_baseline ? " (preserved greedy text baseline)" : "") +
-      "\n" + companions.control;
+  companions.control = "// GGUF template " + Json(impl_->package->source_key) +
+                       " bytes " + std::to_string(impl_->package->source_size) +
+                       "\n" + companions.control;
   return Publish(source_alias, tokenizer, impl_->options, package,
                  files.package_name, companions, numerical->module(), error);
 }

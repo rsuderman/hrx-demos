@@ -1,0 +1,292 @@
+[
+  {
+    "protocol": "llama-headers",
+    "checks": [
+      {
+        "id": "default-state",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "one-user"
+      },
+      {
+        "id": "empty-tools",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":[]}",
+        "reference_case": "empty-tools"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      },
+      {
+        "id": "source-custom-role",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"},{\"role\":\"not-a-role\",\"content\":\"late\"}]}",
+        "reference_case": "source-custom-role"
+      },
+      {
+        "id": "source-generation-false",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "generation-false"
+      },
+      {
+        "id": "unused-thinking-follows-source",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"enable_thinking\":true}",
+        "reference_case": "unused-thinking"
+      }
+    ],
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0
+  },
+  {
+    "protocol": "chatml-inline-history",
+    "checks": [
+      {
+        "id": "default-state",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "one-user"
+      },
+      {
+        "id": "empty-tools",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"fetch\"}],\"tools\":[]}",
+        "reference_case": "empty-tools"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      },
+      {
+        "id": "late-invalid-role",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"},{\"role\":\"not-a-role\",\"content\":\"late\"}]}",
+        "error_contains": ""
+      },
+      {
+        "id": "generation-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "generation-false"
+      },
+      {
+        "id": "thinking-on",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Compute.\"}],\"enable_thinking\":true}",
+        "reference_case": "thinking-true"
+      },
+      {
+        "id": "thinking-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Compute.\"}],\"enable_thinking\":false}",
+        "reference_case": "thinking-false"
+      },
+      {
+        "id": "numeric-thinking-follows-source",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"enable_thinking\":1}",
+        "reference_case": "numeric-thinking-source"
+      },
+      {
+        "id": "late-invalid-inner-arguments",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"type\":\"function\",\"function\":{\"name\":\"f\",\"arguments\":\"not-json\"}}]}]}",
+        "error_contains": ""
+      }
+    ],
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0
+  },
+  {
+    "protocol": "chatml-explicit-reasoning",
+    "checks": [
+      {
+        "id": "default-state",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "one-user"
+      },
+      {
+        "id": "empty-tools",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"fetch\"}],\"tools\":[]}",
+        "reference_case": "empty-tools"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      },
+      {
+        "id": "late-invalid-role",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"},{\"role\":\"not-a-role\",\"content\":\"late\"}]}",
+        "error_contains": ""
+      },
+      {
+        "id": "generation-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "generation-false"
+      },
+      {
+        "id": "thinking-on",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Compute.\"}],\"enable_thinking\":true}",
+        "reference_case": "thinking-true"
+      },
+      {
+        "id": "thinking-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Compute.\"}],\"enable_thinking\":false}",
+        "reference_case": "thinking-false"
+      },
+      {
+        "id": "numeric-thinking-follows-source",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"enable_thinking\":1}",
+        "reference_case": "numeric-thinking-source"
+      },
+      {
+        "id": "late-invalid-inner-arguments",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"type\":\"function\",\"function\":{\"name\":\"f\",\"arguments\":\"not-json\"}}]}]}",
+        "error_contains": ""
+      }
+    ],
+    "expected_reasoning_efforts": 44,
+    "expected_default_effort": 5
+  },
+  {
+    "protocol": "chatml-plain",
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0,
+    "checks": [
+      {
+        "id": "state-1-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "one-user"
+      },
+      {
+        "id": "state-17-generation-false",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "generation-false"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      }
+    ]
+  },
+  {
+    "protocol": "chatml-hermes-non-thinking",
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0,
+    "checks": [
+      {
+        "id": "state-1-qwen25-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "qwen25-one-user"
+      },
+      {
+        "id": "state-17-qwen25-no-generation",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "qwen25-no-generation"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      }
+    ]
+  },
+  {
+    "protocol": "chatml-hermes",
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0,
+    "checks": [
+      {
+        "id": "state-34-qwen3-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "qwen3-one-user"
+      },
+      {
+        "id": "state-1-qwen3-thinking-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"enable_thinking\":false}",
+        "reference_case": "qwen3-thinking-off"
+      },
+      {
+        "id": "state-17-qwen3-no-generation",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "qwen3-no-generation"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      }
+    ]
+  },
+  {
+    "protocol": "gemma-turns",
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0,
+    "checks": [
+      {
+        "id": "state-4-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":true}}",
+        "reference_case": "one-user",
+        "reference_generation_prompt": true
+      },
+      {
+        "id": "state-0-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "one-user",
+        "reference_generation_prompt": false
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      }
+    ]
+  },
+  {
+    "protocol": "chatml-compact-reasoning",
+    "expected_reasoning_efforts": 0,
+    "expected_default_effort": 0,
+    "checks": [
+      {
+        "id": "state-2-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "one-user"
+      },
+      {
+        "id": "state-1-thinking-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"enable_thinking\":false}",
+        "reference_case": "thinking-off"
+      },
+      {
+        "id": "state-17-no-generation",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "no-generation"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      }
+    ]
+  },
+  {
+    "protocol": "spark-glm",
+    "expected_reasoning_efforts": 20,
+    "expected_default_effort": 4,
+    "checks": [
+      {
+        "id": "state-2-one-user",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}",
+        "reference_case": "one-user"
+      },
+      {
+        "id": "state-1-thinking-off",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"enable_thinking\":false}",
+        "reference_case": "thinking-off"
+      },
+      {
+        "id": "state-17-no-generation",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"model_options\":{\"add_generation_prompt\":false}}",
+        "reference_case": "no-generation"
+      },
+      {
+        "id": "tools-null-rejected",
+        "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
+        "error_contains": "tools"
+      }
+    ]
+  }
+]

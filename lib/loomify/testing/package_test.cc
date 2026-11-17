@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
 #include <vector>
 #include <memory>
@@ -35,6 +36,15 @@ bool Ok(loomc_status_t status) {
   }
   loomc_status_free(status);
   return ok;
+}
+std::string Hex(std::string_view value) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result;
+  for (unsigned char byte : value) {
+    result += digits[byte >> 4];
+    result += digits[byte & 15];
+  }
+  return result;
 }
 bool HeaderVariant(const fs::path &asset, const std::string &before,
                    const std::string &after, const fs::path &output,
@@ -123,13 +133,27 @@ protected:
       EXPECT_TRUE(function.flags & LOOMC_MODULE_FUNCTION_FLAG_PUBLIC);
     }
     if (module && path.filename() == "control.loom") {
-      for (const char *name : {"model_name", "output_next", "parse_tools"}) {
+      const char *hooks[] = {
+          "encode_state",    "encode_epoch",  "publish_epoch",
+          "epoch",           "step",          "request_defaults",
+          "request_options", "bind_request",  "chat_begin",
+          "chat_message",    "chat_end",      "prepare_input",
+          "output_next",     "complete_text", "render_tool",
+          "parse_tools",     "model_name",    "chat_image_limits",
+          "chat_reasoning",  "resize_state"};
+      for (const char *name : hooks) {
         loomc_module_function_t function{};
         ASSERT_TRUE(loomc_module_try_lookup_function(
             module, loomc_make_cstring_view(name), &function))
             << name;
         EXPECT_EQ(function.kind, LOOMC_MODULE_FUNCTION_KIND_FUNCTION) << name;
         EXPECT_TRUE(function.flags & LOOMC_MODULE_FUNCTION_FLAG_PUBLIC) << name;
+      }
+      for (const char *name : {"complete_chat"}) {
+        loomc_module_function_t function{};
+        EXPECT_FALSE(loomc_module_try_lookup_function(
+            module, loomc_make_cstring_view(name), &function))
+            << name;
       }
     }
     if (module && (path.filename() == "model.loom" ||
@@ -184,13 +208,32 @@ protected:
         continue;
       const auto relative = entry.path().lexically_relative(root_);
       if (entry.path().extension() != ".loombc" &&
-          relative != fs::path("lib/serving/weights.loom"))
+          relative != fs::path("lib/serving/weights.loom") &&
+          relative != fs::path("lib/serving/control_interface.loom") &&
+          std::find(RawTextProducts().begin(), RawTextProducts().end(),
+                    relative) == RawTextProducts().end())
         continue;
       fs::create_directories((destination / relative).parent_path());
       fs::copy_file(entry.path(), destination / relative);
       copied.push_back(relative);
     }
     return copied;
+  }
+  const std::vector<fs::path> &RawTextProducts() {
+    static const std::vector<fs::path> paths = {
+        "lib/text/common/strings.loom",
+        "lib/text/common/json.loom",
+        "lib/text/common/jinja.loom",
+        "lib/text/common/identity.loom",
+        "lib/text/generated_input/environment.loom",
+        "lib/text/generated_input/request.loom",
+        "lib/text/generated_input/host.loom",
+        "lib/text/generated_input/prepare.loom",
+        "lib/text/output/stream.loom",
+        "lib/text/output/json_calls.loom",
+        "lib/text/output/schema.loom",
+        "lib/text/output/tagged_calls.loom"};
+    return paths;
   }
   const char *Asset(bool qwen) {
     return std::getenv(qwen ? "LOOMIFY_TEST_QWEN_GGUF" : "LOOMIFY_TEST_GGUF");
@@ -273,14 +316,15 @@ TEST_F(GgufPackageTest, ConfigurationOwnsPackageInputsAndExactNumericalSource) {
             std::string::npos);
   EXPECT_EQ(data.find("@llama.publication.end_turn_id"), std::string::npos);
   EXPECT_NE(data.find("@loomify.text.model_name"), std::string::npos);
+  EXPECT_NE(data.find("@jinja.evaluate"), std::string::npos);
   auto *saved = prepared.get();
   auto bad = package;
   bad.tokenizer = (scratch_ / "absent.json").string();
   EXPECT_FALSE(builder->Configure(build, &bad, &prepared, &error));
   EXPECT_EQ(prepared.get(), saved);
-  // Neither native resources nor output destinations are required by Configure.
+  // Text Configure owns fully prepared control and therefore requires helpers;
+  // an output destination is only needed when publishing.
   auto inspection_build = build;
-  inspection_build.library_root.clear();
   auto inspection_package = package;
   inspection_package.output_directory.clear();
   std::unique_ptr<GgufConfiguration> inspection;
@@ -289,6 +333,11 @@ TEST_F(GgufPackageTest, ConfigurationOwnsPackageInputsAndExactNumericalSource) {
       << error;
   EXPECT_EQ(inspection->configuration_source(), numerical);
   EXPECT_EQ(inspection->package_data_source(), data);
+  inspection_build.library_root.clear();
+  auto *inspection_saved = inspection.get();
+  EXPECT_FALSE(builder->Configure(inspection_build, &inspection_package,
+                                  &inspection, &error));
+  EXPECT_EQ(inspection.get(), inspection_saved);
   build.library_root = "invalid-after-configuration";
   build.prefill_capacity = 0;
   package.output_directory = "invalid-after-configuration";
@@ -304,8 +353,7 @@ TEST_F(GgufPackageTest, ConfigurationOwnsPackageInputsAndExactNumericalSource) {
   EXPECT_TRUE(fs::is_regular_file(destination / "model.json"));
   CheckPackageData(destination, "loomify-llama", "<|eot_id|>");
 }
-TEST_F(GgufPackageTest,
-       ConfigurationCliWorksWithoutProductsAndRetainsSuccessfulInspection) {
+TEST_F(GgufPackageTest, ConfigurationCliKeepsNumericalInspectionResourceFree) {
   ASSERT_NE(Asset(false), nullptr);
   ASSERT_NE(Tokenizer(false), nullptr);
   const auto executable = scratch_ / "converter";
@@ -326,7 +374,14 @@ TEST_F(GgufPackageTest,
             std::string::npos);
   EXPECT_NE(numeric_source.find("@loomify.config.layer_ffn"),
             std::string::npos);
-  EXPECT_EQ(RunCli(executable, absent_runfiles,
+  EXPECT_NE(RunCli(executable, absent_runfiles,
+                   {input, "--tokenizer=" + std::string(Tokenizer(false)),
+                    "--configuration-output=" + text.string()}),
+            0);
+  EXPECT_FALSE(fs::exists(text));
+  const auto runfiles = fs::path(executable.string() + ".runfiles");
+  ASSERT_FALSE(CopyRuntimeProducts(runfiles / "_main").empty());
+  ASSERT_EQ(RunCli(executable, runfiles,
                    {input, "--tokenizer=" + std::string(Tokenizer(false)),
                     "--configuration-output=" + text.string()}),
             0);
@@ -335,6 +390,13 @@ TEST_F(GgufPackageTest,
       std::distance(fs::directory_iterator(text), fs::directory_iterator()), 2);
   EXPECT_NE(Read(text / "serve-data.loom").find("@loomify.text.model_name"),
             std::string::npos);
+  const auto removed_option = scratch_ / "removed-option";
+  EXPECT_NE(RunCli(executable, runfiles,
+                   {input, "--tokenizer=" + std::string(Tokenizer(false)),
+                    "--text-protocol=llama-headers",
+                    "--configuration-output=" + removed_option.string()}),
+            0);
+  EXPECT_FALSE(fs::exists(removed_option));
   const auto retained = scratch_ / "retained-after-failure";
   const auto missing_native = scratch_ / "model.loombc";
   EXPECT_NE(RunCli(executable, absent_runfiles,
@@ -360,8 +422,185 @@ TEST_F(GgufPackageTest,
            {input, "--output=x", "--output-dir=y", "--tokenizer=z"},
            {input, "--output=x", "--tokenizer=z"},
            {input, "--output=x", "--platform=amdgpu:gfx942"},
-           {input, "--configuration-output=x", "--chat-template=default"}})
+           {input, "--configuration-output=x", "--chat-template=default"},
+           {input, "--configuration-output=x", "--text-protocol=llama-headers"},
+           {input, "--output=x", "--text-protocol=llama-headers"},
+           {input, "--tokenizer=" + std::string(Tokenizer(false)),
+            "--configuration-output=x", "--text-protocol=unknown-protocol"}})
     EXPECT_NE(RunCli(executable, absent_runfiles, flags), 0);
+}
+TEST_F(GgufPackageTest, EditedGgufSourceGeneratesControlAndSourceDefaults) {
+  struct Fixture {
+    const char *gguf;
+    const char *tokenizer;
+    const char *name;
+    const char *before;
+    const char *after;
+    const char *literal;
+  };
+  const Fixture fixtures[] = {
+      {Asset(false), Tokenizer(false), "llama-headers", "\"26 Jul 2024\"",
+       "('10 Nov 2026' if true else '26 Jul 2024')", "10 Nov 2026"},
+      {Asset(true), Tokenizer(true), "chatml-inline-history",
+       "'<|im_start|>' + message.role + '\\n' + content + '<|im_end|>'",
+       "'<|im_start|>' + message.role + '\\nSOURCE_PREFIX ' + content + '<|im_end|>'",
+       "SOURCE_PREFIX "},
+      {std::getenv("LOOMIFY_TEST_QWEN_27_GGUF"),
+       std::getenv("LOOMIFY_TEST_QWEN_27_TOKENIZER"),
+       "chatml-explicit-reasoning", "reasoning_effort|default('xhigh')",
+       "reasoning_effort|default('low')", "low"},
+      {std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF"),
+       std::getenv("LOOMIFY_TEST_HYPERCLOVAX_TOKENIZER"), "chatml-plain",
+       "+ message['content'] +",
+       "+ ('SOURCE_PREFIX ' if message['role'] == 'user' else '') + message['content'] +",
+       "SOURCE_PREFIX "},
+      {std::getenv("LOOMIFY_TEST_QWEN25_GGUF"),
+       std::getenv("LOOMIFY_TEST_QWEN25_TOKENIZER"),
+       "chatml-hermes-non-thinking",
+       "'<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n'",
+       "'<|im_start|>system\\nSOURCE_PREFIX You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n'",
+       "SOURCE_PREFIX "},
+      {std::getenv("LOOMIFY_TEST_QWEN3_GGUF"),
+       std::getenv("LOOMIFY_TEST_QWEN3_TOKENIZER"), "chatml-hermes",
+       "'<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>'",
+       "'<|im_start|>' + message.role + '\\nSOURCE_PREFIX ' + message.content + '<|im_end|>'",
+       "SOURCE_PREFIX "},
+      {std::getenv("LOOMIFY_TEST_GEMMA_GGUF"),
+       std::getenv("LOOMIFY_TEST_GEMMA_TOKENIZER"), "gemma-turns",
+       "{{ message['content'] | trim }}",
+       "{{ 'SOURCE_PREFIX ' + (message['content'] | trim) }}",
+       "SOURCE_PREFIX "},
+      {std::getenv("LOOMIFY_TEST_LFM3_GGUF"),
+       std::getenv("LOOMIFY_TEST_LFM3_TOKENIZER"), "chatml-compact-reasoning",
+       "{{- parse_content(message[\"content\"]) -}}",
+       "{{- \"SOURCE_PREFIX \" + parse_content(message[\"content\"]) -}}",
+       "SOURCE_PREFIX "},
+      {std::getenv("LOOMIFY_TEST_SPARK_GGUF"),
+       std::getenv("LOOMIFY_TEST_SPARK_TOKENIZER"), "spark-glm",
+       "reasoning_effort|default('high')", "reasoning_effort|default('low')",
+       "low"}};
+  const char *external_output = std::getenv("LOOMIFY_TEST_MUTATION_OUTPUT");
+  const auto mutation_root =
+      external_output ? fs::path(external_output) : scratch_;
+  ASSERT_TRUE(mutation_root.is_absolute());
+  fs::create_directories(mutation_root);
+  for (const auto &fixture_case : fixtures) {
+    SCOPED_TRACE(fixture_case.name);
+    ASSERT_NE(fixture_case.gguf, nullptr);
+    ASSERT_NE(fixture_case.tokenizer, nullptr);
+    std::unique_ptr<GgufModelBuilder> original;
+    std::string error;
+    ASSERT_TRUE(GgufModelBuilder::Open(fixture_case.gguf, &original, &error))
+        << error;
+    ASSERT_EQ(original->text_metadata().templates.size(), 1u);
+    const auto &source = original->text_metadata().templates.front().text;
+    auto changed = source;
+    const auto offset = changed.find(fixture_case.before);
+    ASSERT_NE(offset, std::string::npos);
+    ASSERT_EQ(
+        changed.find(fixture_case.before,
+                     offset + std::string_view(fixture_case.before).size()),
+        std::string::npos);
+    changed.replace(offset, std::string_view(fixture_case.before).size(),
+                    fixture_case.after);
+    const auto fixture =
+        mutation_root / (std::string(fixture_case.name) + ".gguf");
+    ASSERT_TRUE(
+        HeaderVariant(fixture_case.gguf, source, changed, fixture, &error))
+        << error;
+    std::unique_ptr<GgufModelBuilder> edited;
+    ASSERT_TRUE(GgufModelBuilder::Open(fixture.string(), &edited, &error))
+        << error;
+    GgufPackageOptions package{(fixture.string() + ".package"),
+                               fixture_case.tokenizer};
+    std::unique_ptr<GgufConfiguration> configured;
+    ASSERT_TRUE(
+        original->Configure(BuildOptions(), &package, &configured, &error))
+        << error;
+    ASSERT_TRUE(
+        edited->Configure(BuildOptions(), &package, &configured, &error))
+        << error;
+    const auto data = configured->package_data_source();
+    EXPECT_NE(data.find("@jinja.evaluate"), std::string::npos);
+    EXPECT_NE(data.find(Hex(fixture_case.literal)), std::string::npos);
+    EXPECT_FALSE(fs::exists(package.output_directory));
+    if (std::string_view(fixture_case.name) == "chatml-explicit-reasoning" ||
+        std::string_view(fixture_case.name) == "spark-glm")
+      EXPECT_NE(data.find("%default = scalar.constant 2 : i32"),
+                std::string::npos);
+    // Sparse metadata fixtures qualify generated host control only. Their
+    // tensor payloads must never be used as a model-serving fixture.
+    ASSERT_TRUE(configured->WritePackage(context_, workspace_, &error))
+        << error;
+    Reload(fs::path(package.output_directory) / "prepare.loom");
+    Reload(fs::path(package.output_directory) / "control.loom");
+    const auto template_path =
+        mutation_root / (std::string(fixture_case.name) + ".jinja");
+    std::ofstream template_output(template_path, std::ios::binary);
+    template_output.write(changed.data(), changed.size());
+    template_output.close();
+    ASSERT_TRUE(template_output);
+    std::ofstream manifest(mutation_root / "mutation-packages.jsonl",
+                           std::ios::app);
+    manifest
+        << "{\"fixture\":" << std::quoted(fixture_case.name)
+        << ",\"metadata_only\":true,\"gguf\":" << std::quoted(fixture.string())
+        << ",\"template\":" << std::quoted(template_path.string())
+        << ",\"package_control\":"
+        << std::quoted(
+               (fs::path(package.output_directory) / "control.loom").string())
+        << ",\"tokenizer\":" << std::quoted(std::string(fixture_case.tokenizer))
+        << "}\n";
+    manifest.close();
+    ASSERT_TRUE(manifest);
+    const auto published_document =
+        Read(fs::path(package.output_directory) / "model.json");
+    package.template_name = "unlisted-template";
+    auto *saved = configured.get();
+    EXPECT_FALSE(
+        edited->Configure(BuildOptions(), &package, &configured, &error));
+    EXPECT_EQ(configured.get(), saved);
+    EXPECT_NE(error.find("name"), std::string::npos);
+    EXPECT_TRUE(
+        fs::is_regular_file(fs::path(package.output_directory) / "model.json"));
+    EXPECT_EQ(Read(fs::path(package.output_directory) / "model.json"),
+              published_document);
+  }
+}
+TEST_F(GgufPackageTest, EffortFactAndCompilerErrorsPublishNothing) {
+  const char *gguf = std::getenv("LOOMIFY_TEST_QWEN_27_GGUF");
+  const char *tokenizer = std::getenv("LOOMIFY_TEST_QWEN_27_TOKENIZER");
+  ASSERT_NE(gguf, nullptr);
+  ASSERT_NE(tokenizer, nullptr);
+  std::unique_ptr<GgufModelBuilder> original;
+  std::string error;
+  ASSERT_TRUE(GgufModelBuilder::Open(gguf, &original, &error)) << error;
+  const auto &source = original->text_metadata().templates.front().text;
+  const std::string before = "reasoning_effort|default('xhigh')";
+  const auto offset = source.find(before);
+  ASSERT_NE(offset, std::string::npos);
+  size_t index = 0;
+  for (
+      const auto &[replacement, diagnostic] :
+      std::vector<std::pair<std::string, std::string>>{
+          {"reasoning_effort|default('none')",
+           "source reasoning effort default/domain cannot be advertised by native discovery"},
+          {"reasoning_effort|default(other)", "STRING literal fallback"},
+          {"reasoning_effort", "no literal default declaration"},
+          {"unknown_call()", "tokenizer.chat_template"}}) {
+    auto changed = source;
+    changed.replace(offset, before.size(), replacement);
+    const auto fixture =
+        scratch_ / ("bad-source-" + std::to_string(index++) + ".gguf");
+    ASSERT_TRUE(HeaderVariant(gguf, source, changed, fixture, &error)) << error;
+    std::unique_ptr<GgufModelBuilder> edited;
+    ASSERT_TRUE(GgufModelBuilder::Open(fixture.string(), &edited, &error))
+        << error;
+    GgufPackageOptions package{fixture.string() + ".package", tokenizer};
+    EXPECT_FALSE(Publish(*edited, BuildOptions(), package, &error));
+    EXPECT_NE(error.find(diagnostic), std::string::npos) << error;
+    EXPECT_FALSE(fs::exists(package.output_directory));
+  }
 }
 TEST_F(GgufPackageTest, NumericalCliExportsBothFormatsUsingInspectedSource) {
   ASSERT_NE(Asset(false), nullptr);
@@ -485,7 +724,7 @@ TEST_F(GgufPackageTest, GgufAliasPreservesFormatSuffixAndRejectsRebinding) {
   EXPECT_EQ(error, "GGUF input alias no longer resolves to the opened source");
   EXPECT_FALSE(fs::exists(package.output_directory));
 }
-TEST_F(GgufPackageTest, RealProfilesPublishRelocatableSourceAndBytecode) {
+TEST_F(GgufPackageTest, RealModelsPublishRelocatableSourceAndBytecode) {
   for (bool qwen : {false, true}) {
     ASSERT_NE(Asset(qwen), nullptr) << "immutable real-model fixture required";
     ASSERT_NE(Tokenizer(qwen), nullptr)
@@ -517,11 +756,10 @@ TEST_F(GgufPackageTest, RealProfilesPublishRelocatableSourceAndBytecode) {
       EXPECT_NE(document.find("\"max_sessions\": 1"), std::string::npos);
       const auto control = Read(directory / "control.loom");
       EXPECT_NE(
-          control.find(
-              qwen
-                  ? "7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67"
-                  : "5816fce10444e03c2e9ee1ef8a4a1ea61ae7e69e438613f3b17b69d0426223a4"),
+          control.find("// GGUF template \"tokenizer.chat_template\" bytes "),
           std::string::npos);
+      EXPECT_EQ(control.find("Text protocol"), std::string::npos);
+      EXPECT_NE(control.find("@jinja.evaluate"), std::string::npos);
       CheckPackageData(directory, qwen ? "loomify-qwen35" : "loomify-llama",
                        qwen ? "<|im_end|>" : "<|eot_id|>");
       EXPECT_EQ(Read(directory / "weights.loom"),
@@ -531,6 +769,8 @@ TEST_F(GgufPackageTest, RealProfilesPublishRelocatableSourceAndBytecode) {
         EXPECT_NE(prepared.find(std::string("import(\"") + scope + "\")"),
                   std::string::npos);
       EXPECT_EQ(prepared.find("{{"), std::string::npos);
+      EXPECT_EQ(prepared.find("jinja."), std::string::npos);
+      EXPECT_EQ(prepared.find("text.input_"), std::string::npos);
       const auto relocated = fs::path(directory.string() + "-relocated");
       fs::rename(directory, relocated);
       for (const char *companion :
@@ -612,18 +852,17 @@ TEST_F(GgufPackageTest, MissingCompanionsAndBadInputsPublishNothing) {
     const auto library = scratch_ / profile;
     const auto copied = CopyRuntimeProducts(library);
     ASSERT_FALSE(copied.empty());
-    const std::array<fs::path, 8> files = {
+    std::vector<fs::path> files = {
         fs::path("lib/platforms/amdgpu/gfx11/targets.loombc"),
         fs::path("lib/architectures") / profile / "implementation.loombc",
         fs::path("lib/architectures") / profile / "prepare_library.loombc",
         fs::path("lib/architectures") / profile / "execution.loombc",
-        fs::path("lib/text/common/implementation.loombc"),
         fs::path("lib/serving/greedy.loombc"),
-        qwen ? fs::path(
-                   "lib/text/protocols/chatml_thinking/inline_history.loombc")
-             : fs::path(
-                   "lib/text/protocols/llama_headers/implementation.loombc"),
+        fs::path("lib/serving/control_interface.loom"),
         fs::path("lib/serving/weights.loom")};
+    for (const auto &helper : RawTextProducts())
+      if (qwen || helper != fs::path("lib/text/output/tagged_calls.loom"))
+        files.push_back(helper);
     build.library_root = library.string();
     GgufPackageOptions package{(scratch_ / (profile + "-output")).string(),
                                Tokenizer(qwen)};
@@ -712,12 +951,8 @@ TEST_F(GgufPackageTest, ChatAdmissionIsSeparateFromNumericalConstruction) {
       ASSERT_TRUE(numerical->module());
       GgufPackageOptions package{(fixture.string() + ".output"), Tokenizer(i)};
       EXPECT_FALSE(Publish(*builder, BuildOptions(), package, &error));
-      EXPECT_NE(
-          error.find(
-              incompatible
-                  ? "unsupported tokenizer model/pre for selected text provider"
-                  : "unsupported"),
-          std::string::npos)
+      EXPECT_NE(error.find(incompatible ? "terminal" : "assistant"),
+                std::string::npos)
           << error;
       EXPECT_FALSE(fs::exists(package.output_directory));
     }
@@ -732,14 +967,17 @@ TEST_F(GgufPackageTest,
   ASSERT_TRUE(GgufModelBuilder::Open(Asset(false), &builder, &error)) << error;
   const auto build = BuildOptions();
   GgufPackageOptions package{(scratch_ / "preflight").string(),
-                             Tokenizer(false)};
+                             Tokenizer(false), LOOMC_SOURCE_FORMAT_TEXT};
   ASSERT_TRUE(Publish(*builder, build, package, &error)) << error;
   uintmax_t companion_limit = 0;
   for (const char *name : {"prepare.loom", "control.loom", "weights.loom"})
     companion_limit =
         std::max(companion_limit,
                  fs::file_size(fs::path(package.output_directory) / name));
-  ASSERT_GT(fs::file_size(fs::path(package.output_directory) / "model.loombc"),
+  // SOURCE is the late-write fixture: its measured numerical product is larger
+  // than every companion. Numerical BC positive coverage is independent of
+  // this explicit fixture precondition, and makes no relative-size promise.
+  ASSERT_GT(fs::file_size(fs::path(package.output_directory) / "model.loom"),
             companion_limit);
   // First fail the initial companion write; then allow every companion through
   // and fail native numerical serialization. Both calls must remove only their
@@ -748,6 +986,10 @@ TEST_F(GgufPackageTest,
     SCOPED_TRACE(limit);
     package.output_directory =
         (scratch_ / ("retry-" + std::to_string(limit))).string();
+    std::unique_ptr<GgufConfiguration> configured;
+    ASSERT_TRUE(builder->Configure(build, &package, &configured, &error))
+        << error;
+    EXPECT_FALSE(fs::exists(package.output_directory));
     struct rlimit original {};
     ASSERT_EQ(getrlimit(RLIMIT_FSIZE, &original), 0);
     auto limited = original;
@@ -757,7 +999,9 @@ TEST_F(GgufPackageTest,
     if (installed != 0)
       std::signal(SIGXFSZ, handler);
     ASSERT_EQ(installed, 0);
-    const bool wrote = Publish(*builder, build, package, &error);
+    // Only publication is faulted. Configure's native analysis/probe scratch
+    // and preparation have already completed with the normal process limits.
+    const bool wrote = configured->WritePackage(context_, workspace_, &error);
     const int restored = setrlimit(RLIMIT_FSIZE, &original);
     std::signal(SIGXFSZ, handler);
     ASSERT_EQ(restored, 0);
@@ -768,7 +1012,8 @@ TEST_F(GgufPackageTest,
     else
       EXPECT_EQ(error.find("cannot write serving provider"), std::string::npos);
     EXPECT_FALSE(fs::exists(package.output_directory));
-    ASSERT_TRUE(Publish(*builder, build, package, &error)) << error;
+    ASSERT_TRUE(configured->WritePackage(context_, workspace_, &error))
+        << error;
     EXPECT_TRUE(
         fs::is_regular_file(fs::path(package.output_directory) / "model.json"));
   }
@@ -776,7 +1021,7 @@ TEST_F(GgufPackageTest,
 // This case is released into the joined native gate only after S4 qualifies the
 // real 27B numerical products. It never substitutes an 0.8B descriptor or
 // skips.
-TEST_F(GgufPackageTest, Qualified27ProfilePublishesSourceAndBytecode) {
+TEST_F(GgufPackageTest, Qualified27ModelPublishesSourceAndBytecode) {
   const char *gguf = std::getenv("LOOMIFY_TEST_QWEN_27_GGUF");
   const char *tokenizer = std::getenv("LOOMIFY_TEST_QWEN_27_TOKENIZER");
   ASSERT_NE(gguf, nullptr) << "immutable qualified 27B fixture required";
@@ -802,9 +1047,10 @@ TEST_F(GgufPackageTest, Qualified27ProfilePublishesSourceAndBytecode) {
               std::string::npos);
     const auto control = Read(directory / "control.loom");
     EXPECT_NE(
-        control.find(
-            "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"),
+        control.find("// GGUF template \"tokenizer.chat_template\" bytes "),
         std::string::npos);
+    EXPECT_EQ(control.find("Text protocol"), std::string::npos);
+    EXPECT_NE(control.find("@jinja.evaluate"), std::string::npos);
     CheckPackageData(directory, "loomify-qwen35", "<|im_end|>");
     Reload(directory / "prepare.loom");
     Reload(directory / "control.loom");
@@ -812,7 +1058,7 @@ TEST_F(GgufPackageTest, Qualified27ProfilePublishesSourceAndBytecode) {
                                                            : "model.loombc"));
   }
 }
-TEST_F(GgufPackageTest, GemmaProfilePublishesRelocatableSourceAndBytecode) {
+TEST_F(GgufPackageTest, GemmaModelPublishesRelocatableSourceAndBytecode) {
   const char *gguf = std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
   const char *tokenizer = std::getenv("LOOMIFY_TEST_GEMMA_TOKENIZER");
   ASSERT_NE(gguf, nullptr) << "immutable Gemma fixture required";
@@ -862,15 +1108,16 @@ TEST_F(GgufPackageTest,
   fs::copy_file(root_ / "tools/loomify-gguf/loomify-gguf", executable);
   const auto runfiles = fs::path(executable.string() + ".runfiles");
   const auto library = runfiles / "_main";
-  const std::array<fs::path, 8> products = {
+  std::vector<fs::path> products = {
       "lib/platforms/amdgpu/gfx11/targets.loombc",
       "lib/architectures/gemma3/implementation.loombc",
       "lib/architectures/gemma3/prepare_library.loombc",
       "lib/architectures/gemma3/execution.loombc",
-      "lib/text/protocols/gemma_turns/implementation.loombc",
-      "lib/text/common/implementation.loombc",
+      "lib/serving/control_interface.loom",
       "lib/serving/greedy.loombc",
       "lib/serving/weights.loom"};
+  products.insert(products.end(), RawTextProducts().begin(),
+                  RawTextProducts().end());
   for (const auto &relative : products) {
     fs::create_directories((library / relative).parent_path());
     fs::copy_file(root_ / relative, library / relative);

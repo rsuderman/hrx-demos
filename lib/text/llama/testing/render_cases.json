@@ -116,5 +116,28 @@
         }
       ]
     }
+  },
+  {
+    "id": "generation-false",
+    "revisions": ["5816fce1"],
+    "request": {
+      "messages": [{"role": "user", "content": "Hello"}],
+      "model_options": {"add_generation_prompt": false}
+    }
+  },
+  {
+    "id": "empty-tools",
+    "revisions": ["5816fce1"],
+    "request": {"messages": [{"role": "user", "content": "Hello"}], "tools": []}
+  },
+  {
+    "id": "unused-thinking",
+    "revisions": ["5816fce1"],
+    "request": {"messages": [{"role": "user", "content": "Hello"}], "enable_thinking": true}
+  },
+  {
+    "id": "source-custom-role",
+    "revisions": ["5816fce1"],
+    "request": {"messages": [{"role": "user", "content": "Hello"}, {"role": "not-a-role", "content": "late"}]}
   }
 ]

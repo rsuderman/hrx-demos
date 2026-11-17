@@ -1,0 +1,425 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Source-driven request bindings. Adaptations read one immutable base snapshot;
+// this module neither formats chat text nor chooses a model/profile.
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+func.decl @text.json_quote(%value: buffer) -> (buffer)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+func.decl @text.input_member(%source: buffer, %members: buffer, %count: i64, %ordinal: i64) -> (buffer, buffer, i64)
+func.decl @text.input_set_member(%object: buffer, %key: buffer, %value: buffer) -> (buffer)
+func.decl @text.input_project_message(%message: buffer) -> (buffer)
+func.decl @jinja.integer(%value: i64) -> (buffer)
+func.decl @jinja.select_adaptation(%environment: buffer) -> (i64, i64)
+func.decl @text.request_worker_names() -> (buffer, buffer, buffer, buffer)
+func.decl @text.template_globals() -> (buffer)
+func.decl @text.request_protected_names() -> (buffer)
+
+func.def @request_env.check(%condition: i1) {
+  %flag = scalar.extui %condition : i1 to i32
+  %diagnostic = buffer.constant utf8("invalid source-driven request bindings") : buffer
+  func.call @require(%flag, %diagnostic) : (i32, buffer)
+  func.return
+}
+
+func.def @request_env.check_binding(%condition: i1, %name: buffer) {
+  %flag = scalar.extui %condition : i1 to i32
+  %prefix = buffer.constant utf8("request binding cannot override: ") : buffer
+  %empty = buffer.constant utf8("") : buffer
+  %diagnostic = func.call @text.join8(%prefix, %name, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.call @require(%flag, %diagnostic) : (i32, buffer)
+  func.return
+}
+
+// Existing lookup returns unquoted string spans. Reconstruct complete JSON only
+// for strings; number lexemes and every other value retain their original bytes.
+func.def @request_env.member_json(%object: buffer, %key: buffer) -> (buffer, i64, i1) {
+  %raw, %kind, %found = func.call @text.lookup(%object, %key) : (buffer, buffer) -> (buffer, i64, i1)
+  %zero = scalar.constant 0 : i64
+  %string = scalar.cmpi eq, %kind, %zero : i64
+  %decode = scalar.andi %found, %string : i1
+  %complete = scf.if %decode -> (buffer) {
+    %text, %present = func.call @text.string(%object, %key) : (buffer, buffer) -> (buffer, i1)
+    %quoted = func.call @text.json_quote(%text) : (buffer) -> (buffer)
+    scf.yield %quoted : buffer
+  } else { scf.yield %raw : buffer }
+  func.return %complete, %kind, %found : buffer, i64, i1
+}
+
+func.def @request_env.protected(%name: buffer, %globals: buffer, %names: buffer) -> (i1) {
+  %ignored, %kind, %global = func.call @text.lookup(%globals, %name) : (buffer, buffer) -> (buffer, i64, i1)
+  %records, %type, %count_value = func.call @members(%names) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %result = scf.for %i = [%zero to %count step %one](%prior = %global : i1) -> (i1) {
+    %ordinal = index.cast %i : index to i64
+    %unused, %quoted, %value_kind = func.call @text.input_member(%names, %records, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %zero64 = scalar.constant 0 : i64
+    %string = scalar.cmpi eq, %value_kind, %zero64 : i64
+    func.call @request_env.check(%string) : (i1)
+    %length = buffer.length %quoted
+    %two = index.constant 2 : offset
+    %inner = index.sub %length, %two : offset
+    %inner64 = index.cast %inner : offset to i64
+    %one64 = scalar.constant 1 : i64
+    %decoded = func.call @text.decode(%quoted, %one64, %inner64) : (buffer, i64, i64) -> (buffer)
+    %equal = func.call @text.equal(%name, %decoded) : (buffer, buffer) -> (i1)
+    %next = scalar.ori %prior, %equal : i1
+    scf.yield %next : i1
+  }
+  func.return %result : i1
+}
+
+// The option layer cannot replace history or its own raw envelope. Top-level
+// history fields are legitimate inputs and are installed authoritatively later.
+func.def @request_env.kwargs(%source: buffer, %initial: buffer, %globals: buffer, %protected_names: buffer, %options: i1) -> (buffer) {
+  %records, %type, %count_value = func.call @members(%source) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %messages = buffer.constant utf8("messages") : buffer
+  %tools = buffer.constant utf8("tools") : buffer
+  %model_options = buffer.constant utf8("model_options") : buffer
+  %false = scalar.constant false : i1
+  %result = scf.for %i = [%zero to %count step %one](%prior = %initial : buffer) -> (buffer) {
+    %ordinal = index.cast %i : index to i64
+    %name, %value, %kind = func.call @text.input_member(%source, %records, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %is_messages = func.call @text.equal(%name, %messages) : (buffer, buffer) -> (i1)
+    %is_tools = func.call @text.equal(%name, %tools) : (buffer, buffer) -> (i1)
+    %is_options = func.call @text.equal(%name, %model_options) : (buffer, buffer) -> (i1)
+    %history = scalar.ori %is_messages, %is_tools : i1
+    %protected = func.call @request_env.protected(%name, %globals, %protected_names) : (buffer, buffer, buffer) -> (i1)
+    %allowed = scf.if %options -> (i1) {
+      %envelope_or_history = scalar.ori %history, %is_options : i1
+      %blocked = scalar.ori %envelope_or_history, %protected : i1
+      %valid = scalar.cmpi eq, %blocked, %false : i1
+      scf.yield %valid : i1
+    } else {
+      %ordinary = scalar.cmpi eq, %protected, %false : i1
+      %authoritative = scalar.ori %history, %is_options : i1
+      %valid = scalar.ori %ordinary, %authoritative : i1
+      scf.yield %valid : i1
+    }
+    func.call @request_env.check_binding(%allowed, %name) : (i1, buffer)
+    %next = scf.if %history -> (buffer) {
+      scf.yield %prior : buffer
+    } else {
+      %updated = func.call @text.input_set_member(%prior, %name, %value) : (buffer, buffer, buffer) -> (buffer)
+      scf.yield %updated : buffer
+    }
+    scf.yield %next : buffer
+  }
+  func.return %result : buffer
+}
+
+// operation is LIVE=0 or COMPLETED=1. protected_names is the actual compiler
+// binding consumer's string array, not a fixed model-option allowlist.
+func.def public @text.request_base_environment(%request: buffer, %globals: buffer, %protected_names: buffer, %operation: i32) -> (buffer) {
+  %request_records, %request_type, %request_count = func.call @members(%request) : (buffer) -> (buffer, i32, i64)
+  %global_records, %global_type, %global_count_value = func.call @members(%globals) : (buffer) -> (buffer, i32, i64)
+  %reserved_records, %reserved_type, %reserved_count = func.call @members(%protected_names) : (buffer) -> (buffer, i32, i64)
+  %two32 = scalar.constant 2 : i32
+  %three32 = scalar.constant 3 : i32
+  %request_object = scalar.cmpi eq, %request_type, %two32 : i32
+  %global_object = scalar.cmpi eq, %global_type, %two32 : i32
+  %reserved_array = scalar.cmpi eq, %reserved_type, %three32 : i32
+  %objects = scalar.andi %request_object, %global_object : i1
+  %valid_objects = scalar.andi %objects, %reserved_array : i1
+  func.call @request_env.check(%valid_objects) : (i1)
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %live = scalar.cmpi eq, %operation, %zero32 : i32
+  %completed = scalar.cmpi eq, %operation, %one32 : i32
+  %valid_operation = scalar.ori %live, %completed : i1
+  func.call @request_env.check(%valid_operation) : (i1)
+  %messages_key = buffer.constant utf8("messages") : buffer
+  %messages, %messages_kind, %has_messages = func.call @text.lookup(%request, %messages_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %three64 = scalar.constant 3 : i64
+  %messages_array = scalar.cmpi eq, %messages_kind, %three64 : i64
+  %valid_messages = scalar.andi %messages_array, %has_messages : i1
+  func.call @request_env.check(%valid_messages) : (i1)
+  %object = buffer.constant utf8("{}") : buffer
+  %options_key = buffer.constant utf8("model_options") : buffer
+  %raw_options, %options_kind, %has_options = func.call @text.lookup(%request, %options_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %options = scf.if %has_options -> (buffer) {
+    %two64 = scalar.constant 2 : i64
+    %options_object = scalar.cmpi eq, %options_kind, %two64 : i64
+    func.call @request_env.check(%options_object) : (i1)
+    scf.yield %raw_options : buffer
+  } else { scf.yield %object : buffer }
+  %generation_key = buffer.constant utf8("add_generation_prompt") : buffer
+  %true_json = buffer.constant utf8("true") : buffer
+  %initial = func.call @text.input_set_member(%object, %generation_key, %true_json) : (buffer, buffer, buffer) -> (buffer)
+  %false = scalar.constant false : i1
+  %true = scalar.constant true : i1
+  %raw_kwargs = func.call @request_env.kwargs(%request, %initial, %globals, %protected_names, %false) : (buffer, buffer, buffer, buffer, i1) -> (buffer)
+  %option_kwargs = func.call @request_env.kwargs(%options, %raw_kwargs, %globals, %protected_names, %true) : (buffer, buffer, buffer, buffer, i1) -> (buffer)
+  %thinking_key = buffer.constant utf8("enable_thinking") : buffer
+  %thinking, %thinking_kind, %has_thinking = func.call @request_env.member_json(%request, %thinking_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %kwargs = scf.if %has_thinking -> (buffer) {
+    %updated = func.call @text.input_set_member(%option_kwargs, %thinking_key, %thinking) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  } else { scf.yield %option_kwargs : buffer }
+  %with_messages = func.call @text.input_set_member(%kwargs, %messages_key, %messages) : (buffer, buffer, buffer) -> (buffer)
+  %tools_key = buffer.constant utf8("tools") : buffer
+  %tools, %tools_kind, %has_tools = func.call @request_env.member_json(%request, %tools_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %with_history = scf.if %has_tools -> (buffer) {
+    %updated = func.call @text.input_set_member(%with_messages, %tools_key, %tools) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  } else { scf.yield %with_messages : buffer }
+  %global_bounded = scalar.assume %global_count_value [range(%global_count_value, 0, 2147483647)] : i64
+  %global_count = index.cast %global_bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %environment = scf.for %i = [%zero to %global_count step %one](%prior = %with_history : buffer) -> (buffer) {
+    %ordinal = index.cast %i : index to i64
+    %name, %value, %kind = func.call @text.input_member(%globals, %global_records, %global_count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %updated = func.call @text.input_set_member(%prior, %name, %value) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  }
+  %result = scf.if %completed -> (buffer) {
+    %false_json = buffer.constant utf8("false") : buffer
+    %updated = func.call @text.input_set_member(%environment, %generation_key, %false_json) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  } else { scf.yield %environment : buffer }
+  func.return %result : buffer
+}
+
+// Install both actual adaptation results after every adapter has read the same
+// base. has_tools distinguishes omission from explicit null and empty arrays.
+func.def public @text.request_apply_adaptation(%base: buffer, %messages: buffer, %tools: buffer, %has_tools: i1) -> (buffer) {
+  %records, %type, %count_value = func.call @members(%base) : (buffer) -> (buffer, i32, i64)
+  %message_records, %message_type, %message_count = func.call @members(%messages) : (buffer) -> (buffer, i32, i64)
+  %two32 = scalar.constant 2 : i32
+  %three32 = scalar.constant 3 : i32
+  %mapping = scalar.cmpi eq, %type, %two32 : i32
+  %array = scalar.cmpi eq, %message_type, %three32 : i32
+  %valid = scalar.andi %mapping, %array : i1
+  func.call @request_env.check(%valid) : (i1)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %messages_key = buffer.constant utf8("messages") : buffer
+  %tools_key = buffer.constant utf8("tools") : buffer
+  %object = buffer.constant utf8("{}") : buffer
+  %without_history = scf.for %i = [%zero to %count step %one](%prior = %object : buffer) -> (buffer) {
+    %ordinal = index.cast %i : index to i64
+    %name, %value, %kind = func.call @text.input_member(%base, %records, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %is_messages = func.call @text.equal(%name, %messages_key) : (buffer, buffer) -> (i1)
+    %is_tools = func.call @text.equal(%name, %tools_key) : (buffer, buffer) -> (i1)
+    %history = scalar.ori %is_messages, %is_tools : i1
+    %next = scf.if %history -> (buffer) {
+      scf.yield %prior : buffer
+    } else {
+      %updated = func.call @text.input_set_member(%prior, %name, %value) : (buffer, buffer, buffer) -> (buffer)
+      scf.yield %updated : buffer
+    }
+    scf.yield %next : buffer
+  }
+  %with_messages = func.call @text.input_set_member(%without_history, %messages_key, %messages) : (buffer, buffer, buffer) -> (buffer)
+  %result = scf.if %has_tools -> (buffer) {
+    %updated = func.call @text.input_set_member(%with_messages, %tools_key, %tools) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  } else { scf.yield %with_messages : buffer }
+  func.return %result : buffer
+}
+
+func.def @request_env.append(%body: buffer, %value: buffer, %first: i1) -> (buffer) {
+  %empty = buffer.constant utf8("") : buffer
+  %comma = buffer.constant utf8(",") : buffer
+  %separator = scf.select %first, %empty, %comma : buffer
+  %result = func.call @text.join8(%body, %separator, %value, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+// Drop all worker aliases first, then install only the actual current message
+// and call. A user kwarg can never impersonate an absent current-call binding.
+func.def @request_env.worker(%base: buffer, %message: buffer, %message_index: i64, %call: buffer, %call_index: i64, %has_call: i1) -> (buffer) {
+  %message_key, %message_index_key, %call_key, %call_index_key = func.call @text.request_worker_names() : () -> (buffer, buffer, buffer, buffer)
+  %records, %kind, %count_value = func.call @members(%base) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %object = buffer.constant utf8("{}") : buffer
+  %clean = scf.for %i = [%zero to %count step %one](%prior = %object : buffer) -> (buffer) {
+    %ordinal = index.cast %i : index to i64
+    %key, %value, %type = func.call @text.input_member(%base, %records, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %a = func.call @text.equal(%key, %message_key) : (buffer, buffer) -> (i1)
+    %b = func.call @text.equal(%key, %message_index_key) : (buffer, buffer) -> (i1)
+    %c = func.call @text.equal(%key, %call_key) : (buffer, buffer) -> (i1)
+    %d = func.call @text.equal(%key, %call_index_key) : (buffer, buffer) -> (i1)
+    %ab = scalar.ori %a, %b : i1
+    %cd = scalar.ori %c, %d : i1
+    %worker_binding = scalar.ori %ab, %cd : i1
+    %next = scf.if %worker_binding -> (buffer) {
+      scf.yield %prior : buffer
+    } else {
+      %updated = func.call @text.input_set_member(%prior, %key, %value) : (buffer, buffer, buffer) -> (buffer)
+      scf.yield %updated : buffer
+    }
+    scf.yield %next : buffer
+  }
+  %with_message = func.call @text.input_set_member(%clean, %message_key, %message) : (buffer, buffer, buffer) -> (buffer)
+  %message_ordinal = func.call @jinja.integer(%message_index) : (i64) -> (buffer)
+  %with_index = func.call @text.input_set_member(%with_message, %message_index_key, %message_ordinal) : (buffer, buffer, buffer) -> (buffer)
+  %result = scf.if %has_call -> (buffer) {
+    %with_call = func.call @text.input_set_member(%with_index, %call_key, %call) : (buffer, buffer, buffer) -> (buffer)
+    %call_ordinal = func.call @jinja.integer(%call_index) : (i64) -> (buffer)
+    %updated = func.call @text.input_set_member(%with_call, %call_index_key, %call_ordinal) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  } else { scf.yield %with_index : buffer }
+  func.return %result : buffer
+}
+
+func.def @request_env.projection(%base: buffer, %message: buffer, %message_index: i64, %call: buffer, %call_index: i64, %has_call: i1) -> (i1, i1) {
+  %worker = func.call @request_env.worker(%base, %message, %message_index, %call, %call_index, %has_call) : (buffer, buffer, i64, buffer, i64, i1) -> (buffer)
+  %mask, %mode = func.call @jinja.select_adaptation(%worker) : (buffer) -> (i64, i64)
+  %zero = scalar.constant 0 : i64
+  // Fixed compiler representation bits: MappingArguments=1, ArgumentStrings=2,
+  // OriginalContent=4. These are not source/model-specific route identifiers.
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %four = scalar.constant 4 : i64
+  %seven = scalar.constant 7 : i64
+  %valid_mode = scalar.cmpi eq, %mode, %zero : i64
+  %lower = scalar.cmpi sge, %mask, %zero : i64
+  %upper = scalar.cmpi sle, %mask, %seven : i64
+  %valid_mask = scalar.andi %lower, %upper : i1
+  %valid = scalar.andi %valid_mode, %valid_mask : i1
+  func.call @request_env.check(%valid) : (i1)
+  %mapping_bit = scalar.andi %mask, %one : i64
+  %string_bit = scalar.andi %mask, %two : i64
+  %content_bit = scalar.andi %mask, %four : i64
+  %mapping = scalar.cmpi ne, %mapping_bit, %zero : i64
+  %not_string = scalar.cmpi eq, %string_bit, %zero : i64
+  %decode = scalar.andi %mapping, %not_string : i1
+  %observe = scalar.cmpi ne, %content_bit, %zero : i64
+  func.return %decode, %observe : i1, i1
+}
+
+func.def @request_env.decode_call(%call: buffer) -> (buffer) {
+  %function_key = buffer.constant utf8("function") : buffer
+  %arguments_key = buffer.constant utf8("arguments") : buffer
+  %function, %kind, %present = func.call @text.lookup(%call, %function_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %two64 = scalar.constant 2 : i64
+  %mapping = scalar.cmpi eq, %kind, %two64 : i64
+  %valid_function = scalar.andi %mapping, %present : i1
+  func.call @request_env.check(%valid_function) : (i1)
+  %arguments, %has_arguments = func.call @text.string(%function, %arguments_key) : (buffer, buffer) -> (buffer, i1)
+  func.call @request_env.check(%has_arguments) : (i1)
+  %members, %type, %count = func.call @members(%arguments) : (buffer) -> (buffer, i32, i64)
+  %two32 = scalar.constant 2 : i32
+  %object = scalar.cmpi eq, %type, %two32 : i32
+  func.call @request_env.check(%object) : (i1)
+  %normalized_function = func.call @text.input_set_member(%function, %arguments_key, %arguments) : (buffer, buffer, buffer) -> (buffer)
+  %normalized = func.call @text.input_set_member(%call, %function_key, %normalized_function) : (buffer, buffer, buffer) -> (buffer)
+  func.return %normalized : buffer
+}
+
+// All worker selections observe the original base and original message/call.
+// Representation observation is ORed across a message's active call routes.
+func.def public @text.adapt_messages(%base: buffer) -> (buffer) {
+  %messages_key = buffer.constant utf8("messages") : buffer
+  %calls_key = buffer.constant utf8("tool_calls") : buffer
+  %messages, %messages_kind, %found = func.call @text.lookup(%base, %messages_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %three64 = scalar.constant 3 : i64
+  %array = scalar.cmpi eq, %messages_kind, %three64 : i64
+  %valid_messages = scalar.andi %array, %found : i1
+  func.call @request_env.check(%valid_messages) : (i1)
+  %message_records, %message_type, %message_count_value = func.call @members(%messages) : (buffer) -> (buffer, i32, i64)
+  %message_bounded = scalar.assume %message_count_value [range(%message_count_value, 0, 2147483647)] : i64
+  %message_count = index.cast %message_bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %false = scalar.constant false : i1
+  %open = buffer.constant utf8("[") : buffer
+  %close = buffer.constant utf8("]") : buffer
+  %empty_calls = buffer.constant utf8("[]") : buffer
+  %body = scf.for %i = [%zero to %message_count step %one](%prior = %open : buffer) -> (buffer) {
+    %message_index = index.cast %i : index to i64
+    %ignored, %raw_message, %raw_kind = func.call @text.input_member(%messages, %message_records, %message_count_value, %message_index) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %two64 = scalar.constant 2 : i64
+    %message_object = scalar.cmpi eq, %raw_kind, %two64 : i64
+    func.call @request_env.check(%message_object) : (i1)
+    %raw_calls, %calls_kind, %calls_present = func.call @text.lookup(%raw_message, %calls_key) : (buffer, buffer) -> (buffer, i64, i1)
+    %calls = scf.if %calls_present -> (buffer) {
+      %calls_array = scalar.cmpi eq, %calls_kind, %three64 : i64
+      func.call @request_env.check(%calls_array) : (i1)
+      scf.yield %raw_calls : buffer
+    } else { scf.yield %empty_calls : buffer }
+    %call_records, %call_type, %call_count_value = func.call @members(%calls) : (buffer) -> (buffer, i32, i64)
+    %call_bounded = scalar.assume %call_count_value [range(%call_count_value, 0, 2147483647)] : i64
+    %call_count = index.cast %call_bounded : i64 to index
+    %has_calls = index.cmp ugt, %call_count, %zero : index
+    %iterations = scf.select %has_calls, %call_count, %one : index
+    %call_body, %content_observed = scf.for %j = [%zero to %iterations step %one](%call_prior = %open : buffer, %observed = %false : i1) -> (buffer, i1) {
+      %call_index = index.cast %j : index to i64
+      %raw_call = scf.if %has_calls -> (buffer) {
+        %unused, %value, %kind = func.call @text.input_member(%calls, %call_records, %call_count_value, %call_index) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+        %object = scalar.cmpi eq, %kind, %two64 : i64
+        func.call @request_env.check(%object) : (i1)
+        scf.yield %value : buffer
+      } else {
+        %object = buffer.constant utf8("{}") : buffer
+        scf.yield %object : buffer
+      }
+      %decode_arguments, %observes_content = func.call @request_env.projection(%base, %raw_message, %message_index, %raw_call, %call_index, %has_calls) : (buffer, buffer, i64, buffer, i64, i1) -> (i1, i1)
+      %next_observed = scalar.ori %observed, %observes_content : i1
+      %next_calls = scf.if %has_calls -> (buffer) {
+        %normalized_call = scf.if %decode_arguments -> (buffer) {
+          %decoded = func.call @request_env.decode_call(%raw_call) : (buffer) -> (buffer)
+          scf.yield %decoded : buffer
+        } else { scf.yield %raw_call : buffer }
+        %first = index.cmp eq, %j, %zero : index
+        %updated = func.call @request_env.append(%call_prior, %normalized_call, %first) : (buffer, buffer, i1) -> (buffer)
+        scf.yield %updated : buffer
+      } else { scf.yield %call_prior : buffer }
+      scf.yield %next_calls, %next_observed : buffer, i1
+    }
+    %with_calls = scf.if %calls_present -> (buffer) {
+      %empty = buffer.constant utf8("") : buffer
+      %complete_calls = func.call @text.join8(%call_body, %close, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+      %updated = func.call @text.input_set_member(%raw_message, %calls_key, %complete_calls) : (buffer, buffer, buffer) -> (buffer)
+      scf.yield %updated : buffer
+    } else { scf.yield %raw_message : buffer }
+    %projected = scf.if %content_observed -> (buffer) {
+      scf.yield %with_calls : buffer
+    } else {
+      %text = func.call @text.input_project_message(%with_calls) : (buffer) -> (buffer)
+      scf.yield %text : buffer
+    }
+    %first = index.cmp eq, %i, %zero : index
+    %updated = func.call @request_env.append(%prior, %projected, %first) : (buffer, buffer, i1) -> (buffer)
+    scf.yield %updated : buffer
+  }
+  %empty = buffer.constant utf8("") : buffer
+  %result = func.call @text.join8(%body, %close, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+func.def public @text.adapt_tools(%base: buffer) -> (buffer, i1) {
+  %key = buffer.constant utf8("tools") : buffer
+  %value, %kind, %present = func.call @request_env.member_json(%base, %key) : (buffer, buffer) -> (buffer, i64, i1)
+  func.return %value, %present : buffer, i1
+}
+
+// The sole structured request environment, shared by input, output selection
+// and completed-history replay. Every adaptation reads the same original base.
+func.def public @text.request_environment(%request: buffer, %operation: i32) -> (buffer) {
+  %globals = func.call @text.template_globals() : () -> (buffer)
+  %protected_names = func.call @text.request_protected_names() : () -> (buffer)
+  %base = func.call @text.request_base_environment(%request, %globals, %protected_names, %operation) : (buffer, buffer, buffer, i32) -> (buffer)
+  %messages = func.call @text.adapt_messages(%base) : (buffer) -> (buffer)
+  %tools, %has_tools = func.call @text.adapt_tools(%base) : (buffer) -> (buffer, i1)
+  %result = func.call @text.request_apply_adaptation(%base, %messages, %tools, %has_tools) : (buffer, buffer, buffer, i1) -> (buffer)
+  func.return %result : buffer
+}

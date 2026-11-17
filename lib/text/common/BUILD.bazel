@@ -1,5 +1,3 @@
-load("//build_tools:loom_merge.bzl", "loom_merge")
-
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
@@ -8,18 +6,3 @@ exports_files([
     "identity.loom",
     "jinja.loom",
 ])
-
-filegroup(
-    name = "sources",
-    srcs = [
-        "strings.loom",
-        "json.loom",
-        "identity.loom",
-        "//lib/serving:control_interface.loom",
-    ],
-)
-
-loom_merge(
-    name = "implementation",
-    srcs = [":sources"],
-)

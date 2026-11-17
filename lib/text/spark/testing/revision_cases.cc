@@ -16,11 +16,12 @@ void CheckSparkInput(ChatVM &vm, const RenderReferences &) {
   const std::string user = kStart + "<|User|>" + text + kEnd;
   CheckInputPolicy(
       vm, {header + text, text, header, user, kEnd, "",
-           kStart + "<|System|>\n" + kLead + kHigh + kEnd + user + header, 1});
+           kStart + "<|System|>\n" + kLead + kHigh + kEnd + user + header,
+           header, 1});
 }
 const TextRevisionCase kCase{"93d6aa90", "93D6AA90", "loomify-spark2_5",
                              "one-user", 26,         4,
-                             3,          true,       CheckSparkInput};
+                             0,          true,       CheckSparkInput};
 class SparkTextTest : public ::testing::TestWithParam<bool> {};
 void Init(ChatVM &vm, bool bc) {
   ASSERT_TRUE(vm.Init(
@@ -86,7 +87,13 @@ TEST_P(SparkTextTest, StreamingPreservesWhitespaceAndCanonicalSecondTurn) {
         (thinking ? "<think>" + reason + "</think>" : "</think>") + content +
         kEnd;
     EXPECT_EQ(Copy(completion.transcript), initial + canonical_assistant);
-    EXPECT_FALSE(completion.reusable);
+    EXPECT_EQ(prompt, initial + kStart + "<|Bot|>" +
+                          (thinking ? "<think>" : "</think>"));
+    EXPECT_EQ(calls.count, 0u);
+    EXPECT_EQ(initial + canonical_assistant, prompt + response + kEnd);
+    // The source's bounded candidate permits exact plain P+R+T only. This
+    // asserts no named checkpoint/cache hit or broader reasoning reuse.
+    EXPECT_EQ(completion.reusable, !thinking);
     loom_serve_text_chat_completion_deinitialize(&completion);
     loom_serve_text_chat_scratch_deinitialize(&scratch);
     loom_serve_text_tool_calls_deinitialize(&calls);
@@ -151,12 +158,24 @@ TEST_P(SparkTextTest, GlmSchemaTypesAndUnambiguousStringValues) {
        "<tool_call>f<arg_key>s</arg_key><arg_value>x</arg_value></tool_call>tail",
        "<tool_call>unknown</tool_call>",
        "<tool_call>f<arg_key>s</arg_key><arg_value>x</arg_value><arg_key>s</arg_key><arg_value>y</arg_value></tool_call>",
-       "<tool_call>f<arg_key>s</arg_key><arg_value>literal </parameter> delimiter</arg_value></tool_call>",
-       "<tool_call>f<arg_key>s</arg_key><arg_value>literal </tool_call> delimiter</arg_value></tool_call>"}) {
+       "<tool_call>f<arg_key>s</arg_key><arg_value>literal </parameter> delimiter</arg_value></tool_call>"}) {
     auto status = vm.ParseTools(schemas, malformed, &parsed);
     EXPECT_FALSE(iree_status_is_ok(status)) << malformed;
     Diagnostic(status);
   }
+  ASSERT_TRUE(Ok(vm.ParseTools(
+      schemas,
+      "<tool_call>f<arg_key>s</arg_key><arg_value>literal </tool_call> delimiter</arg_value></tool_call>",
+      &parsed)));
+  rows.clear();
+  ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(parsed), Row, &rows)));
+  ASSERT_EQ(rows.size(), 1u);
+  ASSERT_TRUE(Field(rows[0], "function", &function));
+  ASSERT_TRUE(Field(function, "arguments", &raw_args));
+  ASSERT_TRUE(Decode(raw_args, &args));
+  ASSERT_TRUE(Field(View(args), "s", &s));
+  ASSERT_TRUE(Decode(s, &value));
+  EXPECT_EQ(value, "literal </tool_call> delimiter");
   auto unknown_schema =
       vm.ParseTools("[]", "<tool_call>f</tool_call>", &parsed);
   EXPECT_FALSE(iree_status_is_ok(unknown_schema));

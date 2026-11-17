@@ -648,5 +648,10 @@
         "add_generation_prompt": true
       }
     }
+  },
+  {
+    "id": "source-tool-history",
+    "revisions": ["7de1c58e"],
+    "request": {"messages": [{"role": "user", "content": "U"}, {"role": "tool", "content": "T"}]}
   }
 ]

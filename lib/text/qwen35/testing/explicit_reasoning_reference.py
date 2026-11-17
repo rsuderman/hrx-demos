@@ -32,10 +32,16 @@ def error_record(error):
 
 
 def check_reference(rows, source_override: bool):
-    assert len(rows) == 41
+    assert len(rows) == 42
     assert sum("error" in row for row in rows) == 7
-    assert sum("token_ids" in row for row in rows) == 34
+    assert sum("token_ids" in row for row in rows) == 35
     r = {row["case"]: row for row in rows}
+    # Integer 1 is neither boolean true nor boolean false: the effort guard is
+    # inactive, while the generation tail takes its ordinary open-think arm.
+    assert r["numeric-thinking-source"]["text"].endswith(
+        "<|im_start|>assistant\n<think>\n"
+    )
+    assert "Reasoning effort is set" not in r["numeric-thinking-source"]["text"]
     assert (
         r["tool-arguments-float-exponent"]["text"]
         == r["tool-arguments-float-decimal"]["text"]
@@ -49,7 +55,8 @@ def check_reference(rows, source_override: bool):
     assert "café <>&\n" in r["tool-arguments-types"]["text"]
     assert "<parameter=n>\n1\n</parameter>" in r["tool-arguments-types-integer"]["text"]
     assert r["one-user"]["text"].endswith("<|im_start|>assistant\n<think>\n")
-    assert "Reasoning effort is set to xhigh." in r["one-user"]["text"]
+    if not source_override:
+        assert "Reasoning effort is set to xhigh." in r["one-user"]["text"]
     assert "Reasoning effort is set" not in r["effort-medium"]["text"]
     assert "<parameter=yes>\ntrue\n</parameter>" in r["tool-arguments-types"]["text"]
     assert "<parameter=none>\nnull\n</parameter>" in r["tool-arguments-types"]["text"]

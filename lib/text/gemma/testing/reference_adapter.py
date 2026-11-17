@@ -27,6 +27,15 @@ def error_record(error):
 
 
 def check_reference(rows, source_override: bool):
-    assert len(rows) == 32
+    assert len(rows) == 33
     assert sum("error" in row for row in rows) == 8
-    assert sum("token_ids" in row for row in rows) == 24
+    assert sum("token_ids" in row for row in rows) == 25
+    by_name = {row["case"]: row for row in rows}
+    if not source_override:
+        user = "<bos><start_of_turn>user\nU<end_of_turn>\n"
+        generation = "<start_of_turn>model\n"
+        # The source tests user/non-user parity, not an assistant-only role
+        # whitelist at odd ordinals. The native role field is a STRING.
+        assert by_name["source-tool-history"]["text"] == (
+            user + "<start_of_turn>tool\nT<end_of_turn>\n" + generation
+        )

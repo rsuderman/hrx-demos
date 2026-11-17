@@ -213,7 +213,7 @@ TEST_P(GemmaRenderTest, ActualTransportInputOutputAndReplayMatchesHF) {
   ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(data), Row, &rows)));
   size_t exact = 0, negative = 0;
   std::string one_user, replay_request, replay_text;
-  std::vector<int32_t> replay_ids;
+  std::vector<int32_t> replay_ids, one_user_ids;
   for (auto row : rows) {
     iree_string_view_t name{}, error{}, kwargs{}, generation{};
     ASSERT_TRUE(Field(row, "case", &name));
@@ -250,8 +250,10 @@ TEST_P(GemmaRenderTest, ActualTransportInputOutputAndReplayMatchesHF) {
     EXPECT_EQ(actual_ids, expected_ids);
     ASSERT_TRUE(vm.Prepare(chat, expected_ids.size(), &prepared));
     EXPECT_EQ(prepared, expected_ids);
-    if (Copy(name) == "one-user" && gen)
+    if (Copy(name) == "one-user" && gen) {
       one_user = expected;
+      one_user_ids = expected_ids;
+    }
     if (Copy(name) == "replay" && gen) {
       replay_request = request;
       replay_text = expected;
@@ -259,27 +261,32 @@ TEST_P(GemmaRenderTest, ActualTransportInputOutputAndReplayMatchesHF) {
     }
     loom_serve_text_chat_deinitialize(&chat);
   }
-  EXPECT_EQ(exact, 24u);
+  EXPECT_EQ(exact, 25u);
   EXPECT_EQ(negative, 8u);
   ASSERT_FALSE(one_user.empty());
   ASSERT_FALSE(replay_request.empty());
   CheckGemmaInput(vm, one_user);
   CheckGemmaOutputReplay(vm, replay_request, replay_text, replay_ids);
+  // These fields are unused by the original source. Keep the same baseline
+  // user input and compare with its independent HF bytes and complete IDs.
+  ASSERT_FALSE(one_user_ids.empty());
   for (
       const char *request :
-      {R"({"messages":[{"role":"user","content":"U"}],"tools":[{"type":"function","function":{"name":"fetch","parameters":{"type":"object","properties":{}}}}]})",
-       R"({"messages":[{"role":"user","content":"U"}],"enable_thinking":true})",
-       R"({"messages":[{"role":"user","content":"U"}],"reasoning_effort":"low"})",
-       R"({"messages":[{"role":"user","content":"U"}],"reasoning_effort":null})",
-       R"({"messages":[{"role":"user","content":"U"},{"role":"tool","content":"T"}]})",
-       R"({"messages":[{"role":"user","content":"U"}],"model_options":{"unknown":true}})"}) {
+      {R"({"messages":[{"role":"user","content":"Hello"}],"tools":[{"type":"function","function":{"name":"fetch","parameters":{"type":"object","properties":{}}}}]})",
+       R"({"messages":[{"role":"user","content":"Hello"}],"enable_thinking":true})",
+       R"({"messages":[{"role":"user","content":"Hello"}],"reasoning_effort":"low"})",
+       R"({"messages":[{"role":"user","content":"Hello"}],"reasoning_effort":null})",
+       R"({"messages":[{"role":"user","content":"Hello"}],"model_options":{"unknown":true}})"}) {
     loom_serve_text_chat_t chat{};
-    auto status = vm.Render(request, &chat);
-    const bool accepted = iree_status_is_ok(status);
-    Diagnostic(status);
-    EXPECT_FALSE(accepted);
-    if (accepted)
-      loom_serve_text_chat_deinitialize(&chat);
+    ASSERT_TRUE(Ok(vm.Render(request, &chat)));
+    const auto actual = Copy(iree_string_builder_view(&chat.prompt));
+    EXPECT_EQ(actual, one_user);
+    std::vector<int32_t> encoded, prepared;
+    ASSERT_TRUE(vm.Encode(actual, &encoded));
+    EXPECT_EQ(encoded, one_user_ids);
+    ASSERT_TRUE(vm.Prepare(chat, one_user_ids.size(), &prepared));
+    EXPECT_EQ(prepared, one_user_ids);
+    loom_serve_text_chat_deinitialize(&chat);
   }
   loom_serve_text_chat_t escaped{};
   ASSERT_TRUE(Ok(vm.Render(
@@ -288,7 +295,7 @@ TEST_P(GemmaRenderTest, ActualTransportInputOutputAndReplayMatchesHF) {
   loom_serve_text_chat_deinitialize(&escaped);
   std::cout
       << "GEMMA_COVERAGE " << (bc ? "bc" : "source")
-      << " exact24 source_errors8 native_rejections6 input_modes6 overflow2 "
+      << " exact25 source_errors8 source_options5 source_history1 input_modes6 overflow2 "
          "raw_retained2 outputUTF8 canonicalReplay2 oovRejected3\n";
 }
 INSTANTIATE_TEST_SUITE_P(GemmaSourceAndBytecode, GemmaRenderTest,

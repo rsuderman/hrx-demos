@@ -9,6 +9,202 @@ load("//lib/architectures:assemblies.bzl", "ASSEMBLIES")
 
 package(default_visibility = ["//visibility:private"])
 
+cc_test(
+    name = "completion_test",
+    srcs = ["//lib/loomify/testing:completion_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+        "//lib/text/generated_input:environment.loom",
+        "//lib/text/generated_input:request.loom",
+        "//lib/text/generated_input:host.loom",
+        "//lib/text/output:stream.loom",
+        "//lib/text/output:json_calls.loom",
+        "//lib/text/output:schema.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        ":template_analysis",
+        ":template_probe_runner",
+        ":token_policy",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:format_analysis",
+        "//lib/loomify/text/jinja:output_emitter",
+        "//lib/loomify/text/jinja:request_emitter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "output_emitter_test",
+    srcs = ["//lib/loomify/testing:output_emitter_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "@hrx_system//loom/src/loom/serve/testing:text_request_check",
+        "//lib/text/common:identity.loom",
+        "//lib/serving:greedy.loom",
+        "//lib/serving:request_check.loom",
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+        "//lib/text/generated_input:environment.loom",
+        "//lib/text/generated_input:request.loom",
+        "//lib/text/generated_input:host.loom",
+        "//lib/text/generated_input:prepare.loom",
+        "//lib/text/output:stream.loom",
+        "//lib/text/output:json_calls.loom",
+        "//lib/text/output:tagged_calls.loom",
+        "//lib/text/output:schema.loom",
+        "//lib/loomify/text/jinja/testing:format_source_fixtures",
+    ],
+    env = {
+        "LOOMIFY_TEXT_REQUEST_CHECK": "$(rootpath @hrx_system//loom/src/loom/serve/testing:text_request_check)",
+    },
+    linkstatic = True,
+    deps = [
+        ":chat_policy",
+        ":native_linking",
+        ":template_analysis",
+        ":template_probe_runner",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:format_analysis",
+        "//lib/loomify/text/jinja:output_emitter",
+        "//lib/loomify/text/jinja:request_emitter",
+        "//tools/model:text_metadata",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/base/internal:json",
+    ],
+)
+
+cc_test(
+    name = "input_environment_test",
+    srcs = ["//lib/loomify/testing:input_environment_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+        "//lib/text/generated_input:environment.loom",
+        "//lib/text/generated_input:request.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        ":template_probe_runner",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:format_analysis",
+        "//lib/loomify/text/jinja:request_emitter",
+        "@googletest//:gtest_main",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/base/internal:json",
+    ],
+)
+
+iree_cc_library(
+    name = "template_analysis",
+    srcs = ["template_analysis.cc"],
+    hdrs = [
+        "template_analysis.h",
+        "template_analysis_internal.h",
+    ],
+    cxxopts = ["-std=c++17"],
+    visibility = [
+        "//lib/loomify:__subpackages__",
+        "//lib/text/testing:__pkg__",
+    ],
+    deps = [
+        ":template_probe_runner",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:format_analysis",
+        "@hrx_system//runtime/src/iree/base",
+    ],
+)
+
+iree_cc_library(
+    name = "template_qualification",
+    testonly = True,
+    srcs = ["//lib/loomify/testing:template_qualification.cc"],
+    hdrs = ["//lib/loomify/testing:template_qualification.h"],
+    cxxopts = ["-std=c++17"],
+    visibility = [
+        "//lib/loomify:__subpackages__",
+        "//lib/text/testing:__pkg__",
+    ],
+    deps = [
+        ":template_analysis",
+        ":template_probe_runner",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:format_analysis",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/base/internal:json",
+    ],
+)
+
+cc_test(
+    name = "template_analysis_test",
+    srcs = ["//lib/loomify/testing:template_analysis_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/loomify/text/jinja/testing:format_source_fixtures",
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        ":template_analysis",
+        ":template_probe_runner",
+        ":template_qualification",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:format_analysis",
+        "@googletest//:gtest_main",
+    ],
+)
+
+iree_cc_library(
+    name = "template_probe_runner",
+    srcs = ["template_probe_runner.cc"],
+    hdrs = ["template_probe_runner.h"],
+    cxxopts = ["-std=c++17"],
+    visibility = [
+        "//internal_consumer:__pkg__",
+        "//lib/loomify:__subpackages__",
+        "//lib/serving/testing:__pkg__",
+    ],
+    deps = [
+        ":native_linking",
+        "//lib/loomify/text/jinja:compiler",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
+        "@hrx_system//loom/src/loom/runtime/program:input",
+        "@hrx_system//loom/src/loom/runtime/program:json",
+        "@hrx_system//loom/src/loom/runtime/program:program",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/vm",
+    ],
+)
+
+cc_test(
+    name = "template_probe_runner_test",
+    srcs = ["//lib/loomify/testing:template_probe_runner_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+    ],
+    linkstatic = True,
+    deps = [
+        ":template_probe_runner",
+        "//lib/loomify/text/jinja:compiler",
+        "@googletest//:gtest_main",
+    ],
+)
+
 _CXXOPTS = select({
     "@hrx_system//build_tools/bazel:cc_compiler_clang_cl": ["/std:c++17"],
     "@hrx_system//build_tools/bazel:cc_compiler_msvc": ["/std:c++17"],
@@ -275,6 +471,7 @@ iree_cc_library(
         ":gguf_numerical_builder",
         ":native_linking",
         ":token_policy",
+        ":template_analysis",
         "//lib/serving:library_resources",
         "//tools/model:model_descriptor",
         "//tools/model:text_metadata",
@@ -348,12 +545,14 @@ iree_cc_library(
     hdrs = ["token_policy.h"],
     cxxopts = _CXXOPTS,
     visibility = [
+        "//lib/text/testing:__pkg__",
         "//lib/loomify/testing:__pkg__",
         "//lib/architectures/llama:__pkg__",
         "//lib/architectures/qwen35:__pkg__",
         "//lib/serving/testing:__pkg__",
     ],
     deps = [
+        ":architecture_types",
         ":architecture_selection",
         "//tools/model:text_metadata",
         "@hrx_system//runtime/src/iree/base",
@@ -363,7 +562,7 @@ iree_cc_library(
     ],
 )
 
-# Embedded templates and exact-template test runfiles share the same inputs.
+# Original templates remain independent test inputs.
 _CHAT_TEMPLATE_FILES = [
     "//lib/text/llama:templates/5816fce1.jinja",
     "//lib/text/qwen35:templates/7f0e5290.jinja",
@@ -376,25 +575,10 @@ _CHAT_TEMPLATE_FILES = [
     "//lib/text/spark:templates/93d6aa90.jinja",
 ]
 
-iree_c_embed_data(
-    name = "chat_templates",
-    srcs = _CHAT_TEMPLATE_FILES,
-    c_file_output = "chat_templates.c",
-    flatten = True,
-    h_file_output = "chat_templates.h",
-    identifier = "chat_templates",
-)
-
 iree_cc_library(
     name = "chat_policy",
     srcs = [
         "chat_policy.cc",
-        "text/matching.h",
-        "text/matching.cc",
-        "text/llama_headers.cc",
-        "text/chatml_thinking.cc",
-        "text/gemma_turns.cc",
-        "text/spark_glm.cc",
     ],
     hdrs = ["chat_policy.h"],
     cxxopts = _CXXOPTS,
@@ -404,8 +588,10 @@ iree_cc_library(
         "//lib/serving/testing:__pkg__",
     ],
     deps = [
-        "//lib/serving:library_resources",
-        ":chat_templates",
+        ":template_analysis",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:output_emitter",
+        "//lib/loomify/text/jinja:request_emitter",
         ":token_policy",
         "//tools/model:text_metadata",
     ],
@@ -413,13 +599,14 @@ iree_cc_library(
 
 cc_test(
     name = "chat_policy_test",
-    size = "small",
+    size = "medium",
     srcs = ["//lib/loomify/testing:chat_policy_test.cc"],
     copts = _CXXOPTS,
     data = _CHAT_TEMPLATE_FILES,
     linkstatic = True,
     deps = [
         ":chat_policy",
+        "//lib/text/testing:selected_policy",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
     ],

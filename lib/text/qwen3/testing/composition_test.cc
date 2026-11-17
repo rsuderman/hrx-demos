@@ -59,7 +59,7 @@ TEST(Qwen3Composition, BothChatRootsCompileTogetherFromSourceAndBytecode) {
     std::string error;
     ASSERT_TRUE(hrx::loomify_gguf::testing::LinkSelectedText(
         context.get(), workspace.get(),
-        "lib/text/qwen3/templates/5da44855.jinja",
+        "lib/text/qwen3/templates/5da44855.jinja", {}, "<|im_end|>",
         {"chat_begin", "chat_message"}, &module_raw, &error))
         << error;
     Owner<loomc_module_t, loomc_module_release> module(module_raw,

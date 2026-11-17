@@ -1,0 +1,194 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared JSON-envelope mechanics. Marker and wire-field spellings are caller inputs.
+// Preserve admitted number lexemes and the existing ignored incomplete-tail rule.
+func.decl @text.output_check(%condition: i1)
+func.decl @output_schema.admit_mapping(%json: buffer)
+func.decl @text.json_quote(%text: buffer) -> (buffer)
+func.decl @text.range(%text: buffer,%begin: i64,%length: i64) -> (buffer)
+func.decl @text.lookup(%json: buffer,%key: buffer) -> (buffer,i64,i1)
+func.decl @text.string(%json: buffer,%key: buffer) -> (buffer,i1)
+func.decl @text.equal(%a: buffer,%b: buffer) -> (i1)
+func.decl @text.at(%text: buffer,%position: offset,%marker: buffer) -> (i1)
+func.decl @text.join8(%a: buffer,%b: buffer,%c: buffer,%d: buffer,%e: buffer,%f: buffer,%g: buffer,%h: buffer) -> (buffer)
+func.decl import("json") @members(%json: buffer) -> (buffer,i32,i64)
+func.decl import("json") @compact(%text: buffer) -> (buffer)
+global.rodata.def @output_json.empty = bytes("")
+global.rodata.def @output_json.name = bytes("6e616d65")
+global.rodata.def @output_json.function = bytes("66756e6374696f6e")
+global.rodata.def @output_json.list_open = bytes("5b")
+global.rodata.def @output_json.list_close = bytes("5d")
+global.rodata.def @output_json.comma = bytes("2c")
+global.rodata.def @output_json.record_open = bytes("7b2274797065223a2266756e6374696f6e222c2266756e6374696f6e223a7b226e616d65223a")
+global.rodata.def @output_json.record_middle = bytes("2c22617267756d656e7473223a")
+global.rodata.def @output_json.record_close = bytes("7d7d")
+
+// Native tool mode is requested by a nonempty admitted tools array. Missing,
+// null and empty arrays do not turn literal JSON answers into function calls.
+func.def public @output_json.has_requested_tools(%environment: buffer) -> (i1) {
+  %key = buffer.constant utf8("tools") : buffer
+  %tools, %kind, %found = func.call @text.lookup(%environment, %key) : (buffer, buffer) -> (buffer, i64, i1)
+  %array = scalar.constant 3 : i64
+  %is_array = scalar.cmpi eq, %kind, %array : i64
+  %present = scalar.andi %found, %is_array : i1
+  %result = scf.if %present -> (i1) {
+    %records, %type, %count = func.call @members(%tools) : (buffer) -> (buffer, i32, i64)
+    %zero = scalar.constant 0 : i64
+    %nonempty = scalar.cmpi sgt, %count, %zero : i64
+    scf.yield %nonempty : i1
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
+  func.return %result : i1
+}
+
+func.def @output_json.find(%text: buffer,%start: offset,%marker: buffer) -> (offset) {
+  %size = buffer.length %text
+  %one = index.constant 1 : offset
+  %false = scalar.constant false : i1
+  %p = scf.while(%p = %start : offset) -> (offset) {
+    %has = index.cmp ult,%p,%size : offset
+    %go = scf.if %has -> (i1) {
+      %found = func.call @text.at(%text,%p,%marker) : (buffer,offset,buffer) -> (i1)
+      %next = scalar.cmpi eq,%found,%false : i1
+      scf.yield %next : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %go,%p : i1,offset
+  } do(%p: offset) {
+    %next = index.add %p,%one : offset
+    scf.yield %next : offset
+  }
+  func.return %p : offset
+}
+
+// Closing markup inside a JSON string is data, not an envelope boundary.
+func.def public @output_json.find_close(%text: buffer,%start: offset,%close: buffer) -> (offset) {
+  %size = buffer.length %text
+  %one = index.constant 1 : offset
+  %quote = scalar.constant 34 : i32
+  %slash = scalar.constant 92 : i32
+  %false = scalar.constant false : i1
+  %end,%quoted_end,%escaped_end = scf.while(%p = %start : offset,%quoted = %false : i1,%escaped = %false : i1) -> (offset,i1,i1) {
+    %has = index.cmp ult,%p,%size : offset
+    %go = scf.if %has -> (i1) {
+      %found = func.call @text.at(%text,%p,%close) : (buffer,offset,buffer) -> (i1)
+      %outside = scalar.cmpi eq,%quoted,%false : i1
+      %stop = scalar.andi %found,%outside : i1
+      %more = scalar.cmpi eq,%stop,%false : i1
+      scf.yield %more : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %go,%p,%quoted,%escaped : i1,offset,i1,i1
+  } do(%p: offset,%quoted: i1,%escaped: i1) {
+    %byte = buffer.load.i8.u %text[%p]
+    %is_quote = scalar.cmpi eq,%byte,%quote : i32
+    %is_slash = scalar.cmpi eq,%byte,%slash : i32
+    %unescaped = scalar.cmpi eq,%escaped,%false : i1
+    %toggle = scalar.andi %is_quote,%unescaped : i1
+    %next_quoted = scalar.xori %quoted,%toggle : i1
+    %escape0 = scalar.andi %quoted,%is_slash : i1
+    %next_escape = scalar.andi %escape0,%unescaped : i1
+    %next = index.add %p,%one : offset
+    scf.yield %next,%next_quoted,%next_escape : offset,i1,i1
+  }
+  func.return %end : offset
+}
+
+func.def public @output_json.known_tool(%schemas: buffer,%name: buffer) -> (i1) {
+  %records,%kind,%count = func.call @members(%schemas) : (buffer) -> (buffer,i32,i64)
+  %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %origin = index.constant 0 : offset
+  %one = index.constant 1 : index
+  %false = scalar.constant false : i1
+  %fields = buffer.view %records[%origin] : buffer -> view<[%extent]x5xi64>
+  %function_key = global.load @output_json.function : buffer
+  %name_key = global.load @output_json.name : buffer
+  %known = scf.for %i = [%zero to %extent step %one](%prior = %false : i1) -> (i1) {
+    %begin = view.load %fields[%i,2] : view<[%extent]x5xi64> -> i64
+    %length = view.load %fields[%i,3] : view<[%extent]x5xi64> -> i64
+    %row = func.call @text.range(%schemas,%begin,%length) : (buffer,i64,i64) -> (buffer)
+    %function,%function_kind,%has_function = func.call @text.lookup(%row,%function_key) : (buffer,buffer) -> (buffer,i64,i1)
+    %schema = scf.select %has_function,%function,%row : buffer
+    %candidate,%found = func.call @text.string(%schema,%name_key) : (buffer,buffer) -> (buffer,i1)
+    %same = func.call @text.equal(%candidate,%name) : (buffer,buffer) -> (i1)
+    %matches = scalar.andi %found,%same : i1
+    %next = scalar.ori %prior,%matches : i1
+    scf.yield %next : i1
+  }
+  func.return %known : i1
+}
+
+// Complete malformed envelopes fail; an unclosed final envelope is ignored.
+// Selection happens in generated callers; this accepts only the supplied fields.
+func.def public @output_json.parse_json_calls(%schemas: buffer,%response: buffer,%open: buffer,%close: buffer,%name_key: buffer,%arguments_key: buffer,%json_arguments: i1) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %false = scalar.constant false : i1
+  %empty = global.load @output_json.empty : buffer
+  %open_size = buffer.length %open
+  %close_size = buffer.length %close
+  %size = buffer.length %response
+  %list_open = global.load @output_json.list_open : buffer
+  %list_close = global.load @output_json.list_close : buffer
+  %comma = global.load @output_json.comma : buffer
+  %record_open = global.load @output_json.record_open : buffer
+  %record_middle = global.load @output_json.record_middle : buffer
+  %record_close = global.load @output_json.record_close : buffer
+  %end,%records,%has_prior = scf.while(%p = %zero : offset,%prior = %list_open : buffer,%has = %false : i1) -> (offset,buffer,i1) {
+    %start = func.call @output_json.find(%response,%p,%open) : (buffer,offset,buffer) -> (offset)
+    %found = index.cmp ult,%start,%size : offset
+    scf.condition %found,%start,%prior,%has : i1,offset,buffer,i1
+  } do(%start: offset,%prior: buffer,%has: i1) {
+    %begin = index.add %start,%open_size : offset
+    %stop = func.call @output_json.find_close(%response,%begin,%close) : (buffer,offset,buffer) -> (offset)
+    %complete = index.cmp ult,%stop,%size : offset
+    %next_p,%next_records,%next_has = scf.if %complete -> (offset,buffer,i1) {
+      %length = index.sub %stop,%begin : offset
+      %begin64 = index.cast %begin : offset to i64
+      %length64 = index.cast %length : offset to i64
+      %body = func.call @text.range(%response,%begin64,%length64) : (buffer,i64,i64) -> (buffer)
+      func.call @output_schema.admit_mapping(%body) : (buffer) -> ()
+      %name,%found_name = func.call @text.string(%body,%name_key) : (buffer,buffer) -> (buffer,i1)
+      %arguments,%arg_kind,%found_args = func.call @text.lookup(%body,%arguments_key) : (buffer,buffer) -> (buffer,i64,i1)
+      %string = scalar.constant 0 : i64
+      %is_string = scalar.cmpi eq,%arg_kind,%string : i64
+      %encoded = scalar.andi %json_arguments,%is_string : i1
+      %valid = scalar.andi %found_name,%found_args : i1
+      func.call @text.output_check(%valid) : (i1) -> ()
+      %known = func.call @output_json.known_tool(%schemas,%name) : (buffer,buffer) -> (i1)
+      func.call @text.output_check(%known) : (i1) -> ()
+      %name_json = func.call @text.json_quote(%name) : (buffer) -> (buffer)
+      // Only an exact source JSON transform authorizes encoded arguments.
+      // Native function.arguments is STRING with no imposed JSON/object shape;
+      // preserve decoded STRING bytes, including non-JSON and whitespace.
+      %payload = scf.if %encoded -> (buffer) {
+        %decoded, %has_decoded = func.call @text.string(%body,%arguments_key) : (buffer,buffer) -> (buffer,i1)
+        func.call @text.output_check(%has_decoded) : (i1)
+        scf.yield %decoded : buffer
+      } else {
+        // RawJson preserves the complete valid field representation. Native
+        // member spans omit a STRING's surrounding quotes but retain its raw
+        // escape spelling; restore those quotes without decoding the payload.
+        %raw = scf.if %is_string -> (buffer) {
+          %quote = buffer.constant utf8("\"") : buffer
+          %quoted = func.call @text.join8(%quote,%arguments,%quote,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+          scf.yield %quoted : buffer
+        } else {
+          %compacted = func.call @compact(%arguments) : (buffer) -> (buffer)
+          scf.yield %compacted : buffer
+        }
+        scf.yield %raw : buffer
+      }
+      %args_json = func.call @text.json_quote(%payload) : (buffer) -> (buffer)
+      %separator = scf.select %has,%comma,%empty : buffer
+      %result = func.call @text.join8(%prior,%separator,%record_open,%name_json,%record_middle,%args_json,%record_close,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+      %next = index.add %stop,%close_size : offset
+      %true = scalar.constant true : i1
+      scf.yield %next,%result,%true : offset,buffer,i1
+    } else { scf.yield %size,%prior,%has : offset,buffer,i1 }
+    scf.yield %next_p,%next_records,%next_has : offset,buffer,i1
+  }
+  %result = func.call @text.join8(%records,%list_close,%empty,%empty,%empty,%empty,%empty,%empty) : (buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer) -> (buffer)
+  func.return %result : buffer
+}

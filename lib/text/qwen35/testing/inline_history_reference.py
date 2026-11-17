@@ -32,10 +32,13 @@ def error_record(error):
 
 
 def check_reference(rows, source_override: bool):
-    assert len(rows) == 34
+    assert len(rows) == 35
     assert sum("error" in row for row in rows) == 6
-    assert sum("token_ids" in row for row in rows) == 28
+    assert sum("token_ids" in row for row in rows) == 29
     r = {row["case"]: row for row in rows}
+    # `is true` is a boolean identity test; integer 1 follows the disabled
+    # source arm just like the absent control in this revision.
+    assert r["numeric-thinking-source"]["text"] == r["one-user"]["text"]
     assert (
         r["tool-arguments-float-exponent"]["text"]
         == r["tool-arguments-float-decimal"]["text"]

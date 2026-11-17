@@ -1112,5 +1112,13 @@
       ]
     },
     "error": true
+  },
+  {
+    "id": "numeric-thinking-source",
+    "revisions": ["7f0e5290", "c3cf9e34"],
+    "request": {
+      "messages": [{"role": "user", "content": "Hello"}],
+      "enable_thinking": 1
+    }
   }
 ]

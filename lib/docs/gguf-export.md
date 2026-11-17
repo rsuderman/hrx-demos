@@ -1,7 +1,6 @@
 # GGUF model export
 
-`loomify-gguf` constructs the supported Llama3.2 3B Q4_K_M
-Qwen3.5 0.8B UD-Q5_K_XL / 27B Q4_K_M and Gemma3 1B IT Q4_K_M architectures by deriving data-only configuration and parameter bindings from the
+`loomify-gguf` constructs supported [model architectures](coverage.md) by deriving data-only configuration and parameter bindings from the
 GGUF descriptor, selecting a config-free numerical provider closure, and linking
 maintained Loom programs. It writes the model document and source providers
 consumed by existing Loom Serve. GGUF weights and matching tokenizer JSON remain
@@ -30,6 +29,23 @@ supplied path's format suffix, including a `.gguf` alias to an extensionless blo
 publication checks that alias still resolves to the source opened for inspection.
 The converter never copies checkpoint bytes or converts the tokenizer. It refuses an existing output
 directory and publishes `model.json` only after provider serialization succeeds.
+
+Text controls target the HRX revision pinned in `MODULE.bazel`. The original
+Jinja renders each complete request. Output scanning uses the source-selected
+state; tool parsing and formatting use the existing native callback inputs.
+Compiler support alone does not imply serving support: export reports a source
+diagnostic when a callback would require request or call context the runtime
+does not supply. Equivalent output routes share a parser; model names and
+template fingerprints do not select behavior.
+
+`complete_text` retains the rendered history prefix and serializes the completed
+assistant turn from source-derived transformations and actual formatted calls.
+It does not retroactively rerender previous messages. The next request still
+renders its complete history through Jinja. Existing native prefix checks decide
+reuse: an ordinary mismatch prepares fresh input; an explicitly required
+checkpoint mismatch returns the runtime's existing incompatibility error.
+Generated controls qualify their bounded plain-output reuse candidate separately
+from the existing authored wheel catalog's completion policy.
 
 Serve packages require `context_capacity` to be a multiple of64 and use
 `--pool_backing=fixed` with the current Loom Serve pin. Package export rejects
@@ -112,9 +128,11 @@ bazel-bin/tools/loomify-gguf/loomify-gguf \
 
 Inspection writes `numeric.loom`: the exact numerical configuration, including
 publication token IDs and pure per-layer lookup functions. Adding `--tokenizer`
-prepares package data and writes supplemental `serve-data.loom`. That file is joined
-with the numerical source for preparation/control; it contains no second numerical
-configuration. Inspection is output-only, and does not certify native materialization
+prepares package data and writes supplemental `serve-data.loom`, which contains no
+second numerical configuration. Control joins the full generated input data/code;
+numerical preparation uses only the numerical configuration and bound terminal-token
+facts. Inspection is
+output-only, and does not certify native materialization
 or inference. It can accompany either export. Successful requested inspection remains
 available if later native export fails; partial failed inspection is cleaned up.
 Inspection and native destinations must be distinct, and existing paths are refused.
@@ -145,8 +163,8 @@ return configured->WritePackage(context, workspace, &error);
 For numerical-only construction, pass `nullptr` instead of package options to
 `Configure`, then call `configured->BuildModule` and `BuiltGgufModule::WriteModule`
 for a new text/bytecode file. Numerical configuration needs no tokenizer or supported
-chat template. Configure performs no Loom product reads, parsing or linking; package
-preparation still uses the existing native tokenizer parser and bounded GGUF marker
+chat template. Configure performs no Loom product reads or linking; package
+configuration compiles the selected Jinja source and uses the existing native tokenizer parser and bounded GGUF marker
 scan. Empty resource/output roots are permitted for inspection. The result owns
 copied facts, generated strings, options and resource root, and survives builder or
 option destruction. Failed configuration preserves the caller's previous result.
@@ -202,8 +220,9 @@ vocabulary head, then publishes the selected private ID to the requested slot. I
 epoch buffers; a one-token continuation uses the same entry. The owned prepare
 program reports the complete convolution/recurrent GDN slot and paged KV geometry
 so native request reset clears fresh state and subsequent chunks retain it. The
-Qwen control policy uses the selected known template revision and its declared
-thinking defaults, with its matching terminal marker. For nonthinking greedy
+Qwen control policy combines generated source-derived controls with their matching
+native terminal marker. The source supplies omitted prompt defaults.
+For nonthinking greedy
 chat, pass `enable_thinking:false` and `temperature:0`.
 
 Source/bytecode export, relocation and failure tests share the package gate above.
@@ -223,20 +242,30 @@ still select actual Llama Q6-down layers0/1 and Q4-down layer3, and Qwen layers0
 The epoch packet tests now link maintained commands and the real relocated
 unpack/scatter helpers, retaining their exact packet/token/cache expectations.
 
-Recognized chat-template semantic skeletons select maintained text providers independently
-of numerical execution. Native linking assembles the architecture execution hooks,
-selected text protocol, shared greedy request policy and common text utilities against
-the same public 18-hook contract. The selected text strategy owns tokenizer requirements;
-numerical publication IDs are checked separately. Missing providers, unresolved requested
-definitions, incompatible hook signatures or mismatched tokenizers fail before publication.
-Numerical-only `BuildModule` remains independent of those package checks.
+Package configuration compiles the actual selected GGUF chat template into prompt,
+request, output/tool, completion and input controls. Native linking assembles these
+controls with architecture execution hooks, shared greedy request policy and neutral
+text helpers against the public hook contract. Native token binding validates consumed
+GGUF globals and the analyzed terminal; numerical publication IDs are checked
+separately. Missing providers, unresolved requested definitions, incompatible hook
+signatures or mismatched tokenizers fail before publication. Numerical-only `BuildModule`
+remains independent of those package checks.
 
-`GgufPackageOptions::template_name` / `--chat-template=NAME` selects an explicitly
-named template from the GGUF when needed. It does not override providers or execute
-arbitrary Jinja. Recognized literal/default slots are emitted as data from the owned template bytes;
-unknown structural changes are rejected. The generated control text records the
-semantic skeleton identity, rather than claiming its hash identifies mutated source bytes;
-the existing model manifest stays unchanged. Qwen packages use the honest family
+`GgufPackageOptions::template_name` / `--chat-template=NAME` selects an explicitly named
+template from the GGUF when needed. Supported literal and structural changes use the
+same analysis/emission path as the original sources; unsupported constructs fail with
+source diagnostics before publication. No response-profile option or fingerprint
+catalog is required. Source-qualified reasoning metadata and USER continuation are
+constructed with the generated controls; omitted request options remain absent.
+Generation does not run the development synthetic conversation/assistant coverage
+suite. Only templates requiring finite effort metadata execute source discovery,
+stopping at the first active context and validating its exact source domain.
+Other templates construct controls and USER products without native discovery.
+The development qualifier retains the full differential source/selector/assistant
+checks separately; missing synthetic coverage is not an export admission rule.
+The model manifest stays unchanged. Runtime guard activation, a compatible published
+runtime/pin/wheel and live Serve acceptance remain separate from this development
+export path. Qwen packages use the honest family
 name `loomify-qwen35`; control `model_name` is emitted from that same value.
 Llama retains its explicitly selected greedy text baseline. Qwen float tool arguments
 remain functional through the existing JSON representation; exact Hugging Face float

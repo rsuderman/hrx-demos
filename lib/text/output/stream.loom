@@ -1,0 +1,225 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Bounded growing-buffer mechanics. Generated code supplies every marker and
+// optional framing byte. Bits 0..2: content=1, reasoning=2, optional-open=3,
+// opening-frame=4, closing-frame=5. Immutable completion facts: bit 3 records
+// prior-history reflow; bit 4 records invalid assistant append. Bits 5..7 are
+// zero. Bits 8..31 hold framing progress; upper bits belong to the generated
+// initializer. No-progress preserves all state.
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+func.def public @text.output_check(%condition: i1) {
+  %message = buffer.constant utf8("invalid generated output") : buffer
+  %flag = scalar.extui %condition : i1 to i32
+  func.call @require(%flag, %message) : (i32, buffer)
+  func.return
+}
+
+// Empty markers are absent transitions, never successful empty matches.
+func.def public @text.output_match(%text: buffer, %at: offset, %marker: buffer) -> (i32) {
+  %zero = index.constant 0 : offset
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %length = buffer.length %text
+  %size = buffer.length %marker
+  %valid_at = index.cmp ule, %at, %length : offset
+  %nonempty = index.cmp ne, %size, %zero : offset
+  %matched_result = scf.if %valid_at -> (i32) {
+    %remaining = index.sub %length, %at : offset
+    %short = index.cmp ult, %remaining, %size : offset
+    %count = scf.select %short, %remaining, %size : offset
+    %cmp = buffer.compare %text[%at], %marker[%zero], %count
+    %same = scalar.cmpi eq, %cmp, %zero32 : i32
+    %matched = scf.select %short, %one32, %two32 : i32
+    %value = scf.select %same, %matched, %zero32 : i32
+    scf.yield %value : i32
+  } else { scf.yield %zero32 : i32 }
+  %result = scf.select %nonempty, %matched_result, %zero32 : i32
+  func.return %result : i32
+}
+
+// Return the safe visible prefix, stopping before a complete/partial marker
+// or an incomplete UTF8 code point. Final drain exposes incomplete tails.
+func.def @output_stream.visible(%text: buffer, %start: offset, %marker_a: buffer, %marker_b: buffer, %stream: i1) -> (offset) {
+  %size = buffer.length %text
+  %one = index.constant 1 : offset
+  %zero32 = scalar.constant 0 : i32
+  %two32 = scalar.constant 2 : i32
+  %false = scalar.constant false : i1
+  %end = scf.while(%p = %start : offset) -> (offset) {
+    %has = index.cmp ult, %p, %size : offset
+    %advance = scf.if %has -> (i1) {
+      %a = func.call @text.output_match(%text, %p, %marker_a) : (buffer, offset, buffer) -> (i32)
+      %b = func.call @text.output_match(%text, %p, %marker_b) : (buffer, offset, buffer) -> (i32)
+      %ac = scalar.cmpi eq, %a, %two32 : i32
+      %bc = scalar.cmpi eq, %b, %two32 : i32
+      %complete = scalar.ori %ac, %bc : i1
+      %ap = scalar.cmpi ne, %a, %zero32 : i32
+      %bp = scalar.cmpi ne, %b, %zero32 : i32
+      %prefix = scalar.ori %ap, %bp : i1
+      %pending = scalar.andi %prefix, %stream : i1
+      %byte = buffer.load.i8.u %text[%p]
+      %c192 = scalar.constant 192 : i32
+      %c224 = scalar.constant 224 : i32
+      %c240 = scalar.constant 240 : i32
+      %c248 = scalar.constant 248 : i32
+      %lead2 = scalar.cmpi uge, %byte, %c192 : i32
+      %lead3 = scalar.cmpi uge, %byte, %c224 : i32
+      %lead4 = scalar.cmpi uge, %byte, %c240 : i32
+      %valid = scalar.cmpi ult, %byte, %c248 : i32
+      %w2 = index.constant 2 : offset
+      %w3 = index.constant 3 : offset
+      %w4 = index.constant 4 : offset
+      %width2 = scf.select %lead2, %w2, %one : offset
+      %width3 = scf.select %lead3, %w3, %width2 : offset
+      %width = scf.select %lead4, %w4, %width3 : offset
+      %remaining = index.sub %size, %p : offset
+      %short = index.cmp ult, %remaining, %width : offset
+      %short_valid = scalar.andi %short, %valid : i1
+      %utf_pending = scalar.andi %short_valid, %stream : i1
+      %stop0 = scalar.ori %complete, %pending : i1
+      %stop = scalar.ori %stop0, %utf_pending : i1
+      %go = scalar.cmpi eq, %stop, %false : i1
+      scf.yield %go : i1
+    } else { scf.yield %false : i1 }
+    scf.condition %advance, %p : i1, offset
+  } do(%p: offset) {
+    %next = index.add %p, %one : offset
+    scf.yield %next : offset
+  }
+  func.return %end : offset
+}
+
+func.def @output_stream.scan(%response: buffer, %start: offset, %mode: i64, %phase: i32, %tool: buffer, %close: buffer) -> (i64, offset, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %five = scalar.constant 5 : i64
+  %zero32 = scalar.constant 0 : i32
+  %two32 = scalar.constant 2 : i32
+  %empty = buffer.constant utf8("") : buffer
+  %thinking = scalar.cmpi eq, %mode, %two : i64
+  %active_close = scf.select %thinking, %close, %empty : buffer
+  %stream = scalar.cmpi eq, %phase, %zero32 : i32
+  %end = func.call @output_stream.visible(%response, %start, %tool, %active_close, %stream) : (buffer, offset, buffer, buffer, i1) -> (offset)
+  %at_start = index.cmp eq, %end, %start : offset
+  %kind, %finish, %next = scf.if %at_start -> (i64, offset, i64) {
+    %tm = func.call @text.output_match(%response, %start, %tool) : (buffer, offset, buffer) -> (i32)
+    %cm = func.call @text.output_match(%response, %start, %active_close) : (buffer, offset, buffer) -> (i32)
+    %tool_found = scalar.cmpi eq, %tm, %two32 : i32
+    %close_found0 = scalar.cmpi eq, %cm, %two32 : i32
+    %false = scalar.constant false : i1
+    %no_tool = scalar.cmpi eq, %tool_found, %false : i1
+    %close_found = scalar.andi %close_found0, %no_tool : i1
+    %length = buffer.length %close
+    %closed_end = index.add %start, %length : offset
+    %finish = scf.select %close_found, %closed_end, %start : offset
+    %next = scf.select %close_found, %five, %mode : i64
+    scf.yield %zero, %finish, %next : i64, offset, i64
+  } else { scf.yield %mode, %end, %mode : i64, offset, i64 }
+  func.return %kind, %finish, %next : i64, offset, i64
+}
+
+func.def public @text.output_scan(%response: buffer, %previous: i64, %state: i64, %phase: i32, %open: buffer, %close: buffer, %tool: buffer, %after_open: buffer, %after_close: buffer) -> (i64, i64, i64, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %three = scalar.constant 3 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %mask = scalar.constant 7 : i64
+  %completionmask = scalar.constant 24 : i64
+  %reservedmask = scalar.constant 224 : i64
+  %uppermask = scalar.constant -4294967296 : i64
+  %lowmask = scalar.constant 4294967295 : i64
+  %shift = scalar.constant 8 : i64
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %false = scalar.constant false : i1
+  %origin = index.constant 0 : offset
+  %unit = index.constant 1 : offset
+  %size = buffer.length %response
+  %size64 = index.cast %size : offset to i64
+  %nonnegative = scalar.cmpi sge, %previous, %zero : i64
+  %within = scalar.cmpi ule, %previous, %size64 : i64
+  %valid_cursor = scalar.andi %nonnegative, %within : i1
+  func.call @text.output_check(%valid_cursor) : (i1)
+  %phase0 = scalar.cmpi eq, %phase, %zero32 : i32
+  %phase1 = scalar.cmpi eq, %phase, %one32 : i32
+  %valid_phase = scalar.ori %phase0, %phase1 : i1
+  func.call @text.output_check(%valid_phase) : (i1)
+  %bounded = scalar.assume %previous [range(%previous, 0, 9223372036854775807)] : i64
+  %start = index.cast %bounded : i64 to offset
+  %raw = scalar.andi %state, %mask : i64
+  %reserved = scalar.andi %state, %reservedmask : i64
+  %valid_reserved = scalar.cmpi eq, %reserved, %zero : i64
+  func.call @text.output_check(%valid_reserved) : (i1)
+  %lo = scalar.cmpi uge, %raw, %one : i64
+  %hi = scalar.cmpi ule, %raw, %five : i64
+  %valid_mode = scalar.andi %lo, %hi : i1
+  func.call @text.output_check(%valid_mode) : (i1)
+  %pending = scalar.cmpi eq, %raw, %three : i64
+  %kind, %end, %local = scf.if %pending -> (i64, offset, i64) {
+    %m = func.call @text.output_match(%response, %start, %open) : (buffer, offset, buffer) -> (i32)
+    %full = scalar.cmpi eq, %m, %two32 : i32
+    %partial = scalar.cmpi eq, %m, %one32 : i32
+    %wait = scalar.andi %partial, %phase0 : i1
+    %kind, %end, %next = scf.if %full -> (i64, offset, i64) {
+      %length = buffer.length %open
+      %end = index.add %start, %length : offset
+      scf.yield %zero, %end, %four : i64, offset, i64
+    } else {
+      %kind, %end, %next = scf.if %wait -> (i64, offset, i64) {
+        scf.yield %zero, %start, %three : i64, offset, i64
+      } else {
+        %k, %e, %s = func.call @output_stream.scan(%response, %start, %two, %phase, %tool, %close) : (buffer, offset, i64, i32, buffer, buffer) -> (i64, offset, i64)
+        scf.yield %k, %e, %s : i64, offset, i64
+      }
+      scf.yield %kind, %end, %next : i64, offset, i64
+    }
+    scf.yield %kind, %end, %next : i64, offset, i64
+  } else {
+    %opening = scalar.cmpi eq, %raw, %four : i64
+    %closing = scalar.cmpi eq, %raw, %five : i64
+    %framing = scalar.ori %opening, %closing : i1
+    %mode = scf.select %opening, %two, %one : i64
+    %active_mode = scf.select %framing, %mode, %raw : i64
+    %frame = scf.select %opening, %after_open, %after_close : buffer
+    %low = scalar.andi %state, %lowmask : i64
+    %progress = scalar.shrui %low, %shift : i64
+    %progress_bounded = scalar.assume %progress [range(%progress, 0, 16777215)] : i64
+    %p = index.cast %progress_bounded : i64 to offset
+    %frame_size = buffer.length %frame
+    %inside = index.cmp ult, %p, %frame_size : offset
+    %has = index.cmp ult, %start, %size : offset
+    %candidate = scalar.andi %inside, %has : i1
+    %try_frame = scalar.andi %candidate, %framing : i1
+    %matches = scf.if %try_frame -> (i1) {
+      %a = buffer.load.i8.u %response[%start]
+      %b = buffer.load.i8.u %frame[%p]
+      %same = scalar.cmpi eq, %a, %b : i32
+      scf.yield %same : i1
+    } else { scf.yield %false : i1 }
+    %k, %e, %s = scf.if %matches -> (i64, offset, i64) {
+      %end = index.add %start, %unit : offset
+      %next_p = scalar.addi %progress, %one : i64
+      %packed = scalar.shli %next_p, %shift : i64
+      %next = scalar.ori %packed, %raw : i64
+      scf.yield %zero, %end, %next : i64, offset, i64
+    } else {
+      %k0, %e0, %s0 = func.call @output_stream.scan(%response, %start, %active_mode, %phase, %tool, %close) : (buffer, offset, i64, i32, buffer, buffer) -> (i64, offset, i64)
+      scf.yield %k0, %e0, %s0 : i64, offset, i64
+    }
+    scf.yield %k, %e, %s : i64, offset, i64
+  }
+  %upper = scalar.andi %state, %uppermask : i64
+  %completion = scalar.andi %state, %completionmask : i64
+  %metadata = scalar.ori %upper, %completion : i64
+  %packed = scalar.ori %metadata, %local : i64
+  %advanced = index.cmp ne, %end, %start : offset
+  %next = scf.select %advanced, %packed, %state : i64
+  %end64 = index.cast %end : offset to i64
+  func.return %kind, %previous, %end64, %next : i64, i64, i64, i64
+}

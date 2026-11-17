@@ -1,12 +1,14 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/text/qwen3/testing/revision_cases.h"
-#include "lib/text/protocols/chatml_thinking/testing/hermes_policy.h"
 namespace hrx::loomify_gguf::testing {
 namespace {
+void CheckInput(ChatVM &vm, const RenderReferences &references) {
+  CheckPreservedChatmlInput(vm, references, 248046);
+}
 const TextRevisionCase kCase{
-    "5da44855", "5DA44855", "loomify-qwen3",  "qwen3-one-user", 40, 1,
-    5,          true,       CheckHermesPolicy};
+    "5da44855", "5DA44855", "loomify-qwen3", "qwen3-one-user", 40, 1,
+    5,          true,       CheckInput};
 class Qwen3RevisionTest : public ::testing::TestWithParam<bool> {};
 TEST_P(Qwen3RevisionTest, ActualTransportPreservesGgufTemplateBytesAndTokens) {
   CheckRenderRevision(kCase, GetParam(),

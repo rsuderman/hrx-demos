@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/text/jinja/compiler.h"
-#include "lib/loomify/text/jinja/parser.h"
+#include "lib/loomify/text/jinja/source_template.h"
 
 #include <algorithm>
 #include <charconv>
@@ -52,6 +52,10 @@ struct State {
   struct Namespace {
     std::string present;
     int known_present = 0;
+    // Binding-discovery fact only. Runtime loop-carried presence intentionally
+    // becomes unknown even when a source constructor guarantees presence; its
+    // dead JSON fallback is not an external source binding.
+    bool may_read_external_fallback = true;
     std::map<std::string, Value> fields;
   };
   std::map<std::string, size_t> bindings;
@@ -75,10 +79,22 @@ std::string Hex(std::string_view value) {
   return result;
 }
 
+enum class LoweringProduct {
+  Renderer,
+  FormatSelector,
+  AdaptationSelector,
+  Recipe
+};
+
 class Lowering {
 public:
-  Lowering(std::string_view source, Diagnostic *diagnostic)
-      : source_(source), diagnostic_(diagnostic) {}
+  Lowering(std::string_view source, Diagnostic *diagnostic,
+           LoweringProduct product = LoweringProduct::Renderer,
+           std::string_view symbol_suffix = {})
+      : source_(source), diagnostic_(diagnostic),
+        selector_(product == LoweringProduct::FormatSelector ||
+                  product == LoweringProduct::AdaptationSelector),
+        product_(product), symbol_suffix_(symbol_suffix) {}
 
   bool Run(const Template &ast, GeneratedInputRenderer *out) {
     State state;
@@ -95,7 +111,9 @@ public:
       AnalyzeCaptures(name);
     if (failed_)
       return false;
-    Line("func.def public @jinja.evaluate(%environment: buffer) -> (buffer) {");
+    const std::string entrypoint = EntryPoint();
+    Line("func.def public @" + entrypoint + "(%environment: buffer) -> (" +
+         (selector_ ? "i64, i64" : "buffer") + ") {");
     ++indent_;
     environment_ = {"%environment", I64(2), KnownKind::Mapping};
     // The explicit environment ABI is a JSON object, not an arbitrary JSON
@@ -120,11 +138,29 @@ public:
     }
     if (!macros_.empty())
       for (const auto &name : module_names_)
-        state.module_locals[name] = Get(environment_, Literal(name));
+        state.module_locals[name] = External(name, false);
     EmitNodes(ast.body, state);
     if (failed_)
       return false;
-    Line("func.return " + state.output + " : buffer");
+    if (selector_) {
+      // The validated AST emits exactly one literal integer pair. Reuse the
+      // existing JSON-backed sequence helpers to extract its scalar results;
+      // no source-expression evaluator or second scope implementation is added.
+      const auto kind = I64(3);
+      const auto count =
+          Call("jinja.length", {state.output, kind}, {"buffer", "i64"}, "i64");
+      Require(Compare("eq", count, I64(2)),
+              Literal("selector must emit exactly one integer pair"));
+      const auto format = Pair("jinja.index", {state.output, kind, I64(0)},
+                               {"buffer", "i64", "i64"});
+      const auto startup = Pair("jinja.index", {state.output, kind, I64(1)},
+                                {"buffer", "i64", "i64"});
+      const auto format_id = ToInteger(format),
+                 startup_mode = ToInteger(startup);
+      Line("func.return " + format_id + ", " + startup_mode + " : i64, i64");
+    } else {
+      Line("func.return " + state.output + " : buffer");
+    }
     --indent_;
     Line("}");
     for (const auto &[name, node] : macros_)
@@ -138,15 +174,82 @@ public:
     for (const auto &[name, declaration] : declarations_)
       result.source += declaration + "\n";
     result.source += body_.str();
-    result.entrypoint = "jinja.evaluate";
+    result.entrypoint = entrypoint;
     result.helper_requirements = {"lib/text/common/strings.loom",
                                   "lib/text/common/json.loom",
                                   "lib/text/common/jinja.loom"};
+    auto pending = called_macros_;
+    std::set<std::string> visited;
+    while (!pending.empty()) {
+      const auto name = *pending.begin();
+      pending.erase(pending.begin());
+      if (!visited.insert(name).second)
+        continue;
+      external_bindings_.insert(macro_external_bindings_[name].begin(),
+                                macro_external_bindings_[name].end());
+      protected_bindings_.insert(macro_protected_bindings_[name].begin(),
+                                 macro_protected_bindings_[name].end());
+      pending.insert(macro_calls_[name].begin(), macro_calls_[name].end());
+    }
+    result.external_bindings.assign(external_bindings_.begin(),
+                                    external_bindings_.end());
+    result.protected_bindings.assign(protected_bindings_.begin(),
+                                     protected_bindings_.end());
     *out = std::move(result);
     return true;
   }
 
 private:
+  void RecordExternal(const std::string &name) {
+    if (in_macro_)
+      macro_external_bindings_[current_macro_].insert(name);
+    else
+      external_bindings_.insert(name);
+  }
+  void RecordProtected(const std::string &name) {
+    if (in_macro_)
+      macro_protected_bindings_[current_macro_].insert(name);
+    else
+      protected_bindings_.insert(name);
+  }
+  void UseExternal(const Value &value) {
+    const auto found = external_values_.find(value.data);
+    if (found != external_values_.end())
+      RecordExternal(found->second);
+  }
+  Value External(const std::string &name, bool used) {
+    auto value = Get(environment_, Literal(name));
+    external_values_[value.data] = name;
+    if (used)
+      RecordExternal(name);
+    return value;
+  }
+  std::string EntryPoint() const {
+    switch (product_) {
+    case LoweringProduct::Renderer:
+      return "jinja.evaluate";
+    case LoweringProduct::FormatSelector:
+      return "jinja.select_format";
+    case LoweringProduct::AdaptationSelector:
+      return "jinja.select_adaptation";
+    case LoweringProduct::Recipe:
+      return "jinja.render_format_recipe" + symbol_suffix_;
+    }
+    return "";
+  }
+  std::string SymbolPrefix() const {
+    switch (product_) {
+    case LoweringProduct::Renderer:
+      return "jinja.";
+    case LoweringProduct::FormatSelector:
+      return "jinja.selector.";
+    case LoweringProduct::AdaptationSelector:
+      return "jinja.adaptation.";
+    case LoweringProduct::Recipe:
+      return "jinja.recipe" + symbol_suffix_ + ".";
+    }
+    return "";
+  }
   std::string Fresh() { return "%j" + std::to_string(next_++); }
   void Line(const std::string &line) {
     body_ << std::string(indent_ * 2, ' ') << line << '\n';
@@ -171,7 +274,8 @@ private:
   std::string Literal(std::string_view bytes) {
     auto found = literals_.find(std::string(bytes));
     if (found == literals_.end()) {
-      const auto name = "jinja.literal." + std::to_string(literals_.size());
+      const auto name = std::string(SymbolPrefix()) + "literal." +
+                        std::to_string(literals_.size());
       found = literals_.emplace(std::string(bytes), name).first;
     }
     const auto name = Fresh();
@@ -267,7 +371,9 @@ private:
     Line(result + " = scalar.cmpi eq, " + condition + ", " + no + " : i1");
     return result;
   }
-  Value Get(Value subject, const std::string &key) {
+  Value Get(Value subject, const std::string &key, bool used = true) {
+    if (used)
+      UseExternal(subject);
     return TupleResult(Pair("jinja.get", {subject.data, subject.kind, key},
                             {"buffer", "i64", "buffer"}),
                        subject);
@@ -461,7 +567,7 @@ private:
           continue;
         }
         if (!state.locals.count(node.text))
-          state.locals[node.text] = Name(node.text, state);
+          state.locals[node.text] = Name(node.text, state, 0, false);
         state.bindings[node.text] = node.offset;
       }
       if (node.kind == Node::Kind::If) {
@@ -476,6 +582,7 @@ private:
         auto &object = state.namespaces.at(node.offset);
         object.present = Bool(false);
         object.known_present = 0;
+        object.may_read_external_fallback = true;
         for (auto &[field, value] : object.fields)
           value = Undefined();
       }
@@ -516,6 +623,8 @@ private:
       const auto &a = yes.namespaces.at(id), &b = no.namespaces.at(id);
       object.known_present =
           a.known_present == b.known_present ? a.known_present : -1;
+      object.may_read_external_fallback =
+          a.may_read_external_fallback || b.may_read_external_fallback;
       for (auto &[field, value] : object.fields) {
         value.known = MergeKind(a.fields.at(field), b.fields.at(field));
         value.tuple_data =
@@ -564,12 +673,16 @@ private:
       return value;
     const auto fallback = state.locals.at(name);
     if (object.known_present == 0)
-      return Get(fallback, Literal(field));
+      return Get(fallback, Literal(field), object.may_read_external_fallback);
     return SelectValue(
         object.present, state, [&](State &) { return value; },
-        [&](State &) { return Get(fallback, Literal(field)); });
+        [&](State &) {
+          return Get(fallback, Literal(field),
+                     object.may_read_external_fallback);
+        });
   }
-  Value Name(const std::string &name, State &state, size_t offset = 0) {
+  Value Name(const std::string &name, State &state, size_t offset = 0,
+             bool used = true) {
     if (macros_.count(name)) {
       Fail(offset, "macro objects cannot escape as values");
       return Undefined();
@@ -581,11 +694,15 @@ private:
       return Undefined();
     }
     const auto found = state.locals.find(name);
-    if (found != state.locals.end())
+    if (found != state.locals.end()) {
+      if (used)
+        UseExternal(found->second);
       return found->second;
+    }
     if (name == "raise_exception")
       return {Literal(""), I64(8), KnownKind::Callable};
     if (name == "strftime_now") {
+      RecordProtected("__loomify_strftime_now");
       const auto capability =
           Get(environment_, Literal("__loomify_strftime_now"));
       const auto present = Compare("eq", capability.kind, I64(2));
@@ -594,7 +711,7 @@ private:
            " : i64");
       return {capability.data, kind};
     }
-    return Get(environment_, Literal(name));
+    return External(name, used);
   }
 
   Value Choice(const std::string &condition, const Expr &yes, const Expr &no,
@@ -1037,10 +1154,12 @@ private:
   }
 
   std::string MacroSymbol(const std::string &name) {
-    return "jinja.macro." + name;
+    return std::string(SymbolPrefix()) + "macro." + name;
   }
   Value MacroCall(const Expr &expr, State &state) {
     const auto &name = expr.args[0].text;
+    if (!in_macro_)
+      called_macros_.insert(name);
     const auto &macro = *macros_.at(name);
     const auto &captures = macro_captures_.at(name);
     if (!in_macro_ && !state.defined_macros.count(name)) {
@@ -1097,8 +1216,13 @@ private:
     for (const auto &capture : captures.values) {
       const auto found = state.module_locals.find(capture);
       const auto value = found == state.module_locals.end()
-                             ? Get(environment_, Literal(capture))
+                             ? External(capture, false)
                              : found->second;
+      const auto namespace_binding = state.bindings.find(capture);
+      if (namespace_binding == state.bindings.end() ||
+          state.namespaces.at(namespace_binding->second)
+              .may_read_external_fallback)
+        UseExternal(value);
       if (value.tuple_data) {
         Fail(
             expr.offset,
@@ -1135,6 +1259,7 @@ private:
     auto saved_loops = std::move(loops_);
     loops_.clear();
     in_macro_ = true;
+    current_macro_ = macro.text;
     std::vector<std::string> arguments{"%environment: buffer"};
     std::vector<std::string> provided;
     for (const auto &parameter : macro.parameters) {
@@ -1205,6 +1330,7 @@ private:
     environment_ = saved_environment;
     loops_ = std::move(saved_loops);
     in_macro_ = false;
+    current_macro_.clear();
   }
   Value Function(const Expr &expr, State &state) {
     if (!expr.args.empty() && expr.args[0].kind == Expr::Kind::Name &&
@@ -1371,7 +1497,7 @@ private:
         ++it;
     for (const auto &name : names)
       if (!state.locals.count(name))
-        state.locals[name] = Name(name, state);
+        state.locals[name] = Name(name, state, 0, false);
     State yes = state, no = state;
     std::vector<std::string> outputs{Fresh()}, types{"buffer"};
     std::map<std::string, Value> results;
@@ -1406,6 +1532,12 @@ private:
       result.known = MergeKind(yes.locals.at(name), no.locals.at(name));
       result.tuple_data =
           yes.locals.at(name).tuple_data || no.locals.at(name).tuple_data;
+      for (const auto *branch : {&yes, &no}) {
+        const auto external =
+            external_values_.find(branch->locals.at(name).data);
+        if (external != external_values_.end())
+          external_values_[result.data] = external->second;
+      }
       state.locals[name] = result;
       if (state.module_frame)
         state.module_locals[name] = result;
@@ -1557,8 +1689,17 @@ private:
           state.output = Concat(state.output, Literal(node.text));
         break;
       case Node::Kind::Output:
-        state.output =
-            Concat(state.output, ToString(Expression(node.expression, state)));
+        // Selector results are a compiler-checked integer pair, not template
+        // text. The normal renderer deliberately rejects stringifying lists.
+        // Preserve its semantics and retain the pair's existing JSON storage.
+        if (selector_ && !in_macro_ &&
+            node.expression.kind == Expr::Kind::List) {
+          state.output =
+              Concat(state.output, Collection(node.expression, state).data);
+        } else {
+          state.output = Concat(state.output,
+                                ToString(Expression(node.expression, state)));
+        }
         break;
       case Node::Kind::Set:
         if (node.text.find('.') != std::string::npos) {
@@ -1606,12 +1747,13 @@ private:
           if (!state.locals.count(node.text)) {
             const auto previous = state.bindings.find(node.text);
             if (previous == state.bindings.end())
-              state.locals[node.text] = Name(node.text, state);
+              state.locals[node.text] = Name(node.text, state, 0, false);
           }
           state.bindings[node.text] = node.offset;
           auto &object = state.namespaces.at(node.offset);
           object.present = Bool(true);
           object.known_present = 1;
+          object.may_read_external_fallback = false;
           for (auto &[field, value] : object.fields)
             value = Undefined();
           for (const auto &[field, value] : fields)
@@ -1655,6 +1797,9 @@ private:
 
   std::string_view source_;
   Diagnostic *diagnostic_ = nullptr;
+  bool selector_ = false;
+  LoweringProduct product_ = LoweringProduct::Renderer;
+  std::string symbol_suffix_;
   bool failed_ = false;
   size_t next_ = 0;
   unsigned indent_ = 0;
@@ -1674,12 +1819,234 @@ private:
   std::set<std::string> checking_macros_, checked_macros_, module_names_;
   std::map<std::string, size_t> module_bindings_;
   bool in_macro_ = false;
+  std::string current_macro_;
+  std::set<std::string> called_macros_, external_bindings_, protected_bindings_;
+  std::map<std::string, std::set<std::string>> macro_external_bindings_,
+      macro_protected_bindings_;
+  std::map<std::string, std::string> external_values_;
   const Expr *items_expression_ = nullptr;
   std::ostringstream body_;
 };
 
-void Locate(std::string_view source, std::string_view name,
-            Diagnostic *diagnostic) {
+// This is a source-declaration query, not a value/dataflow evaluator. A whole
+// source shadowing check deliberately keeps its supported external-name shape
+// conservative and independent of result-variable names or template identities.
+class StringDefaultQuery {
+public:
+  StringDefaultQuery(std::string_view variable, Diagnostic *diagnostic)
+      : variable_(variable), diagnostic_(diagnostic) {}
+
+  bool Run(const Template &ast, std::string *out) {
+    CheckShadowing(ast.body);
+    if (failed_)
+      return false;
+    ReadNodes(ast.body);
+    if (failed_)
+      return false;
+    if (!found_) {
+      Fail(0, "no literal default declaration found for external name '" +
+                  std::string(variable_) + "'");
+      return false;
+    }
+    *out = std::move(value_);
+    return true;
+  }
+
+private:
+  void Fail(size_t offset, std::string message) {
+    if (!failed_) {
+      diagnostic_->offset = offset;
+      diagnostic_->message = std::move(message);
+    }
+    failed_ = true;
+  }
+  bool TargetContains(std::string_view target) const {
+    size_t begin = 0;
+    do {
+      const auto end = target.find(',', begin);
+      if (target.substr(begin,
+                        end == std::string_view::npos ? end : end - begin) ==
+          variable_)
+        return true;
+      if (end == std::string_view::npos)
+        break;
+      begin = end + 1;
+    } while (begin < target.size());
+    return false;
+  }
+  void CheckShadowing(const std::vector<Node> &nodes) {
+    for (const auto &node : nodes) {
+      bool shadowed =
+          (node.kind == Node::Kind::Set && node.text == variable_) ||
+          (node.kind == Node::Kind::For && TargetContains(node.text)) ||
+          (node.kind == Node::Kind::Macro &&
+           (node.text == variable_ ||
+            std::find(node.parameters.begin(), node.parameters.end(),
+                      variable_) != node.parameters.end()));
+      if (shadowed)
+        Fail(node.offset, "external name '" + std::string(variable_) +
+                              "' is shadowed by a source binding");
+      CheckShadowing(node.body);
+      CheckShadowing(node.otherwise);
+    }
+  }
+  void ReadExpression(const Expr &expr) {
+    if (expr.kind == Expr::Kind::Filter &&
+        (expr.text == "default" || expr.text == "d") && !expr.args.empty() &&
+        expr.args[0].kind == Expr::Kind::Name &&
+        expr.args[0].text == variable_) {
+      const auto prefix = "default declaration for external name '" +
+                          std::string(variable_) + "' ";
+      if (expr.args.size() != 2) {
+        Fail(expr.offset,
+             prefix + "must have exactly one explicit fallback argument");
+      } else if (expr.keywords.size() > 1 && !expr.keywords[1].empty() &&
+                 expr.keywords[1] != "default_value") {
+        Fail(expr.offset, prefix + "supports only the default_value keyword");
+      } else if (expr.args[1].kind != Expr::Kind::String) {
+        Fail(expr.args[1].offset,
+             prefix + "requires a STRING literal fallback");
+      } else if (found_ && value_ != expr.args[1].text) {
+        Fail(expr.offset, "conflicting literal defaults for external name '" +
+                              std::string(variable_) + "'");
+      } else {
+        found_ = true;
+        value_ = expr.args[1].text;
+      }
+    }
+    for (const auto &arg : expr.args)
+      ReadExpression(arg);
+  }
+  void ReadNodes(const std::vector<Node> &nodes) {
+    for (const auto &node : nodes) {
+      ReadExpression(node.expression);
+      for (const auto &value : node.defaults)
+        ReadExpression(value);
+      ReadNodes(node.body);
+      ReadNodes(node.otherwise);
+    }
+  }
+  std::string_view variable_;
+  Diagnostic *diagnostic_;
+  std::string value_;
+  bool found_ = false;
+  bool failed_ = false;
+};
+
+// The analyzer emits an ordinary source AST slice with one terminal literal
+// pair, not a new expression language. Check its result shape before using the
+// renderer's lowering. Bits 0/1/2 denote possible numbers of emitted pairs on
+// paths that return normally; bit2 saturates at two. A raising path has no
+// bits.
+class SelectorShape {
+public:
+  SelectorShape(Diagnostic *diagnostic, TemplateSelectorKind kind)
+      : diagnostic_(diagnostic), kind_(kind) {}
+
+  bool Check(const Template &ast) {
+    const auto paths = Nodes(ast.body, false);
+    if (!failed_ && paths != (1u << 1))
+      Fail(0,
+           "selector must emit exactly one selection on every returning path");
+    return !failed_;
+  }
+
+private:
+  void Fail(size_t offset, std::string message) {
+    if (!failed_) {
+      diagnostic_->offset = offset;
+      diagnostic_->message = std::move(message);
+    }
+    failed_ = true;
+  }
+
+  static unsigned Sequence(unsigned before, unsigned after) {
+    unsigned result = 0;
+    for (unsigned a = 0; a != 3; ++a)
+      for (unsigned b = 0; b != 3; ++b)
+        if ((before & (1u << a)) && (after & (1u << b)))
+          result |= 1u << std::min(a + b, 2u);
+    return result;
+  }
+
+  unsigned Nodes(const std::vector<Node> &nodes, bool loop) {
+    unsigned paths = 1;
+    for (const auto &node : nodes) {
+      unsigned next = 1;
+      switch (node.kind) {
+      case Node::Kind::Text:
+        if (!node.text.empty())
+          Fail(node.offset, "selector slice cannot emit template text");
+        break;
+      case Node::Kind::Output: {
+        const auto &expression = node.expression;
+        if (expression.kind == Expr::Kind::Call && !expression.args.empty() &&
+            expression.args[0].kind == Expr::Kind::Name &&
+            expression.args[0].text == "raise_exception") {
+          next = 0;
+          break;
+        }
+        if (loop) {
+          Fail(node.offset, "selector loops cannot emit a selection");
+          break;
+        }
+        if (expression.kind != Expr::Kind::List ||
+            expression.args.size() != 2) {
+          Fail(node.offset,
+               "selector output must be [format_id, startup_mode]");
+          break;
+        }
+        for (size_t i = 0; i != 2; ++i) {
+          const auto &value = expression.args[i];
+          int64_t scalar = -1;
+          const auto parsed = std::from_chars(
+              value.text.data(), value.text.data() + value.text.size(), scalar);
+          if (value.kind != Expr::Kind::Integer || parsed.ec != std::errc{} ||
+              parsed.ptr != value.text.data() + value.text.size() ||
+              scalar < 0 ||
+              (i == 1 &&
+               scalar > (kind_ == TemplateSelectorKind::Format ? 2 : 0))) {
+            Fail(
+                value.offset,
+                kind_ == TemplateSelectorKind::Format
+                    ? "selector requires nonnegative literal format_id and startup_mode 0..2"
+                    : "adaptation selector requires [nonnegative literal route, 0]");
+            break;
+          }
+        }
+        next = 1u << 1;
+        break;
+      }
+      case Node::Kind::If:
+        next = Nodes(node.body, loop) | Nodes(node.otherwise, loop);
+        break;
+      case Node::Kind::For:
+        Nodes(node.body, true);
+        Nodes(node.otherwise, true);
+        break;
+      case Node::Kind::Generation:
+        next = Nodes(node.body, loop);
+        break;
+      case Node::Kind::Set:
+      case Node::Kind::Macro:
+        // Macros retain their original string-returning semantics. Their output
+        // is a value computed by a source expression, not a selection emission.
+        break;
+      }
+      paths = Sequence(paths, next);
+    }
+    return paths;
+  }
+
+  Diagnostic *diagnostic_;
+  TemplateSelectorKind kind_;
+  bool failed_ = false;
+};
+
+} // namespace
+
+void LocateDiagnostic(std::string_view source, std::string_view name,
+                      Diagnostic *diagnostic) {
   if (!diagnostic)
     return;
   diagnostic->source_name = std::string(name);
@@ -1696,29 +2063,22 @@ void Locate(std::string_view source, std::string_view name,
   }
 }
 
-} // namespace
-
-bool CompileChatTemplate(std::string_view source, std::string_view source_name,
-                         GeneratedInputRenderer *out, Diagnostic *diagnostic) {
+bool internal::CompileChatTemplate(const SourceTemplate &unit,
+                                   GeneratedInputRenderer *out,
+                                   Diagnostic *diagnostic) {
+  const auto source = unit.source(), source_name = unit.source_name();
   Diagnostic error;
   if (!out) {
     error.message = "chat template compilation needs an output slot";
-    Locate(source, source_name, &error);
-    if (diagnostic)
-      *diagnostic = std::move(error);
-    return false;
-  }
-  Template ast;
-  if (!ParseTemplate(source, &ast, &error)) {
-    Locate(source, source_name, &error);
+    LocateDiagnostic(source, source_name, &error);
     if (diagnostic)
       *diagnostic = std::move(error);
     return false;
   }
   GeneratedInputRenderer generated;
   Lowering lowering(source, &error);
-  if (!lowering.Run(ast, &generated)) {
-    Locate(source, source_name, &error);
+  if (!lowering.Run(unit.ast(), &generated)) {
+    LocateDiagnostic(source, source_name, &error);
     if (diagnostic)
       *diagnostic = std::move(error);
     return false;
@@ -1727,6 +2087,190 @@ bool CompileChatTemplate(std::string_view source, std::string_view source_name,
   if (diagnostic)
     *diagnostic = Diagnostic{};
   return true;
+}
+
+bool CompileTemplateSelector(std::string_view original_source,
+                             std::string_view source_name,
+                             const Template &selector_slice,
+                             GeneratedInputRenderer *out,
+                             Diagnostic *diagnostic,
+                             TemplateSelectorKind kind) {
+  Diagnostic error;
+  GeneratedInputRenderer result;
+  if (!out) {
+    error.message = "template selector compilation needs an output slot";
+  } else if (SelectorShape(&error, kind).Check(selector_slice) &&
+             Lowering(original_source, &error,
+                      kind == TemplateSelectorKind::Format
+                          ? LoweringProduct::FormatSelector
+                          : LoweringProduct::AdaptationSelector)
+                 .Run(selector_slice, &result)) {
+    *out = std::move(result);
+    if (diagnostic)
+      *diagnostic = Diagnostic{};
+    return true;
+  }
+  LocateDiagnostic(original_source, source_name, &error);
+  if (diagnostic)
+    *diagnostic = std::move(error);
+  return false;
+}
+
+bool CompileTemplateRenderer(std::string_view original_source,
+                             std::string_view source_name,
+                             const Template &renderer_slice,
+                             GeneratedInputRenderer *out,
+                             Diagnostic *diagnostic,
+                             std::string_view symbol_suffix) {
+  Diagnostic error;
+  GeneratedInputRenderer result;
+  if (!out) {
+    error.message = "template recipe compilation needs an output slot";
+  } else if (
+      symbol_suffix.find_first_not_of(
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") !=
+      std::string_view::npos) {
+    error.message = "template recipe symbol suffix must be an identifier";
+  } else if (Lowering(original_source, &error, LoweringProduct::Recipe,
+                      symbol_suffix)
+                 .Run(renderer_slice, &result)) {
+    *out = std::move(result);
+    if (diagnostic)
+      *diagnostic = Diagnostic{};
+    return true;
+  }
+  LocateDiagnostic(original_source, source_name, &error);
+  if (diagnostic)
+    *diagnostic = std::move(error);
+  return false;
+}
+
+bool CombineGeneratedTemplates(const std::vector<GeneratedInputRenderer> &parts,
+                               std::string_view entrypoint,
+                               GeneratedInputRenderer *out,
+                               Diagnostic *diagnostic) {
+  Diagnostic error;
+  GeneratedInputRenderer result;
+  if (!out || parts.empty() || entrypoint.empty()) {
+    error.message =
+        "generated template composition needs products, root and output";
+  } else {
+    result.entrypoint = std::string(entrypoint);
+    std::map<std::string, std::string> declarations;
+    for (const auto &part : parts) {
+      std::istringstream source(part.source);
+      std::string line;
+      while (std::getline(source, line)) {
+        if (line.rfind("func.decl ", 0) == 0) {
+          const auto begin = line.find('@'), end = line.find('(', begin);
+          if (begin == std::string::npos || end == std::string::npos) {
+            error.message = "invalid compiler-generated helper declaration";
+            break;
+          }
+          const auto symbol = line.substr(begin, end - begin);
+          const auto previous = declarations.find(symbol);
+          if (previous != declarations.end()) {
+            if (previous->second != line)
+              error.message =
+                  "conflicting generated helper declaration: " + symbol;
+            if (!error.message.empty())
+              break;
+            continue;
+          }
+          declarations.emplace(symbol, line);
+        }
+        result.source += line;
+        result.source += '\n';
+      }
+      if (!error.message.empty())
+        break;
+      for (const auto &helper : part.helper_requirements)
+        if (std::find(result.helper_requirements.begin(),
+                      result.helper_requirements.end(),
+                      helper) == result.helper_requirements.end())
+          result.helper_requirements.push_back(helper);
+      for (const auto &name : part.external_bindings)
+        if (std::find(result.external_bindings.begin(),
+                      result.external_bindings.end(),
+                      name) == result.external_bindings.end())
+          result.external_bindings.push_back(name);
+      for (const auto &name : part.protected_bindings)
+        if (std::find(result.protected_bindings.begin(),
+                      result.protected_bindings.end(),
+                      name) == result.protected_bindings.end())
+          result.protected_bindings.push_back(name);
+    }
+    if (error.message.empty()) {
+      *out = std::move(result);
+      if (diagnostic)
+        *diagnostic = Diagnostic{};
+      return true;
+    }
+  }
+  if (diagnostic)
+    *diagnostic = std::move(error);
+  return false;
+}
+
+bool internal::ReadTemplateStringDefault(const SourceTemplate &unit,
+                                         std::string_view variable_name,
+                                         std::string *out,
+                                         Diagnostic *diagnostic) {
+  const auto source = unit.source(), source_name = unit.source_name();
+  Diagnostic error;
+  std::string result;
+  if (!out) {
+    error.message = "source default query needs an output slot";
+  } else if (variable_name.empty()) {
+    error.message = "source default query needs an external variable name";
+  } else if (StringDefaultQuery(variable_name, &error)
+                 .Run(unit.ast(), &result)) {
+    *out = std::move(result);
+    if (diagnostic)
+      *diagnostic = Diagnostic{};
+    return true;
+  }
+  LocateDiagnostic(source, source_name, &error);
+  if (diagnostic)
+    *diagnostic = std::move(error);
+  return false;
+}
+
+bool CompileChatTemplate(std::string_view source, std::string_view source_name,
+                         GeneratedInputRenderer *out, Diagnostic *diagnostic) {
+  if (!out) {
+    Diagnostic error;
+    error.message = "chat template compilation needs an output slot";
+    LocateDiagnostic(source, source_name, &error);
+    if (diagnostic)
+      *diagnostic = std::move(error);
+    return false;
+  }
+  std::unique_ptr<internal::SourceTemplate> unit;
+  return internal::SourceTemplate::Parse(source, source_name, &unit,
+                                         diagnostic) &&
+         internal::CompileChatTemplate(*unit, out, diagnostic);
+}
+
+bool ReadTemplateStringDefault(std::string_view source,
+                               std::string_view source_name,
+                               std::string_view variable_name, std::string *out,
+                               Diagnostic *diagnostic) {
+  if (!out || variable_name.empty()) {
+    Diagnostic error;
+    error.message =
+        !out ? "source default query needs an output slot"
+             : "source default query needs an external variable name";
+    LocateDiagnostic(source, source_name, &error);
+    if (diagnostic)
+      *diagnostic = std::move(error);
+    return false;
+  }
+  std::unique_ptr<internal::SourceTemplate> unit;
+  return internal::SourceTemplate::Parse(source, source_name, &unit,
+                                         diagnostic) &&
+         internal::ReadTemplateStringDefault(*unit, variable_name, out,
+                                             diagnostic);
 }
 
 } // namespace hrx::loomify_gguf::jinja

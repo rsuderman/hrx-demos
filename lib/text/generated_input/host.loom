@@ -1,0 +1,45 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared generated host hooks. Original wire history is adapted only by the
+// same request composer used for live rendering and output grammar selection.
+func.decl @text.request_environment(%request: buffer, %operation: i32) -> (buffer)
+func.decl @jinja.evaluate(%environment: buffer) -> (buffer)
+func.decl @jinja.select_format(%environment: buffer) -> (i64, i64)
+func.decl @text.output_initial(%format: i64, %startup: i64) -> (i64)
+func.decl @text.completion_initial(%environment: buffer, %state: i64) -> (i64)
+func.decl @text.output_check_environment(%environment: buffer, %format: i64)
+func.decl @text.json_quote(%text: buffer) -> (buffer)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
+func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
+  %live = scalar.constant 0 : i32
+  %environment = func.call @text.request_environment(%request, %live) : (buffer, i32) -> (buffer)
+  %rendered = func.call @jinja.evaluate(%environment) : (buffer) -> (buffer)
+  %format, %startup = func.call @jinja.select_format(%environment) : (buffer) -> (i64, i64)
+  func.call @text.output_check_environment(%environment, %format) : (buffer, i64)
+  %output_state = func.call @text.output_initial(%format, %startup) : (i64, i64) -> (i64)
+  %state = func.call @text.completion_initial(%environment, %output_state) : (buffer, i64) -> (i64)
+  func.return %rendered, %state : buffer, i64
+}
+
+// Native traversal validates every wire message after the complete prompt render.
+func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %frames: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer, i64) {
+  %empty = buffer.constant utf8("") : buffer
+  %zero = scalar.constant 0 : i64
+  func.return %empty, %state, %empty, %zero : buffer, i64, buffer, i64
+}
+
+func.def public @chat_end(%state: i64) -> (buffer, i64) {
+  %empty = buffer.constant utf8("") : buffer
+  func.return %empty, %state : buffer, i64
+}
+
+func.def public @text.input_fresh(%text: buffer) -> (buffer) {
+  %quoted = func.call @text.json_quote(%text) : (buffer) -> (buffer)
+  %prefix = buffer.constant utf8("{\"messages\":[{\"role\":\"user\",\"content\":") : buffer
+  %suffix = buffer.constant utf8("}]}") : buffer
+  %empty = buffer.constant utf8("") : buffer
+  %request = func.call @text.join8(%prefix, %quoted, %suffix, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  %rendered, %state = func.call @chat_begin(%request, %empty) : (buffer, buffer) -> (buffer, i64)
+  func.return %rendered : buffer
+}

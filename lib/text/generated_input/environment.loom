@@ -1,0 +1,183 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Request data projection for generated Jinja input. No chat framing lives here.
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+func.decl @text.decode(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+func.decl @text.range(%source: buffer, %begin: i64, %length: i64) -> (buffer)
+func.decl @text.equal(%a: buffer, %b: buffer) -> (i1)
+func.decl @text.json_quote(%text: buffer) -> (buffer)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+global.rodata.def @generated_input.empty = bytes("")
+global.rodata.def @generated_input.open_object = bytes("7b")
+global.rodata.def @generated_input.close_object = bytes("7d")
+global.rodata.def @generated_input.comma = bytes("2c")
+global.rodata.def @generated_input.colon = bytes("3a")
+global.rodata.def @generated_input.content = bytes("636f6e74656e74")
+global.rodata.def @generated_input.text = bytes("74657874")
+global.rodata.def @generated_input.type = bytes("74797065")
+global.rodata.def @generated_input.invalid = bytes("696e76616c69642067656e65726174656420696e7075742072657175657374")
+
+func.def @generated_input.check(%valid: i1) {
+  %flag = scalar.extui %valid : i1 to i32
+  %message = global.load @generated_input.invalid : buffer
+  func.call @require(%flag, %message) : (i32, buffer)
+  func.return
+}
+
+func.def @generated_input.join(%a: buffer, %b: buffer) -> (buffer) {
+  %empty = global.load @generated_input.empty : buffer
+  %result = func.call @text.join8(%a, %b, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+// Native member offsets refer to the immutable source, including raw value bytes.
+func.def public @text.input_member(%source: buffer, %members: buffer, %count: i64, %ordinal: i64) -> (buffer, buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %low = scalar.cmpi sge, %ordinal, %zero64 : i64
+  %high = scalar.cmpi slt, %ordinal, %count : i64
+  %valid = scalar.andi %low, %high : i1
+  func.call @generated_input.check(%valid) : (i1)
+  %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+  %ordinal_bounded = scalar.assume %ordinal [range(%ordinal, 0, 2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %index0 = index.cast %ordinal_bounded : i64 to index
+  %index = index.assume %index0 [lt(%index0, %extent)] : index
+  %origin = index.constant 0 : offset
+  %rows = buffer.view %members[%origin] : buffer -> view<[%extent]x5xi64>
+  %key_begin = view.load %rows[%index, 0] : view<[%extent]x5xi64> -> i64
+  %key_length = view.load %rows[%index, 1] : view<[%extent]x5xi64> -> i64
+  %begin = view.load %rows[%index, 2] : view<[%extent]x5xi64> -> i64
+  %length = view.load %rows[%index, 3] : view<[%extent]x5xi64> -> i64
+  %kind = view.load %rows[%index, 4] : view<[%extent]x5xi64> -> i64
+  %has_key_bytes = scalar.cmpi ne, %key_length, %zero64 : i64
+  %key = scf.if %has_key_bytes -> (buffer) {
+    %decoded = func.call @text.decode(%source, %key_begin, %key_length) : (buffer, i64, i64) -> (buffer)
+    scf.yield %decoded : buffer
+  } else {
+    %empty = global.load @generated_input.empty : buffer
+    scf.yield %empty : buffer
+  }
+  %string = scalar.cmpi eq, %kind, %zero64 : i64
+  %value = scf.if %string -> (buffer) {
+    // Native string spans exclude quotes. Reconstruct a complete JSON value.
+    %decoded = func.call @text.decode(%source, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    %quoted = func.call @text.json_quote(%decoded) : (buffer) -> (buffer)
+    scf.yield %quoted : buffer
+  } else {
+    %raw = func.call @text.range(%source, %begin, %length) : (buffer, i64, i64) -> (buffer)
+    scf.yield %raw : buffer
+  }
+  func.return %key, %value, %kind : buffer, buffer, i64
+}
+
+func.def @generated_input.append_member(%body: buffer, %key: buffer, %value: buffer, %first: i1) -> (buffer) {
+  %comma = global.load @generated_input.comma : buffer
+  %colon = global.load @generated_input.colon : buffer
+  %prefix = scf.if %first -> (buffer) {
+    scf.yield %body : buffer
+  } else {
+    %delimited = func.call @generated_input.join(%body, %comma) : (buffer, buffer) -> (buffer)
+    scf.yield %delimited : buffer
+  }
+  %quoted = func.call @text.json_quote(%key) : (buffer) -> (buffer)
+  %named = func.call @generated_input.join(%prefix, %quoted) : (buffer, buffer) -> (buffer)
+  %separator = func.call @generated_input.join(%named, %colon) : (buffer, buffer) -> (buffer)
+  %result = func.call @generated_input.join(%separator, %value) : (buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+// Replace once in place, or append a missing key. Replacement is complete JSON.
+func.def public @text.input_set_member(%object: buffer, %key: buffer, %replacement: buffer) -> (buffer) {
+  %members, %kind, %count_value = func.call @members(%object) : (buffer) -> (buffer, i32, i64)
+  %two = scalar.constant 2 : i32
+  %mapping = scalar.cmpi eq, %kind, %two : i32
+  func.call @generated_input.check(%mapping) : (i1)
+  %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %false = scalar.constant false : i1
+  %true = scalar.constant true : i1
+  %open = global.load @generated_input.open_object : buffer
+  %close = global.load @generated_input.close_object : buffer
+  %body, %seen = scf.for %i = [%zero to %count step %one](%prior = %open : buffer, %seen = %false : i1) -> (buffer, i1) {
+    %ordinal = index.cast %i : index to i64
+    %name, %value, %value_kind = func.call @text.input_member(%object, %members, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+    %matches = func.call @text.equal(%name, %key) : (buffer, buffer) -> (i1)
+    %duplicate = scalar.andi %matches, %seen : i1
+    %unique = scalar.cmpi eq, %duplicate, %false : i1
+    func.call @generated_input.check(%unique) : (i1)
+    %selected = scf.select %matches, %replacement, %value : buffer
+    %first = index.cmp eq, %i, %zero : index
+    %next = func.call @generated_input.append_member(%prior, %name, %selected, %first) : (buffer, buffer, buffer, i1) -> (buffer)
+    %next_seen = scalar.ori %seen, %matches : i1
+    scf.yield %next, %next_seen : buffer, i1
+  }
+  %complete = scf.if %seen -> (buffer) {
+    scf.yield %body : buffer
+  } else {
+    %first = index.cmp eq, %count, %zero : index
+    %appended = func.call @generated_input.append_member(%body, %key, %replacement, %first) : (buffer, buffer, buffer, i1) -> (buffer)
+    scf.yield %appended : buffer
+  }
+  %result = func.call @generated_input.join(%complete, %close) : (buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}
+
+func.def public @text.input_project_message(%message: buffer) -> (buffer) {
+  %content_key = global.load @generated_input.content : buffer
+  %raw, %kind, %found = func.call @text.lookup(%message, %content_key) : (buffer, buffer) -> (buffer, i64, i1)
+  %zero64 = scalar.constant 0 : i64
+  %three64 = scalar.constant 3 : i64
+  %six64 = scalar.constant 6 : i64
+  %false = scalar.constant false : i1
+  %empty = global.load @generated_input.empty : buffer
+  %string_kind = scalar.cmpi eq, %kind, %zero64 : i64
+  %string = scalar.andi %found, %string_kind : i1
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %null = scalar.cmpi eq, %kind, %six64 : i64
+  %missing = scalar.cmpi eq, %found, %false : i1
+  %ordinary = scalar.ori %string, %array : i1
+  %emptyish = scalar.ori %null, %missing : i1
+  %valid = scalar.ori %ordinary, %emptyish : i1
+  func.call @generated_input.check(%valid) : (i1)
+  %text = scf.if %string -> (buffer) {
+    %size = buffer.length %raw
+    %length = index.cast %size : offset to i64
+    %decoded = func.call @text.decode(%raw, %zero64, %length) : (buffer, i64, i64) -> (buffer)
+    scf.yield %decoded : buffer
+  } else {
+    %text = scf.if %array -> (buffer) {
+      %members, %type, %count_value = func.call @members(%raw) : (buffer) -> (buffer, i32, i64)
+      %bounded = scalar.assume %count_value [range(%count_value, 0, 2147483647)] : i64
+      %count = index.cast %bounded : i64 to index
+      %zero = index.constant 0 : index
+      %one = index.constant 1 : index
+      %text_key = global.load @generated_input.text : buffer
+      %type_key = global.load @generated_input.type : buffer
+      %joined = scf.for %i = [%zero to %count step %one](%prior = %empty : buffer) -> (buffer) {
+        %ordinal = index.cast %i : index to i64
+        %ignored, %part, %part_kind = func.call @text.input_member(%raw, %members, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, buffer, i64)
+        %body, %present = func.call @text.string(%part, %text_key) : (buffer, buffer) -> (buffer, i1)
+        func.call @generated_input.check(%present) : (i1)
+        %part_type, %typed = func.call @text.string(%part, %type_key) : (buffer, buffer) -> (buffer, i1)
+        %is_text = func.call @text.equal(%part_type, %text_key) : (buffer, buffer) -> (i1)
+        %untyped = scalar.cmpi eq, %typed, %false : i1
+        %valid_part = scalar.ori %is_text, %untyped : i1
+        func.call @generated_input.check(%valid_part) : (i1)
+        %next = func.call @generated_input.join(%prior, %body) : (buffer, buffer) -> (buffer)
+        scf.yield %next : buffer
+      }
+      scf.yield %joined : buffer
+    } else {
+      scf.yield %empty : buffer
+    }
+    scf.yield %text : buffer
+  }
+  %quoted = func.call @text.json_quote(%text) : (buffer) -> (buffer)
+  %result = func.call @text.input_set_member(%message, %content_key, %quoted) : (buffer, buffer, buffer) -> (buffer)
+  func.return %result : buffer
+}

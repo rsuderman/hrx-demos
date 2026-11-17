@@ -18,8 +18,6 @@ def render_kwargs(case, source_override: bool):
     if case.get("omit_generation_prompt"):
         kwargs.pop("add_generation_prompt", None)
     tools = request.get("tools")
-    assert not tools and not request.get("enable_thinking", False)
-    tools = None
     kwargs["bos_token"] = "<|begin_of_text|>"
     if source_override:
         import jinja2
@@ -36,9 +34,23 @@ def error_record(error):
 
 
 def check_reference(rows, source_override: bool):
-    assert len(rows) == 7
+    assert len(rows) == 11
     assert sum("error" in row for row in rows) == 0
-    assert sum("token_ids" in row for row in rows) == 7
+    assert sum("token_ids" in row for row in rows) == 11
+    r = {row["case"]: row for row in rows}
+    assert "Environment: ipython\n" in r["empty-tools"]["text"]
+    assert "Environment: ipython\n" not in r["one-user"]["text"]
+    assert r["unused-thinking"]["text"] == r["one-user"]["text"]
+    assert (
+        "<|start_header_id|>not-a-role<|end_header_id|>\n\nlate<|eot_id|>"
+        in r["source-custom-role"]["text"]
+    )
+    generation_prefix = "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    assert r["one-user"]["text"].endswith(generation_prefix)
+    assert (
+        r["generation-false"]["text"]
+        == r["one-user"]["text"][: -len(generation_prefix)]
+    )
     for row in rows:
         assert row["text"].count("<|begin_of_text|>") == 1
         if not source_override:

@@ -1,0 +1,24 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+# Pure public-module input/metadata facts. Full host checks use the unchanged
+# public a401 text_request_check binary through check_reference.py.
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+cc_test(
+    name = "generated_adapter_test",
+    size = "large",
+    testonly = True,
+    srcs = [
+        "//lib/text/testing:generated_adapter_test_sources",
+    ],
+    copts = ["-std=c++17"],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:template_probe_runner",
+        "@hrx_system//runtime/src/iree/base",
+        "@hrx_system//runtime/src/iree/base/internal:json",
+        "@hrx_system//runtime/src/iree/tokenizer:tokenizer",
+        "@hrx_system//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+        "@googletest//:gtest_main",
+    ],
+)

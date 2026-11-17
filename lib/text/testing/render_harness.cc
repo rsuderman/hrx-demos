@@ -1,6 +1,7 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 #include "lib/text/testing/render_harness.h"
+#include "iree/vm/buffer.h"
 
 namespace hrx::loomify_gguf::testing {
 iree_string_view_t View(std::string_view s) {
@@ -190,20 +191,19 @@ bool ChatVM::Init(const std::string &product, const std::string &tokenizer_path,
       !Ok(loom_serve_text_tool_xml_module_create(
           environment_, iree_allocator_system(), &tools_)))
     return false;
-  const iree_string_view_t roots[] = {
+  std::vector<iree_string_view_t> roots = {
       IREE_SV("model_name"),        IREE_SV("chat_reasoning"),
       IREE_SV("chat_image_limits"), IREE_SV("chat_begin"),
       IREE_SV("chat_message"),      IREE_SV("chat_end"),
-      IREE_SV("parse_tools"),       IREE_SV("render_tool"),
-      IREE_SV("prepare_input"),     IREE_SV("output_next"),
-      IREE_SV("complete_text"),     IREE_SV("request_defaults"),
-      IREE_SV("request_options")};
+      IREE_SV("parse_tools"),       IREE_SV("prepare_input"),
+      IREE_SV("output_next"),       IREE_SV("complete_chat"),
+      IREE_SV("request_defaults"),  IREE_SV("request_options")};
   iree_vm_module_t *libraries[] = {json_, input_, tools_};
   loom_runtime_sources_t sources{};
   loom_runtime_compilation_report_t report{};
   auto compiled = loom_runtime_program_allocate(
-      target_, environment_, &sources, View(product), IREE_ARRAYSIZE(roots),
-      roots, iree_vm_module_span_from_array(libraries), &report,
+      target_, environment_, &sources, View(product), roots.size(),
+      roots.data(), iree_vm_module_span_from_array(libraries), &report,
       iree_allocator_system(), &program_);
   if (!iree_status_is_ok(compiled)) {
     for (iree_host_size_t i = 0; i < report.diagnostic_count; ++i) {
@@ -239,14 +239,18 @@ bool ChatVM::Init(const std::string &product, const std::string &tokenizer_path,
 bool ChatVM::SupportsReasoning() const {
   return policy_.reasoning.support == LOOM_SERVE_REASONING_SUPPORTED;
 }
+uint32_t ChatVM::ReasoningEfforts() const { return policy_.reasoning.efforts; }
+uint32_t ChatVM::DefaultReasoningEffort() const {
+  return policy_.reasoning.default_effort;
+}
 
 std::string_view ChatVM::name() const {
   return {policy_.name.data, policy_.name.size};
 }
 
 iree_status_t ChatVM::RequestOptions(const std::string &body) {
-  // Invoke the bound policy entry directly. Calling Render would also run
-  // chat_begin, whose independent date lookup could mask lost validation.
+  // Exercise generic sampling independently of the original template's
+  // rendering/admission path.
   std::string request = body;
   if (!AddModelRoute(&request, name()))
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -292,11 +296,17 @@ iree_status_t ChatVM::Render(const std::string &body,
 iree_status_t ChatVM::ParseTools(std::string_view schemas,
                                  std::string_view response, std::string *out,
                                  bool truncated) {
-  const std::string_view inputs[] = {schemas, response};
-  iree_vm_variant_t args[3] = {}, result[1] = {};
-  args[2] = iree_vm_variant_from_i64(truncated);
+  // Direct parser fixtures supply a real source-valid request as well as the
+  // same requested schemas. Request-specific cases use the generated callback
+  // tests, which preserve the complete original client context.
+  const std::string request =
+      "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":" +
+      std::string(schemas) + '}';
+  const std::string_view inputs[] = {request, schemas, response};
+  iree_vm_variant_t args[4] = {}, result[1] = {};
+  args[3] = iree_vm_variant_from_i64(truncated);
   auto status = iree_ok_status();
-  for (size_t i = 0; i < 2 && iree_status_is_ok(status); ++i) {
+  for (size_t i = 0; i < 3 && iree_status_is_ok(status); ++i) {
     iree_vm_buffer_t *buffer = nullptr;
     status = iree_vm_buffer_clone(
         IREE_VM_BUFFER_ACCESS_FLAG_READ,
@@ -393,11 +403,36 @@ iree_status_t PrepareMode(const loom_serve_text_chat_t &chat,
   EXPECT_EQ(span_count, 0u);
   return status;
 }
+void CheckPreservedChatmlInput(ChatVM &vm, const RenderReferences &references,
+                               int32_t terminal_anchor) {
+  auto fresh = references.one_user;
+  const auto hello = fresh.find("Hello");
+  ASSERT_NE(hello, std::string::npos);
+  fresh.replace(hello, 5, u8" \u2003Hello\u00a0 ");
+  CheckInputPolicy(vm, {u8"<|im_start|>assistant\n \u2003Hello\u00a0 ",
+                        u8" \u2003Hello\u00a0 ", "<|im_start|>assistant\n",
+                        u8"<|im_start|>user\n \u2003Hello\u00a0 <|im_end|>\n",
+                        "<|im_end|>\n", "\n", fresh, "<|im_start|>assistant\n",
+                        terminal_anchor});
+}
+
+void CheckGreedySamplingOptions(ChatVM &vm) {
+  const std::string valid =
+      R"({"temperature":0,"top_p":1,"top_k":1,"seed":-7})";
+  ASSERT_TRUE(Ok(vm.RequestOptions(valid)));
+  for (const auto *invalid : {R"({"temperature":1})", R"({"top_p":0.5})",
+                              R"({"top_k":2})", R"({"temperature":"hot"})"}) {
+    auto status = vm.RequestOptions(invalid);
+    const bool accepted = iree_status_is_ok(status);
+    const auto diagnostic = Diagnostic(status);
+    EXPECT_FALSE(accepted) << invalid << ':' << diagnostic;
+    EXPECT_TRUE(Ok(vm.RequestOptions(valid)));
+  }
+}
+
 void CheckInputPolicy(ChatVM &vm, const InputPolicyExpectations &expectations) {
-  const auto generation =
-      expectations.fresh_user_reference.rfind(expectations.assistant_header);
-  ASSERT_NE(generation, std::string::npos);
-  const auto suffix = expectations.fresh_user_reference.substr(generation);
+  ASSERT_FALSE(expectations.continued_assistant_suffix.empty());
+  const auto &suffix = expectations.continued_assistant_suffix;
   auto separator = [&](loom_serve_text_chat_boundary_t boundary) {
     if (boundary == LOOM_SERVE_TEXT_CHAT_BOUNDARY_OPEN)
       return expectations.open_separator;
@@ -508,21 +543,85 @@ void CheckInputPolicy(ChatVM &vm, const InputPolicyExpectations &expectations) {
       << " modes=6 exact_capacity=6 overflow=2 actual_retained_boundaries=2\n";
 }
 
+namespace {
+// Same bounded comparison as compiler-only proof: mask only the explicitly
+// declared floating scalar, preserving every surrounding byte and signed zero.
+bool MaskDeclaredFloat(std::string *text, iree_string_view_t metadata,
+                       double *value) {
+  iree_string_view_t raw_prefix{}, raw_suffix{};
+  std::string prefix, suffix;
+  if (!Field(metadata, "prefix", &raw_prefix) || !raw_prefix.data ||
+      !Field(metadata, "suffix", &raw_suffix) || !raw_suffix.data ||
+      !Decode(raw_prefix, &prefix) || !Decode(raw_suffix, &suffix) ||
+      prefix.empty() || suffix.empty())
+    return false;
+  auto start = text->find(prefix);
+  if (start == std::string::npos ||
+      text->find(prefix, start + prefix.size()) != std::string::npos)
+    return false;
+  start += prefix.size();
+  const auto end = text->find(suffix, start);
+  if (end == std::string::npos)
+    return false;
+  const auto spelling = text->substr(start, end - start);
+  if (!Ok(iree_json_parse_double(View(spelling), value)) ||
+      !std::isfinite(*value))
+    return false;
+  text->replace(start, end - start, "[deferred floating spelling]");
+  return true;
+}
+bool RecordRenderedFloat(iree_string_view_t revision, iree_string_view_t name,
+                         bool bytecode, std::string_view actual,
+                         const std::vector<int32_t> &ids,
+                         const std::vector<int32_t> &prepared_ids) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::ofstream output(Env("LOOMIFY_RENDER_DEFERRED_OUTPUT"), std::ios::app);
+  // These spans retain their escaped JSON-string contents.
+  output << "{\"id\":\"" << Copy(revision) << ':' << Copy(name)
+         << "\",\"form\":\"" << (bytecode ? "bytecode" : "source")
+         << "\",\"actual_text_hex\":\"";
+  for (unsigned char byte : actual)
+    output << digits[byte >> 4] << digits[byte & 15];
+  const auto write_ids = [&](const std::vector<int32_t> &tokens) {
+    output << '[';
+    for (size_t i = 0; i < tokens.size(); ++i) {
+      if (i)
+        output << ',';
+      output << tokens[i];
+    }
+    output << ']';
+  };
+  output << "\",\"token_ids\":";
+  write_ids(ids);
+  output << ",\"prepared_token_ids\":";
+  write_ids(prepared_ids);
+  output << "}\n";
+  return static_cast<bool>(output);
+}
+} // namespace
+
 void CheckRenderRevision(const TextRevisionCase &test_case, bool bc,
-                         const std::string &reference_path) {
+                         const std::string &reference_path,
+                         const std::string &product_path,
+                         const std::string &tokenizer_path,
+                         const InputPolicyExpectations *input_policy) {
   SCOPED_TRACE(test_case.id);
   ChatVM vm;
-  ASSERT_TRUE(
-      vm.Init(Env(std::string("LOOMIFY_RENDER_") + test_case.key +
-                  (bc ? "_BC" : "_TEXT")),
-              Env(std::string("LOOMIFY_RENDER_TOKENIZER_") + test_case.key),
-              test_case.package_name));
+  ASSERT_TRUE(vm.Init(
+      product_path.empty() ? Env(std::string("LOOMIFY_RENDER_") +
+                                 test_case.key + (bc ? "_BC" : "_TEXT"))
+                           : product_path,
+      tokenizer_path.empty()
+          ? Env(std::string("LOOMIFY_RENDER_TOKENIZER_") + test_case.key)
+          : tokenizer_path,
+      test_case.package_name));
   EXPECT_EQ(vm.SupportsReasoning(), test_case.supports_reasoning);
   std::string data;
   ASSERT_TRUE(Read(reference_path, &data));
   std::vector<iree_string_view_t> rows;
   ASSERT_TRUE(Ok(iree_json_enumerate_array_typed(View(data), Row, &rows)));
-  size_t count = 0, negative = 0, admission_negative = 0;
+  size_t count = 0, negative = 0, admission_negative = 0, exact = 0,
+         deferred = 0;
   RenderReferences references;
   for (const auto row : rows) {
     iree_string_view_t row_revision{}, name{};
@@ -548,10 +647,13 @@ void CheckRenderRevision(const TextRevisionCase &test_case, bool bc,
       ++admission_negative;
       std::string expected_diagnostic;
       ASSERT_TRUE(Decode(admission_error, &expected_diagnostic));
+      const auto code = iree_status_code(render_status);
       const bool accepted = iree_status_is_ok(render_status);
       const auto diagnostic = Diagnostic(render_status);
       EXPECT_FALSE(accepted);
-      EXPECT_NE(diagnostic.find(expected_diagnostic), std::string::npos);
+      EXPECT_EQ(code, IREE_STATUS_INVALID_ARGUMENT) << diagnostic;
+      EXPECT_NE(diagnostic.find(expected_diagnostic), std::string::npos)
+          << "source/native admission diagnostic: " << diagnostic;
       if (accepted)
         loom_serve_text_chat_deinitialize(&chat);
       const bool matches = !accepted && diagnostic.find(expected_diagnostic) !=
@@ -600,14 +702,37 @@ void CheckRenderRevision(const TextRevisionCase &test_case, bool bc,
     ASSERT_TRUE(Ok(iree_json_enumerate_array(ids, Token, &expected_ids)));
     ASSERT_TRUE(vm.Encode(actual, &actual_ids));
     ASSERT_TRUE(vm.Prepare(chat, actual.size() + 16, &prepared_ids));
-    EXPECT_EQ(actual, expected);
-    EXPECT_EQ(actual_ids, expected_ids);
-    EXPECT_EQ(prepared_ids, expected_ids);
+    iree_string_view_t float_metadata{};
+    ASSERT_TRUE(Field(row, "deferred_float", &float_metadata));
+    bool equivalent = actual == expected;
+    if (float_metadata.data) {
+      ++deferred;
+      std::string masked_actual = actual, masked_expected = expected;
+      double a = 0, e = 0;
+      ASSERT_TRUE(MaskDeclaredFloat(&masked_actual, float_metadata, &a));
+      ASSERT_TRUE(MaskDeclaredFloat(&masked_expected, float_metadata, &e));
+      EXPECT_EQ(masked_actual, masked_expected);
+      EXPECT_EQ(a, e);
+      EXPECT_EQ(std::signbit(a), std::signbit(e));
+      equivalent = masked_actual == masked_expected && a == e &&
+                   std::signbit(a) == std::signbit(e);
+      EXPECT_EQ(actual_ids, prepared_ids);
+      ASSERT_TRUE(RecordRenderedFloat(row_revision, name, bc, actual,
+                                      actual_ids, prepared_ids));
+    } else {
+      ++exact;
+      EXPECT_EQ(actual, expected);
+    }
+    const bool exact_ids_required = !float_metadata.data || actual == expected;
+    if (exact_ids_required) {
+      EXPECT_EQ(actual_ids, expected_ids);
+      EXPECT_EQ(prepared_ids, expected_ids);
+    }
     std::cout << "RENDER_CASE_RESULT format=" << (bc ? "bc" : "text")
               << " case=" << Copy(name) << " status="
-              << ((actual == expected && actual_ids == expected_ids &&
-                   prepared_ids == expected_ids)
-                      ? "PASS"
+              << ((equivalent && actual_ids == prepared_ids &&
+                   (!exact_ids_required || actual_ids == expected_ids))
+                      ? (float_metadata.data ? "PASS_DEFERRED" : "PASS")
                       : "FAIL_PARITY")
               << " bytes_equal=" << (actual == expected)
               << " native_tokens_equal=" << (actual_ids == expected_ids)
@@ -617,9 +742,15 @@ void CheckRenderRevision(const TextRevisionCase &test_case, bool bc,
   EXPECT_EQ(count, test_case.expected_rows);
   EXPECT_EQ(negative, test_case.expected_template_errors);
   EXPECT_EQ(admission_negative, test_case.expected_host_rejections);
+  EXPECT_EQ(deferred, test_case.expected_deferred_rows);
+  EXPECT_EQ(exact + deferred + negative + admission_negative, count);
   ASSERT_FALSE(references.one_user.empty());
-  ASSERT_NE(test_case.check_policy, nullptr);
-  test_case.check_policy(vm, references);
+  if (input_policy) {
+    CheckInputPolicy(vm, *input_policy);
+  } else {
+    ASSERT_NE(test_case.check_policy, nullptr);
+    test_case.check_policy(vm, references);
+  }
   std::cout << "RENDER_COVERAGE " << test_case.id << (bc ? " bc" : " text")
             << " rows=" << count << " template_errors=" << negative
             << " host_errors=" << admission_negative << '\n';

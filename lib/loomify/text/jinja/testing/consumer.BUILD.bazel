@@ -1,7 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 # Instantiate at an external package path's internal_consumer/BUILD.bazel.
-# Only this SDK-private integration consumer needs --check_visibility=false.
+# This consumer uses the public compiler/JSON/input seams at the fixed pin.
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 
 cc_test(
@@ -14,11 +14,13 @@ cc_test(
         "//lib/text/common:strings.loom",
         "//lib/text/common:json.loom",
         "//lib/text/common:jinja.loom",
+        "//lib/text/qwen35:templates/c3cf9e34.jinja",
+        "//lib/text/spark:templates/93d6aa90.jinja",
     ],
     linkstatic = True,
     deps = [
+        "//lib/loomify:template_probe_runner",
         "//lib/loomify/text/jinja:compiler",
-        "//lib/loomify:native_linking",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/vm",
         "@hrx_system//loom/src/loom/runtime/program:json",

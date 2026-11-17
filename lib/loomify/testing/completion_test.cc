@@ -1,0 +1,356 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+#include "lib/loomify/template_probe_runner.h"
+#include "lib/loomify/template_analysis.h"
+#include "lib/loomify/text/jinja/format_analysis.h"
+#include "lib/loomify/text/jinja/output_emitter.h"
+#include "lib/loomify/text/jinja/request_emitter.h"
+#include "lib/loomify/token_policy.h"
+#include "gtest/gtest.h"
+#include <cstdlib>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace hrx::loomify_gguf::jinja::testing {
+namespace {
+std::string Hex(std::string_view bytes) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result;
+  for (unsigned char c : bytes) {
+    result += digits[c >> 4];
+    result += digits[c & 15];
+  }
+  return result;
+}
+std::string Required(const char *key) {
+  const char *value = std::getenv(key);
+  EXPECT_TRUE(value && *value) << key;
+  return value ? value : "";
+}
+constexpr std::string_view kPlain =
+    "{% for m in messages %}"
+    "{% if m.role == 'assistant' %}{{ '<assistant>' + m.content + '</turn>' }}"
+    "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+    "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+constexpr std::string_view kTools =
+    "{% for m in messages %}{% if m.role == 'assistant' %}"
+    "{{ '<assistant>' }}{{ m.content }}"
+    "{% if m.tool_calls %}{% for c in m.tool_calls %}"
+    "{{ '<call>{\"name\":' }}{{ c.function.name | tojson }}"
+    "{{ ',\"arguments\":' }}{{ c.function.arguments | tojson }}"
+    "{{ '}</call>' }}{% endfor %}{% endif %}{{ '</turn>' }}"
+    "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+    "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+
+class CompletionTest : public ::testing::TestWithParam<bool> {
+protected:
+  // Every hook implementation comes from the actual owned module. The wrapper
+  // only supplies invocation arguments and exposes its result through the
+  // existing one-buffer PreparedTemplate seam.
+  void Prepare(std::string_view source, std::string_view content,
+               std::string_view reasoning = "", std::string_view calls = "",
+               int candidate = 1, bool inspect_formatter = false,
+               std::string_view response = "") {
+    Diagnostic diagnostic;
+    TextFormatAnalysis analysis;
+    GeneratedInputRenderer renderer, selector, adaptation, adapters, output,
+        turn;
+    ASSERT_TRUE(
+        CompileChatTemplate(source, "completion.jinja", &renderer, &diagnostic))
+        << diagnostic.message;
+    ASSERT_TRUE(AnalyzeTextFormat(source, "completion.jinja", {}, &analysis,
+                                  &diagnostic))
+        << diagnostic.message;
+    ASSERT_TRUE(CompileTemplateSelector(source, "completion.jinja",
+                                        analysis.selector_template, &selector,
+                                        &diagnostic))
+        << diagnostic.message;
+    ASSERT_TRUE(CompileTemplateSelector(
+        source, "completion.jinja", analysis.adaptation_selector_template,
+        &adaptation, &diagnostic, TemplateSelectorKind::Adaptation))
+        << diagnostic.message;
+    ASSERT_TRUE(EmitRequestAdapters("completion.jinja", analysis, adaptation,
+                                    {}, {}, &adapters, &diagnostic))
+        << diagnostic.message;
+    ASSERT_TRUE(
+        EmitOutputParser("completion.jinja", analysis, &output, &diagnostic))
+        << diagnostic.message;
+    ASSERT_TRUE(EmitTextTurnControls(source, "completion.jinja", analysis, {},
+                                     &turn, &diagnostic))
+        << diagnostic.message;
+    GeneratedInputRenderer wrapper;
+    wrapper.entrypoint = "test.complete";
+    wrapper.helper_requirements = {"lib/text/generated_input/host.loom"};
+    wrapper.source = EmitTerminalMarkerSource("</turn>");
+    for (const auto &[key, value] :
+         std::vector<std::pair<std::string_view, std::string_view>>{
+             {"content", content},
+             {"reasoning", reasoning},
+             {"calls", calls},
+             {"response", response.empty() ? content : response}})
+      wrapper.source += "global.rodata.def @test." + std::string(key) +
+                        " = bytes(\"" + Hex(value) + "\")\n";
+    wrapper.source += R"(
+func.decl @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64)
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.def public @test.complete(%request: buffer) -> (buffer) {
+  %content = global.load @test.content : buffer
+  %reasoning = global.load @test.reasoning : buffer
+  %calls = global.load @test.calls : buffer
+  %response = global.load @test.response : buffer
+)";
+    if (inspect_formatter) {
+      wrapper.source += R"(
+  %ordinal = scalar.constant 0 : i64
+  %name = buffer.constant utf8("lookup") : buffer
+  %result, %ignored = func.call @render_tool(%name, %content, %ordinal) : (buffer, buffer, i64) -> (buffer, i64)
+  func.return %result : buffer
+}
+)";
+    } else {
+      wrapper.source += R"(
+  %prompt, %initial = func.call @chat_begin(%request, %calls) : (buffer, buffer) -> (buffer, i64)
+  %result, %candidate = func.call @complete_text(%prompt, %response, %content, %reasoning, %calls, %initial, %initial) : (buffer, buffer, buffer, buffer, buffer, i64, i64) -> (buffer, i32)
+)";
+      wrapper.source += "  %expected = scalar.constant " +
+                        std::to_string(candidate) + " : i32\n";
+      wrapper.source += R"(
+  %same = scalar.cmpi eq, %candidate, %expected : i32
+  %flag = scalar.extui %same : i1 to i32
+  %error = buffer.constant utf8("unexpected completion reuse candidate") : buffer
+  func.call @require(%flag, %error) : (i32, buffer)
+  func.return %result : buffer
+}
+)";
+    }
+    GeneratedInputRenderer combined;
+    ASSERT_TRUE(CombineGeneratedTemplates(
+        {renderer, selector, adapters, output, turn, wrapper},
+        wrapper.entrypoint, &combined, &diagnostic))
+        << diagnostic.message;
+    const auto root = (std::filesystem::path(Required("TEST_SRCDIR")) /
+                       Required("TEST_WORKSPACE"))
+                          .string();
+    std::string error;
+    ASSERT_TRUE(PreparedTemplate::Prepare(combined, root,
+                                          Required("TEST_TMPDIR"), GetParam(),
+                                          &prepared_, &error))
+        << error;
+  }
+  std::string Render(std::string_view request) {
+    std::string result, error;
+    EXPECT_NE(prepared_, nullptr);
+    if (prepared_)
+      EXPECT_TRUE(prepared_->Render(request, &result, &error)) << error;
+    return result;
+  }
+  std::unique_ptr<PreparedTemplate> prepared_;
+};
+
+TEST_P(CompletionTest, RendersSameSourceForCompletionAndNextTurn) {
+  Prepare(kPlain, "Hello");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":"Hi"}],"model_options":{"add_generation_prompt":true,"new_option":"kept"}})"),
+      "<user>Hi</turn><assistant>Hello</turn>");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":"Hi"},{"role":"assistant","content":"Hello"},{"role":"user","content":"Again"}]})"),
+      "<user>Hi</turn><assistant>Hello</turn><user>Again</turn><assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest, SourceTrimDeterminesCanonicalAndRejectsCandidate) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{{ '<assistant>' + (m.content | trim) + '</turn>' }}"
+      "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  Prepare(source, " Hello ", "", "", 0);
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+            "<user>Hi</turn><assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest, InertLastConditionsPreserveCompletionCandidate) {
+  const std::vector<std::string> sources = {
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{% if loop.last %}{% set unused = 1 %}{% endif %}"
+      "{{ '<assistant>' + m.content + '</turn>' }}"
+      "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}",
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{% if loop.last %}{{ '<assistant>' + m.content + '</turn>' }}"
+      "{% else %}{{ '<assistant>' + m.content + '</turn>' }}{% endif %}"
+      "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}"};
+  for (const auto &source : sources) {
+    SCOPED_TRACE(source);
+    Prepare(source, "Hello");
+    EXPECT_EQ(
+        Render(R"({"messages":[{"role":"assistant","content":"Prior"}]})"),
+        "<assistant>Prior</turn><assistant>Hello</turn>");
+  }
+}
+
+TEST_P(CompletionTest, ReflowSnapshotPreservesOutputMacroEffects) {
+  const std::string source =
+      "{% set ns = namespace(ok=false) %}"
+      "{% macro ready() %}{% set ns.ok = true %}{% endmacro %}"
+      "{{ ready() }}{% if not ns.ok %}{{ raise_exception('lost effect') }}"
+      "{% endif %}" +
+      std::string(kPlain);
+  Prepare(source, "Hello");
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+            "<user>Hi</turn><assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest, AppendRoleValidationDoesNotRejectValidLiveHistory) {
+  constexpr std::string_view role_error =
+      "Conversation roles must alternate user/assistant/user/assistant/...";
+  const std::string source =
+      "{% for m in messages %}"
+      "{% if (m.role == 'user') != (loop.index0 % 2 == 0) %}"
+      "{{ raise_exception('" +
+      std::string(role_error) +
+      "') }}{% endif %}"
+      "{% if m.role == 'assistant' %}"
+      "{{ '<assistant>' + m.content + '</turn>' }}"
+      "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  Prepare(source, "Hello");
+  ASSERT_NE(prepared_, nullptr);
+  GeneratedInputRenderer original;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(
+      CompileChatTemplate(source, "roles.jinja", &original, &diagnostic))
+      << diagnostic.message;
+  std::unique_ptr<PreparedTemplate> live;
+  std::string error;
+  const auto root = (std::filesystem::path(Required("TEST_SRCDIR")) /
+                     Required("TEST_WORKSPACE"))
+                        .string();
+  ASSERT_TRUE(PreparedTemplate::Prepare(original, root, Required("TEST_TMPDIR"),
+                                        GetParam(), &live, &error))
+      << error;
+  const std::vector<std::pair<std::string, std::string>> invalid_appends = {
+      {R"({"messages":[],"add_generation_prompt":true})", "<assistant>"},
+      {R"({"messages":[{"role":"user","content":"Hi"},{"role":"assistant","content":"Prior"}],"add_generation_prompt":true})",
+       "<user>Hi</turn><assistant>Prior</turn><assistant>"}};
+  for (const auto &[request, expected_live] : invalid_appends) {
+    SCOPED_TRACE(request);
+    std::string actual;
+    ASSERT_TRUE(live->Render(request, &actual, &error)) << error;
+    EXPECT_EQ(actual, expected_live);
+    actual = "preserved";
+    EXPECT_FALSE(prepared_->Render(request, &actual, &error));
+    EXPECT_EQ(actual, "preserved");
+    EXPECT_NE(error.find(role_error), std::string::npos) << error;
+  }
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+            "<user>Hi</turn><assistant>Hello</turn>");
+}
+
+TEST(CompletionFactsTest, UnsupportedLastSensitiveRewritesFailAtTurnExport) {
+  const std::vector<std::pair<std::string, std::string>> cases = {
+      {"{% set final = loop.last %}{% if final %}"
+       "{{ '<assistant>' + m.content + '</turn>' }}{% else %}"
+       "{{ '<assistant>OLD' + m.content + '</turn>' }}{% endif %}",
+       "a401 completion cannot qualify this source history rewrite"},
+      {"{{ '<assistant>' + ('NEW' if loop.last else 'OLD') + m.content + "
+       "'</turn>' }}",
+       "a401 completion cannot qualify a last-sensitive emitted expression"},
+      {"{{ '<assistant>' }}{% if loop.last %}"
+       "{% if enable_thinking | default(false) %}{{ '<think>' }}"
+       "{{ m.reasoning_content | default('') }}{{ '</think>' }}{% endif %}"
+       "{{ m.content }}{% else %}{{ m.content }}{% endif %}{{ '</turn>' }}",
+       "a401 completion cannot qualify this source history rewrite"}};
+  for (const auto &[assistant, expected_diagnostic] : cases) {
+    const std::string source =
+        "{% for m in messages %}{% if m.role == 'assistant' %}" + assistant +
+        "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+        "{% endfor %}{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+    SCOPED_TRACE(source);
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(
+        AnalyzeTextFormat(source, "history.jinja", {}, &analysis, &diagnostic))
+        << diagnostic.message;
+    GeneratedInputRenderer turn;
+    turn.source = "preserved";
+    EXPECT_FALSE(EmitTextTurnControls(source, "history.jinja", analysis, {},
+                                      &turn, &diagnostic));
+    EXPECT_NE(diagnostic.message.find(expected_diagnostic), std::string::npos)
+        << diagnostic.message;
+    EXPECT_EQ(diagnostic.source_name, "history.jinja");
+    EXPECT_EQ(turn.source, "preserved");
+  }
+}
+
+TEST_P(CompletionTest, OriginalKwargsSelectBothLiveAndCompletedBranches) {
+  constexpr std::string_view source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{% if custom_style | default(false) %}"
+      "{{ '<assistant>styled:' + m.content + '</turn>' }}"
+      "{% else %}{{ '<assistant>' + m.content + '</turn>' }}{% endif %}"
+      "{% else %}{{ '<' + m.role + '>' + m.content + '</turn>' }}{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}"
+      "{% if custom_style | default(false) %}{{ '<assistant>styled:' }}"
+      "{% else %}{{ '<assistant>' }}{% endif %}{% endif %}";
+  Prepare(source, "Hello");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":"Hi"}],"model_options":{"custom_style":true,"add_generation_prompt":true}})"),
+      "<user>Hi</turn><assistant>styled:Hello</turn>");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":"Hi"}],"custom_style":false})"),
+      "<user>Hi</turn><assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest, RawResponseAndReasoningMustMatchFiniteCandidateRule) {
+  Prepare(kPlain, "Hello", "", "", 0, false, "different raw output");
+  EXPECT_EQ(Render(R"({"messages":[]})"), "<assistant>Hello</turn>");
+  Prepare(kPlain, "Hello", "thought", "", 0);
+  EXPECT_EQ(Render(R"({"messages":[]})"), "<assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest, ToolCompletionUsesOrdinaryWireStringProjection) {
+  Prepare(kTools, "", "",
+          R"(<call>{"name":"lookup","arguments":"{\"n\":1.2500e+02}"}</call>)",
+          0);
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":"Hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{}}}}]})"),
+      "<user>Hi</turn><assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn>");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"request-assigned-7","type":"function","function":{"name":"lookup","arguments":"{\"n\":1.2500e+02}"}}]},{"role":"tool","tool_call_id":"request-assigned-7","content":"found"}]})"),
+      "<assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn><tool>found</turn><assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn>");
+}
+
+TEST_P(CompletionTest, NativeFormatterPreservesOriginalArgumentStringLexemes) {
+  // a401 supplies name/argument STRING/ordinal, not an assigned client ID or
+  // a whole request object. Its source codec must preserve the argument bytes.
+  Prepare(kTools, R"({"n":1.2500e+02})", "", "", 0, true);
+  EXPECT_EQ(
+      Render("{}"),
+      R"(<call>{"name":"lookup","arguments":"{\"n\":1.2500e+02}"}</call>)");
+}
+
+TEST_P(CompletionTest, FailurePreservesOutputAndSuccessfulRenderCanAliasInput) {
+  Prepare(kPlain, "Hello");
+  ASSERT_NE(prepared_, nullptr);
+  std::string output = "preserved", error;
+  EXPECT_FALSE(prepared_->Render(R"({"messages":{}})", &output, &error));
+  EXPECT_EQ(output, "preserved");
+  std::string request = R"({"messages":[{"role":"user","content":"Hi"}]})";
+  EXPECT_TRUE(prepared_->Render(request, &request, &error)) << error;
+  EXPECT_EQ(request, "<user>Hi</turn><assistant>Hello</turn>");
+}
+
+INSTANTIATE_TEST_SUITE_P(SourceAndBytecode, CompletionTest, ::testing::Bool());
+} // namespace
+} // namespace hrx::loomify_gguf::jinja::testing

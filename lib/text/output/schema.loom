@@ -1,0 +1,231 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Strict tool-mapping admission, bounded whitespace and tool-schema lookups.
+func.decl import("json") @members(%json: buffer) -> (buffer,i32,i64)
+func.decl import("input") @require(%condition: i32,%diagnostic: buffer)
+func.decl @text.decode(%json: buffer,%begin: i64,%length: i64) -> (buffer)
+func.decl @text.equal(%a: buffer,%b: buffer) -> (i1)
+func.decl @text.range(%text: buffer,%begin: i64,%length: i64) -> (buffer)
+global.rodata.def @output_schema.mapping_error = bytes("746f6f6c206d617070696e6773207265717569726520737472696374204a534f4e207769746820756e69717565206f626a656374206b657973")
+func.def @output_schema.check(%condition: i1) {
+  %diagnostic = global.load @output_schema.mapping_error : buffer
+  %flag = scalar.extui %condition : i1 to i32
+  func.call @require(%flag,%diagnostic) : (i32,buffer) -> ()
+  func.return
+}
+// Object/array traversal uses the native parser. This is admission for the
+// mapping domain presented to a template, not a replacement JSON parser.
+func.def @output_schema.admit_mapping(%json: buffer) {
+  func.call @output_schema.strict_json(%json) : (buffer) -> ()
+  %fields,%kind,%count = func.call @members(%json) : (buffer) -> (buffer,i32,i64)
+  %two = scalar.constant 2 : i32
+  %three = scalar.constant 3 : i32
+  %object = scalar.cmpi eq,%kind,%two : i32
+  %array = scalar.cmpi eq,%kind,%three : i32
+  %container = scalar.ori %object,%array : i1
+  scf.if %container {
+    %origin = index.constant 0 : offset
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %bounded = scalar.assume %count [range(%count,0,2147483647)] : i64
+    %extent = index.cast %bounded : i64 to index
+    %records = buffer.view %fields[%origin] : buffer -> view<[%extent]x5xi64>
+    scf.for %i = [%zero to %extent step %one] {
+      scf.if %object {
+        %kb = view.load %records[%i,0] : view<[%extent]x5xi64> -> i64
+        %kl = view.load %records[%i,1] : view<[%extent]x5xi64> -> i64
+        %key = func.call @text.decode(%json,%kb,%kl) : (buffer,i64,i64) -> (buffer)
+        scf.for %j = [%zero to %extent step %one] {
+          %earlier = index.cmp ult,%j,%i : index
+          scf.if %earlier {
+            %pb = view.load %records[%j,0] : view<[%extent]x5xi64> -> i64
+            %pl = view.load %records[%j,1] : view<[%extent]x5xi64> -> i64
+            %prior = func.call @text.decode(%json,%pb,%pl) : (buffer,i64,i64) -> (buffer)
+            %same = func.call @text.equal(%key,%prior) : (buffer,buffer) -> (i1)
+            %false = scalar.constant false : i1
+            %unique = scalar.cmpi eq,%same,%false : i1
+            func.call @output_schema.check(%unique) : (i1) -> ()
+            scf.yield
+          }
+          scf.yield
+        }
+        scf.yield
+      }
+      %vb = view.load %records[%i,2] : view<[%extent]x5xi64> -> i64
+      %vl = view.load %records[%i,3] : view<[%extent]x5xi64> -> i64
+      %vk = view.load %records[%i,4] : view<[%extent]x5xi64> -> i64
+      %two64 = scalar.constant 2 : i64
+      %three64 = scalar.constant 3 : i64
+      %is_object = scalar.cmpi eq,%vk,%two64 : i64
+      %is_array = scalar.cmpi eq,%vk,%three64 : i64
+      %nested = scalar.ori %is_object,%is_array : i1
+      scf.if %nested {
+        %value = func.call @text.range(%json,%vb,%vl) : (buffer,i64,i64) -> (buffer)
+        func.call @output_schema.admit_mapping(%value) : (buffer) -> ()
+        scf.yield
+      }
+      scf.yield
+    }
+    scf.yield
+  }
+  func.return
+}
+
+// Native members accepts JSONC. The supported template mapping domain is
+// strict JSON: reject comment delimiters and trailing commas outside strings.
+// Structural validity and escape validity remain the native parser's job.
+func.def @output_schema.strict_json(%json: buffer) {
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : offset
+  %size = buffer.length %json
+  %false = scalar.constant false : i1
+  %zero32 = scalar.constant 0 : i32
+  %quote = scalar.constant 34 : i32
+  %slash = scalar.constant 47 : i32
+  %backslash = scalar.constant 92 : i32
+  %comma = scalar.constant 44 : i32
+  %brace = scalar.constant 125 : i32
+  %bracket = scalar.constant 93 : i32
+  %space = scalar.constant 32 : i32
+  %tab = scalar.constant 9 : i32
+  %lf = scalar.constant 10 : i32
+  %cr = scalar.constant 13 : i32
+  %in_string,%escaped,%previous = scf.for %i = [%zero to %size step %one](%quoted = %false : i1,%escape = %false : i1,%prior = %zero32 : i32) -> (i1,i1,i32) {
+    %byte = buffer.load.i8.u %json[%i]
+    %is_quote = scalar.cmpi eq,%byte,%quote : i32
+    %is_escape = scalar.cmpi eq,%byte,%backslash : i32
+    %not_escaped = scalar.cmpi eq,%escape,%false : i1
+    %closing_quote = scalar.andi %is_quote,%not_escaped : i1
+    %next_quoted,%next_escape,%next_prior = scf.if %quoted -> (i1,i1,i32) {
+      %still_quoted = scalar.cmpi eq,%closing_quote,%false : i1
+      %escaped_next = scalar.andi %is_escape,%not_escaped : i1
+      %prior_byte = scf.select %closing_quote,%quote,%prior : i32
+      scf.yield %still_quoted,%escaped_next,%prior_byte : i1,i1,i32
+    } else {
+      %is_slash = scalar.cmpi eq,%byte,%slash : i32
+      %allowed = scalar.cmpi eq,%is_slash,%false : i1
+      func.call @output_schema.check(%allowed) : (i1) -> ()
+      %is_brace = scalar.cmpi eq,%byte,%brace : i32
+      %is_bracket = scalar.cmpi eq,%byte,%bracket : i32
+      %closing = scalar.ori %is_brace,%is_bracket : i1
+      %prior_comma = scalar.cmpi eq,%prior,%comma : i32
+      %trailing = scalar.andi %closing,%prior_comma : i1
+      %valid_comma = scalar.cmpi eq,%trailing,%false : i1
+      func.call @output_schema.check(%valid_comma) : (i1) -> ()
+      %s = scalar.cmpi eq,%byte,%space : i32
+      %t = scalar.cmpi eq,%byte,%tab : i32
+      %l = scalar.cmpi eq,%byte,%lf : i32
+      %r = scalar.cmpi eq,%byte,%cr : i32
+      %a = scalar.ori %s,%t : i1
+      %b = scalar.ori %l,%r : i1
+      %whitespace = scalar.ori %a,%b : i1
+      %prior_byte = scf.select %whitespace,%prior,%byte : i32
+      scf.yield %is_quote,%false,%prior_byte : i1,i1,i32
+    }
+    scf.yield %next_quoted,%next_escape,%next_prior : i1,i1,i32
+  }
+  func.return
+}
+
+func.decl @text.lookup(%json: buffer, %key: buffer) -> (buffer, i64, i1)
+func.decl @text.string(%json: buffer, %key: buffer) -> (buffer, i1)
+
+global.rodata.def public @output_schema.empty = bytes("")
+
+global.rodata.def @output_schema.function_key = bytes("66756e6374696f6e")
+
+global.rodata.def @output_schema.name_key = bytes("6e616d65")
+
+global.rodata.def @output_schema.parameters_key = bytes("706172616d6574657273")
+
+global.rodata.def @output_schema.properties_key = bytes("70726f70657274696573")
+
+func.def @output_schema.space(%text: buffer, %p: offset) -> (i1) {
+  %b = buffer.load.i8.u %text[%p]
+  %nine = scalar.constant 9 : i32
+  %thirteen = scalar.constant 13 : i32
+  %space = scalar.constant 32 : i32
+  %lo = scalar.cmpi uge, %b, %nine : i32
+  %hi = scalar.cmpi ule, %b, %thirteen : i32
+  %control = scalar.andi %lo, %hi : i1
+  %ordinary = scalar.cmpi eq, %b, %space : i32
+  %result = scalar.ori %control, %ordinary : i1
+  func.return %result : i1
+}
+
+func.def public @output_schema.skip(%text: buffer, %start: offset) -> (offset) {
+  %length = buffer.length %text
+  %one = index.constant 1 : offset
+  %p = scf.while(%p = %start : offset) -> (offset) {
+    %has = index.cmp ult, %p, %length : offset
+    %space = scf.if %has -> (i1) {
+      %s = func.call @output_schema.space(%text, %p) : (buffer, offset) -> (i1)
+      scf.yield %s : i1
+    } else {
+      %false = scalar.constant false : i1
+      scf.yield %false : i1
+    }
+    scf.condition %space, %p : i1, offset
+  } do(%p: offset) {
+    %next = index.add %p, %one : offset
+    scf.yield %next : offset
+  }
+  func.return %p : offset
+}
+
+// Native schema admission supplies function objects with object parameters.
+// Still guard each lookup by type, so missing/unknown structure never proves
+// that an arbitrary text parameter is Boolean.
+func.def public @output_schema.properties(%schemas: buffer, %name: buffer) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %zero_index = index.constant 0 : index
+  %one = index.constant 1 : index
+  %object = scalar.constant 2 : i64
+  %empty = global.load @output_schema.empty : buffer
+  %function_key = global.load @output_schema.function_key : buffer
+  %name_key = global.load @output_schema.name_key : buffer
+  %parameters_key = global.load @output_schema.parameters_key : buffer
+  %properties_key = global.load @output_schema.properties_key : buffer
+  %records, %type, %count64 = func.call @members(%schemas) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count64 [range(%count64, 0, 2147483647)] : i64
+  %count = index.cast %bounded : i64 to index
+  %rows = buffer.view %records[%zero] : buffer -> view<[%count]x5xi64>
+  %result = scf.for %i = [%zero_index to %count step %one](%prior = %empty : buffer) -> (buffer) {
+    %kind = view.load %rows[%i, 4] : view<[%count]x5xi64> -> i64
+    %is_object = scalar.cmpi eq, %kind, %object : i64
+    %candidate = scf.if %is_object -> (buffer) {
+      %begin = view.load %rows[%i, 2] : view<[%count]x5xi64> -> i64
+      %size = view.load %rows[%i, 3] : view<[%count]x5xi64> -> i64
+      %tool = func.call @text.range(%schemas, %begin, %size) : (buffer, i64, i64) -> (buffer)
+      %function, %kind, %found = func.call @text.lookup(%tool, %function_key) : (buffer, buffer) -> (buffer, i64, i1)
+      %obj = scalar.cmpi eq, %kind, %object : i64
+      %valid = scalar.andi %found, %obj : i1
+      %properties = scf.if %valid -> (buffer) {
+        %declared_name, %has_name = func.call @text.string(%function, %name_key) : (buffer, buffer) -> (buffer, i1)
+        %equal = func.call @text.equal(%name, %declared_name) : (buffer, buffer) -> (i1)
+        %matches = scalar.andi %has_name, %equal : i1
+        %params, %pk, %pf = func.call @text.lookup(%function, %parameters_key) : (buffer, buffer) -> (buffer, i64, i1)
+        %po = scalar.cmpi eq, %pk, %object : i64
+        %pvalid = scalar.andi %pf, %po : i1
+        %selected = scalar.andi %matches, %pvalid : i1
+        %props = scf.if %selected -> (buffer) {
+          %value, %vk, %vf = func.call @text.lookup(%params, %properties_key) : (buffer, buffer) -> (buffer, i64, i1)
+          %vo = scalar.cmpi eq, %vk, %object : i64
+          %valid = scalar.andi %vf, %vo : i1
+          %props = scf.select %valid, %value, %prior : buffer
+          scf.yield %props : buffer
+        } else {
+          scf.yield %prior : buffer
+        }
+        scf.yield %props : buffer
+      } else {
+        scf.yield %prior : buffer
+      }
+      scf.yield %properties : buffer
+    } else {
+      scf.yield %prior : buffer
+    }
+    scf.yield %candidate : buffer
+  }
+  func.return %result : buffer
+}

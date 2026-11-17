@@ -11,6 +11,17 @@ TEMPLATE_SHA256 = "93d6aa906ec72365efcab3c0109dba83148bdc9bec7c55848623d17483693
 
 def render_kwargs(case, source_override: bool):
     request = copy.deepcopy(case["request"])
+    # The tool arm consumes content as text only. Its native shared projection
+    # differs from the type-observing render_content macro used by other roles.
+    for message in request["messages"]:
+        if message["role"] != "tool":
+            continue
+        content = message.get("content")
+        if content is None:
+            message["content"] = ""
+        elif isinstance(content, list):
+            assert all(part["type"] == "text" for part in content)
+            message["content"] = "".join(part["text"] for part in content)
     if case.get("native_arguments"):
         for message in request["messages"]:
             for call in message.get("tool_calls", []):
@@ -31,15 +42,21 @@ def error_record(error):
 
 
 def check_reference(rows, source_override: bool):
+    assert len(rows) == 26
+    assert sum("error" in row for row in rows) == 4
+    assert sum("native_admission_error" in row for row in rows) == 0
+    assert sum("token_ids" in row for row in rows) == 22
     cases = {row["case"]: row for row in rows}
-    if source_override:
-        return
+    assert "<tool_response>one</tool_response>" in cases["tool-array"]["text"]
+    assert cases["tool-null"]["text"] == cases["tool-missing"]["text"]
+    assert "<tool_response></tool_response>" in cases["tool-null"]["text"]
     assert cases["thinking-off"]["text"] == (
         "<｜start▁of▁sentence｜><|System|>\nyou are a helpful assistant."
         "<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>Hello"
         "<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|></think>"
     )
-    assert "thinking_effort=high" in cases["one-user"]["text"]
+    if not source_override:
+        assert "thinking_effort=high" in cases["one-user"]["text"]
     assert "thinking_effort=low" in cases["effort-low"]["text"]
     assert cases["missing-generation"]["text"] == cases["no-generation"]["text"]
     assert "<|Bot|><think> kept </think>A" in cases["assistant-history"]["text"]

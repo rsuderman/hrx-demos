@@ -133,8 +133,7 @@ bool LinkConfiguredProducts(loomc_context_t *context,
                             const std::vector<const char *> &roots,
                             bool normalize_numerical, loomc_module_t **out,
                             std::string *error) {
-  if (!context || !workspace || !out || roots.empty() ||
-      product_paths.empty()) {
+  if (!context || !workspace || !out || roots.empty()) {
     if (error)
       *error = "native link requires context, workspace, roots and output";
     return false;

@@ -4,7 +4,6 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 func.decl @loomify.request.check(%condition: i1)
-func.decl @text.validate_request(%request: buffer)
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 func.decl import("json") @members(%text: buffer) -> (buffer, i32, i64)
 func.decl import("json") @unescape(%source: buffer, %offset: i64, %length: i64, %target: buffer, %target_offset: i64) -> (i64)
@@ -89,7 +88,8 @@ func.def public @request_options(%defaults: buffer, %request: buffer, %nonce: i6
     %error = global.load @greedy.request_sampling_error : buffer
     func.call @require(%condition, %error) : (i32, buffer)
   }
-  func.call @text.validate_request(%request) : (buffer)
+  // Template/history admission belongs to the generated request environment
+  // and actual renderer. This hook validates only its native sampling options.
   func.return %defaults : buffer
 }
 

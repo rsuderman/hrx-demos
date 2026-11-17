@@ -32,8 +32,6 @@
     }
   },
   "programs": {
-    "root": "weather/rain",
-    "encoding": "bytecode",
     "prepare": "prepare.loombc",
     "control": "control.loombc",
     "sources": [
@@ -42,24 +40,26 @@
     "support": [
       "weights.loombc"
     ],
+    "root": "weather/rain",
+    "encoding": "bytecode",
     "files": {
-      "prepare.loombc": "152dfb7fa7827b3b0f0352e26afa4d7ba78d2833756d460c40614339447f0fb3",
-      "control.loombc": "e944dc5132cddfad798ff28d03b773180bb984f25186444dcd8ea3a3d08265f1",
-      "providers.loombc": "c08e1e1945a835c998a1027d3480381e541151d139bc08a960c47596c6cd3c4e",
-      "weights.loombc": "0e8061fa952b176c32ffe948d365ea95f96cad22d2adee70c2111dfad6b1cbf6"
+      "prepare.loombc": "f1c2984fe9fbd196f710fb23eb2a8784fed999766807f91af20a4507f174fe87",
+      "control.loombc": "0eb3b69ccc0a3c9635726fa7ff14ed8f05229f0f6ad7c387d1a3a94ecdf84961",
+      "weights.loombc": "2a440d9c030b61a3e516711c9576fb565b5e1bb138659c2cefe233af0dc371ea",
+      "providers.loombc": "4c300128b2b3c2b3b1cf2ecc541cb3794c29d4f554dba30254c9ab48da78e0de"
     }
   },
   "preparation": null,
   "provenance": {
-    "source_declaration_sha256": "46f12088f8a62900b77a0df428f9b91adae75fa70830fe3577a94bf5d4f04881",
+    "source_declaration_sha256": "59b90920f16c4484621ae6da7ec1c034c28f2b225b8e2afb3b776f6aed375234",
     "source_files": {
-      "prepare.loom": "1341e80923286c8c27e432db680a62cec5e8bc5d288112017eb49ddd6068a8bc",
+      "prepare.loom": "1176a4af1da1879d79a4d48de7bdd8ca435fe3b1903f44e980130f3e006ea852",
       "control.loom": "ba70b9745b32d149e23e241cfacc04ba4a399b4a69c1090365a867a128852bf1",
       "convolution.loom": "59fd63d71ca4fcc51cac0f6db9b4890ab339441d10aca86fd9b99d46dd3309a8",
-      "decoder.loom": "e54ee7956f99ef7611b45acd23488413b2896dbcee531300d39441106e672b3d",
+      "decoder.loom": "e8fae29be8014720cc6c4990bb40fadf5c2e1986e0a4886533f36a5c528270be",
       "decoder_attention.loom": "8efcd3d042dee668833585e7120f08e0cdc4fbc14f9ac08f60c3e67fb7b08d8f",
       "decoder_state.loom": "7f565d580fe6dde3fe7051d96bc4d4d615a9986d5ae5f4131193867653a95a5c",
-      "encoder.loom": "86da8cde1c485b9bb3e384dfbed8d54eb5d6491c27a34851498e4f09466e62ca",
+      "encoder.loom": "a4c04cf1124744b1aec9a17e84339fee7fd87244e6f278e7d86660f2e3b3c6e6",
       "encoder_attention.loom": "6002a1e226cc441f4c73c098b69ed89f92d86ef3d51c840eff2c0e8be07b48ab",
       "encoder_state.loom": "a02eeaa4a3f371ab1fbe3257672d535ba54ecac6fd19d779442505c0c04cd934",
       "frontend.loom": "1a87bed314c760e871c22e282953bb6da404b66695257b7705bff9eec8f8db35",
@@ -67,7 +67,7 @@
       "normalization.loom": "4e45cc7d97b802c2fb6048fdd576e5390eb95e64a4e70375197e13e0b015dad8",
       "pointwise.loom": "392898e01b3107014bb86cd2ebfebcfa992f7e71169f6bbce4b4ad22ed8ba550",
       "projection.loom": "723ec85379c898e9a87e3fa33e3a03eed60a8446755108ef9708afc20dff268b",
-      "reset.loom": "47132484bdca1c664fc757995d408877da8de157fdc21b497265008f801e950d",
+      "reset.loom": "a2a0906fdea65a3554bcd244b201d2d99bddd9c6b4f719cad068be2dd3a2283e",
       "weights.loom": "37e3fa1c1cafa8230212847d4aed5b57ae711d24420d9988036b3373a302e3af"
     }
   }

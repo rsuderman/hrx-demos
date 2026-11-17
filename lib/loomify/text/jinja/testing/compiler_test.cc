@@ -3,16 +3,10 @@
 // Test-only native SDK consumer. Generated code, its real helper closure and
 // serialized SOURCE/bytecode all execute here; Jinja itself runs independently.
 #include "lib/loomify/text/jinja/compiler.h"
-#include "lib/loomify/linking.h"
+#include "lib/loomify/template_probe_runner.h"
 #include "iree/base/internal/json.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tokenizer/tokenizer.h"
-#include "iree/vm/sync.h"
-#include "iree/vm/buffer.h"
-#include "loom/runtime/program/input.h"
-#include "loom/runtime/program/json.h"
-#include "loom/runtime/program/program.h"
-#include "loomc/target/vm.h"
 #include "gtest/gtest.h"
 #include <algorithm>
 #include <cmath>
@@ -47,16 +41,6 @@ bool Ok(iree_status_t status) {
   if (iree_status_is_ok(status))
     return true;
   ADD_FAILURE() << StatusText(status);
-  return false;
-}
-bool CompilerOk(loomc_status_t status) {
-  if (loomc_status_is_ok(status)) {
-    loomc_status_free(status);
-    return true;
-  }
-  const auto message = loomc_status_message(status);
-  ADD_FAILURE() << std::string(message.data, message.size);
-  loomc_status_free(status);
   return false;
 }
 bool Read(const std::filesystem::path &path, std::string *out) {
@@ -165,16 +149,7 @@ bool RecordDeferred(iree_string_view_t row, bool bytecode,
 
 class Evaluator {
 public:
-  ~Evaluator() {
-    loom_runtime_program_free(program_);
-    iree_vm_module_release(input_);
-    iree_vm_module_release(json_);
-    iree_vm_environment_free(environment_);
-    loomc_workspace_release(workspace_);
-    loomc_context_release(context_);
-    loomc_target_environment_release(target_);
-  }
-  bool Init(std::string_view text, bool bytecode, size_t ordinal) {
+  bool Init(std::string_view text, bool bytecode, size_t) {
     GeneratedInputRenderer generated;
     Diagnostic diagnostic;
     if (!CompileChatTemplate(text, "oracle-template.jinja", &generated,
@@ -183,126 +158,28 @@ public:
                     << diagnostic.column << ": " << diagnostic.message;
       return false;
     }
-    if (!CompilerOk(loomc_target_environment_create_vm(loomc_allocator_system(),
-                                                       &target_)))
-      return false;
-    loomc_context_target_options_t target_options{};
-    target_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
-    target_options.target_environment = target_;
-    loomc_context_options_t context_options{};
-    context_options.next = &target_options;
-    if (!CompilerOk(loomc_context_create(
-            &context_options, loomc_allocator_system(), &context_)) ||
-        !CompilerOk(loomc_workspace_create(nullptr, loomc_allocator_system(),
-                                           &workspace_)))
-      return false;
     const auto runfiles = std::filesystem::path(RequiredEnv("TEST_SRCDIR")) /
                           RequiredEnv("TEST_WORKSPACE");
-    std::vector<std::string> helpers;
-    for (const auto &helper : generated.helper_requirements)
-      helpers.push_back((runfiles / helper).string());
-    std::vector<const char *> roots{generated.entrypoint.c_str()};
-    loomc_module_t *linked = nullptr;
     std::string error;
-    if (!LinkConfiguredProducts(context_, workspace_, generated.source, helpers,
-                                roots, false, &linked, &error)) {
+    if (!PreparedTemplate::Prepare(generated, runfiles.string(),
+                                   RequiredEnv("TEST_TMPDIR"), bytecode,
+                                   &prepared_, &error)) {
       ADD_FAILURE() << error;
       return false;
     }
-    loomc_module_serialize_options_t options{};
-    options.format =
-        bytecode ? LOOMC_SOURCE_FORMAT_BYTECODE : LOOMC_SOURCE_FORMAT_TEXT;
-    loomc_source_t *serialized = nullptr;
-    const bool serialized_ok = CompilerOk(loomc_module_serialize_to_source(
-        linked, &options, loomc_allocator_system(), &serialized));
-    loomc_module_release(linked);
-    if (!serialized_ok)
-      return false;
-    const auto path = std::filesystem::path(RequiredEnv("TEST_TMPDIR")) /
-                      ((bytecode ? "jinja-bc-" : "jinja-source-") +
-                       std::to_string(ordinal) + ".loom");
-    const auto bytes = loomc_source_contents(serialized);
-    std::ofstream output(path, std::ios::binary);
-    output.write(reinterpret_cast<const char *>(bytes.data), bytes.data_length);
-    output.close();
-    loomc_source_release(serialized);
-    if (!output) {
-      ADD_FAILURE() << "cannot write isolated product " << path;
-      return false;
-    }
-    if (!Ok(iree_vm_environment_allocate(iree_allocator_system(),
-                                         &environment_)) ||
-        !Ok(iree_vm_ref_types_resolve(iree_vm_environment_lookup_ref_type_table(
-                                          environment_, IREE_SV("vm")),
-                                      &types_)) ||
-        !Ok(loom_runtime_json_module_create(environment_,
-                                            iree_allocator_system(), &json_)) ||
-        !Ok(loom_runtime_input_module_create(environment_, nullptr,
-                                             iree_allocator_system(), &input_)))
-      return false;
-    iree_vm_module_t *libraries[] = {json_, input_};
-    const iree_string_view_t runtime_root = View(generated.entrypoint);
-    loom_runtime_sources_t sources{};
-    loom_runtime_compilation_report_t report{};
-    const auto compiled = loom_runtime_program_allocate(
-        target_, environment_, &sources, View(path.string()), 1, &runtime_root,
-        iree_vm_module_span_from_array(libraries), &report,
-        iree_allocator_system(), &program_);
-    if (!iree_status_is_ok(compiled))
-      for (iree_host_size_t i = 0; i < report.diagnostic_count; ++i) {
-        const auto &entry = report.diagnostics[i];
-        ADD_FAILURE() << std::string(
-            entry.message,
-            std::min<uint64_t>(entry.message_length, sizeof(entry.message)));
-      }
-    if (!Ok(compiled))
-      return false;
-    return Ok(iree_vm_process_lookup_function(
-        loom_runtime_program_process(program_), IREE_SV("model"), runtime_root,
-        &entry_));
+    return true;
   }
   iree_status_t Evaluate(std::string_view environment, std::string *out) {
-    iree_vm_buffer_t *input = nullptr;
-    IREE_RETURN_IF_ERROR(iree_vm_buffer_clone(
-        IREE_VM_BUFFER_ACCESS_FLAG_READ,
-        iree_make_const_byte_span(environment.data(), environment.size()), 1,
-        iree_allocator_system(), &input));
-    iree_vm_variant_t argument =
-        iree_vm_buffer_variant_from_ptr_move(&types_, &input);
-    iree_vm_variant_t result = {0};
-    auto status =
-        iree_vm_invoke(loom_runtime_program_invocation(program_), entry_,
-                       iree_vm_variant_span_from_ptr(&argument, 1),
-                       iree_vm_variant_span_from_ptr(&result, 1));
-    if (iree_status_is_ok(status)) {
-      iree_vm_buffer_t *buffer = nullptr;
-      status =
-          iree_vm_buffer_ptr_from_variant_borrowed(&types_, result, &buffer);
-      if (iree_status_is_ok(status)) {
-        if (!buffer)
-          status =
-              iree_make_status(IREE_STATUS_INTERNAL, "null rendered buffer");
-        else
-          out->assign(
-              static_cast<const char *>(iree_vm_buffer_const_data(buffer)),
-              iree_vm_buffer_length(buffer));
-      }
-    }
-    iree_vm_variant_span_reset(iree_vm_variant_span_from_ptr(&result, 1));
-    iree_vm_variant_span_reset(iree_vm_variant_span_from_ptr(&argument, 1));
-    return status;
+    std::string error;
+    int32_t native_status_code = 0;
+    if (prepared_->Render(environment, out, &error, &native_status_code))
+      return iree_ok_status();
+    return iree_make_status(static_cast<iree_status_code_t>(native_status_code),
+                            "%s", error.c_str());
   }
 
 private:
-  loomc_target_environment_t *target_ = nullptr;
-  loomc_context_t *context_ = nullptr;
-  loomc_workspace_t *workspace_ = nullptr;
-  iree_vm_environment_t *environment_ = nullptr;
-  iree_vm_module_t *json_ = nullptr;
-  iree_vm_module_t *input_ = nullptr;
-  loom_runtime_program_t *program_ = nullptr;
-  iree_vm_ref_types_t types_{};
-  iree_vm_function_t entry_ = iree_vm_function_null();
+  std::unique_ptr<PreparedTemplate> prepared_;
 };
 
 void CheckReferences(bool bytecode, bool capability_only) {
@@ -506,6 +383,138 @@ TEST(JinjaCompilerTest, SourceLocationUsesOriginalTemplateBytes) {
   Diagnostic diagnostic;
   EXPECT_FALSE(CompileChatTemplate("literal\n{{ unknown_call() }}",
                                    "location.jinja", &output, &diagnostic));
+  EXPECT_EQ(diagnostic.source_name, "location.jinja");
+  EXPECT_EQ(diagnostic.line, 2u);
+  EXPECT_GT(diagnostic.column, 1u);
+}
+
+TEST(JinjaCompilerTest, MalformedLocationUsesOriginalBytesAndKeepsProduct) {
+  // Six bytes before line 2, then two UTF-8 bytes and one standalone CR.
+  const std::string source = u8"head\r\né\r{{";
+  GeneratedInputRenderer output{"sentinel", "entry", {"helper"}};
+  Diagnostic diagnostic{"old message", "old source", 999, 99, 99};
+  EXPECT_FALSE(
+      CompileChatTemplate(source, "malformed.jinja", &output, &diagnostic));
+  EXPECT_EQ(output.source, "sentinel");
+  EXPECT_EQ(output.entrypoint, "entry");
+  EXPECT_EQ(output.helper_requirements, std::vector<std::string>{"helper"});
+  EXPECT_EQ(diagnostic.message, "unterminated template tag");
+  EXPECT_EQ(diagnostic.source_name, "malformed.jinja");
+  EXPECT_EQ(diagnostic.offset, 9u);
+  EXPECT_EQ(diagnostic.line, 2u);
+  EXPECT_EQ(diagnostic.column, 4u);
+  EXPECT_FALSE(CompileChatTemplate(source, "null.jinja", nullptr, &diagnostic));
+  EXPECT_EQ(diagnostic.message,
+            "chat template compilation needs an output slot");
+  EXPECT_EQ(diagnostic.source_name, "null.jinja");
+  EXPECT_EQ(diagnostic.offset, 0u);
+  EXPECT_EQ(diagnostic.line, 1u);
+  EXPECT_EQ(diagnostic.column, 1u);
+  EXPECT_FALSE(
+      CompileChatTemplate(source, "malformed.jinja", &output, nullptr));
+  ASSERT_TRUE(
+      CompileChatTemplate("{{ value }}", "valid.jinja", &output, &diagnostic));
+  EXPECT_TRUE(diagnostic.message.empty());
+  EXPECT_TRUE(diagnostic.source_name.empty());
+  EXPECT_EQ(diagnostic.offset, 0u);
+  EXPECT_EQ(diagnostic.line, 1u);
+  EXPECT_EQ(diagnostic.column, 1u);
+}
+
+TEST(JinjaCompilerTest, DiagnosticLocatorClampsAndCanBeAppliedRepeatedly) {
+  const std::string source = u8"a\r\né\r";
+  Diagnostic diagnostic{"preserved", "old source", 999, 99, 99};
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    LocateDiagnostic(source, "original.jinja", &diagnostic);
+    EXPECT_EQ(diagnostic.message, "preserved");
+    EXPECT_EQ(diagnostic.source_name, "original.jinja");
+    EXPECT_EQ(diagnostic.offset, 6u);
+    EXPECT_EQ(diagnostic.line, 2u);
+    EXPECT_EQ(diagnostic.column, 4u);
+  }
+  LocateDiagnostic(source, "original.jinja", nullptr);
+}
+
+TEST(JinjaTemplateDefaultTest, ReadsActualEffortSources) {
+  const auto runfiles = std::filesystem::path(RequiredEnv("TEST_SRCDIR")) /
+                        RequiredEnv("TEST_WORKSPACE");
+  for (const auto &[path, expected] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"lib/text/qwen35/templates/c3cf9e34.jinja", "xhigh"},
+           {"lib/text/spark/templates/93d6aa90.jinja", "high"}}) {
+    SCOPED_TRACE(path);
+    std::string source, value = "unchanged";
+    ASSERT_TRUE(Read(runfiles / path, &source));
+    Diagnostic diagnostic;
+    ASSERT_TRUE(ReadTemplateStringDefault(source, path, "reasoning_effort",
+                                          &value, &diagnostic))
+        << diagnostic.message;
+    EXPECT_EQ(value, expected);
+    EXPECT_TRUE(diagnostic.message.empty());
+  }
+}
+
+TEST(JinjaTemplateDefaultTest, ReadsLiteralFormsAndIgnoresDestinationName) {
+  for (
+      const auto &[source, expected] :
+      std::vector<std::pair<std::string, std::string>>{
+          {"{% set renamed = reasoning_effort|default('low') %}", "low"},
+          {"{# comment #}{{ reasoning_effort | d(default_value=\"high\") }}",
+           "high"},
+          {"{{ reasoning_effort|default('caf\\u00e9') }}", u8"café"},
+          {"{{ reasoning_effort|default('low') }}{{ reasoning_effort|d('low') }}",
+           "low"}}) {
+    SCOPED_TRACE(source);
+    std::string value = "sentinel";
+    Diagnostic diagnostic{"old diagnostic", "old source"};
+    ASSERT_TRUE(ReadTemplateStringDefault(
+        source, "default.jinja", "reasoning_effort", &value, &diagnostic))
+        << diagnostic.message;
+    EXPECT_EQ(value, expected);
+    EXPECT_TRUE(diagnostic.message.empty());
+  }
+}
+
+TEST(JinjaTemplateDefaultTest, RejectsUnavailableFactsAndPreservesOutput) {
+  for (
+      const char *source :
+      {"plain", "{{ reasoning_effort|default(fallback) }}",
+       "{{ reasoning_effort|default('low') }}{{ reasoning_effort|default('high') }}",
+       "{% set reasoning_effort='local' %}{{ reasoning_effort|default('low') }}",
+       "{% for reasoning_effort in values %}{{ reasoning_effort|default('low') }}{% endfor %}",
+       "{% macro show(reasoning_effort) %}{{ reasoning_effort|default('low') }}{% endmacro %}",
+       "{% macro reasoning_effort() %}x{% endmacro %}{{ reasoning_effort|default('low') }}",
+       "{{ reasoning_effort|default('low', true) }}",
+       "{{ reasoning_effort|default(default_value='low', boolean=true) }}",
+       "{{ reasoning_effort|default(unknown='low') }}",
+       "{{ reasoning_effort|default(['low']) }}",
+       "{{ reasoning_effort|default('unterminated) }}"}) {
+    SCOPED_TRACE(source);
+    std::string value = "sentinel";
+    Diagnostic diagnostic;
+    EXPECT_FALSE(ReadTemplateStringDefault(source, "default-negative.jinja",
+                                           "reasoning_effort", &value,
+                                           &diagnostic));
+    EXPECT_EQ(value, "sentinel");
+    EXPECT_EQ(diagnostic.source_name, "default-negative.jinja");
+    EXPECT_FALSE(diagnostic.message.empty());
+    EXPECT_GE(diagnostic.line, 1u);
+    EXPECT_GE(diagnostic.column, 1u);
+    EXPECT_LE(diagnostic.offset, std::string_view(source).size());
+  }
+}
+
+TEST(JinjaTemplateDefaultTest, RejectsNullOutputAndReportsOriginalLocation) {
+  Diagnostic diagnostic;
+  EXPECT_FALSE(ReadTemplateStringDefault(
+      "{{ reasoning_effort|default('low') }}", "null.jinja", "reasoning_effort",
+      nullptr, &diagnostic));
+  EXPECT_FALSE(diagnostic.message.empty());
+  std::string value = "sentinel";
+  EXPECT_FALSE(ReadTemplateStringDefault(
+      "literal\n{{ reasoning_effort|default(other) }}", "location.jinja",
+      "reasoning_effort", &value, &diagnostic));
+  EXPECT_EQ(value, "sentinel");
   EXPECT_EQ(diagnostic.source_name, "location.jinja");
   EXPECT_EQ(diagnostic.line, 2u);
   EXPECT_GT(diagnostic.column, 1u);

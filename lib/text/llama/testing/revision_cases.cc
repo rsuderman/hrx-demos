@@ -8,26 +8,34 @@ void CheckLlamaPolicy(ChatVM &vm, const RenderReferences &refs) {
       vm, {u8"<|begin_of_text|> \u2003Hello\u00a0 ", u8" \u2003Hello\u00a0 ",
            "<|start_header_id|>assistant<|end_header_id|>\n\n",
            "<|start_header_id|>user<|end_header_id|>\n\nHello<|eot_id|>",
-           "<|eot_id|>", "", refs.one_user, 128009});
+           "<|eot_id|>", "", refs.one_user,
+           "<|start_header_id|>assistant<|end_header_id|>\n\n", 128009});
 }
 void CheckDateOptions(ChatVM &vm, bool accepts_numeric_date) {
-  // Both are well-formed requests. Only the policy-specific date value differs;
-  // no chat_begin/rendering call can supply the expected Llama failure here.
+  // Date admission is owned by the original template, not generic sampling.
   const std::string valid =
       R"({"messages":[{"role":"user","content":"Hello"}],"date_string":"26 Jul 2024"})";
   const std::string invalid =
       R"({"messages":[{"role":"user","content":"Hello"}],"date_string":26})";
-  ASSERT_TRUE(Ok(vm.RequestOptions(valid)));
-  auto status = vm.RequestOptions(invalid);
+  loom_serve_text_chat_t chat{};
+  ASSERT_TRUE(Ok(vm.Render(valid, &chat)));
+  loom_serve_text_chat_deinitialize(&chat);
+  chat = {};
+  auto status = vm.Render(invalid, &chat);
   const bool accepted = iree_status_is_ok(status);
   const auto diagnostic = Diagnostic(status);
   EXPECT_EQ(accepted, accepts_numeric_date) << diagnostic;
+  if (accepted)
+    loom_serve_text_chat_deinitialize(&chat);
   // A rejected call must not prevent subsequent valid use of the same binding.
-  EXPECT_TRUE(Ok(vm.RequestOptions(valid)));
+  chat = {};
+  ASSERT_TRUE(Ok(vm.Render(valid, &chat)));
+  loom_serve_text_chat_deinitialize(&chat);
+  CheckGreedySamplingOptions(vm);
 }
 
 const TextRevisionCase kCase{"5816fce1", "5816FCE1", "loomify-llama",
-                             "one-user", 7,          0,
+                             "one-user", 11,         0,
                              0,          false,      CheckLlamaPolicy};
 class LlamaRevisionTest : public ::testing::TestWithParam<bool> {};
 TEST_P(LlamaRevisionTest, ActualTransportMatchesPinnedReference) {
@@ -35,7 +43,7 @@ TEST_P(LlamaRevisionTest, ActualTransportMatchesPinnedReference) {
                       Env("LOOMIFY_RENDER_REFERENCE_5816FCE1"));
 }
 TEST_P(LlamaRevisionTest,
-       DirectRequestOptionsPreservesDateValidationBeforeChatBegin) {
+       OriginalSourceOwnsDateAdmissionAndSamplingRemainsIndependent) {
   ChatVM vm;
   ASSERT_TRUE(vm.Init(Env(GetParam() ? "LOOMIFY_RENDER_5816FCE1_BC"
                                      : "LOOMIFY_RENDER_5816FCE1_TEXT"),

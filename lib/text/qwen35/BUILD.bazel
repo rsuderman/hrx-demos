@@ -28,7 +28,6 @@ exports_files([
     "templates/7f0e5290.jinja",
     "templates/c3cf9e34.jinja",
     "testing/json_test.cc",
-    "testing/tool_output_test.cc",
 ])
 
 cc_test(
@@ -41,6 +40,9 @@ cc_test(
         "//lib/text/testing:selected_policy",
         "@hrx_system//loom/binding/c:loomc",
         "@hrx_system//loom/binding/c/target/vm",
+        "@hrx_system//loom/src/loom/runtime/program:json",
+        "@hrx_system//loom/src/loom/runtime/program:input",
+        "@hrx_system//runtime/src/iree/base/internal:json",
         "@hrx_system//runtime/src/iree/vm",
         "@hrx_system//runtime/src/iree/vm/bytecode:module",
         "@googletest//:gtest",

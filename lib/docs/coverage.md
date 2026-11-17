@@ -166,71 +166,63 @@ publication commands remain architecture-owned.
 
 ## Text, tokenizer and serving policy
 
-Select text behavior independently of numerical architecture. Similar marker
-spellings are not proof of equivalent role, whitespace, tool or thinking rules.
+The selected GGUF template owns fresh prompt structure, literal text and defaults.
+The shared compiler and analysis generate request adaptation, prompt rendering,
+output/tool parsing, completion and continuation controls from that source. Native
+token binding validates its consumed globals and analyzed terminal.
+Numerical architecture does not select prompt formatting.
 
 | Piece | Owner | Available behavior and boundary |
 |---|---|---|
-| Byte comparison and assembly: `text.equal`, `text.at`, `text.range`, `text.join8`, `text.append` | [strings.loom](../text/common/strings.loom), [common BUILD](../text/common/BUILD.bazel) | Equal compares whole buffers; at checks a marker at a byte offset; range copies a caller-admitted span; join8 concatenates eight buffers; append copies into caller-owned output and returns its end offset. These manipulate bytes, not token IDs. Used by the maintained renderers and output parsers below. |
-| Whitespace: `text.trim`, `text.trim_lf` | [strings.loom](../text/common/strings.loom) | Trim strips the implementation's whitespace set at both ends; trim_lf removes only LF at selected ends, preserving spaces/tabs. Reuse only where the target template requires that behavior. [Renderer reference cases](../text/testing/render_reference.py) and [Qwen3 cases](../text/qwen3/testing/render_cases.json) exercise protocol whitespace; these are not standalone proofs of every helper input. |
-| JSON access/serialization: `text.lookup`, `text.string`, `text.json_quote`, `text.json_dump`, `text.json_dump_compact` | [String access](../text/common/strings.loom), [JSON helpers](../text/common/json.loom) | Lookup returns raw member bytes/type/presence; string decodes a present string member. Quote escapes a string; dump formats a JSON document using the maintained policy. Compact dump shares the same parser/serializer with separator spacing disabled; Spark tool definitions consume it. No Python-compatible floating-point serialization claim. [JSON tests](../text/qwen35/testing/json_test.cc), [tool output tests](../text/qwen35/testing/tool_output_test.cc). |
-| Shared model identity: `model_name`, `chat_image_limits` | [identity.loom](../text/common/identity.loom) | Common hooks consume linked model-name data and declare no image support. Reuse the selected text product/common closure rather than copying identity code into each architecture. |
-| Llama header protocol | [Implementation](../text/protocols/llama_headers/input.loom), [BUILD](../text/protocols/llama_headers/BUILD.bazel), [reference fixture](../text/llama/templates/5816fce1.jinja) | Known header/date framing, bounded plain-text policy and plain output/continuation hooks. The fallback date and two system prose literals are captured from the GGUF template; the generated preamble is consumed by both chat start and fresh-user input preparation. No general Gemma/ChatML formatter. Some output helpers trim content; verify semantics before extracting them. |
-| ChatML thinking protocol | [Common sources and selected policies](../text/protocols/chatml_thinking/BUILD.bazel), [inline-history template](../text/qwen35/templates/7f0e5290.jinja), [explicit-reasoning template](../text/qwen35/templates/c3cf9e34.jinja) | Shared admission/input/output/tool mechanics with `inline_history` versus `explicit_reasoning` products. [Renderer tests](../text/qwen35/testing/revision_cases.cc), [stream parser](../text/qwen35/testing/output_test.cc), [tool parser](../text/qwen35/testing/tool_output_test.cc), [independent references](../text/testing/render_reference.py). |
-| Qwen3 ChatML/Hermes policy | [Selected Hermes product](../text/protocols/chatml_thinking/BUILD.bazel), [known template skeleton](../text/qwen3/templates/5da44855.jinja) | Exact supported GGUF skeleton selection, with two known prose slots captured from actual GGUF bytes. Reuses shared ChatML/string/strict-mapping mechanics; preserves whitespace, later system messages, histories without a real user, first-tool framing and string tool arguments verbatim. Default thinking renders the generation header only; optional model-generated think opener is handled incrementally. Hermes JSON tool calls differ from Qwen35 XML calls. Qwen3 history bound is 268435455; existing providers retain their own bounds. No arbitrary Jinja, media or exact floating-point tool JSON parity. [Renderer/parser tests](../text/qwen35/BUILD.bazel), [independent Qwen3 cases](../text/qwen3/testing/render_cases.json), [template selection tests](../loomify/testing/chat_policy_test.cc) and token-policy tests below are the proof entrypoints; implementation/fixture availability does not imply full SDK or Serve qualification. |
-| Qwen2.5 nonthinking ChatML/Hermes policy | [Selected product](../text/protocols/chatml_thinking/BUILD.bazel), [known template](../text/qwen25/templates/cd8e9439.jinja) | Reuses ChatML framing, Hermes output parsing and native gpt2/qwen2 tokenization. Captures default-system prose from actual GGUF; supports full-history and fresh-user input modes, never starts reasoning, preserves template string-to-JSON tool-argument behavior and rejects empty history. Source-derived `im_end`/`endoftext` stops share two-stop publication; declared BOS/PAD does not request BOS insertion. | Selected [renderer/reference cases](../text/qwen25/BUILD.bazel), shared parser and token-policy tests. No arbitrary Jinja or exact floating-point tool JSON parity. |
-| Plain ChatML policy | [Selected plain product](../text/protocols/chatml_thinking/BUILD.bazel), [exact template58c1a1f0](../text/plain_chatml/templates/58c1a1f0.jinja), [local cases/oracle adapter](../text/plain_chatml/BUILD.bazel) | Exact known no-slot revision with gpt2/dbrx tokenizer; no BOS insertion, default system, thinking or tool interpretation. Reuses shared ChatML framing; plain output preserves bytes and literal markup. Ordinary nonempty system/user/assistant string histories are the admitted host domain; unsupported tools/reasoning/media reject without changing old policies. Raw template missing-generation defaults false, while Serve's existing default supplies true; explicit false omits the assistant header. Source-declared endofturn EOS and canonical im_end remain distinct. [Matcher cases](../loomify/testing/chat_policy_test.cc), [token binding cases](../loomify/testing/token_policy_test.cc) and local SOURCE/BC renderer/output suites define proof entrypoints; actual execution qualification is separate. |
-| Gemma turns protocol | [Implementation](../text/protocols/gemma_turns/BUILD.bazel), [template](../text/gemma/templates/7de1c58e.jinja) | BOS/turn framing, plain UTF8 output preserving visible whitespace, canonical future-history replay with reuse disabled. No tools, reasoning or media requests. [Independent HF reference driver](../text/gemma/testing/reference_adapter.py) and native SDK SOURCE/BC tests cover 24 positive/8 template-error cases, domain rejection and output/replay. |
-| Spark GLM protocol | [Selected policy](../text/protocols/spark_glm/BUILD.bazel), [original template](../text/spark/templates/93d6aa90.jinja), [matcher](../loomify/text/spark_glm.cc) | Separate text selection reuses shared ChatML traversal, strings, JSON and incremental reasoning mechanics. Captured system/effort/tool prose with multiline matching enabled only for known effort slots, sentence-start and role framing, default thinking with high/low effort and reasoning preserved throughout assistant history, string/text-part message content, mapping-only tool arguments, ordered argument tags and grouped consecutive string-only tool results. A structural GLM adapter reuses the existing schema-aware typed XML tool parser and rejects unknown tools, unknown arguments and incomplete final calls. Nonstring tool results reject explicitly. Sentence markers are special tokens; role/thinking/tool markers need not be. EOS is the sole source stop and maps to the packet terminal; template owns sentence-start insertion despite automatic BOS=false. Canonical completion disables prefix reuse. [Original-template byte/full-ID and rejection cases](../text/spark/testing/render_cases.json), [native SOURCE/BC renderer/parser suites](../text/spark/testing/revision_cases.cc). No media, arbitrary templates or exact Python floating-point spelling claim. |
-| Known-template recognition / data capture | [chat_policy.h](../loomify/chat_policy.h), [selector](../loomify/chat_policy.cc), shared [matching/capture](../loomify/text/matching.cc), protocol-local [Spark](../loomify/text/spark_glm.cc), [Llama](../loomify/text/llama_headers.cc), [ChatML](../loomify/text/chatml_thinking.cc), [Gemma](../loomify/text/gemma_turns.cc) | Maintained semantic skeletons; selected GGUF bytes supply supported literal/default slots. The ChatML entries select revision-local capture/emission callbacks and explicit ordered marker metadata; shared selection retains candidate-only publication and exact unknown-structure rejection. [Focused matcher tests](../loomify/testing/chat_policy_test.cc) also cover all ChatML marker/token requirements, Hermes generated data/terminal ownership and source-derived effort defaults. Llama captures the fallback date, knowledge-cutoff prefix and date label into generated data; its [renderer](../text/protocols/llama_headers/input.loom) consumes the assembled system preamble at chat start and fresh-user input preparation. Existing structural admission and slot limits remain unchanged. Explicit named-template selection. Unknown structural variants reject. [Selection/mutation tests](../loomify/testing/chat_policy_test.cc). Arbitrary Jinja compilation is not available. |
-| GGUF text/token facts | [text_metadata.h](../../tools/model/text_metadata.h), [implementation](../../tools/model/text_metadata.cc) | Independent template issues, roles/IDs, insertion flags and selective vocabulary/merge spans; no full tokenizer reconstruction. [Tests](../../tools/model/testing/text_metadata_test.cc). |
-| Native tokenizer association / consumed markers | [token_policy.h](../loomify/token_policy.h), [implementation](../loomify/token_policy.cc) | Uses the existing native tokenizer JSON parser. Explicit selected-text requirements admit the supported Llama/Qwen3/Qwen2/Qwen35/Gemma/Spark tokenizer combinations and consumed special identities; marker agreement is not full ordinary-vocabulary/tokenization parity. Renderer-owned BOS insertion and optional numerical publication facts are checked independently. Declared EOS and canonical terminal remain separate; Gemma source vocabulary bounds reject encoded added-media IDs before numerical execution. Qwen3 and Qwen2 use the native gpt2/qwen2 association, no BOS insertion, declared `im_end` EOS and a vocabulary-derived `endoftext` second stop, both published as canonical `im_end`. Native one-shot/incremental decode fixtures exercise byte fallback and special-token flags. [Tests](../loomify/testing/token_policy_test.cc), [real-asset tests](../loomify/testing/token_policy_real_assets_test.cc). |
-| Greedy request options | [greedy.loom](../serving/greedy.loom), [request_check.loom](../serving/request_check.loom) | Shared current request/default validation. Model heads perform argmax; this does not implement temperature/top-k/top-p sampling or RNG. |
-| Host interface and resource products | [control_interface.loom](../serving/control_interface.loom), [product inventory](../serving/BUILD.bazel) | Existing hook contract and declared products for native linking; source presence alone does not register a new architecture/text provider. [Assembly tests](../serving/testing/assembly_contract_test.cc). |
+| Byte, string and JSON operations | [strings.loom](../text/common/strings.loom), [json.loom](../text/common/json.loom), [jinja.loom](../text/common/jinja.loom) | Shared byte comparison/assembly, selected trimming, JSON lookup/quoting and compiler value operations. Preserve whitespace according to the source template. JSON helpers do not promise Python-compatible floating-point spelling. |
+| GGUF input compilation | [Compiler](../loomify/text/jinja/compiler.h), [package composition](../loomify/chat_policy.cc) | Compile actual selected source, including supported literal/structural changes. Unsupported language features fail with source diagnostics before publication. Reasoning metadata is qualified from the actual source, without fixture fallback. Generated text belongs to control, independently of weight preparation. |
+| Generated request and input preparation | [Request emitter](../loomify/text/jinja/request_emitter.h), [environment](../text/generated_input/environment.loom), [request](../text/generated_input/request.loom), [preparation](../text/generated_input/prepare.loom) | Adapt admitted native requests from the analyzed source, preserve omitted options, and evaluate the whole prompt at chat begin. Fresh USER uses the same evaluator; continued USER uses the source-qualified continuation renderer or its precise unavailable diagnostic. Shared member/set/project operations remain neutral. |
+| Generated response and host controls | [Format analysis](../loomify/text/jinja/format_analysis.h), [output emitter](../loomify/text/jinja/output_emitter.h), [output helpers](../text/output/BUILD.bazel), [host](../text/generated_input/host.loom) | Source-derived content/reasoning/tool parsing, startup state, completion replay and finite reasoning metadata. Plain, JSON-call and tagged-call formats reuse shared mechanics. Supported sources include all nine maintained templates; supported mutations compile through the same path. No handwritten per-template protocol products or fingerprint selection. |
+| GGUF source selection and control preparation | [Selection](../loomify/chat_policy.h), [implementation](../loomify/chat_policy.cc) | Select owned scalar/named GGUF source with explicit duplicate/default diagnostics, then `PrepareGeneratedText` compiles and validates actual source-derived controls. Numerical architecture does not select text behavior. |
+| GGUF token facts and native association | [Metadata](../../tools/model/text_metadata.h), [binding](../loomify/token_policy.cc) | Validate consumed role IDs, actual BOS/terminal pieces, atomic markers and the matching native tokenizer JSON. EOS and canonical terminal remain distinct; numerical publication is checked independently. Gemma rejects encoded IDs outside its source vocabulary. This is not full tokenizer reconstruction or universal ordinary-vocabulary parity. |
+| Identity and greedy request policy | [Identity](../text/common/identity.loom), [greedy](../serving/greedy.loom), [request checks](../serving/request_check.loom) | Shared model-name data, no image support, and existing greedy option validation. Model heads use argmax; no new sampling/RNG is implied. |
+| Native host contract and declared products | [Interface](../serving/control_interface.loom), [resource inventory](../serving/BUILD.bazel), [assembly tests](../serving/testing/assembly_contract_test.cc) | Existing public hooks and BUILD-owned products for linking. Component and public-package tests remain distinct; internal environment probes do not add serving exports. |
 
-Selected text configuration emits finite fixed constants, identity/literal hooks
-and framing into the existing configuration input with explicit public roots;
-policy authors retain protocol ordering and grammar. Shared
-[byte helpers](../text/common/strings.loom) serve XML/GLM parsing. Raw output and
-composition fixtures use [production selection and configured native linking](../text/testing/selected_policy.h),
-then SOURCE/BC roundtrips; the shared renderer harness continues to consume fresh
-configured exports and original-template byte/full-ID expectations. Matching,
-capture and qualified revision/tokenizer association remain authored data.
+Original Jinja fixtures are independent test inputs, not production renderer assets.
+The [public native checker driver](../text/testing/check_reference.py) checks actual
+published controls in SOURCE and bytecode against independent prompt/full-token-ID
+expectations. Direct compiler tests retain source mutations. Component tests additionally
+probe the internal environment. Response/parser/completion, option discovery and
+RAW/USER input tests retain their own authored assertions. Source compilation does
+not expand native endpoint admission or claim exact float-tool serialization parity.
 
-
-Native renderer support is maintained in
-[the neutral test harness](../text/testing/render_harness.h).
-Local [Qwen35](../text/qwen35/testing/revision_cases.cc),
-[Qwen3](../text/qwen3/testing/revision_cases.cc),
-[Qwen2](../text/qwen25/testing/revision_cases.cc),
-[Spark](../text/spark/testing/revision_cases.cc),
-[Llama](../text/llama/testing/revision_cases.cc) and
-[Gemma](../text/gemma/testing/revision_cases.cc) suites own their independent
-expectations and SOURCE/BC cases. Qwen2 and Qwen3 reuse
-[Hermes protocol properties](../text/protocols/chatml_thinking/testing/hermes_policy.h).
+Actual native text-policy checks use the pinned runtime's public test executable
+`//loom/src/loom/serve/testing:text_request_check`, driven by
+[check_reference.py](../text/testing/check_reference.py). It owns the real native
+modules and reports prompt/full tokens, streaming output, tool calls and
+completion. Each invocation prepares one policy/request; it does not expose
+RAW/USER or persistent checkpoint/session tests. Focused source preparation tests
+and actual model lifecycle checks own those distinct boundaries. No private SDK
+visibility exception or copied native module is part of this testing contract.
+Actual-source XML and Hermes parser ledgers live in
+[generated output tests](../loomify/testing/output_emitter_test.cc).
 The [independent pinned reference runner](../text/testing/render_reference.py)
 requires explicit local adapter, cases, immutable template/tokenizer and output
 paths; original-GGUF template input uses the explicit `--source-override` flag.
-The [maintained external consumer template](../text/testing/consumer/BUILD.bazel)
-selects these test-only source sets. Its actual integration entrypoint remains
-`//internal_consumer:existing_render_test` with the recorded SDK-private visibility
-exception, isolated from strict production/product/preparation builds.
-Existing output, tool-output and JSON tests retain their paths and coverage.
+The [generated component consumer](../text/testing/generated_adapter_consumer.BUILD.bazel)
+uses public compiler/runtime modules for source preparation checks. Compiler,
+input preparation and native serving acceptance are separate responsibilities;
+passing an internal wrapper does not prove the runtime can bind the exported
+hooks. Existing output and JSON checks retain their independent expectations.
 
 Token-to-byte normalization/decoding belongs to the existing native tokenizer;
-protocol output parsers classify content/reasoning/tool streams. A new tokenizer
-JSON may use existing implementation yet fail our current narrow policy gate.
+generated output parsers classify content/reasoning/tool streams. A new tokenizer
+JSON may use an existing implementation yet fail consumed-role or terminal checks.
 Test the parser and actual encoding/decoding before declaring an engine missing.
 Declared EOS, template end-of-turn, PAD, BOS and publication mapping remain
 distinct. Multiple-stop behavior is not established simply by adding marker data.
 
-For text onboarding, follow the actual GGUF template through
-`SelectChatPolicy`: its maintained revision entry identifies the reference
-fixture, tokenizer requirements and selected text product. Matching captures
-admitted literal/default slots into linked configuration data; the selected
-protocol supplies rendering and output parsing. Start from the protocol entries
-above, then inspect this selection code for an uncertain match. Similar marker
-strings do not establish equivalent role, whitespace, tool or reasoning rules.
+For text onboarding, select the actual GGUF source with `SelectChatTemplateSource`
+and prepare its controls with `PrepareGeneratedText` and the matching native tokenizer.
+Reuse shared analysis/emission for supported structures. Add a compiler feature for
+an unsupported source construct rather than handwriting a prompt renderer or adding
+a profile. Validate actual published controls against independent original Jinja and
+full token IDs. Similar marker strings alone do not prove compatibility.
 
 ## Extraction, configuration and packaging
 
@@ -390,16 +382,15 @@ Fresh/reset and short-chunk commits must fully define logical history.
 [Preparation tests](../architectures/lfm3/testing/prepare_test.cc) reuse the
 existing cold-record harness and preserve zero-extra-state records.
 
-[Compact ChatML](../text/protocols/chatml_thinking/compact_reasoning.loom)
-is selected by a recognized original GGUF template, independently of architecture.
-Shared traversal calls selected prefix/history/schema/tool-response framing
-helpers; existing policies retain standard framing. The known compact revision
-inserts source BOS, uses compact reasoning and XML tool calls, and frames tool
-results individually. [Revision cases](../text/compact_chatml/testing/render_cases.json)
-and the existing native renderer harness compare original-template bytes and
+The [Compact ChatML source](../text/compact_chatml/templates/f45005c5.jinja)
+drives generated compact reasoning, XML tools, request adaptation and continuation,
+independently of architecture. Input traversal, source BOS insertion and individual
+tool-result framing come from the compiled GGUF template.
+[Revision cases](../text/compact_chatml/testing/render_cases.json)
+and the public native checker compare original-template bytes and
 full token IDs. Rich dynamic tool extensions outside the admitted request domain
 are rejected rather than silently ignored. Original GGUF facts supply IDs and
-captured data; no numerical family branch selects formatting.
+source literals; no numerical family branch selects formatting.
 
 The Gemma components, source-driven configuration, package construction and native
 text/host contracts have concrete tests. Direct whole-epoch tests compare active
@@ -418,6 +409,11 @@ Its generated `jinja.evaluate(environment)` accepts an explicit JSON object;
 missing names remain distinct from null. [Shared value helpers](../text/common/jinja.loom)
 operate on strings, JSON values and sequences rather than interpreting templates.
 The compiler has no template-revision lookup or model-family dependency.
+`ReadTemplateStringDefault` reuses the same parser for a bounded, unshadowed
+external option's consistent literal default/d declaration. It preserves rendering
+semantics and reports unsupported or ambiguous facts without inventing a value.
+Effort-aware package composition can use this source fact for native discovery;
+it does not inject missing prompt options or interpret a template at runtime.
 Supported operations include checked signed integer addition/remainder, dynamic
 item lookup, namespace fields carried through branches and loops, defaults,
 Unicode string operations, ordered key/items iteration and reverse slices.
@@ -452,11 +448,41 @@ Focused [list/generation cases](../loomify/text/jinja/testing/c4_cases.json) cov
 ownership, macro-local state and generation scope. LFM3's richer tool inputs are
 compiler-language witnesses; they do not enable richer serving request behavior.
 
-This is a compiler-only entry point. GGUF package selection still uses maintained
-input policies; production renderer replacement is separate work. It does not
-expand tool or media serving admission. Future
-structured-chat integration must preserve selected output/token policies and
-RAW/USER convenience framing independently.
+The compiler entry point is independent of serving request admission. Package
+integration preserves selected output/token policies and RAW/USER convenience
+framing; supported compiler expressions do not expand tool or media serving admission.
+
+The shared [request adaptation](../text/generated_input/request.loom),
+[environment projection](../text/generated_input/environment.loom) and
+[host hooks](../text/generated_input/host.loom) compose with emitted controls.
+Fresh USER invokes the same evaluator; continued USER consumes source-qualified
+construction. [Component tests](../text/testing/generated_adapter_test.cc)
+exercise source preparation, while the public native checker and model lifecycle
+checks exercise serving and continuation with the pinned callback contract.
+The package builder compiles the actual selected GGUF source through this one path
+for Llama headers, plain ChatML, Qwen2.5 Hermes, Qwen3 Hermes with thinking, both
+Qwen3.5 revisions, Gemma turns, LFM compact ChatML and Spark GLM. The old protocol
+implementations, fingerprint table and adapter merge are removed. Generated text
+does not enter numerical weight preparation. Export targets the existing pinned
+runtime; it does not require new callbacks or a companion HRX change. Callback
+representability is narrower than compiler-language support: unavailable native
+context produces a source diagnostic rather than an inferred model profile.
+Completion retains the executed history prefix and serializes the new turn;
+the next full Jinja prompt and existing native prefix checks decide reuse.
+Actual installed-wheel and live Serve qualification remain release gates.
+
+[Template analysis](../loomify/template_analysis.h) constructs owned selectors,
+source-derived reasoning metadata and the real continued-USER product. Templates
+without an external effort option need no native discovery execution. Effort
+metadata uses the existing ordered input construction only until its first active
+source-valid context, then checks the finite source domain; an invalid first active
+context fails rather than searching for a replacement. USER unavailability remains
+a precise optional diagnostic and does not disable structured chat.
+The [test-only qualifier](../loomify/testing/template_qualification.h) retains
+independent full-assistant recipes, projection/selector counterexamples, startup
+and tool-capture checks, and route/shape coverage. Ordinary export does not invoke
+that suite or require synthetic coverage. Context construction, normalization and
+pattern lowering are shared implementations rather than copied test algorithms.
 
 Arbitrary Jinja compilation, tokenizer reconstruction from GGUF alone, media,
 sampling and general reasoning/tool support are not implied. A reusable operation

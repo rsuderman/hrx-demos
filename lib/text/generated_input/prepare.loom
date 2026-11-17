@@ -1,0 +1,94 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared native input mechanics. Actual source analysis supplies continuation
+// text and boundary fragments; this module owns no conversation framing.
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+func.decl import("input") @encode(%text: buffer, %flags: i32, %capacity: i64) -> (buffer, i64)
+func.decl @text.input_fresh(%text: buffer) -> (buffer)
+func.decl @text.input_user_continuation(%text: buffer) -> (buffer)
+func.decl @text.input_open_separator() -> (buffer)
+func.decl @text.input_terminated_separator() -> (buffer)
+func.decl @loomify.tokens.vocabulary_size() -> (i64)
+func.decl @text.join8(%a: buffer, %b: buffer, %c: buffer, %d: buffer, %e: buffer, %f: buffer, %g: buffer, %h: buffer) -> (buffer)
+
+func.def @input_prepare.check(%valid: i1, %diagnostic: buffer) {
+  %flag = scalar.extui %valid : i1 to i32
+  func.call @require(%flag, %diagnostic) : (i32, buffer)
+  func.return
+}
+
+func.def public @prepare_input(%text: buffer, %media: buffer, %media_count: i64, %format: i32, %boundary: i32, %capacity: i64) -> (buffer, i64, buffer) {
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %maximum = scalar.constant 2305843009213693950 : i64
+  %text_only = scalar.cmpi eq, %media_count, %zero64 : i64
+  %valid_format = scalar.cmpi ule, %format, %one32 : i32
+  %valid_boundary = scalar.cmpi ule, %boundary, %two32 : i32
+  %valid_capacity = scalar.cmpi ule, %capacity, %maximum : i64
+  %modes = scalar.andi %valid_format, %valid_boundary : i1
+  %bounds = scalar.andi %text_only, %valid_capacity : i1
+  %valid = scalar.andi %modes, %bounds : i1
+  %mode_error = buffer.constant utf8("unsupported source input format, boundary, media or capacity") : buffer
+  func.call @input_prepare.check(%valid, %mode_error) : (i1, buffer)
+  %empty = buffer.constant utf8("") : buffer
+  %user = scalar.cmpi eq, %format, %one32 : i32
+  %fresh = scalar.cmpi eq, %boundary, %zero32 : i32
+  %open = scalar.cmpi eq, %boundary, %one32 : i32
+  %separator = scf.if %fresh -> (buffer) {
+    scf.yield %empty : buffer
+  } else {
+    %value = scf.if %open -> (buffer) {
+      %fragment = func.call @text.input_open_separator() : () -> (buffer)
+      scf.yield %fragment : buffer
+    } else {
+      %fragment = func.call @text.input_terminated_separator() : () -> (buffer)
+      scf.yield %fragment : buffer
+    }
+    scf.yield %value : buffer
+  }
+  %rendered = scf.if %user -> (buffer) {
+    %value = scf.if %fresh -> (buffer) {
+      %whole = func.call @text.input_fresh(%text) : (buffer) -> (buffer)
+      scf.yield %whole : buffer
+    } else {
+      %fragment = func.call @text.input_user_continuation(%text) : (buffer) -> (buffer)
+      %whole = func.call @text.join8(%separator, %fragment, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+      scf.yield %whole : buffer
+    }
+    scf.yield %value : buffer
+  } else {
+    %value = func.call @text.join8(%separator, %text, %empty, %empty, %empty, %empty, %empty, %empty) : (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer) -> (buffer)
+    scf.yield %value : buffer
+  }
+  // One extra ID distinguishes a full fit from the native encoder's bounded
+  // prefix without retokenizing or publishing a partially successful result.
+  %probe = scalar.addi %capacity, %one64 : i64
+  %tokens, %count = func.call @encode(%rendered, %zero32, %probe) : (buffer, i32, i64) -> (buffer, i64)
+  %fits = scalar.cmpi ule, %count, %capacity : i64
+  %capacity_error = buffer.constant utf8("complete input exceeds token capacity") : buffer
+  func.call @input_prepare.check(%fits, %capacity_error) : (i1, buffer)
+  // Added tokenizer IDs may be outside the actual numerical vocabulary. Apply
+  // the existing model-domain check to every generated text preparation path.
+  %vocabulary = func.call @loomify.tokens.vocabulary_size() : () -> (i64)
+  %count_limit = scalar.constant 2147483647 : i64
+  %valid_count = scalar.cmpi ule, %count, %count_limit : i64
+  %token_error = buffer.constant utf8("encoded input exceeds the numerical token domain") : buffer
+  func.call @input_prepare.check(%valid_count, %token_error) : (i1, buffer)
+  %bounded_count = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+  %extent = index.cast %bounded_count : i64 to index
+  %start = index.constant 0 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %ids = buffer.view %tokens[%origin] : buffer -> view<[%extent]xi32>
+  scf.for %i = [%start to %extent step %step] {
+    %id32 = view.load %ids[%i] : view<[%extent]xi32> -> i32
+    %id = scalar.extui %id32 : i32 to i64
+    %inside = scalar.cmpi ult, %id, %vocabulary : i64
+    func.call @input_prepare.check(%inside, %token_error) : (i1, buffer)
+    scf.yield
+  }
+  func.return %tokens, %count, %empty : buffer, i64, buffer
+}

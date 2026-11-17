@@ -611,7 +611,6 @@
   },
   {
     "id": "deferred-wrapper",
-    "native_admission_error": "unsupported chat",
     "request": {
       "messages": [
         {
@@ -636,7 +635,6 @@
   },
   {
     "id": "deferred-function",
-    "native_admission_error": "unsupported chat",
     "request": {
       "messages": [
         {
@@ -661,7 +659,6 @@
   },
   {
     "id": "additional-tools",
-    "native_admission_error": "unsupported chat",
     "request": {
       "messages": [
         {
@@ -719,7 +716,6 @@
   },
   {
     "id": "merge-tool-parts",
-    "native_admission_error": "unsupported chat",
     "request": {
       "messages": [
         {
@@ -745,6 +741,7 @@
   {
     "id": "string-arguments-error",
     "error": true,
+    "native_admission_error": "assistant tool_calls must be functions",
     "request": {
       "messages": [
         {
@@ -860,7 +857,7 @@
   },
   {
     "id": "template-missing-arguments",
-    "native_admission_error": "arguments",
+    "native_admission_error": "",
     "revisions": [
       "f45005c5"
     ],
@@ -887,7 +884,7 @@
   },
   {
     "id": "template-null-arguments",
-    "native_admission_error": "arguments",
+    "native_admission_error": "",
     "revisions": [
       "f45005c5"
     ],

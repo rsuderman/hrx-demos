@@ -13,6 +13,17 @@ filegroup(
 )
 
 filegroup(
+    name = "generated_adapter_test_sources",
+    testonly = True,
+    srcs = ["generated_adapter_test.cc"],
+)
+
+exports_files([
+    "generated_adapter_cases.json",
+    "generated_adapter_consumer.BUILD.bazel",
+])
+
+filegroup(
     name = "reference_tools",
     testonly = True,
     srcs = [
@@ -33,16 +44,29 @@ iree_cc_library(
         "//lib/text/qwen35:templates/c3cf9e34.jinja",
         "//lib/text/qwen3:templates/5da44855.jinja",
         "//lib/text/qwen25:templates/cd8e9439.jinja",
-        "//lib/text/protocols/chatml_thinking:inline_history",
-        "//lib/text/protocols/chatml_thinking:explicit_reasoning",
-        "//lib/text/protocols/chatml_thinking:hermes",
-        "//lib/text/protocols/chatml_thinking:hermes_non_thinking",
-        "//lib/text/common:implementation",
+        "//lib/text/common:strings.loom",
+        "//lib/text/common:json.loom",
+        "//lib/text/common:jinja.loom",
+        "//lib/text/generated_input:environment.loom",
+        "//lib/text/generated_input:request.loom",
+        "//lib/text/generated_input:host.loom",
+        "//lib/text/output:stream.loom",
+        "//lib/text/output:json_calls.loom",
+        "//lib/text/output:tagged_calls.loom",
+        "//lib/text/output:schema.loom",
     ],
-    visibility = ["//lib/text:__subpackages__"],
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/text:__subpackages__",
+        "//lib/serving/testing:__pkg__",
+    ],
     deps = [
-        "//lib/loomify:chat_policy",
         "//lib/loomify:native_linking",
-        "//lib/serving:library_resources",
+        "//lib/loomify:template_analysis",
+        "//lib/loomify:template_qualification",
+        "//lib/loomify:token_policy",
+        "//lib/loomify/text/jinja:compiler",
+        "//lib/loomify/text/jinja:request_emitter",
+        "//lib/loomify/text/jinja:output_emitter",
     ],
 )
