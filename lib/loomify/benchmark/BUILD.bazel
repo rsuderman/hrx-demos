@@ -103,6 +103,7 @@ iree_cc_library(
         "bundle.cc",
         "elementwise_inputs.cc",
         "projection_inputs.cc",
+        "scaled_f16_inputs.cc",
         "stateless_inputs.cc",
     ],
     hdrs = ["bundle.h"],
@@ -131,6 +132,8 @@ cc_test(
         ":inputs",
         ":plan",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/cmd",
     ],
 )
 
@@ -156,6 +159,7 @@ iree_cc_library(
     srcs = [
         "attention_inputs.cc",
         "gdn_inputs.cc",
+        "qk_inputs.cc",
         "stateful_inputs.cc",
     ],
     hdrs = ["stateful_inputs.h"],
@@ -410,6 +414,30 @@ cc_test(
         ":bundle",
         ":inputs",
         ":plan",
+        ":stateful_inputs",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "scaled_f16_inputs_test",
+    srcs = ["testing/scaled_f16_inputs_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
+        ":bundle",
+        ":inputs",
+        ":plan",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "qk_inputs_test",
+    srcs = ["testing/qk_inputs_test.cc"],
+    copts = _CXXOPTS,
+    linkstatic = True,
+    deps = [
         ":stateful_inputs",
         "@googletest//:gtest_main",
     ],

@@ -95,6 +95,169 @@ bool FiniteWeight(const PreparedRoot &root, uint64_t offset, uint64_t count) {
   }
   return true;
 }
+// These row operations have unequal input/output widths or multiple outputs;
+// keep their small ABI-specific setup separate from the equal-width recipes.
+PreparationStatus PrepareF32RowsCase(const Plan &plan,
+                                     const Invocation &invocation,
+                                     uint64_t max_input_bytes,
+                                     PreparedCase *out, std::string *error) {
+  const bool prefix =
+      invocation.kernel_symbol == "llm.projection.prepare_f32_prefix";
+  const bool dense =
+      invocation.kernel_symbol == "llm.projection.f32_rows_kernel";
+  const bool split = invocation.kernel_symbol == "llm.decoder.split_qkv";
+  if (!prefix && !dense && !split)
+    return PreparationStatus::kUnsupported;
+  if (invocation.command.kind != LOOMC_CMD_COMMAND_KIND_DISPATCH_DIRECT)
+    return Unsupported(error, "F32 row recipe requires concrete direct counts");
+  PreparedCase prepared;
+  prepared.source_argument_types = {"index", "index", "buffer", "buffer",
+                                    "buffer"};
+  if (dense)
+    prepared.source_argument_types.push_back("buffer");
+  if (split) {
+    prepared.source_argument_types.push_back("buffer");
+    prepared.source_argument_types.push_back("buffer");
+  }
+  if (!Signature(invocation, prepared.source_argument_types))
+    return Fail(error, "F32 row native ABI differs");
+  const auto &grid = invocation.command.payload.dispatch.workgroup_count;
+  const uint64_t rows = grid[0];
+  const uint64_t first = invocation.arguments[0].value.scalar_bits;
+  const uint64_t second = invocation.arguments[1].value.scalar_bits;
+  const uint64_t capacity = prefix ? first : rows;
+  if (!rows || rows > 512 || grid[1] != 1 || grid[2] != 1 || !capacity ||
+      capacity > 512 || rows > capacity || !plan.workload.active_tokens ||
+      plan.workload.active_tokens > rows ||
+      (dense && (!first || first > 32768 || !second || second > 32768)) ||
+      (prefix && (second < 256 || second > 32768 || second % 256)) ||
+      (split && (first < 256 || first > 32768 || first % 256 || second < 256 ||
+                 second > 32768 || second % 256)))
+    return Fail(error, "F32 row geometry/activity violates source contract");
+  const uint64_t input_width = prefix  ? second
+                               : dense ? first
+                                       : first + 2 * second;
+  const auto buffer = [&](size_t i) {
+    return invocation.arguments[i].value.buffer;
+  };
+  prepared.setup_recipe_id = "f32_rows/" + invocation.kernel_symbol + "/v1";
+  prepared.source_workloads = {rows};
+  if (prefix)
+    prepared.source_workloads.push_back(second);
+  if (split) {
+    prepared.source_workloads.push_back(first);
+    prepared.source_workloads.push_back(second);
+  }
+  uint64_t input_elements, input_bytes;
+  if (!Product(capacity, input_width, &input_elements) ||
+      !Product(input_elements, 4, &input_bytes))
+    return Fail(error, "F32 row input footprint overflows");
+  prepared.buffer_extents = {{buffer(2), 12, 4}, {buffer(3), input_bytes, 4}};
+  const model::TensorRecord *tensor = nullptr;
+  const Parameter *parameter = nullptr;
+  if (dense) {
+    const uint64_t weight_bytes = first * second * 4;
+    parameter = FindBenchmarkParameter(plan, invocation, buffer(4),
+                                       weight_bytes, error);
+    tensor = parameter ? FindBenchmarkTensor(plan, parameter->key) : nullptr;
+    if (!tensor || buffer(4).role != LOOMC_CMD_BUFFER_ROLE_FIXED ||
+        buffer(4).byte_offset != parameter->byte_offset ||
+        parameter->byte_length != weight_bytes || tensor->storage_type != 0 ||
+        tensor->rank != 2 || tensor->normalized_extents[0] != int64_t(first) ||
+        tensor->normalized_extents[1] != int64_t(second) ||
+        tensor->normalized_extents[2] != 1 ||
+        tensor->normalized_extents[3] != 1 || tensor->byte_size != weight_bytes)
+      return Fail(error, "dense F32 requires the exact selected GGUF matrix");
+    prepared.buffer_extents.push_back(
+        {buffer(4), weight_bytes,
+         std::max<uint64_t>(4, parameter->minimum_alignment)});
+    prepared.representative_weight_spans = {prepared.buffer_extents.back()};
+    prepared.weight_sources = {
+        {tensor->name, tensor->absolute_offset, tensor->byte_size}};
+  }
+  const size_t first_output = dense ? 5 : 4;
+  for (size_t i = first_output; i < invocation.arguments.size(); ++i) {
+    const uint64_t width = prefix   ? second
+                           : dense  ? second
+                           : i == 4 ? first
+                                    : second;
+    prepared.buffer_extents.push_back({buffer(i), capacity * width * 4, 4});
+  }
+  // All spans remain in native buffer-operand order. The dense kernel
+  // explicitly assumes noalias; split output overlaps are not a proven safe
+  // fixture layout. Prefix exact in-place copies are safe and reset only their
+  // active input rows.
+  bool inplace = false;
+  for (size_t i = 0; i < prepared.buffer_extents.size(); ++i) {
+    const auto &extent = prepared.buffer_extents[i];
+    const auto &binding = extent.binding;
+    if (binding.byte_offset % 4 ||
+        binding.byte_offset > UINT64_MAX - extent.byte_length ||
+        (binding.byte_length != UINT64_MAX &&
+         extent.byte_length > binding.byte_length) ||
+        (binding.role != LOOMC_CMD_BUFFER_ROLE_FIXED &&
+         binding.role != LOOMC_CMD_BUFFER_ROLE_REBINDABLE))
+      return Fail(error, "F32 row binding is invalid or unaligned");
+    for (size_t j = i + 1; j < prepared.buffer_extents.size(); ++j) {
+      const auto &a = prepared.buffer_extents[i];
+      const auto &b = prepared.buffer_extents[j];
+      if (!Overlaps(a, b))
+        continue;
+      if (prefix && i == 1 && j == 2 && SameSpan(a, b)) {
+        inplace = true;
+        continue;
+      }
+      return Unsupported(error, "F32 row recipe requires disjoint spans except "
+                                "an exact prefix input/output alias");
+    }
+  }
+  bool budget_exceeded = false;
+  if (!AllocateInputRoots(prepared.buffer_extents, max_input_bytes,
+                          &prepared.roots, error, &budget_exceeded))
+    return budget_exceeded ? PreparationStatus::kUnsupported
+                           : PreparationStatus::kFailure;
+  if (!SetFiniteF32Input(buffer(3), input_elements, plan.workload.seed,
+                         &prepared.roots, error))
+    return PreparationStatus::kFailure;
+  for (size_t i = first_output; i < invocation.arguments.size(); ++i) {
+    if (inplace)
+      continue;
+    const auto &extent = prepared.buffer_extents[i - 2];
+    if (!SetFiniteF32Input(buffer(i), extent.byte_length / 4,
+                           plan.workload.seed + 1, &prepared.roots, error))
+      return PreparationStatus::kFailure;
+  }
+  if (!SetInputBytes(
+          buffer(2),
+          Bytes({static_cast<uint32_t>(plan.workload.active_tokens), 0, 0}),
+          &prepared.roots, error))
+    return PreparationStatus::kFailure;
+  if (tensor) {
+    const auto binding = buffer(4);
+    if (!SetTensorInput(binding, plan.source_asset, tensor->absolute_offset,
+                        tensor->byte_size, &prepared.roots, error))
+      return PreparationStatus::kFailure;
+    const auto *root = FindInputRoot(prepared.roots, binding);
+    if (!FiniteWeight(*root, binding.byte_offset - root->original_byte_offset,
+                      tensor->byte_size / 4))
+      return Fail(error, "GGUF dense weight has nonfinite F32 values");
+  }
+  if (inplace) {
+    BufferExtent active = prepared.buffer_extents[1];
+    active.byte_length = plan.workload.active_tokens * input_width * 4;
+    active.binding.byte_length = active.byte_length;
+    if (!CaptureStateResets({active}, prepared.roots, &prepared.resets, error,
+                            max_input_bytes, &budget_exceeded))
+      return budget_exceeded ? PreparationStatus::kUnsupported
+                             : PreparationStatus::kFailure;
+    prepared.measurement_subject = "reset_plus_kernel";
+    prepared.reset_policy = "copy_seed_each_invocation";
+  }
+  *out = std::move(prepared);
+  if (error)
+    error->clear();
+  return PreparationStatus::kReady;
+}
 } // namespace
 
 PreparationStatus PrepareElementwiseCase(const Plan &plan,
@@ -105,6 +268,10 @@ PreparationStatus PrepareElementwiseCase(const Plan &plan,
   if (!out)
     return Fail(error, "prepared elementwise case output is required");
   const auto &name = invocation.kernel_symbol;
+  if (name == "llm.projection.prepare_f32_prefix" ||
+      name == "llm.projection.f32_rows_kernel" ||
+      name == "llm.decoder.split_qkv")
+    return PrepareF32RowsCase(plan, invocation, max_input_bytes, out, error);
   const bool residual = name == "qwen38_residual_add_f32_prefill" ||
                         name == "qwen38_residual_add_f32_decode" ||
                         name == "llm_ffn_residual_add_f32_decode" ||

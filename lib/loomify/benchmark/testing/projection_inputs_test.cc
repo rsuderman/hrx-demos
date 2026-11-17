@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/benchmark/bundle.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -73,6 +75,55 @@ protected:
       weights[block + 3] = 0x38; // F16 dmin=.5.
     }
     WriteWeights();
+  }
+  void Encoding(const char *symbol, uint32_t type, uint64_t block_values,
+                uint64_t block_bytes, uint64_t scale_offset, uint64_t scales,
+                uint64_t width = 256) {
+    invocation.kernel_symbol = symbol;
+    invocation.arguments[1].value.scalar_bits = width;
+    invocation.arguments[3].value.buffer.byte_length = 4 * (width / 128) * 144;
+    auto &tensor = plan.model.layers[0].tensors[0].tensor;
+    tensor.storage_type = type;
+    tensor.normalized_extents[0] = width;
+    tensor.byte_size = 3 * (width / block_values) * block_bytes;
+    plan.programs[0].parameters[0].byte_length = tensor.byte_size;
+    invocation.arguments[4].value.buffer.byte_length = tensor.byte_size;
+    weights.assign(tensor.byte_size, 0x33);
+    for (size_t block = 0; block < weights.size(); block += block_bytes)
+      for (size_t scale = 0; scale < scales; ++scale) {
+        weights[block + scale_offset + scale * 2] = 0;
+        weights[block + scale_offset + scale * 2 + 1] = 0x3C;
+      }
+    WriteWeights();
+  }
+  void Controls(size_t dimensions, uint64_t bits = UINT32_MAX,
+                uint64_t begin = 1, uint64_t origin = 8) {
+    decltype(invocation.arguments) controls(4);
+    controls[0].kind = LOOMC_CMD_ARGUMENT_KIND_INDEX;
+    controls[0].value.scalar_bits = begin;
+    controls[1].kind = LOOMC_CMD_ARGUMENT_KIND_B32;
+    controls[1].value.scalar_bits = bits;
+    controls[2].kind = LOOMC_CMD_ARGUMENT_KIND_OFFSET;
+    controls[2].value.scalar_bits = origin;
+    controls[3].kind = LOOMC_CMD_ARGUMENT_KIND_BUFFER;
+    controls[3].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 2, 128, 12};
+    invocation.arguments.insert(invocation.arguments.begin() + dimensions,
+                                controls.begin(), controls.end());
+    invocation.command.argument_count = invocation.arguments.size();
+    plan.workload.active_tokens = 2;
+  }
+  void Quantizer() {
+    invocation.kernel_symbol = "ggml_quantize_q8_1_x4_f32";
+    invocation.arguments.resize(4);
+    invocation.arguments[2].kind = LOOMC_CMD_ARGUMENT_KIND_BUFFER;
+    invocation.arguments[2].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 0,
+                                            64, 4096};
+    invocation.arguments[3].kind = LOOMC_CMD_ARGUMENT_KIND_BUFFER;
+    invocation.arguments[3].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 0,
+                                            5000, 1152};
+    invocation.command.argument_count = 4;
+    // Three launched rows of two groups each; scalar capacity remains four.
+    invocation.command.payload.dispatch.workgroup_count[0] = 6;
   }
   void WriteWeights() {
     std::ofstream file(plan.source_asset, std::ios::binary | std::ios::trunc);
@@ -195,7 +246,7 @@ TEST_F(ProjectionInputsTest, RejectsMalformedOrOverlappingBindingsAtomically) {
   prepared.setup_recipe_id = "untouched";
   std::string error;
   auto changed = invocation;
-  changed.kernel_symbol += "_compat";
+  changed.kernel_symbol = "unclaimed.projection";
   error = "not claimed";
   EXPECT_EQ(PrepareProjectionCase(plan, changed, 4096, &prepared, &error),
             PreparationStatus::kUnsupported);
@@ -262,6 +313,249 @@ TEST_F(ProjectionInputsTest, TruncatedWeightFileDoesNotProducePartialCase) {
   EXPECT_EQ(PrepareProjectionCase(plan, invocation, 4096, &prepared, &error),
             PreparationStatus::kFailure);
   EXPECT_EQ(prepared.setup_recipe_id, "untouched");
+}
+TEST_F(ProjectionInputsTest,
+       EveryQuantizedEncodingUsesItsExactBlocksAndScaleOffsets) {
+  struct EncodingCase {
+    const char *name;
+    uint32_t type;
+    uint64_t values, bytes, offset, scales;
+  };
+  const EncodingCase encodings[] = {
+      {"ggml_linear_q4k_q8_1_x4", 12, 256, 144, 0, 2},
+      {"ggml_linear_q5k_q8_1_x4", 13, 256, 176, 0, 2},
+      {"ggml_linear_q6k_q8_1_x4", 14, 256, 210, 208, 1},
+      {"ggml_linear_q8_0_q8_1_x4", 8, 32, 34, 0, 1},
+      {"ggml_linear_q5_0_q8_1_x4", 6, 32, 22, 0, 1}};
+  for (const auto &encoding : encodings) {
+    SCOPED_TRACE(encoding.name);
+    Encoding(encoding.name, encoding.type, encoding.values, encoding.bytes,
+             encoding.offset, encoding.scales);
+    PreparedCase prepared;
+    std::string error;
+    ASSERT_EQ(PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+              PreparationStatus::kReady)
+        << error;
+    ASSERT_EQ(prepared.weight_sources.size(), 1);
+    EXPECT_EQ(prepared.weight_sources[0].byte_length, weights.size());
+    const auto *root =
+        FindInputRoot(prepared.roots, invocation.arguments[4].value.buffer);
+    ASSERT_NE(root, nullptr);
+    EXPECT_TRUE(
+        std::equal(weights.begin(), weights.end(), root->bytes.begin()));
+    auto wrong_type = plan;
+    ++wrong_type.model.layers[0].tensors[0].tensor.storage_type;
+    EXPECT_EQ(
+        PrepareProjectionCase(wrong_type, invocation, 8192, &prepared, &error),
+        PreparationStatus::kFailure);
+    weights[encoding.offset + 1] = 0x7C;
+    WriteWeights();
+    EXPECT_EQ(PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+              PreparationStatus::kFailure);
+    EXPECT_NE(error.find("nonfinite"), std::string::npos);
+  }
+}
+TEST_F(ProjectionInputsTest,
+       Block32AllowsWidth128ButQ6RetainsItsActualMaximum) {
+  Encoding("ggml_linear_q5_0_q8_1_x4", 6, 32, 22, 0, 1, 128);
+  PreparedCase prepared;
+  std::string error;
+  EXPECT_EQ(PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+            PreparationStatus::kReady)
+      << error;
+  Encoding("ggml_linear_q6k_q8_1_x4", 14, 256, 210, 208, 1);
+  Encoding("ggml_linear_q6k_q8_1_x4", 14, 256, 210, 208, 1, 17408);
+  invocation.arguments[5].value.buffer.root_index = 1;
+  ASSERT_EQ(PrepareProjectionCase(plan, invocation, 200000, &prepared, &error),
+            PreparationStatus::kReady)
+      << error;
+  invocation.arguments[1].value.scalar_bits = 17664;
+  EXPECT_EQ(PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+            PreparationStatus::kFailure);
+}
+TEST_F(ProjectionInputsTest,
+       CompatibilityProjectionsPreserveShiftedDynamicAndFixedI32) {
+  for (bool q6 : {false, true}) {
+    SCOPED_TRACE(q6);
+    Encoding(q6 ? "ggml_linear_q6k_q8_1_x4_compat"
+                : "ggml_linear_q4k_q8_1_x4_compat",
+             q6 ? 14 : 12, 256, q6 ? 210 : 144, q6 ? 208 : 0, q6 ? 1 : 2);
+    Controls(3);
+    invocation.command.payload.dispatch.workgroup_count[1] = 3;
+    for (const uint64_t bits :
+         {uint64_t{UINT32_MAX}, uint64_t{2}, uint64_t{0}}) {
+      invocation.arguments[4].value.scalar_bits = bits;
+      PreparedCase prepared;
+      std::string error;
+      ASSERT_EQ(
+          PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+          PreparationStatus::kReady)
+          << error;
+      EXPECT_EQ(prepared.source_argument_types[4], "i32");
+      EXPECT_EQ(invocation.arguments[4].value.scalar_bits, bits);
+      const auto *root =
+          FindInputRoot(prepared.roots, invocation.arguments[6].value.buffer);
+      ASSERT_NE(root, nullptr);
+      EXPECT_EQ(root->bytes[bits == UINT32_MAX ? 8 : 0],
+                bits == UINT32_MAX ? 2 : 0);
+    }
+    invocation.arguments[4].value.scalar_bits = UINT64_MAX;
+    PreparedCase untouched;
+    untouched.setup_recipe_id = "untouched";
+    std::string error;
+    EXPECT_EQ(PrepareProjectionCase(plan, invocation, 8192, &untouched, &error),
+              PreparationStatus::kFailure);
+    EXPECT_EQ(untouched.setup_recipe_id, "untouched");
+    // Restore canonical arguments for the next table iteration.
+    invocation.arguments.erase(invocation.arguments.begin() + 3,
+                               invocation.arguments.begin() + 7);
+    invocation.command.argument_count = 6;
+    invocation.command.payload.dispatch.workgroup_count[1] = 1;
+  }
+}
+TEST_F(ProjectionInputsTest,
+       ActivationQuantizersUseFiniteF32AndOriginalCapacity) {
+  Quantizer();
+  for (bool compat : {false, true}) {
+    if (compat) {
+      invocation.kernel_symbol = "ggml_quantize_q8_1_x4_qk_compat_f32";
+      Controls(2);
+    }
+    PreparedCase prepared;
+    std::string error;
+    ASSERT_EQ(PrepareProjectionCase(plan, invocation, 10000, &prepared, &error),
+              PreparationStatus::kReady)
+        << error;
+    EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{3, 256}));
+    EXPECT_EQ(invocation.arguments[0].value.scalar_bits, 4);
+    EXPECT_TRUE(prepared.weight_sources.empty());
+    const auto input = invocation.arguments[compat ? 6 : 2].value.buffer;
+    const auto output = invocation.arguments.back().value.buffer;
+    const auto *in = FindInputRoot(prepared.roots, input);
+    const auto *out = FindInputRoot(prepared.roots, output);
+    ASSERT_NE(in, nullptr);
+    ASSERT_NE(out, nullptr);
+    const uint64_t begin = input.byte_offset - in->original_byte_offset;
+    for (size_t i = 0; i < 4 * 256; ++i) {
+      float value;
+      std::memcpy(&value, in->bytes.data() + begin + i * 4, 4);
+      EXPECT_TRUE(std::isfinite(value));
+    }
+    const uint64_t out_begin = output.byte_offset - out->original_byte_offset;
+    EXPECT_TRUE(std::all_of(out->bytes.begin() + out_begin,
+                            out->bytes.begin() + out_begin + 1152,
+                            [](uint8_t x) { return x == 0xA5; }));
+    auto bad = invocation;
+    --bad.command.argument_count;
+    EXPECT_EQ(PrepareProjectionCase(plan, bad, 10000, &prepared, &error),
+              PreparationStatus::kFailure);
+    if (compat) {
+      bad = invocation;
+      bad.arguments[4].value.scalar_bits = 9;
+      EXPECT_EQ(PrepareProjectionCase(plan, bad, 10000, &prepared, &error),
+                PreparationStatus::kFailure);
+    }
+    bad = invocation;
+    bad.command.payload.dispatch.workgroup_count[0] = 5;
+    EXPECT_EQ(PrepareProjectionCase(plan, bad, 10000, &prepared, &error),
+              PreparationStatus::kFailure);
+    EXPECT_EQ(PrepareProjectionCase(plan, invocation, 1, &prepared, &error),
+              PreparationStatus::kUnsupported);
+  }
+}
+TEST_F(ProjectionInputsTest,
+       FixedCountDummyMayAliasAnyLiveArgumentWithoutWritingIt) {
+  const auto original = invocation;
+  for (bool q6 : {false, true}) {
+    invocation = original;
+    Encoding(q6 ? "ggml_linear_q6k_q8_1_x4_compat"
+                : "ggml_linear_q4k_q8_1_x4_compat",
+             q6 ? 14 : 12, 256, q6 ? 210 : 144, q6 ? 208 : 0, q6 ? 1 : 2);
+    Controls(3, 1, 0, 0);
+    const auto unused = invocation.arguments[6].value.buffer;
+    for (const size_t aliased : {size_t{7}, size_t{8}, size_t{9}}) {
+      SCOPED_TRACE(aliased);
+      invocation.arguments[6].value.buffer =
+          invocation.arguments[aliased].value.buffer;
+      PreparedCase prepared;
+      std::string error;
+      ASSERT_EQ(
+          PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+          PreparationStatus::kReady)
+          << error;
+      const auto input = invocation.arguments[7].value.buffer;
+      const auto *packed = FindInputRoot(prepared.roots, input);
+      ASSERT_TRUE(packed);
+      EXPECT_EQ(HalfBits(packed->bytes,
+                         input.byte_offset - packed->original_byte_offset),
+                0x2000);
+      const auto weight = invocation.arguments[8].value.buffer;
+      const auto *root = FindInputRoot(prepared.roots, weight);
+      ASSERT_TRUE(root);
+      EXPECT_TRUE(std::equal(weights.begin(), weights.end(),
+                             root->bytes.begin() + weight.byte_offset -
+                                 root->original_byte_offset));
+      const auto output = invocation.arguments[9].value.buffer;
+      const auto *out = FindInputRoot(prepared.roots, output);
+      ASSERT_TRUE(out);
+      EXPECT_EQ(out->bytes[output.byte_offset - out->original_byte_offset],
+                0xA5);
+      // A dynamic count actually reads the view and cannot share these values.
+      invocation.arguments[4].value.scalar_bits = UINT32_MAX;
+      EXPECT_EQ(
+          PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+          PreparationStatus::kFailure);
+      invocation.arguments[4].value.scalar_bits = 1;
+    }
+    invocation.arguments[6].value.buffer = unused;
+  }
+  invocation = original;
+  Quantizer();
+  invocation.kernel_symbol = "ggml_quantize_q8_1_x4_qk_compat_f32";
+  Controls(2, 1, 0, 0);
+  for (size_t aliased : {size_t{6}, size_t{7}}) {
+    invocation.arguments[5].value.buffer =
+        invocation.arguments[aliased].value.buffer;
+    PreparedCase prepared;
+    std::string error;
+    ASSERT_EQ(PrepareProjectionCase(plan, invocation, 10000, &prepared, &error),
+              PreparationStatus::kReady)
+        << error;
+    const auto output = invocation.arguments[7].value.buffer;
+    const auto *root = FindInputRoot(prepared.roots, output);
+    ASSERT_TRUE(root);
+    EXPECT_EQ(root->bytes[output.byte_offset - root->original_byte_offset],
+              0xA5);
+  }
+}
+TEST_F(ProjectionInputsTest,
+       ActualQwen3FinalProjectionFixedDummyReachesBudgetBeforeIo) {
+  // Captured p0/c508: capacity1 K1024 C151936, fixed_count1, count view
+  // exactly aliases packed input. Preserve those native placements; no large
+  // weight fixture is needed to prove the budget classification before IO.
+  Encoding("ggml_linear_q6k_q8_1_x4_compat", 14, 256, 210, 208, 1, 1024);
+  invocation.arguments[0].value.scalar_bits = 1;
+  invocation.arguments[2].value.scalar_bits = 151936;
+  invocation.arguments[3].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 6,
+                                          4608, 1152};
+  invocation.arguments[4].value.buffer = {LOOMC_CMD_BUFFER_ROLE_FIXED, 0, 0,
+                                          127626240};
+  invocation.arguments[5].value.buffer = {LOOMC_CMD_BUFFER_ROLE_REBINDABLE, 6,
+                                          5888, 607744};
+  auto &tensor = plan.model.layers[0].tensors[0].tensor;
+  tensor.normalized_extents[1] = 151936;
+  tensor.byte_size = 127626240;
+  plan.programs[0].parameters[0] = {tensor.name, 0, 0, 127626240, 4};
+  Controls(3, 1, 0, 0);
+  invocation.arguments[6].value.buffer = invocation.arguments[7].value.buffer;
+  ASSERT_TRUE(std::filesystem::remove(plan.source_asset));
+  PreparedCase prepared;
+  prepared.setup_recipe_id = "preserved";
+  std::string error;
+  EXPECT_EQ(PrepareProjectionCase(plan, invocation, 8192, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  EXPECT_NE(error.find("budget"), std::string::npos);
+  EXPECT_EQ(prepared.setup_recipe_id, "preserved");
 }
 } // namespace
 } // namespace hrx::loomify_gguf::benchmark

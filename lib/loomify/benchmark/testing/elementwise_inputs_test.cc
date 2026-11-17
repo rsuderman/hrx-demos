@@ -334,6 +334,186 @@ TEST_F(ElementwiseInputsTest, UnsupportedAndUnsafeCasesPreserveOutput) {
   EXPECT_EQ(prepared.setup_recipe_id, "retained");
 }
 
+TEST_F(ElementwiseInputsTest, F32PrefixPreservesCapacityAndLogicalRows) {
+  plan.workload.active_tokens = 2;
+  const auto invocation = Invoke("llm.projection.prepare_f32_prefix",
+                                 {Index(8), Index(256), Buffer(0, 16, 12),
+                                  Buffer(1, 64, 8192), Buffer(1, 9000, 8192)},
+                                 3, 1);
+  PreparedCase prepared;
+  Ready(invocation, &prepared);
+  EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{3, 256}));
+  EXPECT_EQ(prepared.buffer_extents[1].byte_length, 8192);
+  EXPECT_EQ(prepared.buffer_extents[2].byte_length, 8192);
+  EXPECT_EQ(ReadWord(prepared, invocation.arguments[2].value.buffer), 2);
+  EXPECT_EQ(ReadWord(prepared, invocation.arguments[2].value.buffer, 8), 0);
+  EXPECT_TRUE(prepared.resets.empty());
+  EXPECT_EQ(prepared.measurement_subject, "kernel");
+  EXPECT_NE(ReadWord(prepared, invocation.arguments[4].value.buffer), 0);
+}
+
+TEST_F(ElementwiseInputsTest, F32PrefixInPlaceIncludesOnlyActiveRowsInBudget) {
+  plan.workload.active_tokens = 2;
+  const auto same = Buffer(1, 64, 8192);
+  const auto invocation =
+      Invoke("llm.projection.prepare_f32_prefix",
+             {Index(8), Index(256), Buffer(0, 16, 12), same, same}, 3, 1);
+  PreparedCase prepared;
+  prepared.setup_recipe_id = "retained";
+  EXPECT_EQ(PrepareElementwiseCase(plan, invocation, 8204, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  EXPECT_NE(error.find("budget"), std::string::npos);
+  EXPECT_EQ(prepared.setup_recipe_id, "retained");
+  ASSERT_EQ(
+      PrepareElementwiseCase(plan, invocation, 8204 + 2048, &prepared, &error),
+      PreparationStatus::kReady)
+      << error;
+  ASSERT_EQ(prepared.resets.size(), 1);
+  EXPECT_EQ(prepared.resets[0].target.byte_offset, 64);
+  EXPECT_EQ(prepared.resets[0].target.byte_length, 2048);
+  EXPECT_EQ(prepared.measurement_subject, "reset_plus_kernel");
+}
+
+TEST_F(ElementwiseInputsTest, F32SplitUsesUnequalDisjointViewsAndCount) {
+  plan.workload.active_tokens = 2;
+  const auto invocation = Invoke(
+      "llm.decoder.split_qkv",
+      {Index(512), Index(256), Buffer(0, 16, 12), Buffer(1, 64, 12288),
+       Buffer(1, 13000, 6144), Buffer(1, 20000, 3072), Buffer(1, 24000, 3072)},
+      3, 1);
+  PreparedCase prepared;
+  Ready(invocation, &prepared);
+  EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{3, 512, 256}));
+  ASSERT_EQ(prepared.buffer_extents.size(), 5);
+  EXPECT_EQ(prepared.buffer_extents[1].byte_length, 12288);
+  EXPECT_EQ(prepared.buffer_extents[2].byte_length, 6144);
+  EXPECT_EQ(prepared.buffer_extents[3].byte_length, 3072);
+  EXPECT_EQ(prepared.buffer_extents[4].byte_length, 3072);
+  EXPECT_EQ(ReadWord(prepared, invocation.arguments[2].value.buffer), 2);
+  EXPECT_TRUE(prepared.resets.empty());
+  EXPECT_EQ(prepared.roots.size(), 2);
+}
+
+TEST_F(ElementwiseInputsTest, F32RowsRejectUnsafeAliasesAndMalformedGeometry) {
+  auto invocation =
+      Invoke("llm.decoder.split_qkv",
+             {Index(512), Index(256), Buffer(0, 16, 12), Buffer(1, 64, 12288),
+              Buffer(2, 0, 6144), Buffer(2, 0, 3072), Buffer(3, 0, 3072)},
+             3, 1);
+  PreparedCase prepared;
+  prepared.setup_recipe_id = "retained";
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kUnsupported);
+  EXPECT_NE(error.find("disjoint"), std::string::npos);
+  invocation.arguments[5] = Buffer(4, 0, 3072);
+  EXPECT_EQ(PrepareElementwiseCase(plan, invocation, 16, &prepared, &error),
+            PreparationStatus::kUnsupported);
+  invocation.arguments[1] = Index(257);
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  invocation.arguments[1] = Index(256);
+  invocation.command.payload.dispatch.workgroup_count[1] = 2;
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  invocation.command.payload.dispatch.workgroup_count[1] = 1;
+  invocation.arguments[0].kind = LOOMC_CMD_ARGUMENT_KIND_B32;
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  invocation = Invoke("llm.projection.prepare_f32_prefix",
+                      {Index(8), Index(256), Buffer(0, 16, 12),
+                       Buffer(1, 64, 8192), Buffer(1, 68, 8192)},
+                      3, 1);
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kUnsupported);
+  invocation.arguments[3].value.buffer.byte_length = 4;
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  EXPECT_EQ(prepared.setup_recipe_id, "retained");
+}
+
+TEST_F(ElementwiseInputsTest, DenseF32UsesExactRectangularWeight) {
+  const char *temporary = std::getenv("TEST_TMPDIR");
+  ASSERT_NE(temporary, nullptr);
+  const auto path = std::filesystem::path(temporary) / "dense-f32.gguf";
+  plan.source_asset = path.string();
+  plan.workload.active_tokens = 2;
+  model::TensorBinding weight;
+  weight.tensor.name = "gate.weight";
+  weight.tensor.storage_type = 0;
+  weight.tensor.rank = 2;
+  weight.tensor.normalized_extents = {7, 3, 1, 1};
+  weight.tensor.byte_size = 84;
+  weight.tensor.absolute_offset = 8;
+  plan.model.globals.push_back(weight);
+  plan.programs.resize(1);
+  plan.programs[0].parameters.push_back({"gate.weight", 7, 1000, 84, 4});
+  const auto write = [&](uint32_t bits) {
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write("metadata", 8);
+    for (unsigned i = 0; i < 21; ++i)
+      for (unsigned lane = 0; lane < 4; ++lane)
+        file.put(static_cast<char>(bits >> (lane * 8)));
+  };
+  write(0x3E800000);
+  auto invocation = Invoke(
+      "llm.projection.f32_rows_kernel",
+      {Index(7), Index(3), Buffer(0, 16, 12), Buffer(1, 64, 84),
+       Buffer(7, 1000, 84, LOOMC_CMD_BUFFER_ROLE_FIXED), Buffer(1, 200, 36)},
+      3, 1);
+  PreparedCase prepared;
+  Ready(invocation, &prepared);
+  EXPECT_EQ(prepared.source_workloads, (std::vector<uint64_t>{3}));
+  EXPECT_EQ(prepared.buffer_extents[1].byte_length, 84);
+  EXPECT_EQ(prepared.buffer_extents[3].byte_length, 36);
+  ASSERT_EQ(prepared.weight_sources.size(), 1);
+  EXPECT_EQ(prepared.weight_sources[0].key, "gate.weight");
+  EXPECT_EQ(prepared.weight_sources[0].source_offset, 8);
+  EXPECT_EQ(prepared.weight_sources[0].byte_length, 84);
+  EXPECT_EQ(ReadWord(prepared, invocation.arguments[4].value.buffer),
+            0x3E800000);
+  EXPECT_TRUE(prepared.resets.empty());
+  invocation.arguments[5] = Buffer(1, 64, 36);
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kUnsupported);
+  invocation.arguments[5] = Buffer(1, 200, 36);
+  plan.model.globals[0].tensor.storage_type = 1;
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  plan.model.globals[0].tensor.storage_type = 0;
+  plan.model.globals[0].tensor.rank = 1;
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  plan.model.globals[0].tensor.rank = 2;
+  plan.model.globals[0].tensor.normalized_extents[0] = 6;
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  plan.model.globals[0].tensor.normalized_extents[0] = 7;
+  write(0x7F800000);
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  EXPECT_NE(error.find("nonfinite"), std::string::npos);
+  std::error_code ec;
+  std::filesystem::resize_file(path, 8, ec);
+  ASSERT_FALSE(ec);
+  EXPECT_EQ(
+      PrepareElementwiseCase(plan, invocation, 1 << 20, &prepared, &error),
+      PreparationStatus::kFailure);
+  EXPECT_NE(error.find("truncated"), std::string::npos);
+  std::filesystem::remove(path, ec);
+  EXPECT_FALSE(ec);
+}
+
 TEST_F(ElementwiseInputsTest, BiasUsesActualWeightsAndRestoresProjection) {
   const char *temporary = std::getenv("TEST_TMPDIR");
   ASSERT_NE(temporary, nullptr);

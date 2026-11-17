@@ -11,7 +11,7 @@ PreparationStatus PrepareStatelessCase(const Plan &plan,
       PreparationStatus (*)(const Plan &, const Invocation &, uint64_t,
                             PreparedCase *, std::string *);
   const Preparer preparers[] = {PrepareBasicCase, PrepareProjectionCase,
-                                PrepareElementwiseCase};
+                                PrepareElementwiseCase, PrepareScaledF16Case};
   if (error)
     error->clear();
   for (const auto prepare : preparers) {

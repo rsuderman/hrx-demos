@@ -102,12 +102,22 @@ bool ValidatePrepared(const Invocation &invocation,
                  (argument.kind == LOOMC_CMD_ARGUMENT_KIND_OFFSET &&
                   type == "offset") ||
                  (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B32 &&
-                  type == "f32"))) {
+                  (type == "f32" || type == "i32")) ||
+                 (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B8 &&
+                  type == "i1"))) {
       return Fail(error, "source scalar ABI has no declared emission recipe");
     }
   }
-  for (const auto &argument : invocation.arguments)
-    if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B32) {
+  for (size_t i = 0; i < invocation.arguments.size(); ++i) {
+    const auto &argument = invocation.arguments[i];
+    if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B8 &&
+        argument.value.scalar_bits > 1)
+      return Fail(error, "i1 scalar carrier is not exactly zero or one");
+    if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B32 &&
+        argument.value.scalar_bits > UINT32_MAX)
+      return Fail(error, "B32 scalar carrier has nonzero upper bits");
+    if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B32 &&
+        prepared.source_argument_types[i] == "f32") {
       const uint32_t bits = static_cast<uint32_t>(argument.value.scalar_bits);
       float value;
       std::memcpy(&value, &bits, sizeof(value));
@@ -115,6 +125,7 @@ bool ValidatePrepared(const Invocation &invocation,
         return Fail(error,
                     "nonfinite f32 has no exact direct-case literal recipe");
     }
+  }
   if (buffer_ordinal != prepared.buffer_extents.size())
     return Fail(error, "prepared case has extra native buffer extents");
   if (prepared.resets.empty()) {
@@ -151,6 +162,10 @@ bool MatchesType(loom_type_t type, const std::string &spelling) {
     return loom_type_equal(type, loom_type_scalar(LOOM_SCALAR_TYPE_INDEX));
   if (spelling == "offset")
     return loom_type_equal(type, loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET));
+  if (spelling == "i32")
+    return loom_type_equal(type, loom_type_scalar(LOOM_SCALAR_TYPE_I32));
+  if (spelling == "i1")
+    return loom_type_equal(type, loom_type_scalar(LOOM_SCALAR_TYPE_I1));
   return spelling == "f32" &&
          loom_type_equal(type, loom_type_scalar(LOOM_SCALAR_TYPE_F32));
 }
@@ -268,7 +283,9 @@ std::string ScalarSetup(const PreparedCase &prepared,
     if (case_literals)
       source << "check.literal value(" << value << ")";
     else
-      source << "index.constant " << value;
+      source << (type == "i32" || type == "i1" ? "scalar.constant "
+                                               : "index.constant ")
+             << value;
     source << " : " << type << "\n";
   };
   for (size_t i = 0; i < prepared.source_workloads.size(); ++i)
@@ -281,6 +298,15 @@ std::string ScalarSetup(const PreparedCase &prepared,
       literal("value" + std::to_string(i),
               std::to_string(static_cast<int64_t>(argument.value.scalar_bits)),
               prepared.source_argument_types[i]);
+    } else if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B8) {
+      literal("value" + std::to_string(i),
+              argument.value.scalar_bits ? "true" : "false", "i1");
+    } else if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B32 &&
+               prepared.source_argument_types[i] == "i32") {
+      const uint32_t bits = static_cast<uint32_t>(argument.value.scalar_bits);
+      int32_t value;
+      std::memcpy(&value, &bits, sizeof(value));
+      literal("value" + std::to_string(i), std::to_string(value), "i32");
     } else if (argument.kind == LOOMC_CMD_ARGUMENT_KIND_B32) {
       if (case_literals) {
         const uint32_t bits = static_cast<uint32_t>(argument.value.scalar_bits);

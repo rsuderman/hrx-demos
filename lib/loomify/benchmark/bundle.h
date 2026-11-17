@@ -61,6 +61,11 @@ PreparationStatus PrepareProjectionCase(const Plan &plan,
                                         uint64_t max_input_bytes,
                                         PreparedCase *out, std::string *error);
 
+PreparationStatus PrepareScaledF16Case(const Plan &plan,
+                                       const Invocation &invocation,
+                                       uint64_t max_input_bytes,
+                                       PreparedCase *out, std::string *error);
+
 PreparationStatus PrepareElementwiseCase(const Plan &plan,
                                          const Invocation &invocation,
                                          uint64_t max_input_bytes,

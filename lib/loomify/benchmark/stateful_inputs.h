@@ -24,6 +24,17 @@ PreparationStatus PrepareAttentionCase(const Plan &plan,
                                        const Invocation &invocation,
                                        uint64_t max_input_bytes,
                                        PreparedCase *out, std::string *error);
+PreparationStatus PrepareQkCase(const Plan &plan, const Invocation &invocation,
+                                uint64_t max_input_bytes, PreparedCase *out,
+                                std::string *error);
+
+// Populate an allocated 64-F32 rotary divisor view from its exact GGUF
+// parameter or a proven selected unit-factor producer. Unknown provenance is
+// unsupported; malformed known data is failure. No synthetic learned factors.
+PreparationStatus
+PrepareRotaryFactors(const Plan &plan, const Invocation &invocation,
+                     size_t argument_index, bool require_at_least_one,
+                     PreparedCase *prepared, std::string *error);
 
 } // namespace hrx::loomify_gguf::benchmark
 #endif

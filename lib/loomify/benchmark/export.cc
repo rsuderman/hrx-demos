@@ -546,7 +546,7 @@ PreparationStatus PrepareAvailable(const Plan &plan,
   std::string unsupported;
   std::set<std::string> seen;
   for (auto prepare : {PrepareStatelessCase, PrepareStatefulCase,
-                       PrepareGdnCase, PrepareAttentionCase}) {
+                       PrepareGdnCase, PrepareAttentionCase, PrepareQkCase}) {
     std::string message;
     const auto status = prepare(plan, invocation, max_bytes, out, &message);
     if (status != PreparationStatus::kUnsupported) {
