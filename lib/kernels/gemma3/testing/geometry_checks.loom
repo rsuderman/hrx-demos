@@ -1,0 +1,404 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Scalar oracle independently reduces each head and evaluates absolute-position
+// NeoX angles. It never imports the production normalization or rotary helper.
+func.def @gemma3.qk.oracle(%rows: index, %heads: index, %local: i1, %epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %h = index.constant 256 : index
+  %half = index.constant 128 : index
+  %origin = index.constant 0 : offset
+  %descriptor_origin = index.constant 12 : offset
+  %descriptor = buffer.view %epoch[%descriptor_origin] : buffer -> view<5xi32>
+  %n32 = view.load %descriptor[0] : view<5xi32> -> i32
+  %p32 = view.load %descriptor[1] : view<5xi32> -> i32
+  %n = index.cast %n32 : i32 to index
+  %base = index.cast %p32 : i32 to index
+  %width = index.mul %heads, %h : index
+  %in = buffer.view %input[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  %out = buffer.view %output[%origin] : buffer -> view<[%rows]x[%width]xf32>
+  %weights = buffer.view %gamma[%origin] : buffer -> view<256xf32>
+  %sum_bytes = index.constant 4 : offset
+  %sum_buffer = buffer.alloca<private> align(4) %sum_bytes : buffer
+  %sum = buffer.view %sum_buffer[%origin] : buffer -> view<1xf32>
+  %zero_f = scalar.constant 0.0 : f32
+  %divisor = scalar.constant 256.0 : f32
+  %epsilon = scalar.constant 9.9999999999999995e-07 : f32
+  %local_step = scalar.constant -0.071955784156063934 : f32
+  %global_step = scalar.constant -0.10793367623409589 : f32
+  %unit = scalar.constant 1.0 : f32
+  %eight = scalar.constant 8.0 : f32
+  %step = scf.select %local, %local_step, %global_step : f32
+  %factor = scf.select %local, %unit, %eight : f32
+  scf.for %row = [%zero to %rows step %one] {
+    %active = index.cmp ult, %row, %n : index
+    scf.if %active {
+      %position = index.add %base, %row : index
+      %position32 = index.cast %position : index to i32
+      %position_f = scalar.uitofp %position32 : i32 to f32
+      scf.for %head = [%zero to %heads step %one] {
+        %head_base = index.mul %head, %h : index
+        view.store %zero_f, %sum[0] : f32, view<1xf32>
+        scf.for %lane = [%zero to %h step %one] {
+          %column = index.add %head_base, %lane : index
+          %raw = view.load %in[%row, %column] : view<[%rows]x[%width]xf32> -> f32
+          %square = scalar.mulf %raw, %raw : f32
+          %prior = view.load %sum[0] : view<1xf32> -> f32
+          %next = scalar.addf %prior, %square : f32
+          view.store %next, %sum[0] : f32, view<1xf32>
+        }
+        %total = view.load %sum[0] : view<1xf32> -> f32
+        %mean = scalar.divf %total, %divisor : f32
+        %biased = scalar.addf %mean, %epsilon : f32
+        %inv = scalar.rsqrtf %biased : f32
+        scf.for %lane = [%zero to %h step %one] {
+          %low = index.cmp ult, %lane, %half : index
+          %pair = index.rem %lane, %half : index
+          %upper = index.add %pair, %half : index
+          %partner = scf.select %low, %upper, %pair : index
+          %column = index.add %head_base, %lane : index
+          %other_column = index.add %head_base, %partner : index
+          %raw = view.load %in[%row, %column] : view<[%rows]x[%width]xf32> -> f32
+          %other = view.load %in[%row, %other_column] : view<[%rows]x[%width]xf32> -> f32
+          %weight = view.load %weights[%lane] : view<256xf32> -> f32
+          %other_weight = view.load %weights[%partner] : view<256xf32> -> f32
+          %normal0 = scalar.mulf %raw, %inv : f32
+          %normal = scalar.mulf %normal0, %weight : f32
+          %partner0 = scalar.mulf %other, %inv : f32
+          %partner_normal = scalar.mulf %partner0, %other_weight : f32
+          %pair32 = index.cast %pair : index to i32
+          %pair_f = scalar.uitofp %pair32 : i32 to f32
+          %log_frequency = scalar.mulf %pair_f, %step : f32
+          %frequency = scalar.expf %log_frequency : f32
+          %unscaled = scalar.mulf %position_f, %frequency : f32
+          %angle = scalar.divf %unscaled, %factor : f32
+          %sin = scalar.sinf %angle : f32
+          %cos = scalar.cosf %angle : f32
+          %a = scalar.mulf %normal, %cos : f32
+          %b = scalar.mulf %partner_normal, %sin : f32
+          %lower = scalar.subf %a, %b : f32
+          %higher = scalar.addf %a, %b : f32
+          %value = scf.select %low, %lower, %higher : f32
+          view.store %value, %out[%row, %column] : f32, view<[%rows]x[%width]xf32>
+        }
+      }
+    }
+  }
+  func.return
+}
+
+command.decl @gemma3.qk.r1_h16_local_p0_n1() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r1_h16_local_p0_n1(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %local = scalar.constant true : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r1_h16_local_p0_n1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n1_p0>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<1x4096xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<4104xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<4104xf32> -> tensor<1x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<4104xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(16400) : tensor<4104xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r1_h16_local_p0_n1, @gemma3.qk.expected.r1_h16_local_p0_n1>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<1x4096xf32>, tensor<256xf32>, tensor<1x4096xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<4104xf32>, tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1x4096xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r8_h16_local_p1_n8() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r8_h16_local_p1_n8(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 16 : index
+  %local = scalar.constant true : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r8_h16_local_p1_n8 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n8_p1>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<8x4096xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<32776xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<32776xf32> -> tensor<8x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<32776xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(131088) : tensor<32776xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r8_h16_local_p1_n8, @gemma3.qk.expected.r8_h16_local_p1_n8>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<8x4096xf32>, tensor<256xf32>, tensor<8x4096xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<32776xf32>, tensor<32776xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x4096xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r8_h8_global_p1_n8() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r8_h8_global_p1_n8(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 8 : index
+  %local = scalar.constant false : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r8_h8_global_p1_n8 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n8_p1>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<8x2048xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r8_h8_global_p1_n8, @gemma3.qk.expected.r8_h8_global_p1_n8>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<8x2048xf32>, tensor<256xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x2048xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r17_h16_local_p1023_n17() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r17_h16_local_p1023_n17(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 17 : index
+  %heads = index.constant 16 : index
+  %local = scalar.constant true : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r17_h16_local_p1023_n17 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n17_p1023>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<17x4096xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<69640xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<69640xf32> -> tensor<17x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<69640xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(278544) : tensor<69640xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r17_h16_local_p1023_n17, @gemma3.qk.expected.r17_h16_local_p1023_n17>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<17x4096xf32>, tensor<256xf32>, tensor<17x4096xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<69640xf32>, tensor<69640xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<17x4096xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r17_h8_global_p1023_n17() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r17_h8_global_p1023_n17(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 17 : index
+  %heads = index.constant 8 : index
+  %local = scalar.constant false : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r17_h8_global_p1023_n17 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n17_p1023>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<17x2048xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<34824xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<34824xf32> -> tensor<17x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<34824xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(139280) : tensor<34824xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r17_h8_global_p1023_n17, @gemma3.qk.expected.r17_h8_global_p1023_n17>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<17x2048xf32>, tensor<256xf32>, tensor<17x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<34824xf32>, tensor<34824xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<17x2048xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r8_h16_global_p7_n1() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r8_h16_global_p7_n1(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 16 : index
+  %local = scalar.constant false : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r8_h16_global_p7_n1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n1_p7>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<8x4096xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<32776xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<32776xf32> -> tensor<8x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<32776xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(131088) : tensor<32776xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r8_h16_global_p7_n1, @gemma3.qk.expected.r8_h16_global_p7_n1>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<8x4096xf32>, tensor<256xf32>, tensor<8x4096xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<32776xf32>, tensor<32776xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x4096xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r8_h8_local_p8_n0() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r8_h8_local_p8_n0(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 8 : index
+  %local = scalar.constant true : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r8_h8_local_p8_n0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n0_p8>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<8x2048xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<16392xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<16392xf32> -> tensor<8x2048xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16392xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(65552) : tensor<16392xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r8_h8_local_p8_n0, @gemma3.qk.expected.r8_h8_local_p8_n0>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<8x2048xf32>, tensor<256xf32>, tensor<8x2048xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<16392xf32>, tensor<16392xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<8x2048xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+command.decl @gemma3.qk.r1_h16_global_p1025_n1() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+func.def @gemma3.qk.expected.r1_h16_global_p1025_n1(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %local = scalar.constant false : i1
+  func.call @gemma3.qk.oracle(%rows, %heads, %local, %epoch, %input, %gamma, %output) : (index, index, i1, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @gemma3.qk.check.r1_h16_global_p1025_n1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %epoch = check.generate.fill value(0) : tensor<8xi32>
+    check.generate<@gemma3.qk.init_n1_p1025>(%epoch) : (tensor<8xi32>) -> ()
+    %input = check.generate.iota offset(-0.75) step(3.1250000000000001e-05) : tensor<1x4096xf32>
+    %gamma = check.generate.iota offset(0.5) step(0.00390625) : tensor<256xf32>
+    %storage = check.generate.fill value(123.5) : tensor<4104xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<4104xf32> -> tensor<1x4096xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<4104xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(16400) : tensor<4104xf32> -> tensor<4xf32>
+    check.compare<@gemma3.qk.r1_h16_global_p1025_n1, @gemma3.qk.expected.r1_h16_global_p1025_n1>(%epoch, %input, %gamma, %output) : (tensor<8xi32>, tensor<1x4096xf32>, tensor<256xf32>, tensor<1x4096xf32>) -> () {
+      check.expect.approximate actual(%storage) expected(%storage) atol(0.00029999999999999997) rtol(0.00029999999999999997) nan(same) : tensor<4104xf32>, tensor<4104xf32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xf32>
+      check.expect.bitwise actual(%epoch) expected(%epoch) : tensor<8xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<1x4096xf32>
+      check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
+    }
+  }
+  check.return
+}
+
+func.def @gemma3.qk.init_n1_p0(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %epoch[%origin] : buffer -> view<8xi32>
+  %n = scalar.constant 1 : i32
+  %p = scalar.constant 0 : i32
+  view.store %n, %words[3] : i32, view<8xi32>
+  view.store %p, %words[4] : i32, view<8xi32>
+  func.return
+}
+
+func.def @gemma3.qk.init_n8_p1(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %epoch[%origin] : buffer -> view<8xi32>
+  %n = scalar.constant 8 : i32
+  %p = scalar.constant 1 : i32
+  view.store %n, %words[3] : i32, view<8xi32>
+  view.store %p, %words[4] : i32, view<8xi32>
+  func.return
+}
+
+func.def @gemma3.qk.init_n17_p1023(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %epoch[%origin] : buffer -> view<8xi32>
+  %n = scalar.constant 17 : i32
+  %p = scalar.constant 1023 : i32
+  view.store %n, %words[3] : i32, view<8xi32>
+  view.store %p, %words[4] : i32, view<8xi32>
+  func.return
+}
+
+func.def @gemma3.qk.init_n1_p7(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %epoch[%origin] : buffer -> view<8xi32>
+  %n = scalar.constant 1 : i32
+  %p = scalar.constant 7 : i32
+  view.store %n, %words[3] : i32, view<8xi32>
+  view.store %p, %words[4] : i32, view<8xi32>
+  func.return
+}
+
+func.def @gemma3.qk.init_n0_p8(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %epoch[%origin] : buffer -> view<8xi32>
+  %n = scalar.constant 0 : i32
+  %p = scalar.constant 8 : i32
+  view.store %n, %words[3] : i32, view<8xi32>
+  view.store %p, %words[4] : i32, view<8xi32>
+  func.return
+}
+
+func.def @gemma3.qk.init_n1_p1025(%epoch: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %epoch[%origin] : buffer -> view<8xi32>
+  %n = scalar.constant 1 : i32
+  %p = scalar.constant 1025 : i32
+  view.store %n, %words[3] : i32, view<8xi32>
+  view.store %p, %words[4] : i32, view<8xi32>
+  func.return
+}

@@ -315,7 +315,7 @@ full token IDs. Similar marker strings alone do not prove compatibility.
 |---|---|---|
 | Header/tensor catalog | [gguf_catalog.h](../../tools/model/gguf_catalog.h), [implementation](../../tools/model/gguf_catalog.cc) | F32/F16/Q4_0/Q4_1/Q8_0/Q5_0/Q4_K/Q5_K/Q6_K/IQ4_XS encoded size/range interpretation. [Tests](../../tools/model/testing/gguf_catalog_test.cc). |
 | Logical model descriptor | [model_descriptor.h](../../tools/model/model_descriptor.h), [shared reader](../../tools/model/model_descriptor.cc), [family loaders](../../tools/model/architectures), [tensor-name helper](../../tools/model/tensor_names.h) | Llama, Qwen3, Qwen2, Qwen35, Gemma3, LFM3 and Spark role/shape/layer/state mapping; family loaders own metadata/layout differences, while loading and configuration share role-to-checkpoint-name spelling; logical admission is separate from numerical/provider support. Gemma effective local-window/global RoPE metadata is required and retained; Spark retains fused QKV and per-layer effective rotary widths, with zero inheriting the model width; other family restrictions remain explicit. [Tests](../../tools/model/testing/model_descriptor_test.cc). |
-| Generated configuration/bindings | [configuration.h](../loomify/configuration.h), [common producer](../loomify/configuration_internal.h), [family mappers](../loomify/architectures) | Numeric facts, named tensor bindings and pure layer data lookups for supported families. The common producer retains constructed-descriptor name/shape/encoding/range checks. Checked canonical projection and ordinary embedding facts own format-specific bounds and exact bytes; transactional binding retains role/name/rank/extents/ranges and rejects overlap before publication. Ordinary Llama/Gemma3/Qwen3/Qwen2/LFM3/Spark preparation uses one shared typed fact writer; numerical configuration symbols remain family-owned. Token/prefill capacities remain<=512; logical context capacity is separate. Gemma tests use context1024 packages and context576 direct window/state witnesses; family restrictions remain explicit. [Tests](../loomify/testing/configuration_test.cc). |
+| Generated configuration/bindings | [configuration.h](../loomify/configuration.h), [common producer](../loomify/configuration_internal.h), [family mappers](../loomify/architectures) | Numeric facts, named tensor bindings and pure layer data lookups for supported families. The common producer retains constructed-descriptor name/shape/encoding/range checks. Checked canonical projection and ordinary embedding facts own format-specific bounds and exact bytes; transactional binding retains role/name/rank/extents/ranges and rejects overlap before publication. Ordinary Llama/Gemma3/Qwen3/Qwen2/LFM3/Spark preparation uses one shared typed fact writer; numerical configuration symbols remain family-owned. Token/prefill capacities remain<=512; logical context capacity is separate. Gemma window/state witnesses derive context from the local window plus64 (576 for1B and1088 for12B); package context remains an explicit generation setting; family restrictions remain explicit. [Tests](../loomify/testing/configuration_test.cc). |
 | Architecture selection | [architectures.h](../loomify/architectures.h), [finite assembly entries](../architectures/assemblies.bzl), [resource BUILD inventory](../serving/BUILD.bazel) | Each entry selects explicit implementation/preparation/execution products, its data-only configuration mapper, fixed numerical publication-slot layout and existing context limit (Llama131072; others262144). Qwen3 and Qwen2 require the selected scaled-F16 projection product; Qwen35 requires H256 prefill. Geometry/encoding admission stays in the mapper and native providers. `architecture_selection` owns these policies; configuration/token-policy facades depend on it, while generic native linking depends only on `architecture_types`. |
 | Source publication facts | [publication.h](../loomify/publication.h), [source profiles and slot emitter](../loomify/publication.cc) | Numerical architecture selects only fixed publication-slot layout/config prefix. Central known source profiles resolve declared EOS and unique requested pieces through one bounded GGUF vocabulary scan; separate layout emission preserves exact ordered config slots and commits owned facts transactionally. Llama3 and plain ChatML share the three-slot kernel but have distinct source profiles/canonical terminal indices. The Llama header profile may alias an absent EOM slot to the resolved EOT only after a complete successful scan; end-of-text, EOT, declared EOS and every marker required by the actual template remain mandatory. Present EOM retains its own identity; Qwen2/Qwen3 use text+turn slots, Gemma uses role-bound EOS+turn slots, Spark uses one declared-EOS slot without fabricated secondary stops, and Qwen35 is host-managed with no FILE/vocabulary requirement. Unspecified/invalid layouts reject. No recognized chat-template, external/native tokenizer or full vocabulary retention is required for numerical-only generation; package binding independently verifies every raw identity and canonical terminal. [Token-policy tests](../loomify/testing/token_policy_test.cc) cover layouts, source errors, duplicate vocabulary, canonical EOS distinction and output preservation; [public builder tests](../loomify/testing/public_builder_test.cc) retain sparse numerical-only and unsupported-template construction. |
 | Builder / native link / materialization | [Public API](../loomify/gguf_model_builder.h), [linking](../loomify/linking.cc), [maintained passes](../loomify/materialize.loom) | Open -> Configure -> BuildModule/WriteModule or WritePackage. Configuration can be inspected before product loading; numerical-only generation is independent of chat/tokenizer admission. [Builder tests](../loomify/testing/public_builder_test.cc). |
@@ -514,6 +514,38 @@ full token IDs. Rich dynamic tool extensions outside the admitted request domain
 are rejected rather than silently ignored. Original GGUF facts supply IDs and
 source literals; no numerical family branch selects formatting.
 
+### Gemma3 geometry and physical vocabulary
+
+The [Gemma mapper](../loomify/architectures/gemma3.cc) derives hidden width,
+query/KV head counts, per-layer weight formats and encoded extents from the
+descriptor. The same maintained model loop handles the retained1B profile and
+the12B geometry (E3840, QH16, KH8, H256, F15360). Preparation sizes its cache planes
+from KV width2048 for12B, rather than the head width256. The existing local/global
+layer schedule, normalization, GeGLU and residual sequence remain shared.
+
+Local-window RoPE keeps factor1; global RoPE uses the GGUF linear scaling divisor
+(8 in the12B checkpoints). Q6_K and Q8_0 embedding rows reuse their owned decoders
+and apply sqrt(E) once in F32. The tied head selects the actual encoding. The
+[geometry and gather fixtures](../kernels/gemma3/testing/BUILD.bazel) exercise
+16:8 grouping, nonzero positions, window boundaries, full physical vocabulary IDs,
+inactive rows and guards in SOURCE and bytecode forms.
+
+Canonical Q6_K/Q8_0 projection and greedy selection admit the262208-row physical
+vocabulary, including the65th partial-reduction tile. Compatible Q6 operations
+retain their262144 bound. The shared capacity declaration covers both products;
+each operation still owns its actual admission. Other encodings are not widened.
+[Materialization tests](../programs/projection/testing/materialization_test.cc)
+check actual SOURCE/bytecode acceptance and rejection, while
+[head/selection checks](../kernels/llama/testing/output_checks.loom) force winners
+and ties across the tile boundary and at the last row.
+
+Physical table rows and lexical tokenizer coverage are separate facts. The12B
+files include an image row and unused PAD rows beyond the base vocabulary. Keep
+the full embedding/head extents; do not truncate logits to an external tokenizer's
+size or invent a PAD mask. Publication uses the actual GGUF EOS106, rather than
+copying the1B EOS1. Generated input still comes from the original embedded template;
+there is no12B-specific renderer.
+
 The Gemma components, source-driven configuration, package construction and native
 text/host contracts have concrete tests. Direct whole-epoch tests compare active
 outputs and full state across SOURCE/BC, offsets, dependent decode and reset;
@@ -522,6 +554,15 @@ exercise window ownership. Their synthetic history is not an independent
 full-model accuracy oracle. Standalone numerical checks retain independent
 expected values and fixed budgets. Live model semantic qualification remains a
 separate gate from linking, bitwise ownership and prompt plausibility.
+
+For another checkpoint, try the existing public numerical/package export before
+adding an operation. Inspect all selected tensor roles and exclude auxiliary
+layers by the descriptor's existing policy. New linked providers may also add
+configuration declarations: check the complete declaration closure, including
+finite defaults for unused fixture products, without confusing a declaration's
+shared capacity with an individual operation's supported bound. Keep staged
+validation witnesses derived from actual geometry and window facts so they remain
+applicable when a checkpoint changes dimensions.
 
 ### Jinja input compiler proof
 

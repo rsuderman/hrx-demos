@@ -1,0 +1,98 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Production Gemma Q/K wrapper at the 12B head geometry.
+config.def @gemma3.model.layer_count = 48 : index
+
+config.def @gemma3.model.rms_epsilon = 9.999999975e-07 : f32
+
+config.def @gemma3.model.rope_log_step_local = -0.071955785155296326 : f32
+
+config.def @gemma3.model.rope_log_step_global = -0.10793367773294449 : f32
+
+config.def @gemma3.model.rope_factor_global = 8.0 : f32
+
+config.def @gemma3.attention.cache_capacity = 2048 : index
+
+func.def public pure inline @loomify.config.layer_window(%layer: index) -> (index, index) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %window = index.constant 1024 : index
+  %local = index.cmp eq, %layer, %zero : index
+  %w = scf.select %local, %window, %zero : index
+  %flag = scf.select %local, %one, %zero : index
+  func.return %w, %flag : index, index
+}
+
+kernel.decl @gemma3_prepare_qk(%rows: index, %heads: index) launch(%layer: index, %control_origin: offset, %epoch: buffer, %projection: buffer, %gamma: buffer, %output: buffer)
+
+command.def @gemma3.qk.r1_h16_local_p0_n1() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %layer = index.constant 0 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r8_h16_local_p1_n8() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 16 : index
+  %layer = index.constant 0 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r8_h8_global_p1_n8() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 8 : index
+  %layer = index.constant 47 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r17_h16_local_p1023_n17() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 17 : index
+  %heads = index.constant 16 : index
+  %layer = index.constant 0 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r17_h8_global_p1023_n17() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 17 : index
+  %heads = index.constant 8 : index
+  %layer = index.constant 47 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r8_h16_global_p7_n1() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 16 : index
+  %layer = index.constant 47 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r8_h8_local_p8_n0() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  %heads = index.constant 8 : index
+  %layer = index.constant 0 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def @gemma3.qk.r1_h16_global_p1025_n1() launch(%epoch: buffer, %input: buffer, %gamma: buffer, %output: buffer) {
+  %rows = index.constant 1 : index
+  %heads = index.constant 16 : index
+  %layer = index.constant 47 : index
+  %origin = index.constant 12 : offset
+  kernel.launch @gemma3_prepare_qk[%rows, %heads](%layer, %origin, %epoch, %input, %gamma, %output) : [index, index](index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}

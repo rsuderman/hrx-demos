@@ -11,7 +11,8 @@ config.def @llama.model.rms_epsilon = 1.0000000000000001e-05 : f32
 // rope_freqs.weight supplies 64 F32 divisors; the base alone is insufficient.
 config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 8192 : index
 
-config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 128256 : index
+// Shared head proofs also cover the Gemma12B vocabulary tail.
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 262208 : index
 
 // Capacity of the existing shared greedy implementation (historical symbol).
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : index
@@ -28,7 +29,7 @@ config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 1 : index
 
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
 
-config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 262208 : index
 
 config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
 

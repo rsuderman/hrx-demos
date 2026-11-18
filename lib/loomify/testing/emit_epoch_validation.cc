@@ -3,6 +3,7 @@
 // Finite actual-GGUF epoch contract gate through the public numerical builder.
 #include "lib/loomify/gguf_model_builder.h"
 #include "loomc/target/amdgpu.h"
+#include <algorithm>
 #include <charconv>
 #include <cstdio>
 #include <filesystem>
@@ -41,7 +42,14 @@ int main(int argc, char **argv) {
   GgufBuildOptions settings;
   settings.library_root = argv[1];
   settings.prefill_capacity = 8;
-  settings.context_capacity = descriptor.family == "gemma3" ? 576 : 64;
+  settings.context_capacity = 64;
+  if (descriptor.family == "gemma3") {
+    uint64_t window = 0;
+    for (const auto &layer : descriptor.layers)
+      window = std::max(window, layer.attention_window);
+    // Cross the actual local boundary and retain one full extra page.
+    settings.context_capacity = window + 64;
+  }
   if (argc == 6) {
     auto read = [](const char *text, uint64_t *value) {
       const std::string word(text);
@@ -115,7 +123,7 @@ int main(int argc, char **argv) {
     layout << "],\"layer_rope_bases\":[";
     for (size_t i = 0; i < descriptor.layers.size(); ++i)
       layout << (i ? "," : "") << descriptor.layers[i].rope_base;
-    layout << "]";
+    layout << "],\"rope_scaling_factor\":" << descriptor.rope.scaling_factor;
   }
   layout << "}\n";
   ok = bool(facts) && bool(layout) && ok;

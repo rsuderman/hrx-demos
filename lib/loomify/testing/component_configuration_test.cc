@@ -24,17 +24,18 @@ TEST(ComponentConfigurationTest,
     const uint64_t minimum =
         tag == 2 || tag == 3 || tag == 6 || tag == 8 ? 128 : 256;
     const uint64_t maximum = tag == 14 ? 17408 : 32768;
+    const uint64_t output_limit = tag == 8 || tag == 14 ? 262208 : 262144;
     for (const auto width : {minimum, maximum}) {
-      const auto tensor = Encoded(tag, width, 262144);
+      const auto tensor = Encoded(tag, width, output_limit);
       CanonicalProjectionFacts result{};
       std::string error;
-      ASSERT_TRUE(
-          CheckCanonicalProjection(tensor, width, 262144, &result, &error))
+      ASSERT_TRUE(CheckCanonicalProjection(tensor, width, output_limit, &result,
+                                           &error))
           << error;
       EXPECT_EQ(result.storage_tag, tag);
       EXPECT_EQ(result.weight_bytes, tensor.byte_size);
       EXPECT_EQ(result.input_width, width);
-      EXPECT_EQ(result.output_width, 262144u);
+      EXPECT_EQ(result.output_width, output_limit);
     }
     for (const auto width : {minimum - 1, maximum + minimum}) {
       auto tensor = Encoded(tag, minimum, 1);
@@ -48,8 +49,9 @@ TEST(ComponentConfigurationTest,
     CanonicalProjectionFacts result{};
     EXPECT_FALSE(
         CheckCanonicalProjection(tensor, minimum, 0, &result, nullptr));
-    EXPECT_FALSE(
-        CheckCanonicalProjection(tensor, minimum, 262145, &result, nullptr));
+    const auto oversized = Encoded(tag, minimum, output_limit + 1);
+    EXPECT_FALSE(CheckCanonicalProjection(oversized, minimum, output_limit + 1,
+                                          &result, nullptr));
     tensor.byte_size++;
     EXPECT_FALSE(
         CheckCanonicalProjection(tensor, minimum, 1, &result, nullptr));
@@ -63,14 +65,15 @@ TEST(ComponentConfigurationTest,
      OrdinaryGatherHasItsOwnFiniteEncodingContract) {
   for (const auto tag : {8u, 12u, 13u, 14u}) {
     SCOPED_TRACE(tag);
+    const uint64_t vocabulary_limit = tag == 8 || tag == 14 ? 262208 : 262144;
     for (const auto hidden : {256u, 32768u}) {
-      const auto tensor = Encoded(tag, hidden, 262144);
+      const auto tensor = Encoded(tag, hidden, vocabulary_limit);
       OrdinaryEmbeddingFacts result{};
-      ASSERT_TRUE(
-          CheckOrdinaryEmbedding(tensor, hidden, 262144, &result, nullptr));
+      ASSERT_TRUE(CheckOrdinaryEmbedding(tensor, hidden, vocabulary_limit,
+                                         &result, nullptr));
       EXPECT_EQ(result.storage_tag, tag);
       EXPECT_EQ(result.hidden_size, hidden);
-      EXPECT_EQ(result.vocabulary_size, 262144u);
+      EXPECT_EQ(result.vocabulary_size, vocabulary_limit);
       EXPECT_EQ(result.weight_bytes, tensor.byte_size);
     }
     auto tensor = Encoded(tag, 256, 3);
@@ -80,13 +83,52 @@ TEST(ComponentConfigurationTest,
       EXPECT_EQ(result.storage_tag, 99u);
     }
     EXPECT_FALSE(CheckOrdinaryEmbedding(tensor, 256, 0, &result, nullptr));
-    EXPECT_FALSE(CheckOrdinaryEmbedding(tensor, 256, 262145, &result, nullptr));
+    const auto oversized = Encoded(tag, 256, vocabulary_limit + 1);
+    EXPECT_FALSE(CheckOrdinaryEmbedding(oversized, 256, vocabulary_limit + 1,
+                                        &result, nullptr));
     tensor.byte_size--;
     EXPECT_FALSE(CheckOrdinaryEmbedding(tensor, 256, 3, &result, nullptr));
   }
   auto unsupported = Encoded(1, 256, 3);
   OrdinaryEmbeddingFacts result{};
   EXPECT_FALSE(CheckOrdinaryEmbedding(unsupported, 256, 3, &result, nullptr));
+}
+
+TEST(ComponentConfigurationTest, FullVocabularyIsBoundedToReachedHeadFormats) {
+  for (const auto tag : {8u, 14u}) {
+    SCOPED_TRACE(tag);
+    const auto tensor = Encoded(tag, 3840, 262208);
+    CanonicalProjectionFacts projection{};
+    OrdinaryEmbeddingFacts embedding{};
+    ASSERT_TRUE(
+        CheckCanonicalProjection(tensor, 3840, 262208, &projection, nullptr));
+    ASSERT_TRUE(
+        CheckOrdinaryEmbedding(tensor, 3840, 262208, &embedding, nullptr));
+    const uint64_t row_bytes = tag == 8 ? 4080 : 3150;
+    EXPECT_EQ(projection.weight_bytes, row_bytes * 262208);
+    EXPECT_EQ(embedding.weight_bytes, projection.weight_bytes);
+    EXPECT_EQ((262207 * row_bytes) + row_bytes, projection.weight_bytes);
+    auto oversized = Encoded(tag, 3840, 262209);
+    EXPECT_FALSE(CheckCanonicalProjection(oversized, 3840, 262209, &projection,
+                                          nullptr));
+    EXPECT_FALSE(
+        CheckOrdinaryEmbedding(oversized, 3840, 262209, &embedding, nullptr));
+    auto truncated = tensor;
+    --truncated.byte_size;
+    EXPECT_FALSE(CheckCanonicalProjection(truncated, 3840, 262208, &projection,
+                                          nullptr));
+    EXPECT_FALSE(
+        CheckOrdinaryEmbedding(truncated, 3840, 262208, &embedding, nullptr));
+  }
+  for (const auto tag : {12u, 13u}) {
+    const auto tensor = Encoded(tag, 3840, 262208);
+    CanonicalProjectionFacts projection{};
+    OrdinaryEmbeddingFacts embedding{};
+    EXPECT_FALSE(
+        CheckCanonicalProjection(tensor, 3840, 262208, &projection, nullptr));
+    EXPECT_FALSE(
+        CheckOrdinaryEmbedding(tensor, 3840, 262208, &embedding, nullptr));
+  }
 }
 
 TEST(ComponentConfigurationTest, NarrowQ8GatherDoesNotBroadenKBlockFormats) {

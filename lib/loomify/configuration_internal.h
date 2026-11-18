@@ -98,8 +98,10 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
     return Fail(error,
                 "unsupported canonical projection encoding: " + tensor.name);
   }
+  const uint64_t output_limit =
+      tensor.storage_type == 8 || tensor.storage_type == 14 ? 262208 : 262144;
   if (!facts || input < block || input > maximum || input % block || !output ||
-      output > 262144)
+      output > output_limit)
     return Fail(error,
                 "unsupported canonical projection geometry: " + tensor.name);
   if (!CheckEncodedExtent(tensor, input, output, error))
@@ -112,11 +114,13 @@ inline bool CheckOrdinaryEmbedding(const model::TensorRecord &tensor,
                                    OrdinaryEmbeddingFacts *facts,
                                    std::string *error) {
   const uint64_t block = tensor.storage_type == 8 ? 32 : 256;
+  const uint64_t vocabulary_limit =
+      tensor.storage_type == 8 || tensor.storage_type == 14 ? 262208 : 262144;
   if (!facts ||
       (tensor.storage_type != 8 && tensor.storage_type != 12 &&
        tensor.storage_type != 13 && tensor.storage_type != 14) ||
       hidden < block || hidden > 32768 || hidden % block || !vocabulary ||
-      vocabulary > 262144)
+      vocabulary > vocabulary_limit)
     return Fail(error, "unsupported ordinary embedding geometry or encoding: " +
                            tensor.name);
   if (!CheckEncodedExtent(tensor, hidden, vocabulary, error))

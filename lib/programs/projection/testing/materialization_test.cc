@@ -72,6 +72,14 @@ std::vector<Input> Inputs() {
       {"canonical_q5", 1, 13, 768, 1, 4, 25872},
       {"canonical_q6", 1, 14, 768, 1, 4, 30870},
       {"canonical_q8", 1, 8, 768, 1, 4, 39984},
+      {"canonical_q6_full_vocabulary", 1, 14, 256, 1, 1, 55063680, 524288,
+       262208, true, 262208},
+      {"canonical_q8_full_vocabulary", 1, 8, 256, 1, 1, 71320576, 524288,
+       262208, true, 262208},
+      {"compatible_q6_full_vocabulary_rejected", 0, 14, 256, 1, 1, 55063680,
+       524288, 262208, false, 262208},
+      {"canonical_q6_past_vocabulary_rejected", 1, 14, 256, 1, 1, 55063890,
+       524288, 262208, false, 262209},
       {"canonical_q4_0", 1, 2, 128, 1, 4, 3528},
       {"canonical_q4_1", 1, 3, 128, 1, 4, 3920},
       {"canonical_iq4_xs", 1, 23, 256, 1, 4, 6664},
@@ -228,7 +236,13 @@ TEST_P(ProjectionMaterializationTest,
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 2048 : index\n"
            << "config.def @ggml.linear_" << format
-           << "_q8_1_x4.output_capacity = " << input.output_limit
+           << "_q8_1_x4.output_capacity = "
+           // Extended vocabulary is a Q6/Q8 contract. Unselected formats
+           // retain their existing declaration limits in the complete product.
+           << ((input.output_limit > 262144 && std::string(format) != "q6k" &&
+                std::string(format) != "q8_0")
+                   ? 262144
+                   : input.output_limit)
            << " : index\n";
   source
       << "config.def @ggml.quantize_q8_1_x4.group_capacity = "

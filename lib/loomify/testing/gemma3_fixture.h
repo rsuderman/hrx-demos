@@ -60,6 +60,58 @@ inline model::GgufCatalog Catalog() {
   return c;
 }
 
+// Synthetic descriptor with the cached 12B dimensions and actual encoding
+// roles. Table offsets are identities only; no multi-gigabyte tensor data is
+// allocated.
+inline model::GgufCatalog LargeCatalog(uint32_t tag = 12) {
+  model::GgufCatalog c;
+  c.architecture = "gemma3";
+  for (auto p : std::vector<std::pair<const char *, uint64_t>>{
+           {"block_count", 48},
+           {"embedding_length", 3840},
+           {"context_length", 131072},
+           {"feed_forward_length", 15360},
+           {"attention.head_count", 16},
+           {"attention.head_count_kv", 8},
+           {"attention.key_length", 256},
+           {"attention.value_length", 256},
+           {"vocab_size", 262208},
+           {"attention.sliding_window", 1024}})
+    Integer(c, p.first, p.second);
+  Real(c, "attention.layer_norm_rms_epsilon", 1e-6);
+  Real(c, "rope.freq_base", 1e6);
+  Real(c, "rope.scaling.factor", 8);
+  c.metadata.push_back({"gemma3.rope.scaling.type", 8, std::string("linear")});
+  Tensor(c, "token_embd.weight", 3840, 262208, tag == 8 ? 8 : 14);
+  Tensor(c, "output_norm.weight", 3840, 1, 0);
+  for (int i = 0; i < 48; ++i) {
+    const auto p = "blk." + std::to_string(i) + ".";
+    for (auto n : {"attn_norm.weight", "post_attention_norm.weight",
+                   "ffn_norm.weight", "post_ffw_norm.weight"})
+      Tensor(c, p + n, 3840, 1, 0);
+    Tensor(c, p + "attn_q_norm.weight", 256, 1, 0);
+    Tensor(c, p + "attn_k_norm.weight", 256, 1, 0);
+    Tensor(c, p + "attn_q.weight", 3840, 4096, tag);
+    Tensor(c, p + "attn_k.weight", 3840, 2048, tag);
+    // Exercise mixed Q4/Q6 roles without encoding a layer policy in the mapper.
+    const uint32_t mixed = tag == 12 && i % 2 == 0 ? 14 : tag;
+    Tensor(c, p + "attn_v.weight", 3840, 2048, mixed);
+    Tensor(c, p + "attn_output.weight", 4096, 3840, tag);
+    Tensor(c, p + "ffn_gate.weight", 3840, 15360, tag);
+    Tensor(c, p + "ffn_up.weight", 3840, 15360, tag);
+    Tensor(c, p + "ffn_down.weight", 15360, 3840, mixed);
+  }
+  return c;
+}
+
+inline model::ModelDescriptor LargeModelFacts() {
+  model::ModelDescriptor m;
+  std::string error;
+  if (!model::LoadModelDescriptor(LargeCatalog(), &m, &error))
+    std::abort();
+  return m;
+}
+
 inline model::ModelDescriptor ModelFacts() {
   model::ModelDescriptor m;
   std::string error;

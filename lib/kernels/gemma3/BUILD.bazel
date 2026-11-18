@@ -19,6 +19,7 @@ filegroup(
         "//lib/kernels/attention:rotary.loom",
         "//lib/kernels/elementwise:geglu_row.loom",
         "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/kernels/embedding:q6k_rows.loom",
         "//lib/kernels/embedding:q8_0_rows.loom",
         "//lib/kernels/epoch:active_rows.loom",
         "//lib/kernels/epoch:count.loom",

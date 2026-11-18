@@ -21,6 +21,8 @@ config.decl @gemma3.model.rope_log_step_local : f32
 
 config.decl @gemma3.model.rope_log_step_global : f32
 
+config.decl @gemma3.model.rope_factor_global : f32
+
 config.decl @gemma3.attention.cache_capacity : index
 
 config.decl @gemma3.attention.pool_capacity : index
@@ -31,7 +33,7 @@ func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origi
 
 template.decl @llm.attention.head_rms_value(%raw: f32, %head_divisor: f32, %epsilon: f32, %lane: index, %head_size: index, %norm_weight: buffer) -> (f32)
 
-template.decl @llm.attention.rope_neox_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane: index, %head_data: buffer) -> (f32)
+template.decl @llm.attention.rope_neox_factor_value(%head_size: index, %rope_half: index, %rope_size: index, %log_frequency_step: f32, %position: i32, %lane: index, %factor: f32, %head_data: buffer) -> (f32)
 
 template.decl @llm.attention.row_window_f32(%query_heads: index, %key_heads: index, %head_size: index, %query_width: index, %cache_width: index, %logical_capacity: index, %window: index, %pool_capacity: index, %map_origin: offset, %query_origin: offset, %output_origin: offset, %key_origin: offset, %value_origin: offset, %map: buffer, %attention_scale: f32, %position_i32: i32, %head0: index, %lane0: index, %has_gate: i1, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer)
 
@@ -57,7 +59,7 @@ func.def inline @gemma3_position(%row: index, %capacity: index, %control_origin:
 
 kernel.def @gemma3_prepare_qk(%rows0: index, %heads0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
-  %heads = index.assume %heads0 [range(%heads0, 1, 4)] : index
+  %heads = index.assume %heads0 [range(%heads0, 1, 32)] : index
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
   kernel.launch.config workgroups(%heads, %rows, %one) workgroup_size(%threads, %one, %one) : index
@@ -95,8 +97,11 @@ kernel.def @gemma3_prepare_qk(%rows0: index, %heads0: index) {
     %local_step = config.get @gemma3.model.rope_log_step_local : f32
     %global_step = config.get @gemma3.model.rope_log_step_global : f32
     %step = scf.select %is_local, %local_step, %global_step : f32
+    %unit_factor = scalar.constant 1.0 : f32
+    %global_factor = config.get @gemma3.model.rope_factor_global : f32
+    %factor = scf.select %is_local, %unit_factor, %global_factor : f32
     %position32 = index.cast %position : index to i32
-    %rotated = template.apply<@llm.attention.rope_neox_value>(%h, %half, %h, %step, %position32, %lane, %scratch) : (index, index, index, f32, i32, index, buffer) -> (f32)
+    %rotated = template.apply<@llm.attention.rope_neox_factor_value>(%h, %half, %h, %step, %position32, %lane, %factor, %scratch) : (index, index, index, f32, i32, index, f32, buffer) -> (f32)
     view.store %rotated, %out[%row, %element] : f32, view<[%rows]x[%width]xf32>
   }
   kernel.return

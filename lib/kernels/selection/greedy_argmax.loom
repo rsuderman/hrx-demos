@@ -9,14 +9,14 @@ template.decl @qwen38.greedy_argmax_f32.row(%row_count0: index, %row0: index, %o
 // logits and intermediate winners device-local.
 target.decl @llm.platform.selection.greedy.wave64
 
-config.decl @qwen38.greedy_argmax.output_capacity : %value: index where [range(%value, 256, 262144)]
+config.decl @qwen38.greedy_argmax.output_capacity : %value: index where [range(%value, 256, 262208)]
 
 // Selects one row. Single-row decode and batched target verification share
 // this exact reduction so tie-breaking cannot drift between generation modes.
 template.def<@qwen38.greedy_argmax_f32.row> device @qwen38_greedy_argmax_f32_row(%row_count0: index, %row0: index, %output_size0: index, %workitem0: index, %logits: buffer, %token_ids: buffer) {
   %row_count = index.assume %row_count0 [range(%row_count0, 1, 512)] : index
   %row = index.assume %row0 [lt(%row0, %row_count)] : index
-  %output_size = index.assume %output_size0 [range(%output_size0, 256, 262144)] : index
+  %output_size = index.assume %output_size0 [range(%output_size0, 256, 262208)] : index
   %workitem = index.assume %workitem0 [range(%workitem0, 0, 255), lt(%workitem0, %output_size)] : index
   %c0 = index.constant 0 : index
   %workgroup_size = index.constant 256 : index
@@ -57,7 +57,7 @@ kernel.def target(@llm.platform.selection.greedy.wave64) export("qwen38_greedy_a
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
 } launch(%output_size: index, %logits: buffer, %token_id: buffer) {
   %output_capacity = config.get @qwen38.greedy_argmax.output_capacity : index
-  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262144), le(%output_size, %output_capacity)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262208), le(%output_size, %output_capacity)] : index
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
   %workitem = kernel.workitem.id<x> : index
@@ -73,7 +73,7 @@ kernel.def target(@llm.platform.selection.greedy.wave64) export("qwen38_greedy_a
 } launch(%token_count0: index, %output_size: index, %logits: buffer, %token_ids: buffer) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
   %output_capacity = config.get @qwen38.greedy_argmax.output_capacity : index
-  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262144), le(%output_size, %output_capacity)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262208), le(%output_size, %output_capacity)] : index
   %row0 = kernel.workgroup.id<x> : index
   %row = index.assume %row0 [lt(%row0, %token_count)] : index
   %workitem = kernel.workitem.id<x> : index
@@ -96,7 +96,7 @@ kernel.def target(@llm.platform.selection.greedy.wave64) export("qwen38_greedy_a
 } launch(%token_count0: index, %output_size: index, %logits: buffer, %partial_logits: buffer, %partial_token_ids: buffer) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
   %output_capacity = config.get @qwen38.greedy_argmax.output_capacity : index
-  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262144), le(%output_size, %output_capacity)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262208), le(%output_size, %output_capacity)] : index
   %c0 = index.constant 0 : index
   %c4095 = index.constant 4095 : index
   %c4096 = index.constant 4096 : index
@@ -163,7 +163,7 @@ kernel.def target(@llm.platform.selection.greedy.wave64) export("qwen38_greedy_a
 } launch(%token_count0: index, %output_size: index, %partial_logits: buffer, %partial_token_ids: buffer, %token_ids: buffer) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
   %output_capacity = config.get @qwen38.greedy_argmax.output_capacity : index
-  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262144), le(%output_size, %output_capacity)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 256, 262208), le(%output_size, %output_capacity)] : index
   %c0 = index.constant 0 : index
   %c4095 = index.constant 4095 : index
   %c4096 = index.constant 4096 : index

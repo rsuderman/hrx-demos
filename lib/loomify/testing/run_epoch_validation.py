@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Finite actual-GGUF epoch equivalence/ownership gate, without a math oracle.
 
-Consume emit_epoch_validation outputs at T8/C64 (Gemma: C576). Compare B0/S0 and B2/S7
+Consume emit_epoch_validation outputs at T8/C64 (Gemma: local window +64). Compare B0/S0 and B2/S7
 with the same logical inputs, position and persistent state; then continuation,
 reset and no-output. Source/bytecode, full state, active residuals and output
 slots must match bitwise. Run only in the coordinator's isolated venv/GPU lane.
@@ -48,25 +48,49 @@ def gemma_window_witness(module, windows):
     )
     assert match, "missing actual Gemma attention consumer"
     body = match.group()
-    # Native LINK folds the identical first five arms into the local default.
-    # Remaining explicit arms retain layer identity and their selected window.
+    # Lookup starts with the final layer's fallback and selects each earlier
+    # layer in order. Native LINK may fold only its initial no-op selections:
+    # 1B ends in a local layer, whereas 12B ends in a global layer.
+    assert windows and windows[0] > 0 and 0 in windows
+    last = len(windows) - 1
+    fallback = windows[last]
     arms = {
         int(i): int(value)
         for i, value in re.findall(r"%c(\d+)_0 = index.constant (\d+) : index", body)
     }
-    assert arms == {i: windows[i] for i in range(5, 25)}, arms
-    for i in range(5, 25):
+    assert arms, "missing per-layer Gemma window selections"
+    first = min(arms)
+    assert 0 <= first < last
+    assert all(value == fallback for value in windows[:first]), windows[:first]
+    assert arms == {i: windows[i] for i in range(first, last)}, arms
+    assert f"%v{first}_0 = index.constant {fallback} : index" in body
+    for i in range(first, last):
         assert f"%l{i} = index.constant {i} : index" in body
         assert f"%is{i} = index.cmp eq, %layer, %l{i} : index" in body
-    assert "%v5_0 = index.constant 512 : index" in body
-    assert "%windowed = index.cmp ne, %v25_0, %c0 : index" in body
-    assert "%window_before = index.cmp ugt, %context_count, %v25_0 : index" in body
-    assert "%key_begin = scf.if %trim -> (index)" in body
+        assert f"%v{i + 1}_0 = scf.select %is{i}, %c{i}_0, %v{i}_0 : index" in body, (
+            i,
+            "disconnected layer window selection",
+        )
+    # Check the complete actual window consumer, including the global fallback,
+    # bounded local retention and the causal loop's exclusive upper bound.
+    assert f"%windowed = index.cmp ne, %v{last}_0, %c0 : index" in body
+    assert (
+        f"%requested = scf.select %windowed, %v{last}_0, %context_count : index" in body
+    )
+    assert "%shorter = index.cmp ult, %requested, %context_count : index" in body
+    assert "%retained = scf.select %shorter, %requested, %context_count : index" in body
+    assert "%key_begin = index.sub %context_count, %retained : index" in body
+    assert re.search(
+        r"scf.for %token(?:\$\d+)? = \[%key_begin to %context_count step %c1\]", body
+    ), "window retention does not feed actual attention traversal"
     return {
         "module_sha256": h.digest(module.read_bytes()),
         "attention_kernel_sha256": h.digest(body.encode()),
         "actual_attention_launches": len(windows),
         "effective_windows": windows,
+        "explicit_window_layers": list(range(first, last)),
+        "folded_prefix_layers": list(range(first)),
+        "fallback_layer": last,
     }
 
 
@@ -105,12 +129,14 @@ def main():
     qwen = family == "qwen35"
     gemma = family == "gemma3"
     context = layout["context"]
+    local_window = max(layout["layer_windows"]) if gemma else 0
+    assert context % 64 == 0
     tokens_capacity = layout["tokens"]
     if args.specialized_qwen:
         assert qwen and tokens_capacity == 128 and context == 512
         assert not args.decode_root or args.decode_root == layout["decode_root"]
     else:
-        assert tokens_capacity == 8 and context == (576 if gemma else 64)
+        assert tokens_capacity == 8 and context == (local_window + 64 if gemma else 64)
         assert not args.decode_root
     hidden = layout["hidden"]
     facts = {
@@ -186,11 +212,28 @@ def main():
     }
     prior_form = {}
     if gemma:
-        assert layout["layer_windows"] == [512 if (i + 1) % 6 else 0 for i in range(26)]
+        layer_count = facts["gemma3.model.layer_count"]
+        global_factor = layout["rope_scaling_factor"]
+        assert math.isfinite(global_factor) and global_factor > 0
+        factor_match = re.search(
+            r"config.def @gemma3.model.rope_factor_global = ([^ ]+) : f32",
+            (args.emitted / "configuration.loom").read_text(),
+        )
+        assert factor_match and math.isclose(
+            float(factor_match[1]), global_factor, rel_tol=1e-7
+        )
+        assert len(layout["layer_windows"]) == layer_count
+        assert local_window > 0 and 0 in layout["layer_windows"]
+        assert all(window in (0, local_window) for window in layout["layer_windows"])
         assert layout["layer_rope_bases"] == [
             10000 if window else 1000000 for window in layout["layer_windows"]
         ]
-        assert plane_count == 52 and plane_token_bytes == 512
+        assert plane_count == 2 * layer_count
+        assert (
+            plane_token_bytes
+            == 2 * facts["gemma3.model.kv_heads"] * facts["gemma3.model.head_size"]
+        )
+        assert state_bytes == kv_begin + plane_count * context * plane_token_bytes
         record["window_validation"] = {
             "native_route": gemma_window_witness(
                 args.emitted / "epoch.loom", layout["layer_windows"]
@@ -200,8 +243,10 @@ def main():
             ),
             "layer_windows": layout["layer_windows"],
             "layer_rope_bases": layout["layer_rope_bases"],
+            "local_rotary_factor": 1,
+            "global_rotary_factor": global_factor,
             "numerical_oracle": "separate shared attention window oracle; this gate proves full-model routing and ownership",
-            "criteria": "P511/N3 then dependent P514/N1; excluded local KV invariance and included lower-edge sensitivity",
+            "criteria": f"P{local_window - 1}/N3 then dependent P{local_window + 2}/N1; excluded local KV invariance and included lower-edge sensitivity",
         }
 
     def publish():
@@ -595,10 +640,12 @@ def main():
         if gemma:
             # Finite, fully defined prior F16 K/V. This is a legal synthetic cache,
             # not a claim that the prefix was produced by a reference tokenizer/model.
+            window_position = local_window - 1
+            decode_position = window_position + 3
             history = bytearray(initial_state)
             width = plane_token_bytes // 2
             for plane in range(plane_count):
-                for position in range(511):
+                for position in range(window_position):
                     values = [
                         (((plane * 7 + position * 3 + lane) % 31) - 15) / 64.0
                         for lane in range(width)
@@ -609,15 +656,22 @@ def main():
                     )
             history = bytes(history)
             window, window_state = run(
-                "window_prefill", 0, 0, 511, [100, 200, 300], history
+                "window_prefill", 0, 0, window_position, [100, 200, 300], history
             )
             window_offset, window_offset_state = run(
-                "window_offset", 2, 7, 511, [100, 200, 300], history
+                "window_offset", 2, 7, window_position, [100, 200, 300], history
             )
             assert window == window_offset, (form, "window crossing B/S equivalence")
-            window_decode, _ = run("window_decode", 0, 0, 514, [400], window_state)
+            window_decode, _ = run(
+                "window_decode", 0, 0, decode_position, [400], window_state
+            )
             window_decode_offset, _ = run(
-                "window_offset_decode", 2, 7, 514, [400], window_offset_state
+                "window_offset_decode",
+                2,
+                7,
+                decode_position,
+                [400],
+                window_offset_state,
             )
             assert window_decode == window_decode_offset, (
                 form,
@@ -628,7 +682,9 @@ def main():
                 if not window_size:
                     continue
                 for plane in (2 * layer, 2 * layer + 1):
-                    for position in range(3):  # P514 includes [3, 514], not [0, 2].
+                    for position in range(
+                        3
+                    ):  # P=W+2 includes [3, W+2], excluding [0, 2].
                         offset = (
                             kv_begin + (plane * context + position) * plane_token_bytes
                         )
@@ -636,7 +692,14 @@ def main():
                             "<" + "e" * width, *([4.0] * width)
                         )
             assert bytes(excluded) != window_state
-            run("window_excluded_local_prefix", 0, 0, 514, [400], bytes(excluded))
+            run(
+                "window_excluded_local_prefix",
+                0,
+                0,
+                decode_position,
+                [400],
+                bytes(excluded),
+            )
             assert (
                 observations["window_excluded_local_prefix"]
                 == observations["window_decode"]
@@ -648,7 +711,14 @@ def main():
             included[offset : offset + plane_token_bytes] = struct.pack(
                 "<" + "e" * width, *([8.0] * width)
             )
-            run("window_included_local_edge", 0, 0, 514, [400], bytes(included))
+            run(
+                "window_included_local_edge",
+                0,
+                0,
+                decode_position,
+                [400],
+                bytes(included),
+            )
             assert (
                 observations["window_included_local_edge"][0]
                 != observations["window_decode"][0]
@@ -661,7 +731,14 @@ def main():
                 global_prefix[offset : offset + plane_token_bytes] = struct.pack(
                     "<" + "e" * width, *([8.0] * width)
                 )
-            run("window_included_global_prefix", 0, 0, 514, [400], bytes(global_prefix))
+            run(
+                "window_included_global_prefix",
+                0,
+                0,
+                decode_position,
+                [400],
+                bytes(global_prefix),
+            )
             assert (
                 observations["window_included_global_prefix"][0]
                 != observations["window_decode"][0]

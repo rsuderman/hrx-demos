@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <limits>
 #include <memory>
 namespace hrx::loomify_gguf {
 namespace {
@@ -153,6 +154,100 @@ TEST(Gemma3Configuration, RejectsMissingNormWrongShapeEncodingAndInvalidRange) {
   EXPECT_FALSE(DeriveConfiguration(m, "fixture", {}, &f, &e));
   EXPECT_EQ(f.source, "sentinel");
 }
+
+TEST(Gemma3Configuration,
+     DerivedLargeGeometryPreservesActualFormatsAndCacheWidth) {
+  for (uint32_t tag : {12u, 14u, 8u}) {
+    SCOPED_TRACE(tag);
+    model::ModelDescriptor m;
+    ConfigurationFacts f;
+    std::string e;
+    ASSERT_TRUE(
+        model::LoadModelDescriptor(testing::gemma3::LargeCatalog(tag), &m, &e))
+        << e;
+    ASSERT_TRUE(DeriveConfiguration(m, "large-fixture", {128, 2048}, &f, &e))
+        << e;
+    EXPECT_EQ(f.parameters.size(), 627);
+    for (const char *fact :
+         {"@gemma3.model.hidden_size = 3840 : index",
+          "@gemma3.model.vocabulary_size = 262208 : index",
+          "@gemma3.model.layer_count = 48 : index",
+          "@gemma3.model.query_heads = 16 : index",
+          "@gemma3.model.kv_heads = 8 : index",
+          "@gemma3.model.query_size = 4096 : index",
+          "@gemma3.model.kv_size = 2048 : index",
+          "@loomify.serving.kv_size = 2048 : index",
+          "@gemma3.model.rope_factor_global = 8.000000000e+00 : f32",
+          "@gemma3.attention.cache_base = 1284 : offset"})
+      EXPECT_NE(f.source.find(fact), std::string::npos) << fact;
+    const auto embedding_tag = tag == 8 ? 8 : 14;
+    EXPECT_NE(f.source.find("@gemma3.model.embedding_weight_tag = " +
+                            std::to_string(embedding_tag)),
+              std::string::npos);
+    EXPECT_NE(f.source.find("@gemma3.model.output_weight_tag = " +
+                            std::to_string(embedding_tag)),
+              std::string::npos);
+    for (size_t i = 0; i < m.layers.size(); ++i) {
+      EXPECT_EQ(m.layers[i].attention_window, i % 6 == 5 ? 0 : 1024);
+      EXPECT_EQ(m.layers[i].rope_base, i % 6 == 5 ? 1e6 : 1e4);
+    }
+    for (const auto &binding : f.parameters) {
+      if (binding.role == "output" || binding.role == "token_embedding") {
+        EXPECT_EQ(binding.tensor.storage_type, embedding_tag);
+        EXPECT_EQ(binding.tensor.byte_size,
+                  tag == 8 ? 1069808640u : 825955200u);
+      }
+      if (binding.layer && binding.role == "query")
+        EXPECT_EQ(binding.tensor.storage_type, tag);
+    }
+  }
+}
+
+TEST(Gemma3Configuration, RejectsInvalidLargeGroupingRotaryAndTiedExtents) {
+  const auto valid = testing::gemma3::LargeModelFacts();
+  std::string e;
+  ConfigurationFacts f;
+  f.source = "sentinel";
+  auto reject = [&](const model::ModelDescriptor &m) {
+    EXPECT_FALSE(DeriveConfiguration(m, "large-fixture", {128, 2048}, &f, &e));
+    EXPECT_EQ(f.source, "sentinel");
+  };
+  for (double factor : {0., -1., std::numeric_limits<double>::infinity(),
+                        std::numeric_limits<double>::quiet_NaN()}) {
+    auto m = valid;
+    m.rope.scaling_factor = factor;
+    reject(m);
+  }
+  for (const char *kind : {"none", "yarn"}) {
+    auto m = valid;
+    m.rope.scaling_kind = kind;
+    reject(m);
+  }
+  for (uint32_t heads : {0u, 3u, 33u}) {
+    auto m = valid;
+    m.layers[0].query_heads = heads;
+    reject(m);
+  }
+  auto m = valid;
+  m.layers[47].kv_heads = 4;
+  reject(m);
+  m = valid;
+  for (auto &b : m.globals)
+    if (b.role == "output")
+      b.tensor.absolute_offset++;
+  reject(m);
+  m = valid;
+  for (auto &b : m.globals)
+    if (b.role == "output")
+      b.tensor.byte_size--;
+  reject(m);
+  m = valid;
+  for (auto &b : m.layers[0].tensors)
+    if (b.role == "query")
+      b.tensor.normalized_extents[1] = 3840;
+  reject(m);
+}
+
 TEST(Gemma3Configuration, ActualCheckpointLogicalReaderAndOwnedConfiguration) {
   const char *path = std::getenv("LOOMIFY_TEST_GEMMA_GGUF");
   if (!path || !*path)

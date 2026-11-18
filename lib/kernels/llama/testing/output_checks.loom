@@ -1521,3 +1521,256 @@ check.scenario @bounded_fused_greedy {
   }
   check.return
 }
+
+// Three independent rows exercise the 65th, 64-element partial tile: last-ID
+// winner, low-ID tie across full tiles, and a tie across the old vocabulary end.
+func.def @full_vocab_logits(%logits: buffer) {
+  %origin = index.constant 0 : offset
+  %v = buffer.view %logits[%origin] : buffer -> view<3x262208xf32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %end = index.constant 262208 : index
+  %tile = index.constant 4096 : index
+  %low = scalar.constant -1.0 : f32
+  %high = scalar.constant 99.0 : f32
+  scf.for %c = [%zero to %end step %one] {
+    %id = index.cast %c : index to i32
+    %ascending = scalar.uitofp %id : i32 to f32
+    %local = index.rem %c, %tile : index
+    %local32 = index.cast %local : index to i32
+    %tied = scalar.uitofp %local32 : i32 to f32
+    view.store %ascending, %v[0, %c] : f32, view<3x262208xf32>
+    view.store %tied, %v[1, %c] : f32, view<3x262208xf32>
+    view.store %low, %v[2, %c] : f32, view<3x262208xf32>
+  }
+  view.store %high, %v[2, 262143] : f32, view<3x262208xf32>
+  view.store %high, %v[2, 262144] : f32, view<3x262208xf32>
+  func.return
+}
+
+command.def @full_vocab_argmax() launch(%logits: buffer, %partial: buffer, %partial_ids: buffer, %ids: buffer) {
+  %rows = index.constant 3 : index
+  %vocab = index.constant 262208 : index
+  kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%rows, %vocab](%rows, %vocab, %logits, %partial, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
+  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%rows, %vocab](%rows, %vocab, %partial, %partial_ids, %ids) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @full_vocab_expected(%logits: buffer, %partial: buffer, %partial_ids: buffer, %ids: buffer) {
+  %origin = index.constant 0 : offset
+  %p = buffer.view %partial[%origin] : buffer -> view<3x65xf32>
+  %pi = buffer.view %partial_ids[%origin] : buffer -> view<3x65xi32>
+  %out = buffer.view %ids[%origin] : buffer -> view<3xi32>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %parts = index.constant 65 : index
+  %tile = index.constant 4096 : index
+  %last = index.constant 262207 : index
+  %tail = index.constant 64 : index
+  %full_max = scalar.constant 4095.0 : f32
+  %tail_max = scalar.constant 63.0 : f32
+  %low = scalar.constant -1.0 : f32
+  %high = scalar.constant 99.0 : f32
+  %full_id = scalar.constant 4095 : i32
+  %tail_id = scalar.constant 262207 : i32
+  %boundary_id = scalar.constant 262143 : i32
+  scf.for %part = [%zero to %parts step %one] {
+    %begin = index.mul %part, %tile : index
+    %next = index.add %part, %one : index
+    %end = index.mul %next, %tile : index
+    %last0 = index.sub %end, %one : index
+    %bounded_last = index.min %last0, %last : index
+    %id = index.cast %bounded_last : index to i32
+    %value = scalar.uitofp %id : i32 to f32
+    %is_tail = index.cmp eq, %part, %tail : index
+    %tie_value = scf.select %is_tail, %tail_max, %full_max : f32
+    %begin32 = index.cast %begin : index to i32
+    view.store %value, %p[0, %part] : f32, view<3x65xf32>
+    view.store %id, %pi[0, %part] : i32, view<3x65xi32>
+    view.store %tie_value, %p[1, %part] : f32, view<3x65xf32>
+    view.store %id, %pi[1, %part] : i32, view<3x65xi32>
+    view.store %low, %p[2, %part] : f32, view<3x65xf32>
+    view.store %begin32, %pi[2, %part] : i32, view<3x65xi32>
+  }
+  %image_id = scalar.constant 262144 : i32
+  view.store %high, %p[2, 63] : f32, view<3x65xf32>
+  view.store %boundary_id, %pi[2, 63] : i32, view<3x65xi32>
+  view.store %high, %p[2, 64] : f32, view<3x65xf32>
+  view.store %image_id, %pi[2, 64] : i32, view<3x65xi32>
+  view.store %tail_id, %out[0] : i32, view<3xi32>
+  view.store %full_id, %out[1] : i32, view<3xi32>
+  view.store %boundary_id, %out[2] : i32, view<3xi32>
+  func.return
+}
+
+check.scenario @full_vocab_partial_tail_and_ties {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %logit_owner = check.generate.fill value(999999.0) : tensor<786628xf32>
+    %logits = check.tensor.view %logit_owner offset(8) : tensor<786628xf32> -> tensor<786624xf32>
+    check.generate<@full_vocab_logits>(%logits) : (tensor<786624xf32>) -> ()
+    %partial_owner = check.generate.fill value(999999.0) : tensor<199xf32>
+    %partial = check.tensor.view %partial_owner offset(8) : tensor<199xf32> -> tensor<195xf32>
+    %partial_id_owner = check.generate.fill value(-77) : tensor<199xi32>
+    %partial_ids = check.tensor.view %partial_id_owner offset(8) : tensor<199xi32> -> tensor<195xi32>
+    %id_owner = check.generate.fill value(-99) : tensor<7xi32>
+    %ids = check.tensor.view %id_owner offset(8) : tensor<7xi32> -> tensor<3xi32>
+    check.compare<@full_vocab_argmax, @full_vocab_expected>(%logits, %partial, %partial_ids, %ids) : (tensor<786624xf32>, tensor<195xf32>, tensor<195xi32>, tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%logit_owner) expected(%logit_owner) : tensor<786628xf32>
+      check.expect.bitwise actual(%partial_owner) expected(%partial_owner) : tensor<199xf32>
+      check.expect.bitwise actual(%partial_id_owner) expected(%partial_id_owner) : tensor<199xi32>
+      check.expect.bitwise actual(%id_owner) expected(%id_owner) : tensor<7xi32>
+    }
+  }
+  check.return
+}
+
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+// All earlier rows decode to zero. Only physical row262207 has positive
+// weights, so its independent winning ID also proves the final byte stride.
+func.def @full_vocab_q14_weights(%weights: buffer) {
+  %last_origin = index.constant 55063470 : offset
+  %row = buffer.view %weights[%last_origin] : buffer -> view<210xi8>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %begin = index.constant 192 : index
+  %end = index.constant 208 : index
+  %minus_one = scalar.constant -1 : i8
+  scf.for %i = [%begin to %end step %one] {
+    view.store %minus_one, %row[%i] : i8, view<210xi8>
+  }
+  %d0 = scalar.constant 0 : i8
+  %d1 = scalar.constant 60 : i8
+  view.store %d0, %row[208] : i8, view<210xi8>
+  view.store %d1, %row[209] : i8, view<210xi8>
+  func.return
+}
+
+command.def @full_vocab_q14() launch(%input: buffer, %weights: buffer, %ids: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %one32 = scalar.constant 1 : i32
+  %hidden = index.constant 256 : index
+  %vocab = index.constant 262208 : index
+  %policy = index.constant 1 : index
+  %tag = index.constant 14 : index
+  %bytes = index.constant 55063680 : index
+  %weight = buffer.view %weights[%origin] : buffer -> view<[%bytes]xi8>
+  %packed_bytes = index.constant 288 : offset
+  %logit_bytes = index.constant 1048832 : offset
+  %partial_bytes = index.constant 260 : offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  %logits = buffer.alloca<global> align(256) %logit_bytes : buffer
+  %partial = buffer.alloca<global> align(256) %partial_bytes : buffer
+  %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%policy, %one, %one, %hidden, %zero, %one32, %origin, %input, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %one, %one, %hidden, %vocab, %bytes, %zero, %one32, %origin, %packed, %packed, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%bytes]xi8>, buffer)
+  kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%one, %vocab](%one, %vocab, %logits, %partial, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
+  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%one, %vocab](%one, %vocab, %partial, %partial_ids, %ids) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @full_vocab_q14_expected(%input: buffer, %weights: buffer, %ids: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %ids[%origin] : buffer -> view<1xi32>
+  %last = scalar.constant 262207 : i32
+  view.store %last, %out[0] : i32, view<1xi32>
+  func.return
+}
+
+check.scenario @full_vocab_q14_last_row {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1.0) : tensor<256xf32>
+    %weight_owner = check.generate.fill value(0) : tensor<55064192xi8>
+    %weights = check.tensor.view %weight_owner offset(256) : tensor<55064192xi8> -> tensor<55063680xi8>
+    check.generate<@full_vocab_q14_weights>(%weights) : (tensor<55063680xi8>) -> ()
+    %id_owner = check.generate.fill value(-99) : tensor<5xi32>
+    %ids = check.tensor.view %id_owner offset(8) : tensor<5xi32> -> tensor<1xi32>
+    check.compare<@full_vocab_q14, @full_vocab_q14_expected>(%input, %weights, %ids) : (tensor<256xf32>, tensor<55063680xi8>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<55064192xi8>
+      check.expect.bitwise actual(%id_owner) expected(%id_owner) : tensor<5xi32>
+    }
+  }
+  check.return
+}
+
+// All earlier rows decode to zero. Only physical row262207 has positive
+// weights, so its independent winning ID also proves the final byte stride.
+func.def @full_vocab_q8_weights(%weights: buffer) {
+  %last_origin = index.constant 71320304 : offset
+  %row = buffer.view %weights[%last_origin] : buffer -> view<272xi8>
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %blocks = index.constant 8 : index
+  %stride = index.constant 34 : index
+  %two = index.constant 2 : index
+  %byte_one = scalar.constant 1 : i8
+  %d0 = scalar.constant 0 : i8
+  %d1 = scalar.constant 60 : i8
+  scf.for %block = [%zero to %blocks step %one] {
+    %begin = index.mul %block, %stride : index
+    %scale_hi = index.add %begin, %one : index
+    view.store %d0, %row[%begin] : i8, view<272xi8>
+    view.store %d1, %row[%scale_hi] : i8, view<272xi8>
+    %payload = index.add %begin, %two : index
+    %end = index.add %begin, %stride : index
+    scf.for %i = [%payload to %end step %one] {
+      view.store %byte_one, %row[%i] : i8, view<272xi8>
+    }
+  }
+  func.return
+}
+
+command.def @full_vocab_q8() launch(%input: buffer, %weights: buffer, %ids: buffer) {
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %one32 = scalar.constant 1 : i32
+  %hidden = index.constant 256 : index
+  %vocab = index.constant 262208 : index
+  %policy = index.constant 1 : index
+  %tag = index.constant 8 : index
+  %bytes = index.constant 71320576 : index
+  %weight = buffer.view %weights[%origin] : buffer -> view<[%bytes]xi8>
+  %packed_bytes = index.constant 288 : offset
+  %logit_bytes = index.constant 1048832 : offset
+  %partial_bytes = index.constant 260 : offset
+  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+  %logits = buffer.alloca<global> align(256) %logit_bytes : buffer
+  %partial = buffer.alloca<global> align(256) %partial_bytes : buffer
+  %partial_ids = buffer.alloca<global> align(256) %partial_bytes : buffer
+  template.apply<@llm.projection.pack_input>(%policy, %one, %one, %hidden, %zero, %one32, %origin, %input, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %one, %one, %hidden, %vocab, %bytes, %zero, %one32, %origin, %packed, %packed, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%bytes]xi8>, buffer)
+  kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%one, %vocab](%one, %vocab, %logits, %partial, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
+  kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%one, %vocab](%one, %vocab, %partial, %partial_ids, %ids) : [index, index](index, index, buffer, buffer, buffer)
+  command.return
+}
+
+func.def @full_vocab_q8_expected(%input: buffer, %weights: buffer, %ids: buffer) {
+  %origin = index.constant 0 : offset
+  %out = buffer.view %ids[%origin] : buffer -> view<1xi32>
+  %last = scalar.constant 262207 : i32
+  view.store %last, %out[0] : i32, view<1xi32>
+  func.return
+}
+
+check.scenario @full_vocab_q8_last_row {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1.0) : tensor<256xf32>
+    %weight_owner = check.generate.fill value(0) : tensor<71321088xi8>
+    %weights = check.tensor.view %weight_owner offset(256) : tensor<71321088xi8> -> tensor<71320576xi8>
+    check.generate<@full_vocab_q8_weights>(%weights) : (tensor<71320576xi8>) -> ()
+    %id_owner = check.generate.fill value(-99) : tensor<5xi32>
+    %ids = check.tensor.view %id_owner offset(8) : tensor<5xi32> -> tensor<1xi32>
+    check.compare<@full_vocab_q8, @full_vocab_q8_expected>(%input, %weights, %ids) : (tensor<256xf32>, tensor<71320576xi8>, tensor<1xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<256xf32>
+      check.expect.bitwise actual(%weight_owner) expected(%weight_owner) : tensor<71321088xi8>
+      check.expect.bitwise actual(%id_owner) expected(%id_owner) : tensor<5xi32>
+    }
+  }
+  check.return
+}

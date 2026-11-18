@@ -9,7 +9,9 @@ func.decl @ggml_q6k_q8_1_x4_row_lane(%input_size: index, %weight: buffer, %weigh
 
 config.decl @ggml.linear_q6k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
 
-config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+// Shared with the canonical provider; compatible launches retain their own
+// 262144 output bound below.
+config.decl @ggml.linear_q6k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262208)]
 
 target.decl @llm.platform.projection.q6k.compatible.wave32
 

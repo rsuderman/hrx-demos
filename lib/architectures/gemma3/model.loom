@@ -13,6 +13,8 @@ config.decl @gemma3.model.embedding_weight_bytes : index
 
 config.decl @gemma3.model.output_weight_bytes : index
 
+config.decl @gemma3.model.output_weight_tag : index
+
 command.decl @loomify.gemma3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
 
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
@@ -44,7 +46,7 @@ command.def @loomify.gemma3.model() launch(%parameters: buffer, %residual: buffe
   %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
   %weight = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
   %policy = index.constant 1 : index
-  %tag = index.constant 8 : index
+  %tag = config.get @gemma3.model.output_weight_tag : index
   template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %policy, %tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }

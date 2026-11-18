@@ -1,0 +1,17 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+config.def @gemma3.model.hidden_size = 3840 : index
+
+config.def @gemma3.model.vocabulary_size = 262208 : index
+
+config.def @gemma3.model.embedding_weight_tag = 8 : index
+
+config.def @gemma3.model.embedding_scale = 61.967735290527344 : f32
+
+kernel.decl @gemma3_token_embedding_epoch_q8_f32(%rows: index) launch(%epoch: buffer, %count: buffer, %ids: buffer, %weight: buffer, %output: buffer)
+
+command.def @gemma3.gather.actual() launch(%weight: buffer, %ids: buffer, %epoch: buffer, %count: buffer, %output: buffer) {
+  %rows = index.constant 8 : index
+  kernel.launch @gemma3_token_embedding_epoch_q8_f32[%rows](%epoch, %count, %ids, %weight, %output) : [index](buffer, buffer, buffer, buffer, buffer)
+  command.return
+}

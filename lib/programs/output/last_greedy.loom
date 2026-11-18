@@ -14,7 +14,7 @@ kernel.decl @qwen38_greedy_argmax_reduce_rows_f32(%rows$39: index, %vocab$40: in
 
 template.decl @llm.output.scratch_shape(%hidden: index, %vocab: index)
 
-template.def<@llm.output.scratch_shape> @llm_output_scratch_shape(%hidden: index, %vocab: index) where [range(%hidden, 128, 32768), multiple_of(%hidden, 128), range(%vocab, 1, 262144)] {
+template.def<@llm.output.scratch_shape> @llm_output_scratch_shape(%hidden: index, %vocab: index) where [range(%hidden, 128, 32768), multiple_of(%hidden, 128), range(%vocab, 1, 262208)] {
   template.return
 }
 

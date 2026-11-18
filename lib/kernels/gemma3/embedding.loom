@@ -1,13 +1,17 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
-// Curated from the owned Llama 3B binding; valid IDs are caller preconditions.
+// Gemma epoch gather reuses the owned codecs and applies sqrt(E) once.
 config.decl @gemma3.model.hidden_size : index
 
 config.decl @gemma3.model.vocabulary_size : index
 
 config.decl @gemma3.model.embedding_scale : f32
 
+config.decl @gemma3.model.embedding_weight_tag : index
+
 template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %token_id_i32: i32, %output_byte_offset: offset, %scale: f32, %weight: buffer, %output: buffer)
+
+template.decl @llm.token_embedding_q6k_f32.row(%hidden: index, %row_bytes: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
 
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 
@@ -39,13 +43,38 @@ kernel.def @gemma3_token_embedding_epoch_q8_f32(%token_count0: index) {
     %input_begin_word = view.load %descriptor[2] : view<5xi32> -> i32
     %input_begin = index.cast %input_begin_word : i32 to index
     %input_row_value = index.add %input_begin, %row : index
-    %input_row = index.assume %input_row_value [range(%input_row_value, 0, 511), lt(%input_row_value, %token_count)] : index
+    %input_row = index.assume %input_row_value [range(%input_row_value, 0, 2047), lt(%input_row_value, %token_count)] : index
     %id32 = view.load %ids[%input_row] : view<[%token_count]xi32> -> i32
     %id_value = index.cast %id32 : i32 to index
-    %id = index.assume %id_value [range(%id_value, 0, 262143), lt(%id_value, %vocabulary)] : index
+    %id = index.assume %id_value [range(%id_value, 0, 262207), lt(%id_value, %vocabulary)] : index
     %bounded_id = index.cast %id : index to i32
     %scale = config.get @gemma3.model.embedding_scale : f32
-    template.apply<@llm.token_embedding_q8_0_f32.row>(%hidden_size, %bounded_id, %output_origin, %scale, %weight, %output) : (index, i32, offset, f32, buffer, buffer)
+    %tag = config.get @gemma3.model.embedding_weight_tag : index
+    %q8_tag = index.constant 8 : index
+    %q8 = index.cmp eq, %tag, %q8_tag : index
+    scf.if %q8 {
+      %q8_hidden = index.assume %hidden_size [range(%hidden_size, 32, 32768), multiple_of(%hidden_size, 32)] : index
+      template.apply<@llm.token_embedding_q8_0_f32.row>(%q8_hidden, %bounded_id, %output_origin, %scale, %weight, %output) : (index, i32, offset, f32, buffer, buffer)
+    } else {
+      %block = index.constant 256 : index
+      %encoded_block_bytes = index.constant 210 : index
+      %blocks = index.div %hidden_size, %block : index
+      %encoded_row_bytes = index.mul %blocks, %encoded_block_bytes : index
+      template.apply<@llm.token_embedding_q6k_f32.row>(%hidden_size, %encoded_row_bytes, %bounded_id, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+      // Each thread rescales exactly the packets it decoded, in F32.
+      %thread = kernel.workitem.id<x> : index
+      %four = index.constant 4 : index
+      %threads = index.constant 256 : index
+      %packets = index.div %hidden_size, %four : index
+      %out = buffer.view %output[%output_origin] : buffer -> view<[%hidden_size]xf32>
+      %factor = vector.splat %scale : vector<4xf32>
+      scf.for %packet = [%thread to %packets step %threads] {
+        %column = index.mul %packet, %four : index
+        %decoded = vector.load %out[%column] : view<[%hidden_size]xf32> -> vector<4xf32>
+        %scaled = vector.mulf %decoded, %factor : vector<4xf32>
+        vector.store %scaled, %out[%column] : vector<4xf32>, view<[%hidden_size]xf32>
+      }
+    }
   }
   kernel.return
 }
