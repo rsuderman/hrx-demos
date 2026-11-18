@@ -17,6 +17,7 @@
 #include <fstream>
 #include <sstream>
 #include <tuple>
+#include <utility>
 #include <vector>
 #include <memory>
 #include <string>
@@ -65,6 +66,7 @@ struct Input {
   int up_tag = 12;
   int up_bytes = 14155776;
   int fixed_count = 1;
+  bool matrix_route = false;
 };
 std::vector<Input> Inputs() {
   std::vector<Input> cases = {
@@ -83,6 +85,24 @@ std::vector<Input> Inputs() {
       {"canonical_q4_0", 1, 2, 128, 1, 4, 3528},
       {"canonical_q4_1", 1, 3, 128, 1, 4, 3920},
       {"canonical_iq4_xs", 1, 23, 256, 1, 4, 6664},
+      {"canonical_iq4_nl_minimum", 1, 20, 128, 1, 4, 3528},
+      {"canonical_iq3_s", 1, 21, 256, 1, 4, 5390},
+      {"canonical_q3k", 1, 11, 256, 1, 4, 5390},
+      {"bad_iq4_nl_wire_extent", 1, 20, 128, 1, 4, 3527, 524288, 262144, false},
+      {"bad_iq3_s_wire_extent", 1, 21, 256, 1, 4, 5389, 524288, 262144, false},
+      {"bad_q3k_wire_extent", 1, 11, 256, 1, 4, 5391, 524288, 262144, false},
+      {"bad_iq4_nl_packet_alignment", 1, 20, 64, 1, 4, 1764, 524288, 262144,
+       false},
+      {"bad_iq3_s_block_alignment", 1, 21, 128, 1, 4, 2695, 524288, 262144,
+       false},
+      {"bad_q3k_block_alignment", 1, 11, 128, 1, 4, 2695, 524288, 262144,
+       false},
+      {"unsupported_compatible_iq4_nl", 0, 20, 128, 1, 4, 3528, 524288, 262144,
+       false},
+      {"unsupported_compatible_iq3_s", 0, 21, 256, 1, 4, 5390, 524288, 262144,
+       false},
+      {"unsupported_compatible_q3k", 0, 11, 256, 1, 4, 5390, 524288, 262144,
+       false},
       {"bad_q4_0_weight_bytes", 1, 2, 128, 1, 4, 3527, 524288, 262144, false},
       {"bad_q4_1_weight_bytes", 1, 3, 128, 1, 4, 3921, 524288, 262144, false},
       {"bad_iq4_xs_weight_bytes", 1, 23, 256, 1, 4, 6663, 524288, 262144,
@@ -130,6 +150,19 @@ std::vector<Input> Inputs() {
       {"packed_f32_ornith_rejected", 1, 0, 4096, 17, 512, 524288, 524288,
        262144, false, 32},
   };
+  for (int tag : {20, 21, 11}) {
+    for (int rows : {1, 17}) {
+      Input input;
+      input.name = "new_format_matrix_prefix";
+      input.tag = tag;
+      input.width = tag == 20 ? 128 : 256;
+      input.rows = input.capacity = rows;
+      input.columns = 7;
+      input.bytes = tag == 20 ? 504 : 770;
+      input.matrix_route = true;
+      cases.push_back(input);
+    }
+  }
   auto routed = [&](const char *name, int tag, int width, int columns, int rows,
                     int capacity, int bytes, bool expected) {
     Input input;
@@ -225,14 +258,17 @@ TEST_P(ProjectionMaterializationTest,
   ASSERT_TRUE(stream);
   std::ostringstream source;
   source << stream.rdbuf();
+  if (input.matrix_route)
+    source
+        << "template.decl @llm.projection.matrix(%T:index,%K:index,%N:index,%tag:index,%B:index,%count:buffer,%input:buffer,%weight:view<[%B]xi8>,%output:buffer)\n";
   if (input.paired)
     source
         << "template.decl @llm.ffn.swiglu_packed(%policy:index,%rows:index,%capacity:index,%width:index,%ffn:index,%gt:index,%ut:index,%gb:index,%ub:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%gate:view<[%gb]xi8>,%up:view<[%ub]xi8>,%output:buffer)\n";
   if (input.prepacked_rows)
     source
         << "template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %raw: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n";
-  for (const char *format :
-       {"q4k", "q5k", "q6k", "q8_0", "q5_0", "q4_0", "q4_1", "iq4_xs"})
+  for (const char *format : {"q4k", "q5k", "q6k", "q8_0", "q5_0", "q4_0",
+                             "q4_1", "iq4_xs", "iq4_nl", "iq3_s", "q3k"})
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 2048 : index\n"
            << "config.def @ggml.linear_" << format
@@ -269,6 +305,9 @@ TEST_P(ProjectionMaterializationTest,
         << "  %ub = index.constant " << input.up_bytes << " : index\n"
         << "  %up = buffer.view %up_weights[%origin] : buffer -> view<[%ub]xi8>\n"
         << "  template.apply<@llm.ffn.swiglu_packed>(%policy,%rows,%capacity,%width,%cols,%tag,%ut,%bytes,%ub,%begin,%fixed,%origin,%count,%packed,%weight,%up,%output) : (index,index,index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%bytes]xi8>,view<[%ub]xi8>,buffer)\n";
+  } else if (input.matrix_route) {
+    source
+        << "  template.apply<@llm.projection.matrix>(%rows,%width,%cols,%tag,%bytes,%count,%raw,%weight,%output) : (index,index,index,index,index,buffer,buffer,view<[%bytes]xi8>,buffer)\n";
   } else if (input.prepacked_rows) {
     source
         << "  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %capacity, %width, %cols, %tag, %bytes, %count, %raw, %packed, %weight, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)\n";
@@ -284,6 +323,14 @@ TEST_P(ProjectionMaterializationTest,
       Runfile(std::string("lib/programs/projection/testing/provider_") +
               (bytecode ? "bc.loombc" : "text.loom"));
   std::vector<std::string> products = {product};
+  if (input.matrix_route) {
+    for (const char *name : {"matrix", "prepared_rows"})
+      products.push_back(Runfile(std::string("lib/programs/projection/") +
+                                 name + (bytecode ? ".loombc" : "_text.loom")));
+    products.push_back(
+        Runfile("lib/platforms/amdgpu/gfx11/projection/implementation.loombc"));
+    // provider_text/provider_bc already owns the concrete target definitions.
+  }
   if (input.paired)
     products.push_back(Runfile(std::string("lib/programs/ffn/gate_up") +
                                (bytecode ? ".loombc" : "_text.loom")));
@@ -293,6 +340,32 @@ TEST_P(ProjectionMaterializationTest,
   Owner<loomc_module_t, loomc_module_release> module(raw_module,
                                                      loomc_module_release);
   EXPECT_EQ(succeeded, input.expected) << error;
+  if (succeeded && (input.tag == 20 || input.tag == 21 || input.tag == 11)) {
+    loomc_source_t *raw_text = nullptr;
+    status = loomc_module_serialize_text_to_source(
+        module.get(), nullptr, loomc_allocator_system(), &raw_text);
+    ASSERT_TRUE(loomc_status_is_ok(status)) << Message(status);
+    Owner<loomc_source_t, loomc_source_release> printed(raw_text,
+                                                        loomc_source_release);
+    const auto bytes = loomc_source_contents(printed.get());
+    const std::string text(reinterpret_cast<const char *>(bytes.data),
+                           bytes.data_length);
+    for (const auto &[tag, name] : std::vector<std::pair<int, const char *>>{
+             {20, "iq4_nl"}, {21, "iq3_s"}, {11, "q3k"}}) {
+      const auto launch =
+          std::string("kernel.launch @ggml_linear_") + name + "_q8_1_x4[";
+      EXPECT_EQ(text.find(launch) != std::string::npos, input.tag == tag)
+          << text;
+    }
+    if (input.matrix_route) {
+      EXPECT_NE(text.find("kernel.launch @llm.projection.prepare_f32_prefix["),
+                std::string::npos);
+      EXPECT_NE(text.find("kernel.launch @ggml_quantize_q8_1_x4_f32["),
+                std::string::npos);
+      EXPECT_EQ(text.find("kernel.launch @llm.projection.prepare_scaled_f16["),
+                std::string::npos);
+    }
+  }
   if (!input.expected) {
     EXPECT_NE(error.find("all_rejected"), std::string::npos) << error;
     EXPECT_NE(error.find("llm.projection."), std::string::npos) << error;
@@ -394,8 +467,8 @@ TEST(ProjectionComponents, SeparateProductsAcceptLateConfiguration) {
                  : probe.gate_up     ? gate_up_declaration
                  : probe.prepared    ? prepared_declaration
                                      : packed_declarations);
-      for (const char *format :
-           {"q4k", "q5k", "q6k", "q5_0", "q8_0", "q4_0", "q4_1", "iq4_xs"})
+      for (const char *format : {"q4k", "q5k", "q6k", "q5_0", "q8_0", "q4_0",
+                                 "q4_1", "iq4_xs", "iq4_nl", "iq3_s", "q3k"})
         source << "config.def @ggml.linear_" << format
                << "_q8_1_x4.token_capacity = "
                << (probe.matrix || probe.qkv >= 4 ? 17 : 1) << " : index\n"

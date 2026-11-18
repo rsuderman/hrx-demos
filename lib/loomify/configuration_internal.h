@@ -77,8 +77,10 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
                                      std::string *error) {
   uint64_t block = 0, maximum = 0;
   switch (tensor.storage_type) {
+  case 11:
   case 12:
   case 13:
+  case 21:
   case 23:
     block = 256;
     maximum = 32768;
@@ -91,6 +93,7 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
   case 3:
   case 6:
   case 8:
+  case 20:
     block = 128;
     maximum = 32768;
     break;
@@ -156,7 +159,10 @@ struct Producer {
              {13, "ggml.linear_q5k_q8_1_x4."},
              {14, "ggml.linear_q6k_q8_1_x4."},
              {8, "ggml.linear_q8_0_q8_1_x4."},
-             {23, "ggml.linear_iq4_xs_q8_1_x4."}}) {
+             {23, "ggml.linear_iq4_xs_q8_1_x4."},
+             {20, "ggml.linear_iq4_nl_q8_1_x4."},
+             {21, "ggml.linear_iq3_s_q8_1_x4."},
+             {11, "ggml.linear_q3k_q8_1_x4."}}) {
       // The operation owns format support. This only sizes the reused product
       // from its actual tensor consumers; unused products receive a minimal
       // bound.

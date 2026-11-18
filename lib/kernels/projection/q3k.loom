@@ -1,0 +1,196 @@
+// Copyright 2026 The HRX Authors
+// SPDX-License-Identifier: MIT
+// Q3_K scale/value decode curated from loom-fun/unsloth-Qwen3.8-27B-loom,
+// program/llm.loom revision 2ade9e68feb42a115ad1ecea775a0b90ba717225,
+// source SHA256 ca080db0074f75be5e5ea5bff6eec841c8ba20e4ade589d9060660c5122249ed.
+// The donor raw-F32/fixed-K contraction is adapted to the owned canonical
+// Q8_1_x4 packet accessor and subgroup-per-output schedule. The shared input
+// accessor is owned by iq4_xs.loom; no IQ4 weight decoding is used here.
+
+func.decl @ggml_iq4_q8_values32(%input: buffer, %row: offset, %block: index) -> (vector<32xf32>)
+
+func.def inline @ggml_q3_k_scale(%w: buffer, %origin: offset, %s_value: index) -> (f32) {
+  %s = index.assume %s_value [range(%s_value, 0, 15)] : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c2 = index.constant 2 : index
+  %sc_base = index.constant 96 : index
+  %lo_idx = index.rem %s, %c8 : index
+  %nib = index.div %s, %c8 : index
+  %hi_idx0 = index.rem %s, %c4 : index
+  %hi_idx = index.add %hi_idx0, %c8 : index
+  %hi_sh = index.div %s, %c4 : index
+  %lo_pos = index.add %sc_base, %lo_idx : index
+  %hi_pos = index.add %sc_base, %hi_idx : index
+  %lo_off = index.cast %lo_pos : index to offset
+  %hi_off = index.cast %hi_pos : index to offset
+  %lo_o = index.add %origin, %lo_off : offset
+  %hi_o = index.add %origin, %hi_off : offset
+  %lo_view = buffer.view %w[%lo_o] : buffer -> view<1xi8>
+  %hi_view = buffer.view %w[%hi_o] : buffer -> view<1xi8>
+  %lo_b = view.load %lo_view[0] : view<1xi8> -> i8
+  %hi_b = view.load %hi_view[0] : view<1xi8> -> i8
+  %lo32 = scalar.extui %lo_b : i8 to i32
+  %hi32 = scalar.extui %hi_b : i8 to i32
+  %nib32 = index.cast %nib : index to i32
+  %hsh32 = index.cast %hi_sh : index to i32
+  %c4_i32 = scalar.constant 4 : i32
+  %c2_i32 = scalar.constant 2 : i32
+  %c15 = scalar.constant 15 : i32
+  %c3 = scalar.constant 3 : i32
+  %c32 = scalar.constant 32 : i32
+  %lsh = scalar.muli %nib32, %c4_i32 : i32
+  %hsh = scalar.muli %hsh32, %c2_i32 : i32
+  %lo_s = scalar.shrui %lo32, %lsh : i32
+  %lo = scalar.andi %lo_s, %c15 : i32
+  %hi_s = scalar.shrui %hi32, %hsh : i32
+  %hi_m = scalar.andi %hi_s, %c3 : i32
+  %hi = scalar.shli %hi_m, %c4_i32 : i32
+  %sc = scalar.ori %lo, %hi : i32
+  %centered = scalar.subi %sc, %c32 : i32
+  %scf = scalar.sitofp %centered : i32 to f32
+  %d_bytes = index.constant 108 : offset
+  %d_o = index.add %origin, %d_bytes : offset
+  %d_view = buffer.view %w[%d_o] : buffer -> view<1xf16>
+  %d_half = view.load %d_view[0] : view<1xf16> -> f16
+  %d = scalar.extf %d_half : f16 to f32
+  %dl = scalar.mulf %d, %scf : f32
+  func.return %dl : f32
+}
+
+// Group g (32 values) of a Q3_K superblock: half n = g/4, shift j = g%4;
+// q = ((qs[32 n + l] >> 2j) & 3) - (hmask[l] bit g ? 0 : 4); scales 2g (l < 16) and 2g+1.
+func.def inline @ggml_q3_k_values(%w: buffer, %origin: offset, %group: index) -> (vector<32xf32>) {
+  %g = index.assume %group [range(%group, 0, 7)] : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c32 = index.constant 32 : index
+  %c1 = index.constant 1 : index
+  %n = index.div %g, %c4 : index
+  %j = index.rem %g, %c4 : index
+  %n32 = index.mul %n, %c32 : index
+  %qs_pos = index.add %c32, %n32 : index
+  %qs_off = index.cast %qs_pos : index to offset
+  %qs_origin = index.add %origin, %qs_off : offset
+  %hm_view = buffer.view %w[%origin] : buffer -> view<32xi8>
+  %qs_view = buffer.view %w[%qs_origin] : buffer -> view<32xi8>
+  %hm = vector.load %hm_view[0] : view<32xi8> -> vector<32xi8>
+  %qs = vector.load %qs_view[0] : view<32xi8> -> vector<32xi8>
+  %jq = index.mul %j, %c2 : index
+  %jq32 = index.cast %jq : index to i32
+  %jq8 = scalar.trunci %jq32 : i32 to i8
+  %shift_q = vector.splat %jq8 : vector<32xi8>
+  %g32 = index.cast %g : index to i32
+  %g8 = scalar.trunci %g32 : i32 to i8
+  %shift_h = vector.splat %g8 : vector<32xi8>
+  %three = vector.splati 3 : vector<32xi8>
+  %one = vector.splati 1 : vector<32xi8>
+  %two8 = vector.splati 2 : vector<32xi8>
+  %qsh = vector.shrui %qs, %shift_q : vector<32xi8>
+  %low = vector.andi %qsh, %three : vector<32xi8>
+  %hsh = vector.shrui %hm, %shift_h : vector<32xi8>
+  %hbit = vector.andi %hsh, %one : vector<32xi8>
+  %hb2 = vector.shli %hbit, %two8 : vector<32xi8>
+  %code = vector.ori %low, %hb2 : vector<32xi8>
+  %codef = vector.uitofp %code : vector<32xi8> to vector<32xf32>
+  %four_f = vector.splatf 4.0 : vector<32xf32>
+  %centered = vector.subf %codef, %four_f : vector<32xf32>
+  %s0 = index.mul %g, %c2 : index
+  %s1 = index.add %s0, %c1 : index
+  %dl0 = func.call @ggml_q3_k_scale(%w, %origin, %s0) : (buffer, offset, index) -> (f32)
+  %dl1 = func.call @ggml_q3_k_scale(%w, %origin, %s1) : (buffer, offset, index) -> (f32)
+  %v0 = vector.splat %dl0 : vector<16xf32>
+  %v1 = vector.splat %dl1 : vector<16xf32>
+  %scale_v = vector.concat<0> %v0, %v1 : vector<16xf32>, vector<16xf32> -> vector<32xf32>
+  %values = vector.mulf %centered, %scale_v : vector<32xf32>
+  func.return %values : vector<32xf32>
+}
+
+config.decl @ggml.linear_q3k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
+
+config.decl @ggml.linear_q3k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+
+target.decl @llm.platform.projection.q3k.wave32
+
+kernel.def target(@llm.platform.projection.q3k.wave32) export("ggml_linear_q3k_q8_1_x4") @ggml_linear_q3k_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
+  %tokens = index.assume %token_count [range(%token_count, 1, 2048)] : index
+  %columns = index.assume %output_size [range(%output_size, 1, 262144)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  %subgroup = target.subgroup.size : index
+  %channels_per_group = index.div %threads, %subgroup : index
+  %tail = index.sub %channels_per_group, %one : index
+  %padded = index.add %columns, %tail : index
+  %tiles = index.div %padded, %channels_per_group : index
+  kernel.launch.config workgroups(%tiles, %tokens, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer) {
+  %input_noalias, %weight_noalias, %output_noalias = buffer.assume.noalias %input, %weight, %output : buffer, buffer, buffer
+  %token_capacity = config.get @ggml.linear_q3k_q8_1_x4.token_capacity : index
+  %output_capacity = config.get @ggml.linear_q3k_q8_1_x4.output_capacity : index
+  %tokens = index.assume %token_count [range(%token_count, 1, 2048), le(%token_count, %token_capacity)] : index
+  %width = index.assume %input_size [range(%input_size, 256, 32768), multiple_of(%input_size, 256)] : index
+  %columns = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %tokens)] : index
+  %tile = kernel.workgroup.id<x> : index
+  %wave = kernel.subgroup.id : index
+  %lane0 = kernel.subgroup.lane.id : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 63)] : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %eight = index.constant 8 : index
+  %thirty_two = index.constant 32 : index
+  %c128 = index.constant 128 : index
+  %c256 = index.constant 256 : index
+  %threads = index.constant 256 : index
+  %subgroup = target.subgroup.size : index
+  %channels_per_group = index.div %threads, %subgroup : index
+  %tile_base = index.mul %tile, %channels_per_group : index
+  %channel = index.add %tile_base, %wave : index
+  %valid = index.cmp ult, %channel, %columns : index
+  %block_bytes = index.constant 110 : offset
+  %packed_bytes = index.constant 144 : offset
+  %superblocks = index.div %width, %c256 : index
+  %weight_row_bytes = index.scale %superblocks, %block_bytes : index, offset -> offset
+  %weight_row = index.scale %channel, %weight_row_bytes : index, offset -> offset
+  %packets = index.div %width, %c128 : index
+  %input_row_bytes = index.scale %packets, %packed_bytes : index, offset -> offset
+  %input_row = index.scale %token, %input_row_bytes : index, offset -> offset
+  %groups = index.div %width, %thirty_two : index
+  %zero_f32 = scalar.constant 0.0 : f32
+  %partial = scf.if %valid -> (f32) {
+    %sum = scf.for %base = [%zero to %groups step %subgroup](%acc = %zero_f32 : f32) -> (f32) {
+      %group0 = index.add %base, %lane : index
+      %live = index.cmp ult, %group0, %groups : index
+      %contribution = scf.if %live -> (f32) {
+        %group = index.assume %group0 [range(%group0, 0, 1023), lt(%group0, %groups)] : index
+        %block = index.div %group, %eight : index
+        %within = index.rem %group, %eight : index
+        %block_add = index.scale %block, %block_bytes : index, offset -> offset
+        %origin = index.add %weight_row, %block_add : offset
+        %w = func.call @ggml_q3_k_values(%weight_noalias, %origin, %within) : (buffer, offset, index) -> (vector<32xf32>)
+        %x = func.call @ggml_iq4_q8_values32(%input_noalias, %input_row, %group) : (buffer, offset, index) -> (vector<32xf32>)
+        %dot = vector.dotf<reassoc|contract> %w, %x, %zero_f32 : vector<32xf32>, vector<32xf32>, f32
+        scf.yield %dot : f32
+      } else {
+        scf.yield %zero_f32 : f32
+      }
+      %next = scalar.addf %acc, %contribution : f32
+      scf.yield %next : f32
+    }
+    scf.yield %sum : f32
+  } else {
+    scf.yield %zero_f32 : f32
+  }
+  %value = kernel.subgroup.reduce<addf> %partial : f32
+  %first = index.cmp eq, %lane, %zero : index
+  scf.if %valid {
+    scf.if %first {
+      %bounded_channel = index.assume %channel [lt(%channel, %columns)] : index
+      %origin = index.constant 0 : offset
+      %view = buffer.view %output_noalias[%origin] : buffer -> view<[%tokens]x[%columns]xf32>
+      view.store %value, %view[%token, %bounded_channel] : f32, view<[%tokens]x[%columns]xf32>
+    }
+  }
+  kernel.return
+}

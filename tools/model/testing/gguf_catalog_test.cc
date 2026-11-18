@@ -117,11 +117,12 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
     const char *name;
     uint64_t bytes;
   };
-  const Case cases[] = {{0, "f32", 2048},  {1, "f16", 1024},
-                        {2, "q4_0", 288},  {3, "q4_1", 320},
-                        {6, "q5_0", 352},  {8, "q8_0", 544},
-                        {12, "q4_K", 288}, {13, "q5_K", 352},
-                        {14, "q6_K", 420}, {23, "iq4_XS", 272}};
+  const Case cases[] = {
+      {0, "f32", 2048},    {1, "f16", 1024},  {2, "q4_0", 288},
+      {3, "q4_1", 320},    {6, "q5_0", 352},  {8, "q8_0", 544},
+      {12, "q4_K", 288},   {13, "q5_K", 352}, {14, "q6_K", 420},
+      {23, "iq4_XS", 272}, {11, "q3_K", 220}, {20, "iq4_NL", 288},
+      {21, "iq3_S", 220}};
   for (const auto &test : cases) {
     SCOPED_TRACE(test.name);
     const uint64_t relative = uint64_t{1} << 32;
@@ -146,9 +147,40 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
   }
 }
 
+TEST(GgufCatalog, IQStorageCoversAuxiliaryRowsAndRejectsTruncatedPayloads) {
+  for (const auto tag : {11u, 20u, 21u}) {
+    SCOPED_TRACE(tag);
+    const uint64_t width = tag == 20 ? 32 : 256;
+    const uint64_t row_bytes = tag == 20 ? 18 : 110;
+    // The catalog validates every tensor, including next-token auxiliary rows
+    // that an ordinary model-prefix builder will never execute.
+    auto header = TensorHeader(tag, {width, 3});
+    const auto name = header.find("blk.0.ffn_down.weight");
+    ASSERT_NE(name, std::string::npos);
+    header.replace(name, std::string("blk.0.ffn_down.weight").size(),
+                   "blk.9.ffn_down.weight");
+    const auto data = (header.size() + 31) / 32 * 32;
+    GgufCatalog catalog;
+    std::string error;
+    ASSERT_TRUE(InspectSparse(header, data + 3 * row_bytes, &catalog, &error))
+        << error;
+    EXPECT_EQ(catalog.tensors[0].byte_size, 3 * row_bytes);
+    catalog.name = "unchanged";
+    EXPECT_FALSE(
+        InspectSparse(header, data + 3 * row_bytes - 1, &catalog, &error));
+    EXPECT_EQ(catalog.name, "unchanged");
+  }
+}
+
 TEST(GgufCatalog, RejectsBadStorageGeometryAndTruncationTransactionally) {
   std::vector<std::string> cases = {
       TensorHeader(99, {256, 2}),
+      TensorHeader(11, {128, 2}),
+      TensorHeader(20, {31, 2}),
+      TensorHeader(21, {255, 2}),
+      TensorHeader(11, {256, UINT64_MAX}),
+      TensorHeader(20, {32, UINT64_MAX}),
+      TensorHeader(21, {256, UINT64_MAX}),
       TensorHeader(2, {31, 2}),
       TensorHeader(3, {33, 2}),
       TensorHeader(23, {255, 2}),

@@ -1780,3 +1780,15 @@ check.scenario @case.gate_2560_t17_n1_q12_p2 {
   }
   check.return
 }
+
+config.def @ggml.linear_iq4_nl_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_iq4_nl_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_iq3_s_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_iq3_s_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q3k_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q3k_q8_1_x4.output_capacity = 1 : index

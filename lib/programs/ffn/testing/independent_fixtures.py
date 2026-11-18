@@ -23,6 +23,9 @@ for tag, name in (
     (13, "q5k"),
     (14, "q6k"),
     (23, "iq4_xs"),
+    (20, "iq4_nl"),
+    (21, "iq3_s"),
+    (11, "q3k"),
 ):
     h.emit(
         f"config.def @ggml.linear_{name}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{name}_q8_1_x4.output_capacity = 262144 : index\n"

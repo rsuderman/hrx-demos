@@ -69,7 +69,17 @@ def emit(destination, tiny=False):
             f"kernel.decl @ggml_linear_{name}_q8_1_x4(%T:index,%K:index,%N:index) launch(%T:index,%K:index,%N:index,%input:buffer,%weight:buffer,%output:buffer)\n"
         )
     if not tiny:
-        for name in ("q4k", "q5_0", "q5k", "q6k", "q8_0", "iq4_xs"):
+        for name in (
+            "q4k",
+            "q5_0",
+            "q5k",
+            "q6k",
+            "q8_0",
+            "iq4_xs",
+            "iq4_nl",
+            "iq3_s",
+            "q3k",
+        ):
             out.append(
                 f"config.def @ggml.linear_{name}_q8_1_x4.token_capacity = 512 : index\n"
             )

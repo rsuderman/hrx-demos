@@ -22,6 +22,9 @@ package(default_visibility = ["//visibility:private"])
 ) for name, script in [
     ("classic", "classic_fixtures.py"),
     ("iq4_xs", "iq4_xs_fixtures.py"),
+    ("iq4_nl", "iq4_nl_fixtures.py"),
+    ("iq3_s", "iq3_s_fixtures.py"),
+    ("q3k", "q3k_fixtures.py"),
 ]]
 
 [loom_provider_checks(
@@ -39,6 +42,9 @@ package(default_visibility = ["//visibility:private"])
 ) for name in [
     "classic",
     "iq4_xs",
+    "iq4_nl",
+    "iq3_s",
+    "q3k",
 ]]
 
 genrule(
@@ -295,4 +301,37 @@ genrule(
 ) for format in [
     "text",
     "bc",
+]]
+
+[genrule(
+    name = name + "_tiny_fixtures",
+    testonly = True,
+    srcs = [
+        name + "_fixtures.py",
+        "canonical_fixtures.py",
+    ],
+    outs = [name + "_tiny_checks.loom"],
+    cmd = "python3 $(location " + name + "_fixtures.py) $(location canonical_fixtures.py) tiny $@",
+) for name in [
+    "iq4_nl",
+    "iq3_s",
+    "q3k",
+]]
+
+[loom_provider_checks(
+    name = name + "_tiny",
+    checks = [":" + name + "_tiny_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = name + "_tiny_provider",
+    provider_srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+) for name in [
+    "iq4_nl",
+    "iq3_s",
+    "q3k",
 ]]

@@ -60,7 +60,19 @@ cases += [
 cases = [case + ("mixed",) for case in cases]
 cases += [(6, 1152, 49, 1, False, "zero"), (6, 1152, 49, 1, False, "tie")]
 text = [HEADER, (ROOT.parent / "interface.loom").read_text()]
-for fmt in ("q5_0", "q8_0", "q4k", "q5k", "q6k", "q4_0", "q4_1", "iq4_xs"):
+for fmt in (
+    "q5_0",
+    "q8_0",
+    "q4k",
+    "q5k",
+    "q6k",
+    "q4_0",
+    "q4_1",
+    "iq4_xs",
+    "iq4_nl",
+    "iq3_s",
+    "q3k",
+):
     text.append(
         f"config.def @ggml.linear_{fmt}_q8_1_x4.token_capacity = 8 : index\nconfig.def @ggml.linear_{fmt}_q8_1_x4.output_capacity = 262144 : index\n"
     )

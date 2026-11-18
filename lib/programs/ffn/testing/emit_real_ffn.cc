@@ -72,8 +72,8 @@ bool PartialSource(const char *path, std::string *source, std::string *error) {
       << "template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n"
       << "kernel.decl @llm.projection.active_swiglu(%rows: index, %width: index) launch(%rows: index, %width: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)\n"
       << "kernel.decl @llm.projection.prepare_f32_prefix(%rows: index, %width: index) launch(%rows: index, %width: index, %count: buffer, %input: buffer, %output: buffer)\n";
-  for (const char *format :
-       {"q4k", "q5k", "q6k", "q5_0", "q8_0", "q4_0", "q4_1", "iq4_xs"})
+  for (const char *format : {"q4k", "q5k", "q6k", "q5_0", "q8_0", "q4_0",
+                             "q4_1", "iq4_xs", "iq4_nl", "iq3_s", "q3k"})
     text << "config.def @ggml.linear_" << format
          << "_q8_1_x4.token_capacity = 512 : index\n"
          << "config.def @ggml.linear_" << format

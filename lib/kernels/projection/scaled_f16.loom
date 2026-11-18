@@ -92,7 +92,7 @@ kernel.def @llm.projection.prepare_f32_prefix(%capacity: index, %input_width: in
   kernel.launch.config workgroups(%capacity, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%capacity_arg: index, %width_arg: index, %count: buffer, %input: buffer, %output: buffer) {
   %capacity = index.assume %capacity_arg [range(%capacity_arg, 1, 512)] : index
-  %width = index.assume %width_arg [range(%width_arg, 256, 32768), multiple_of(%width_arg, 256)] : index
+  %width = index.assume %width_arg [range(%width_arg, 128, 32768), multiple_of(%width_arg, 128)] : index
   %row_id = kernel.workgroup.id<x> : index
   %row = index.assume %row_id [lt(%row_id, %capacity)] : index
   %lane = kernel.workitem.id<x> : index

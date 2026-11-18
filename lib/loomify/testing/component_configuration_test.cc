@@ -19,10 +19,10 @@ model::TensorRecord Encoded(uint32_t tag, uint64_t input, uint64_t output,
 
 TEST(ComponentConfigurationTest,
      CanonicalFormatBoundsFollowTheConsumedOperation) {
-  for (const auto tag : {2u, 3u, 6u, 8u, 12u, 13u, 14u, 23u}) {
+  for (const auto tag : {2u, 3u, 6u, 8u, 11u, 12u, 13u, 14u, 20u, 21u, 23u}) {
     SCOPED_TRACE(tag);
     const uint64_t minimum =
-        tag == 2 || tag == 3 || tag == 6 || tag == 8 ? 128 : 256;
+        tag == 2 || tag == 3 || tag == 6 || tag == 8 || tag == 20 ? 128 : 256;
     const uint64_t maximum = tag == 14 ? 17408 : 32768;
     const uint64_t output_limit = tag == 8 || tag == 14 ? 262208 : 262144;
     for (const auto width : {minimum, maximum}) {
@@ -59,6 +59,22 @@ TEST(ComponentConfigurationTest,
   auto unsupported = Encoded(0, 256, 1);
   CanonicalProjectionFacts result{};
   EXPECT_FALSE(CheckCanonicalProjection(unsupported, 256, 1, &result, nullptr));
+}
+
+TEST(ComponentConfigurationTest, NewProjectionFormatsDoNotAdmitUnusedGathers) {
+  for (const auto tag : {11u, 20u, 21u}) {
+    const auto tensor = Encoded(tag, 256, 3);
+    OrdinaryEmbeddingFacts result{};
+    EXPECT_FALSE(CheckOrdinaryEmbedding(tensor, 256, 3, &result, nullptr));
+  }
+  // Equal wire extents do not erase the identity of the two 3-bit codecs.
+  CanonicalProjectionFacts iq{}, q{};
+  ASSERT_TRUE(
+      CheckCanonicalProjection(Encoded(21, 256, 3), 256, 3, &iq, nullptr));
+  ASSERT_TRUE(
+      CheckCanonicalProjection(Encoded(11, 256, 3), 256, 3, &q, nullptr));
+  EXPECT_EQ(iq.weight_bytes, q.weight_bytes);
+  EXPECT_NE(iq.storage_tag, q.storage_tag);
 }
 
 TEST(ComponentConfigurationTest,

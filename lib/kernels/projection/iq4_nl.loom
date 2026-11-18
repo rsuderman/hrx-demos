@@ -1,0 +1,110 @@
+// Copyright 2026 The HRX Authors
+// SPDX-License-Identifier: MIT
+// IQ4_NL decoder curated from loom-fun/unsloth-Qwen3.8-27B-loom,
+// program/llm.loom at 2ade9e68feb42a115ad1ecea775a0b90ba717225,
+// SHA256 ca080db0074f75be5e5ea5bff6eec841c8ba20e4ade589d9060660c5122249ed.
+// The owned canonical Q8 packet traversal replaces the donor's raw-F32 fixed-K
+// schedule. The shared IQ4 codebook retains low-half then high-half ordering.
+func.decl @ggml_iq4_values32(%payload: vector<16xi8>) -> (vector<32xf32>)
+
+func.decl @ggml_iq4_q8_values32(%input: buffer, %row: offset, %block: index) -> (vector<32xf32>)
+
+// One 18-byte block is a signed F16 scale and 16 packed nibble pairs.
+func.def inline @ggml_iq4_nl_values(%weight: buffer, %origin: offset) -> (vector<32xf32>) {
+  %two = index.constant 2 : offset
+  %scale_view = buffer.view %weight[%origin] : buffer -> view<1xf16>
+  %code_origin = index.add %origin, %two : offset
+  %code_view = buffer.view %weight[%code_origin] : buffer -> view<16xi8>
+  %d_half = view.load %scale_view[0] : view<1xf16> -> f16
+  %d = scalar.extf %d_half : f16 to f32
+  %payload = vector.load %code_view[0] : view<16xi8> -> vector<16xi8>
+  %codes = func.call @ggml_iq4_values32(%payload) : (vector<16xi8>) -> (vector<32xf32>)
+  %ds = vector.splat %d : vector<32xf32>
+  %values = vector.mulf %codes, %ds : vector<32xf32>
+  func.return %values : vector<32xf32>
+}
+
+config.decl @ggml.linear_iq4_nl_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
+
+config.decl @ggml.linear_iq4_nl_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+
+target.decl @llm.platform.projection.iq4_nl.wave32
+
+kernel.def target(@llm.platform.projection.iq4_nl.wave32) export("ggml_linear_iq4_nl_q8_1_x4") @ggml_linear_iq4_nl_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
+  %tokens = index.assume %token_count [range(%token_count, 1, 2048)] : index
+  %columns = index.assume %output_size [range(%output_size, 1, 262144)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  %subgroup = target.subgroup.size : index
+  %channels_per_group = index.div %threads, %subgroup : index
+  %tail = index.sub %channels_per_group, %one : index
+  %padded = index.add %columns, %tail : index
+  %tiles = index.div %padded, %channels_per_group : index
+  kernel.launch.config workgroups(%tiles, %tokens, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %input: buffer, %weight: buffer, %output: buffer) {
+  %input_noalias, %weight_noalias, %output_noalias = buffer.assume.noalias %input, %weight, %output : buffer, buffer, buffer
+  %token_capacity = config.get @ggml.linear_iq4_nl_q8_1_x4.token_capacity : index
+  %output_capacity = config.get @ggml.linear_iq4_nl_q8_1_x4.output_capacity : index
+  %tokens = index.assume %token_count [range(%token_count, 1, 2048), le(%token_count, %token_capacity)] : index
+  %width = index.assume %input_size [range(%input_size, 128, 32768), multiple_of(%input_size, 128)] : index
+  %columns = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %tokens)] : index
+  %tile = kernel.workgroup.id<x> : index
+  %wave = kernel.subgroup.id : index
+  %lane0 = kernel.subgroup.lane.id : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 63)] : index
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %thirty_two = index.constant 32 : index
+  %c128 = index.constant 128 : index
+  %threads = index.constant 256 : index
+  %subgroup = target.subgroup.size : index
+  %channels_per_group = index.div %threads, %subgroup : index
+  %tile_base = index.mul %tile, %channels_per_group : index
+  %channel = index.add %tile_base, %wave : index
+  %valid = index.cmp ult, %channel, %columns : index
+  %block_bytes = index.constant 18 : offset
+  %packed_bytes = index.constant 144 : offset
+  %superblocks = index.div %width, %thirty_two : index
+  %weight_row_bytes = index.scale %superblocks, %block_bytes : index, offset -> offset
+  %weight_row = index.scale %channel, %weight_row_bytes : index, offset -> offset
+  %packets = index.div %width, %c128 : index
+  %input_row_bytes = index.scale %packets, %packed_bytes : index, offset -> offset
+  %input_row = index.scale %token, %input_row_bytes : index, offset -> offset
+  %groups = index.div %width, %thirty_two : index
+  %zero_f32 = scalar.constant 0.0 : f32
+  %partial = scf.if %valid -> (f32) {
+    %sum = scf.for %base = [%zero to %groups step %subgroup](%acc = %zero_f32 : f32) -> (f32) {
+      %group0 = index.add %base, %lane : index
+      %live = index.cmp ult, %group0, %groups : index
+      %contribution = scf.if %live -> (f32) {
+        %group = index.assume %group0 [range(%group0, 0, 1023), lt(%group0, %groups)] : index
+        %block_add = index.scale %group, %block_bytes : index, offset -> offset
+        %origin = index.add %weight_row, %block_add : offset
+        %w = func.call @ggml_iq4_nl_values(%weight_noalias, %origin) : (buffer, offset) -> (vector<32xf32>)
+        %x = func.call @ggml_iq4_q8_values32(%input_noalias, %input_row, %group) : (buffer, offset, index) -> (vector<32xf32>)
+        %dot = vector.dotf<reassoc|contract> %w, %x, %zero_f32 : vector<32xf32>, vector<32xf32>, f32
+        scf.yield %dot : f32
+      } else {
+        scf.yield %zero_f32 : f32
+      }
+      %next = scalar.addf %acc, %contribution : f32
+      scf.yield %next : f32
+    }
+    scf.yield %sum : f32
+  } else {
+    scf.yield %zero_f32 : f32
+  }
+  %value = kernel.subgroup.reduce<addf> %partial : f32
+  %first = index.cmp eq, %lane, %zero : index
+  scf.if %valid {
+    scf.if %first {
+      %bounded_channel = index.assume %channel [lt(%channel, %columns)] : index
+      %origin = index.constant 0 : offset
+      %view = buffer.view %output_noalias[%origin] : buffer -> view<[%tokens]x[%columns]xf32>
+      view.store %value, %view[%token, %bounded_channel] : f32, view<[%tokens]x[%columns]xf32>
+    }
+  }
+  kernel.return
+}

@@ -252,12 +252,25 @@ def emit(h, mode, destination):
             (17, 0, 3072, 1),
             (17, 1, 2048, 9),
             (17, 17, 3072, 9),
+            (65, 17, 256, 9),
         ]
     out = ["// Copyright 2026 The HRX Authors\n// SPDX-License-Identifier: MIT\n"]
     out.append(
         "template.decl @llm.projection.matrix(%T:index,%K:index,%N:index,%tag:index,%bytes:index,%count:buffer,%input:buffer,%weight:view<[%bytes]xi8>,%output:buffer)\n"
     )
-    for tag in ("q4k", "q5_0", "q5k", "q6k", "q8_0", "iq4_xs", "q4_0", "q4_1"):
+    for tag in (
+        "q4k",
+        "q5_0",
+        "q5k",
+        "q6k",
+        "q8_0",
+        "iq4_xs",
+        "iq4_nl",
+        "iq3_s",
+        "q3k",
+        "q4_0",
+        "q4_1",
+    ):
         out.append(
             f"config.def @ggml.linear_{tag}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{tag}_q8_1_x4.output_capacity = 262144 : index\n"
         )

@@ -160,12 +160,18 @@ Encoding Storage(uint32_t type) {
     return {32, 22, "q5_0"};
   case 8:
     return {32, 34, "q8_0"};
+  case 11:
+    return {256, 110, "q3_K"};
   case 12:
     return {256, 144, "q4_K"};
   case 13:
     return {256, 176, "q5_K"};
   case 14:
     return {256, 210, "q6_K"};
+  case 20:
+    return {32, 18, "iq4_NL"};
+  case 21:
+    return {256, 110, "iq3_S"};
   case 23:
     return {256, 136, "iq4_XS"};
   default:

@@ -203,7 +203,19 @@ def emit(h, mode, destination):
     out.append(
         "template.decl @llm.projection.policy_qkv(%profile:index,%T:index,%K:index,%Q:index,%KV:index,%qt:index,%kt:index,%vt:index,%qb:index,%kb:index,%vb:index,%count:buffer,%input:buffer,%qw:view<[%qb]xi8>,%kw:view<[%kb]xi8>,%vw:view<[%vb]xi8>,%q:buffer,%k:buffer,%v:buffer)\n"
     )
-    for name in ("q4k", "q5_0", "q5k", "q6k", "q8_0", "iq4_xs", "q4_0", "q4_1"):
+    for name in (
+        "q4k",
+        "q5_0",
+        "q5k",
+        "q6k",
+        "q8_0",
+        "iq4_xs",
+        "iq4_nl",
+        "iq3_s",
+        "q3k",
+        "q4_0",
+        "q4_1",
+    ):
         out.append(
             f"config.def @ggml.linear_{name}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{name}_q8_1_x4.output_capacity = 262144 : index\n"
         )
