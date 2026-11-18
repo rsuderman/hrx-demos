@@ -1,2 +1,5 @@
 # Mechanical formatting of maintained Python, C++ and Bazel sources.
 34ae2d5560e6e8314a470170de599f57bb944ae7
+
+# Canonical Loom formatting with the pinned printer.
+86c8071fd2b1ae23722fa5bb23c8ea57b25fcce8
