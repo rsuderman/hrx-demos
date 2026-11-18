@@ -61,6 +61,10 @@ struct Input {
   bool expected = true;
   int columns = 49;
   bool prepacked_rows = false;
+  bool paired = false;
+  int up_tag = 12;
+  int up_bytes = 14155776;
+  int fixed_count = 1;
 };
 std::vector<Input> Inputs() {
   std::vector<Input> cases = {
@@ -132,6 +136,32 @@ std::vector<Input> Inputs() {
   routed("routed_f32_zero_width", 0, 0, 32, 17, 512, 4, false);
   routed("routed_f32_large_width", 0, 32769, 32, 17, 512, 4194432, false);
   routed("routed_f32_large_output", 0, 4096, 32769, 17, 512, 536887296, false);
+  for (int variant = 0; variant < 5; ++variant) {
+    Input paired;
+    static const char *names[] = {"compatible_pair", "pair_up_format",
+                                  "pair_up_extent", "pair_other_rows",
+                                  "pair_fixed_count"};
+    paired.name = names[variant];
+    paired.policy = 0;
+    paired.width = 3072;
+    paired.columns = 8192;
+    paired.rows = paired.capacity = 128;
+    paired.bytes = 14155776;
+    paired.paired = true;
+    paired.fixed_count = -1;
+    paired.expected = variant == 0;
+    if (variant == 1) {
+      paired.up_tag = 14;
+      paired.up_bytes = 20643840;
+    }
+    if (variant == 2)
+      --paired.up_bytes;
+    if (variant == 3)
+      paired.rows = 1;
+    if (variant == 4)
+      paired.fixed_count = 1;
+    cases.push_back(paired);
+  }
   return cases;
 }
 using Case = std::tuple<Input, bool>;
@@ -168,6 +198,9 @@ TEST_P(ProjectionMaterializationTest,
   ASSERT_TRUE(stream);
   std::ostringstream source;
   source << stream.rdbuf();
+  if (input.paired)
+    source
+        << "template.decl @llm.ffn.swiglu_packed(%policy:index,%rows:index,%capacity:index,%width:index,%ffn:index,%gt:index,%ut:index,%gb:index,%ub:index,%begin:index,%fixed:i32,%origin:offset,%count:buffer,%packed:buffer,%gate:view<[%gb]xi8>,%up:view<[%ub]xi8>,%output:buffer)\n";
   if (input.prepacked_rows)
     source
         << "template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %raw: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n";
@@ -180,7 +213,8 @@ TEST_P(ProjectionMaterializationTest,
   source
       << "config.def @ggml.quantize_q8_1_x4.group_capacity = "
       << input.group_capacity << " : index\n"
-      << "command.def public @probe.root() launch(%count: buffer, %raw: buffer, %packed: buffer, %weights: buffer, %output: buffer) {\n";
+      << "command.def public @probe.root() launch(%count: buffer, %raw: buffer, %packed: buffer, %weights: buffer,"
+      << (input.paired ? "%up_weights: buffer," : "") << "%output: buffer) {\n";
   for (const auto &[key, value] :
        std::vector<std::pair<const char *, int>>{{"policy", input.policy},
                                                  {"tag", input.tag},
@@ -193,9 +227,15 @@ TEST_P(ProjectionMaterializationTest,
     source << "  %" << key << " = index.constant " << value << " : index\n";
   source
       << "  %origin = index.constant 0 : offset\n"
-      << "  %fixed = scalar.constant 1 : i32\n"
+      << "  %fixed = scalar.constant " << input.fixed_count << " : i32\n"
       << "  %weight = buffer.view %weights[%origin] : buffer -> view<[%bytes]xi8>\n";
-  if (input.prepacked_rows) {
+  if (input.paired) {
+    source
+        << "  %ut = index.constant " << input.up_tag << " : index\n"
+        << "  %ub = index.constant " << input.up_bytes << " : index\n"
+        << "  %up = buffer.view %up_weights[%origin] : buffer -> view<[%ub]xi8>\n"
+        << "  template.apply<@llm.ffn.swiglu_packed>(%policy,%rows,%capacity,%width,%cols,%tag,%ut,%bytes,%ub,%begin,%fixed,%origin,%count,%packed,%weight,%up,%output) : (index,index,index,index,index,index,index,index,index,index,i32,offset,buffer,buffer,view<[%bytes]xi8>,view<[%ub]xi8>,buffer)\n";
+  } else if (input.prepacked_rows) {
     source
         << "  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %capacity, %width, %cols, %tag, %bytes, %count, %raw, %packed, %weight, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)\n";
   } else {
@@ -209,8 +249,12 @@ TEST_P(ProjectionMaterializationTest,
   const auto product =
       Runfile(std::string("lib/programs/projection/testing/provider_") +
               (bytecode ? "bc.loombc" : "text.loom"));
+  std::vector<std::string> products = {product};
+  if (input.paired)
+    products.push_back(Runfile(std::string("lib/programs/ffn/gate_up") +
+                               (bytecode ? ".loombc" : "_text.loom")));
   const bool succeeded = hrx::loomify_gguf::LinkConfiguredProducts(
-      context.get(), workspace.get(), source.str(), {product}, {"probe.root"},
+      context.get(), workspace.get(), source.str(), products, {"probe.root"},
       true, &raw_module, &error);
   Owner<loomc_module_t, loomc_module_release> module(raw_module,
                                                      loomc_module_release);

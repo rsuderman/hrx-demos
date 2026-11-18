@@ -83,8 +83,9 @@ control policy retains the existing Llama chat framing and end-of-generation
 mapping. Isolated Serve step execution is explicitly rejected. Its sole numerical
 request root is `generated.llama_epoch`, with the same seven-buffer request role
 as `generated.qwen_epoch`. Both retain reserved native stage slots0/1 with T/1
-tags, followed by shape stages at2+shape; every stage registers its family epoch
-root. Existing cold allocation, view/origin and cache geometry are retained.
+tags, followed by shape stages at2+shape. Llama stages register its family epoch;
+the bounded experimental Qwen one-token route is described below. Existing cold
+allocation, view/origin and cache geometry are retained.
 
 Each `lib/architectures/<family>/epoch.loom` owns the public numerical epoch root,
 a16-byte private selected-ID buffer, its private model invocation and final
@@ -214,10 +215,16 @@ numerical policies; the exporter selects and links the maintained product.
 
 The generated Qwen model name is `loomify-qwen35`. It uses ordinary greedy text,
 one active row/span, no MTP/vision or retained/prefix caches, T in1..512 and C from
-T through262144. Its sole `generated.qwen_epoch` entry invokes the private model's
+T through262144. Its `generated.qwen_epoch` entry invokes the private model's
 embedding, all configured hybrid layer bundles and selected-row normalized
 vocabulary head, then publishes the selected private ID to the requested slot. It directly accepts the existing
-epoch buffers; a one-token continuation uses the same entry. The owned prepare
+epoch buffers. An experimental 0.8B T128/C512 configuration selects
+`generated.qwen_decode_epoch` for stage1 and each one-token shape stage; other
+configurations retain the original entry. Both roots share the same model body,
+while the decode root specializes its static row count to one. Physical buffer
+capacity, persistent GDN/KV state and stage order remain unchanged; unconsumed
+residual scratch rows need not be rewritten. This experimental route has no
+qualified performance claim. The owned prepare
 program reports the complete convolution/recurrent GDN slot and paged KV geometry
 so native request reset clears fresh state and subsequent chunks retain it. The
 Qwen control policy combines generated source-derived controls with their matching

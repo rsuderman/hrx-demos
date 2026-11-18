@@ -196,6 +196,46 @@ TEST_F(ProjectionInputsTest, GatedProjectionKeepsBothExactWeightSources) {
   EXPECT_EQ(0x44, root->bytes[2000 - begin + 16]);
 }
 
+TEST_F(ProjectionInputsTest,
+       CompatibleGatedKeepsControlsAndIndependentWeights) {
+  Gated();
+  Controls(3, UINT32_MAX, 0, 0);
+  invocation.kernel_symbol = "llm.projection.q4k_compat_swiglu";
+  PreparedCase prepared;
+  std::string error;
+  ASSERT_EQ(PreparationStatus::kReady,
+            PrepareProjectionCase(plan, invocation, 10000, &prepared, &error))
+      << error;
+  EXPECT_EQ((std::vector<uint64_t>{1, 256, 3}), prepared.source_workloads);
+  EXPECT_EQ((std::vector<std::string>{"index", "index", "index", "index", "i32",
+                                      "offset", "buffer", "buffer", "buffer",
+                                      "buffer", "buffer"}),
+            prepared.source_argument_types);
+  ASSERT_EQ(2u, prepared.weight_sources.size());
+  EXPECT_EQ("selected.matrix.weight", prepared.weight_sources[0].key);
+  EXPECT_EQ("selected.up.weight", prepared.weight_sources[1].key);
+  EXPECT_EQ(8u, prepared.weight_sources[0].source_offset);
+  EXPECT_EQ(440u, prepared.weight_sources[1].source_offset);
+  EXPECT_EQ(11u, invocation.command.argument_count);
+  EXPECT_EQ(UINT32_MAX, invocation.arguments[4].value.scalar_bits);
+  EXPECT_EQ("kernel", prepared.measurement_subject);
+}
+
+TEST_F(ProjectionInputsTest, CompatibleGatedRejectsUnsupportedFixedCountAndUp) {
+  Gated();
+  Controls(3, UINT32_MAX, 0, 0);
+  invocation.kernel_symbol = "llm.projection.q4k_compat_swiglu";
+  PreparedCase prepared;
+  std::string error;
+  invocation.arguments[4].value.scalar_bits = 1;
+  EXPECT_EQ(PreparationStatus::kFailure,
+            PrepareProjectionCase(plan, invocation, 10000, &prepared, &error));
+  invocation.arguments[4].value.scalar_bits = UINT32_MAX;
+  plan.model.layers[0].tensors[1].tensor.storage_type = 14;
+  EXPECT_EQ(PreparationStatus::kFailure,
+            PrepareProjectionCase(plan, invocation, 10000, &prepared, &error));
+}
+
 TEST_F(ProjectionInputsTest, GatedProjectionValidatesTheSecondMatrix) {
   Gated();
   PreparedCase prepared;

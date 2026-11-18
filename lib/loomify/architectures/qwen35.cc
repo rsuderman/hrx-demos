@@ -260,6 +260,13 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("qwen38.attention.cache_capacity", o.context_capacity);
   p.Index("qwen38.attention.pool_capacity", pool);
   p.Index("runner.qwen38.prefill_token_count", o.token_capacity);
+  // Experimental first qualification profile. Keep every other configuration
+  // on its existing stage routing until its state and performance gates pass.
+  p.facts.specialized_decode = o.token_capacity == 128 &&
+                               o.context_capacity == 512 && E == 1024 &&
+                               F == 3584 && L == 24 && QH == 8 && KH == 2 &&
+                               H == 256 && D == 128 && K == 16 && G == 16;
+  p.Index("runner.qwen38.specialized_decode", p.facts.specialized_decode);
   p.Index("runner.qwen38.span_capacity", 1);
   p.Index("qwen38.greedy_argmax.output_capacity", V);
   p.ProjectionCapacities();

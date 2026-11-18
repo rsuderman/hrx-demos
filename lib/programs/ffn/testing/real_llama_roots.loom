@@ -49,3 +49,48 @@ command.def public @real.llama.ffn.layer3.decode() launch(%parameters: buffer, %
   command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
   command.return
 }
+
+// Actual configured phase0 route, also used by the default package's decode.
+// Test-only reset is inside each replay so both timing arms do equal state work.
+config.decl @runner.llama32.prefill_token_count : index
+
+config.decl @llama.model.hidden_size : index
+
+kernel.decl @loomify.benchmark.reset_bytes(%bytes$44: index) launch(%bytes$45: index, %seed_origin: offset, %live_origin: offset, %seed: buffer, %live: buffer)
+
+command.def @real.llama.ffn.configured_prefill(%layer: index) launch(%parameters: buffer, %residual: buffer, %count: buffer, %seed: buffer) {
+  %rows = config.get @runner.llama32.prefill_token_count : index
+  %hidden = config.get @llama.model.hidden_size : index
+  %word = index.constant 4 : index
+  %elements = index.mul %rows, %hidden : index
+  %bytes = index.mul %elements, %word : index
+  %origin = index.constant 0 : offset
+  %phase = index.constant 0 : index
+  kernel.launch @loomify.benchmark.reset_bytes[%bytes](%bytes, %origin, %origin, %seed, %residual) : [index](index, offset, offset, buffer, buffer)
+  command.launch @loomify.llama.ffn[%layer, %phase, %rows](%parameters, %residual, %count) : [index, index, index](buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @real.llama.ffn.layer0.configured_prefill() launch(%parameters: buffer, %residual: buffer, %count: buffer, %seed: buffer) {
+  %layer = index.constant 0 : index
+  command.launch @real.llama.ffn.configured_prefill[%layer](%parameters, %residual, %count, %seed) : [index](buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @real.llama.ffn.layer0.configured_prefill_twice() launch(%parameters: buffer, %residual: buffer, %count: buffer, %seed: buffer) {
+  command.launch @real.llama.ffn.layer0.configured_prefill(%parameters, %residual, %count, %seed) : (buffer, buffer, buffer, buffer)
+  command.launch @real.llama.ffn.layer0.configured_prefill(%parameters, %residual, %count, %seed) : (buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @real.llama.ffn.layer3.configured_prefill() launch(%parameters: buffer, %residual: buffer, %count: buffer, %seed: buffer) {
+  %layer = index.constant 3 : index
+  command.launch @real.llama.ffn.configured_prefill[%layer](%parameters, %residual, %count, %seed) : [index](buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @real.llama.ffn.layer3.configured_prefill_twice() launch(%parameters: buffer, %residual: buffer, %count: buffer, %seed: buffer) {
+  command.launch @real.llama.ffn.layer3.configured_prefill(%parameters, %residual, %count, %seed) : (buffer, buffer, buffer, buffer)
+  command.launch @real.llama.ffn.layer3.configured_prefill(%parameters, %residual, %count, %seed) : (buffer, buffer, buffer, buffer)
+  command.return
+}

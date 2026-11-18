@@ -29,13 +29,15 @@ int main(int argc, char **argv) {
       argc == 5 && std::string(argv[4]) == "--four-billion";
   const bool attention_partial =
       argc == 5 && std::string(argv[4]) == "--attention-partial";
+  const bool decode_comparison =
+      argc == 5 && std::string(argv[4]) == "--decode-comparison";
   const bool partial =
       attention_partial ||
       (argc == 5 && std::string(argv[4]) == "--partial-active");
-  if (argc != 4 && !partial && !four_billion) {
+  if (argc != 4 && !partial && !four_billion && !decode_comparison) {
     std::fprintf(
         stderr,
-        "usage: emitter LIBRARY_ROOT GGUF OUTPUT_DIRECTORY [--partial-active | --attention-partial | --four-billion]\n");
+        "usage: emitter LIBRARY_ROOT GGUF OUTPUT_DIRECTORY [--partial-active | --attention-partial | --four-billion | --decode-comparison]\n");
     return 1;
   }
   std::filesystem::create_directories(argv[3]);
@@ -59,9 +61,17 @@ int main(int argc, char **argv) {
   }
   ConfigurationFacts config;
   if (!DeriveConfiguration(descriptor, argv[2],
-                           {(partial || four_billion) ? 3u : 1u, 64}, &config,
-                           &error)) {
+                           {decode_comparison           ? 128u
+                            : (partial || four_billion) ? 3u
+                                                        : 1u,
+                            decode_comparison ? 512u : 64u},
+                           &config, &error)) {
     std::fprintf(stderr, "%s\n", error.c_str());
+    return 1;
+  }
+  if (decode_comparison && !config.specialized_decode) {
+    std::fprintf(
+        stderr, "--decode-comparison requires the eligible default geometry\n");
     return 1;
   }
   loomc_target_environment_t *env = nullptr;
@@ -85,6 +95,9 @@ int main(int argc, char **argv) {
     roots = {"validated.qwen.gdn0", "validated.qwen.gdn0_t3"};
   if (attention_partial)
     roots = {"validated.qwen.attention3", "validated.qwen.attention3_t3"};
+  if (decode_comparison)
+    roots = {"validated.qwen.gdn0", "validated.qwen.gdn0_t128",
+             "validated.qwen.attention3", "validated.qwen.attention3_t128"};
   if (four_billion)
     roots = {"validated.qwen.gdn0",        "validated.qwen.gdn0_t3",
              "validated.qwen.gdn4",        "validated.qwen.gdn4_t3",
@@ -131,18 +144,18 @@ int main(int argc, char **argv) {
   const uint64_t attention_width =
       descriptor.layers.at(3).query_heads * descriptor.key_head_width;
   std::ofstream layout(std::string(argv[3]) + "/layout.json");
-  layout
-      << "{\"hidden\":" << descriptor.embedding_width
-      << ",\"residual_bytes\":" << 512 * descriptor.embedding_width * 4
-      << ",\"gdn_history_bytes\":" << history
-      << ",\"gdn_recurrent_bytes\":" << recurrent
-      << ",\"gdn_state_bytes\":" << history + recurrent
-      << ",\"plane_token_bytes\":" << plane
-      << ",\"pool\":64,\"map_origin\":2048,\"state_origin\":256,\"capture_bytes\":"
-      << 512 *
-             (attention_partial ? attention_width
-                                : descriptor.ssm->inner_width) *
-             4;
+  layout << "{\"hidden\":" << descriptor.embedding_width
+         << ",\"residual_bytes\":" << 512 * descriptor.embedding_width * 4
+         << ",\"gdn_history_bytes\":" << history
+         << ",\"gdn_recurrent_bytes\":" << recurrent
+         << ",\"gdn_state_bytes\":" << history + recurrent
+         << ",\"plane_token_bytes\":" << plane
+         << ",\"pool\":" << (decode_comparison ? 512 : 64)
+         << ",\"map_origin\":2048,\"state_origin\":256,\"capture_bytes\":"
+         << 512 *
+                (attention_partial ? attention_width
+                                   : descriptor.ssm->inner_width) *
+                4;
   if (attention_partial)
     layout << ",\"attention_width\":" << attention_width;
   layout << ",\"bindings\":{";

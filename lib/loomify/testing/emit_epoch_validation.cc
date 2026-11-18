@@ -3,6 +3,7 @@
 // Finite actual-GGUF epoch contract gate through the public numerical builder.
 #include "lib/loomify/gguf_model_builder.h"
 #include "loomc/target/amdgpu.h"
+#include <charconv>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -21,8 +22,10 @@ bool Ok(loomc_status_t status) {
 }
 } // namespace
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    std::fprintf(stderr, "usage: emitter LIBRARY_ROOT GGUF OUTPUT_DIRECTORY\n");
+  if (argc != 4 && argc != 6) {
+    std::fprintf(
+        stderr,
+        "usage: emitter LIBRARY_ROOT GGUF OUTPUT_DIRECTORY [PREFILL CONTEXT]\n");
     return 1;
   }
   std::string error;
@@ -39,6 +42,18 @@ int main(int argc, char **argv) {
   settings.library_root = argv[1];
   settings.prefill_capacity = 8;
   settings.context_capacity = descriptor.family == "gemma3" ? 576 : 64;
+  if (argc == 6) {
+    auto read = [](const char *text, uint64_t *value) {
+      const std::string word(text);
+      const auto parsed =
+          std::from_chars(word.data(), word.data() + word.size(), *value);
+      return parsed.ec == std::errc() &&
+             parsed.ptr == word.data() + word.size();
+    };
+    if (!read(argv[4], &settings.prefill_capacity) ||
+        !read(argv[5], &settings.context_capacity))
+      return 1;
+  }
   std::unique_ptr<GgufConfiguration> configuration;
   if (!builder->Configure(settings, nullptr, &configuration, &error)) {
     std::fprintf(stderr, "%s\n", error.c_str());
@@ -88,8 +103,11 @@ int main(int argc, char **argv) {
   facts << configuration->configuration_source();
   std::ofstream layout(std::filesystem::path(argv[3]) / "layout.json");
   layout << "{\"family\":\"" << descriptor.family
-         << "\",\"tokens\":8,\"context\":" << settings.context_capacity
+         << "\",\"tokens\":" << settings.prefill_capacity
+         << ",\"context\":" << settings.context_capacity
          << ",\"hidden\":" << descriptor.embedding_width;
+  if (const auto *decode = configuration->specialized_decode_root())
+    layout << ",\"decode_root\":\"" << decode << "\"";
   if (descriptor.family == "gemma3") {
     layout << ",\"layer_windows\":[";
     for (size_t i = 0; i < descriptor.layers.size(); ++i)

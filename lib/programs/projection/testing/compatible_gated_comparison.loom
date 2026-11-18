@@ -1,0 +1,65 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Test-only matched numerical subjects for the actual T128/K3072/F8192 route.
+// Kernel carriers match the selected paired kernel; metadata/NPY setup remains
+// in the existing benchmark harness. Outputs are idempotent for fixed inputs.
+kernel.decl @ggml_linear_q4k_q8_1_x4_compat(%rows: index, %width$1: index, %cols$2: index) launch(%capacity: index, %width$4: index, %cols$5: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %weight: buffer, %output: buffer)
+
+kernel.decl @llm.projection.q4k_compat_swiglu(%rows: index, %width$14: index, %cols$15: index) launch(%capacity: index, %width$17: index, %cols$18: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
+kernel.decl @llm_ffn_swiglu_f32_prefill_active(%rows: index, %width$28: index) launch(%width$29: index, %capacity: index, %begin: index, %origin: offset, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows: index, %width$38: index) launch(%capacity: index, %width$40: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+command.def public @compatible_gated.old() launch(%count: buffer, %packed: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %r = index.constant 128 : index
+  %k = index.constant 3072 : index
+  %n = index.constant 8192 : index
+  %zero = index.constant 0 : index
+  %fixed = scalar.constant -1 : i32
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4194304 : offset
+  %g = buffer.alloca<global> align(256) %bytes : buffer
+  %u = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%r, %k, %n](%r, %k, %n, %zero, %fixed, %origin, %count, %packed, %gate, %g) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
+  kernel.launch @ggml_linear_q4k_q8_1_x4_compat[%r, %k, %n](%r, %k, %n, %zero, %fixed, %origin, %count, %packed, %up, %u) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer)
+  kernel.launch @llm_ffn_swiglu_f32_prefill_active[%r, %n](%n, %r, %zero, %origin, %count, %g, %u, %output) : [index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @compatible_gated.new() launch(%count: buffer, %packed: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %r = index.constant 128 : index
+  %k = index.constant 3072 : index
+  %n = index.constant 8192 : index
+  %zero = index.constant 0 : index
+  %fixed = scalar.constant -1 : i32
+  %origin = index.constant 0 : offset
+  kernel.launch @llm.projection.q4k_compat_swiglu[%r, %k, %n](%r, %k, %n, %zero, %fixed, %origin, %count, %packed, %gate, %up, %output) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @compatible_gated.old_prepared() launch(%count: buffer, %input: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %r = index.constant 128 : index
+  %k = index.constant 3072 : index
+  %zero = index.constant 0 : index
+  %fixed = scalar.constant -1 : i32
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 442368 : offset
+  %packed = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%r, %k](%r, %k, %zero, %fixed, %origin, %count, %input, %packed) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  command.launch @compatible_gated.old(%count, %packed, %gate, %up, %output) : (buffer, buffer, buffer, buffer, buffer)
+  command.return
+}
+
+command.def public @compatible_gated.new_prepared() launch(%count: buffer, %input: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %r = index.constant 128 : index
+  %k = index.constant 3072 : index
+  %zero = index.constant 0 : index
+  %fixed = scalar.constant -1 : i32
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 442368 : offset
+  %packed = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%r, %k](%r, %k, %zero, %fixed, %origin, %count, %input, %packed) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
+  command.launch @compatible_gated.new(%count, %packed, %gate, %up, %output) : (buffer, buffer, buffer, buffer, buffer)
+  command.return
+}

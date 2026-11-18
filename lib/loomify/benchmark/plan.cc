@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <string_view>
 #include <utility>
 
 namespace hrx::loomify_gguf::benchmark {
@@ -147,7 +148,7 @@ static bool BuildIdentity(const Plan &plan,
   std::map<RootKey, uint32_t> ordinals;
   std::vector<const PreparedRoot *> ordered;
   std::string logical;
-  Field(logical, "loomify-benchmark-case-logical-v1");
+  Field(logical, "loomify-benchmark-case-logical-v2");
   Field(logical, plan.workload_id);
   Field(logical, prepared.setup_recipe_id);
   Field(logical, prepared.measurement_subject);
@@ -191,6 +192,16 @@ static bool BuildIdentity(const Plan &plan,
   }
   size_t buffer_index = 0;
   for (const auto *member : members) {
+    // Isolated operation fixtures may omit a model program table. Native model
+    // plans always provide it: distinguish identical operations in two public
+    // phase roots without relying on private post-LINK symbol spellings.
+    if (!plan.programs.empty()) {
+      if (member->program_ordinal >= plan.programs.size())
+        return Fail(error, "case identity member has invalid program ordinal");
+      Field(logical, plan.programs[member->program_ordinal].root_symbol);
+    } else {
+      Field(logical, "");
+    }
     Number(logical, member->arguments.size());
     for (const auto &argument : member->arguments) {
       Number(logical, argument.kind);
@@ -497,8 +508,17 @@ bool BuildBenchmarkPlan(const std::string &gguf_path, const Workload &workload,
     return Fail(error,
                 "benchmark model has no selected numerical architecture");
   std::vector<loomc_string_view_t> roots;
-  for (const auto *root : architecture->roots)
-    roots.push_back(loomc_make_cstring_view(root));
+  if (workload.phase == "decode" && configuration->specialized_decode_root()) {
+    roots.push_back(
+        loomc_make_cstring_view(configuration->specialized_decode_root()));
+  } else {
+    // Available secondary roots are not additional programs in the declared
+    // workload. Ineligible decode keeps the original normal root too.
+    for (const auto *root : architecture->roots)
+      if (!architecture->decode_root ||
+          std::string_view(root) != architecture->decode_root)
+        roots.push_back(loomc_make_cstring_view(root));
+  }
   std::vector<std::shared_ptr<loomc_request_t>> requests;
   loomc_cmd_program_module_options_t native_options{};
   native_options.type = LOOMC_STRUCTURE_TYPE_CMD_PROGRAM_MODULE_OPTIONS;

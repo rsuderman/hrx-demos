@@ -145,7 +145,7 @@ protected:
     return Module(module, loomc_module_release);
   }
   Module Link(loomc_module_t *config, loomc_module_t *implementation,
-              bool succeeds = true) {
+              bool succeeds = true, bool both_roots = false) {
     loomc_linker_t *linker = nullptr;
     EXPECT_TRUE(Ok(loomc_linker_create(context, nullptr,
                                        loomc_allocator_system(), &linker)));
@@ -162,13 +162,15 @@ protected:
          LOOMC_LINK_PROVIDER_ROLE_INPUT},
         {schedule.get(), loomc_make_cstring_view("attention schedule"),
          LOOMC_LINK_PROVIDER_ROLE_INPUT}};
-    const auto symbol = loomc_make_cstring_view("generated.qwen_epoch");
+    const loomc_string_view_t symbols[] = {
+        loomc_make_cstring_view("generated.qwen_epoch"),
+        loomc_make_cstring_view("generated.qwen_decode_epoch")};
     loomc_link_options_t options{};
     options.mode = LOOMC_LINK_MODE_LINK;
     options.module_providers = providers;
     options.module_provider_count = 4;
-    options.root_symbols = &symbol;
-    options.root_symbol_count = 1;
+    options.root_symbols = symbols;
+    options.root_symbol_count = both_roots ? 2 : 1;
     options.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
     loomc_module_t *module = nullptr;
     loomc_result_t *result = nullptr;
@@ -212,7 +214,8 @@ protected:
     loomc_pass_program_release(passes);
   }
   void InspectCalls(loomc_module_t *module, const model::ModelDescriptor &facts,
-                    int64_t tokens) {
+                    int64_t tokens,
+                    const char *root_symbol = "generated.qwen_epoch") {
     loomc_module_interop_view_t view{};
     loomc_result_t *result = nullptr;
     ASSERT_TRUE(Ok(loomc_module_get_interop_view(
@@ -220,7 +223,7 @@ protected:
     ASSERT_TRUE(result && loomc_result_succeeded(result))
         << Diagnostics(result);
     loomc_result_release(result);
-    const auto *epoch = Definition(view.module, "generated.qwen_epoch");
+    const auto *epoch = Definition(view.module, root_symbol);
     ASSERT_TRUE(epoch && loom_command_def_isa(epoch));
     const auto *epoch_body =
         loom_region_const_entry_block(loom_command_def_body(epoch));
@@ -245,6 +248,9 @@ protected:
                  .entries[loom_command_launch_callee(boundary[1]).symbol_id]
                  .name_id),
         "loomify.qwen.model");
+    const auto model_rows = loom_command_launch_specializations(boundary[1]);
+    ASSERT_EQ(model_rows.count, 1u);
+    EXPECT_EQ(Constant(view.module, model_rows.values[0]), tokens);
     const auto model_args = loom_command_launch_bindings(boundary[1]);
     ASSERT_EQ(model_args.count, 7u);
     for (size_t i = 0; i < 6; ++i)
@@ -290,7 +296,7 @@ protected:
     ASSERT_TRUE(def && loom_command_def_isa(def));
     const auto *body =
         loom_region_const_entry_block(loom_command_def_body(def));
-    ASSERT_EQ(body->arg_count, 7u);
+    ASSERT_EQ(body->arg_count, 8u);
     std::vector<const loom_op_t *> calls, kernels;
     Walk(loom_command_def_body(def), [&](const loom_op_t *op) {
       if (loom_command_launch_isa(op))
@@ -309,17 +315,17 @@ protected:
                   : "qwen38_token_embedding_q6k_f16_prefill");
     auto workloads = loom_kernel_launch_workloads(embedding);
     ASSERT_EQ(workloads.count, 1u);
-    EXPECT_EQ(Constant(view.module, workloads.values[0]), tokens);
+    EXPECT_EQ(workloads.values[0], body->arg_ids[0]);
     auto args = loom_kernel_launch_arguments(embedding);
     ASSERT_EQ(args.count, 3u);
-    EXPECT_EQ(args.values[0], body->arg_ids[5]);
-    EXPECT_EQ(args.values[2], body->arg_ids[1]);
+    EXPECT_EQ(args.values[0], body->arg_ids[6]);
+    EXPECT_EQ(args.values[2], body->arg_ids[2]);
     const auto *parameter =
         loom_value_def_op(loom_module_value(view.module, args.values[1]));
     ASSERT_TRUE(parameter && loom_command_parameter_isa(parameter));
     EXPECT_EQ(Text(view.module, loom_command_parameter_pattern(parameter)),
               "token_embd.weight");
-    EXPECT_EQ(loom_command_parameter_source(parameter), body->arg_ids[0]);
+    EXPECT_EQ(loom_command_parameter_source(parameter), body->arg_ids[1]);
     // Native unrolling preserves both conditional IR branches until callable
     // inlining. These are 24 routing sites, not 48 executed layers.
     std::vector<const loom_op_t *> routes, branches;
@@ -379,8 +385,8 @@ protected:
                          : "qwen38_attention_layer_prefill");
         const auto specs = loom_command_launch_specializations(op);
         ASSERT_EQ(specs.count, 6u);
-        EXPECT_EQ(Constant(view.module, specs.values[0]), tokens);
-        EXPECT_EQ(Constant(view.module, specs.values[1]), tokens);
+        EXPECT_EQ(specs.values[0], body->arg_ids[0]);
+        EXPECT_EQ(specs.values[1], body->arg_ids[0]);
         EXPECT_EQ(specs.values[2], tuple[1]);
         EXPECT_EQ(specs.values[3], tuple[2]);
         EXPECT_EQ(Constant(view.module, specs.values[4]), 0);
@@ -389,7 +395,8 @@ protected:
         ASSERT_EQ(bindings.count, 6u);
         for (auto pair :
              {std::pair<size_t, size_t>{0, 0}, {1, 1}, {2, 4}, {3, 2}, {5, 3}})
-          EXPECT_EQ(bindings.values[pair.first], body->arg_ids[pair.second]);
+          EXPECT_EQ(bindings.values[pair.first],
+                    body->arg_ids[pair.second + 1]);
         auto &scratch = is_gdn ? gdn_scratch : attention_scratch;
         if (scratch == LOOM_VALUE_ID_INVALID)
           scratch = bindings.values[4];
@@ -433,13 +440,13 @@ protected:
               "loomify.qwen.head");
     const auto specs = loom_command_launch_specializations(head);
     ASSERT_EQ(specs.count, 2u);
-    EXPECT_EQ(Constant(view.module, specs.values[0]), tokens);
+    EXPECT_EQ(specs.values[0], body->arg_ids[0]);
     EXPECT_EQ(Constant(view.module, specs.values[1]), 1);
     const auto bindings = loom_command_launch_bindings(head);
     ASSERT_EQ(bindings.count, 4u);
     const size_t expected[] = {0, 1, 2, 6};
     for (size_t j = 0; j < 4; ++j)
-      EXPECT_EQ(bindings.values[j], body->arg_ids[expected[j]]);
+      EXPECT_EQ(bindings.values[j], body->arg_ids[expected[j] + 1]);
   }
   void InspectParameters(loomc_module_t *module,
                          const model::ModelDescriptor &facts,
@@ -744,6 +751,24 @@ protected:
   loomc_workspace_t *workspace = nullptr;
   std::string root;
 };
+TEST_F(QwenModelTest, NormalAndDecodeRootsShareOneModelBody) {
+  const auto facts = testing::QwenModelFacts();
+  ConfigurationFacts configuration;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(facts, "immutable fixture", {128, 512},
+                                  &configuration, &error))
+      << error;
+  ASSERT_TRUE(configuration.specialized_decode);
+  auto config = Parse(configuration.source);
+  auto implementation =
+      Load(root + "/lib/architectures/qwen35/implementation.loombc");
+  ASSERT_TRUE(config && implementation);
+  auto module = Link(config.get(), implementation.get(), true, true);
+  ASSERT_TRUE(module);
+  Pass(module.get(), "canonicalize,unroll-scf-for,canonicalize");
+  InspectCalls(module.get(), facts, 128, "generated.qwen_epoch");
+  InspectCalls(module.get(), facts, 1, "generated.qwen_decode_epoch");
+}
 TEST_F(QwenModelTest, CompleteSequenceSurvivesBothProviderEncodings) {
   auto facts = testing::QwenModelFacts();
 #ifdef LOOMIFY_QWEN_LARGE_GGUF

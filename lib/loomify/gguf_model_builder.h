@@ -63,6 +63,10 @@ public:
   // Complete owned serving supplement, exactly as later consumed by LINK.
   const std::string &package_data_source() const;
   bool has_package_configuration() const;
+  // Active specialized decode root, or nullptr when the ordinary root remains
+  // active. Borrowed finite architecture metadata; no configuration is
+  // rederived.
+  const char *specialized_decode_root() const;
   // Native inputs are borrowed synchronously; workspace use is externally
   // synchronized. Failure preserves *out. The result owns its native reference
   // and may outlive this configuration and caller's context/workspace

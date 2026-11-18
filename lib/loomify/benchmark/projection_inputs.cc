@@ -95,6 +95,8 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
       {"ggml_linear_q5_0_q8_1_x4", 6, 32, 22, 0, 1, 32768, false, false},
       {"ggml_linear_q4k_q8_1_x4_compat", 12, 256, 144, 0, 2, 32768, true,
        false},
+      {"llm.projection.q4k_compat_swiglu", 12, 256, 144, 0, 2, 32768, true,
+       false, true},
       {"ggml_linear_q6k_q8_1_x4_compat", 14, 256, 210, 208, 1, 17408, true,
        false},
       {"ggml_quantize_q8_1_x4_f32", 0, 128, 0, 0, 0, 32768, false, true},
@@ -216,6 +218,9 @@ PreparationStatus DescribeProjectionCase(const Plan &plan,
     std::memcpy(&fixed, &raw, sizeof(fixed));
     if (bits > UINT32_MAX)
       return Fail(error, "projection fixed count exceeds its I32 carrier");
+    if (invocation.kernel_symbol == "llm.projection.q4k_compat_swiglu" &&
+        fixed != -1)
+      return Fail(error, "compatible paired SwiGLU requires dynamic count");
     dynamic_count = fixed < 0;
     const uint64_t begin = scalar(dimensions), origin = scalar(dimensions + 2);
     const uint64_t active =

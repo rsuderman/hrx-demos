@@ -26,6 +26,8 @@ config.decl @qwen38.attention.pool_capacity : index
 
 config.decl @runner.qwen38.prefill_token_count : index
 
+config.decl @runner.qwen38.specialized_decode : index
+
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 
 func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
@@ -37,6 +39,8 @@ func.decl import("prepare") @source(%directory: buffer, %path: buffer) -> (i32)
 func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %input: i32, %source: i32, %policy: buffer)
 
 global.rodata.def @epoch_root = bytes("67656e6572617465642e7177656e5f65706f6368")
+
+global.rodata.def @decode_epoch_root = bytes("67656e6572617465642e7177656e5f6465636f64655f65706f6368")
 
 global.rodata.def @policy = bytes("776569676874732e6c6f6f6d")
 
@@ -273,8 +277,12 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
   %count = index.cast %bounded : i64 to index
   %view = buffer.view %shapes[%origin] : buffer -> view<[%count]x2xi64>
   %epoch_root = global.load @epoch_root : buffer
+  %decode_candidate = global.load @decode_epoch_root : buffer
+  %specialization = config.get @runner.qwen38.specialized_decode : index
+  %specialized = index.cmp ne, %specialization, %zero : index
+  %decode_root = scf.select %specialized, %decode_candidate, %epoch_root : buffer
   %prefill_stage = func.call @declare_stage(%epoch_root, %prefill, %weights) : (buffer, i64, buffer) -> (i32)
-  %decode_stage = func.call @declare_stage(%epoch_root, %one64, %weights) : (buffer, i64, buffer) -> (i32)
+  %decode_stage = func.call @declare_stage(%decode_root, %one64, %weights) : (buffer, i64, buffer) -> (i32)
   %maximum = scf.for %i = [%zero to %count step %one](%previous = %zero64 : i64) -> (i64) {
     %tokens = view.load %view[%i, 0] : view<[%count]x2xi64> -> i64
     %spans = view.load %view[%i, 1] : view<[%count]x2xi64> -> i64
@@ -289,7 +297,9 @@ func.def public @prepare(%prefill: i64, %context: i64, %pool: i64, %rows: i64, %
     %shape_ok = scalar.andi %token_range, %span_range : i1
     %shape32 = scalar.extui %shape_ok : i1 to i32
     func.call @require(%shape32, %diagnostic) : (i32, buffer)
-    %target = func.call @declare_stage(%epoch_root, %tokens, %weights) : (buffer, i64, buffer) -> (i32)
+    %one_token = scalar.cmpi eq, %tokens, %one64 : i64
+    %shape_root = scf.select %one_token, %decode_root, %epoch_root : buffer
+    %target = func.call @declare_stage(%shape_root, %tokens, %weights) : (buffer, i64, buffer) -> (i32)
     %larger = scalar.cmpi ugt, %tokens, %previous : i64
     %next = scf.select %larger, %tokens, %previous : i64
     scf.yield %next : i64

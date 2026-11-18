@@ -71,6 +71,7 @@ _LLAMA_FIXTURE = [
     "//lib/platforms/amdgpu/gfx11:targets.loom",
     "llama_roots.loom",
     "real_llama_roots.loom",
+    "//lib/loomify/benchmark:reset_bytes.loom",
     "//lib/architectures/llama:implementation",
 ]
 

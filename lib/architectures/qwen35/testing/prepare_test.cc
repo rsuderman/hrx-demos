@@ -255,7 +255,11 @@ protected:
     for (auto shape : request.shapes)
       tags.push_back(shape[0]);
     for (size_t i = 0; i < tags.size(); ++i) {
-      EXPECT_EQ(out.stages[i].root, "generated.qwen_epoch");
+      const bool eligible = !large && !alternating && request.prefill == 128 &&
+                            request.context == 512;
+      const bool decode = eligible && i != 0 && tags[i] == 1;
+      EXPECT_EQ(out.stages[i].root, decode ? "generated.qwen_decode_epoch"
+                                           : "generated.qwen_epoch");
       EXPECT_EQ(out.stages[i].tag, tags[i]);
       EXPECT_EQ(out.stages[i].id, 101 + i);
       const auto &p = out.parameters[i];
@@ -356,6 +360,27 @@ TEST_F(QwenPrepareTest, NativeSingleRowShapeInventoryPreservesStageOrdinals) {
                                &observed, &error))
         << error;
     Records(request, observed);
+  }
+}
+TEST_F(QwenPrepareTest, QualifiedDecodeAndOneTokenShapesKeepExactStageOrder) {
+  for (bool bytecode : {false, true}) {
+    auto module = Link(128, 512, bytecode);
+    ASSERT_TRUE(module);
+    PreparationRequest request;
+    request.shapes = {{1, 1}, {2, 1},  {2, 2},   {4, 1},  {4, 2},
+                      {4, 4}, {17, 1}, {128, 1}, {128, 2}};
+    PreparationObservation observed;
+    std::string error;
+    ASSERT_TRUE(RunPreparation(environment.get(), context.get(),
+                               workspace.get(), module.get(), request,
+                               &observed, &error))
+        << error;
+    Records(request, observed);
+    EXPECT_EQ(observed.stages[0].root, "generated.qwen_epoch");
+    EXPECT_EQ(observed.stages[1].root, "generated.qwen_decode_epoch");
+    EXPECT_EQ(observed.stages[2].root, "generated.qwen_decode_epoch");
+    for (size_t i = 3; i < observed.stages.size(); ++i)
+      EXPECT_EQ(observed.stages[i].root, "generated.qwen_epoch");
   }
 }
 TEST_F(QwenPrepareTest, IndependentEightLayerGgufControlsNativeStorageRecords) {

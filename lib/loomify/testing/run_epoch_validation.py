@@ -6,6 +6,8 @@ Consume emit_epoch_validation outputs at T8/C64 (Gemma: C576). Compare B0/S0 and
 with the same logical inputs, position and persistent state; then continuation,
 reset and no-output. Source/bytecode, full state, active residuals and output
 slots must match bitwise. Run only in the coordinator's isolated venv/GPU lane.
+The opt-in Qwen specialization mode uses actual T128/C512 geometry, poisoned
+unconsumed residual rows, mapped-page boundaries and dependent mixed epochs.
 """
 
 import argparse
@@ -72,6 +74,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("emitted", "gguf", "reflector", "runner", "output", "gpu-lock"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument(
+        "--specialized-qwen",
+        action="store_true",
+        help="actual T128/C512 whole-state specialization cases",
+    )
+    parser.add_argument(
+        "--decode-root",
+        default="",
+        help="candidate one-row root; omit for original-reference run",
+    )
+    parser.add_argument(
+        "--source-module",
+        type=Path,
+        help="explicit original SOURCE product with emitted layout",
+    )
+    parser.add_argument(
+        "--bytecode-module",
+        type=Path,
+        help="explicit original bytecode product with emitted layout",
+    )
     args = parser.parse_args()
     assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
     assert sys.byteorder == "little"
@@ -83,7 +105,13 @@ def main():
     qwen = family == "qwen35"
     gemma = family == "gemma3"
     context = layout["context"]
-    assert layout["tokens"] == 8 and context == (576 if gemma else 64)
+    tokens_capacity = layout["tokens"]
+    if args.specialized_qwen:
+        assert qwen and tokens_capacity == 128 and context == 512
+        assert not args.decode_root or args.decode_root == layout["decode_root"]
+    else:
+        assert tokens_capacity == 8 and context == (576 if gemma else 64)
+        assert not args.decode_root
     hidden = layout["hidden"]
     facts = {
         key: int(value)
@@ -95,7 +123,7 @@ def main():
     if qwen:
         state_begin = facts["qwen.model.gdn_slot_origin"]
         kv_begin = facts["qwen.model.private_row_stride"]
-        state_bytes = kv_begin + 64 * facts["qwen.model.target_kv_token_bytes"]
+        state_bytes = kv_begin + context * facts["qwen.model.target_kv_token_bytes"]
         residual_bytes = facts["qwen.model.hidden_capacity_bytes"]
         metadata_bytes = 4192
         map_origin = facts["qwen.model.map_origin"]
@@ -123,13 +151,23 @@ def main():
         plane_token_bytes = 2 * facts[prefix + ".model.kv_size"]
         gdn_end = state_begin
     assert vocabulary > 400
-    rows = bytearray([83]) * (map_origin + 4 + 64)
-    struct.pack_into("<4q", rows, 0, state_begin, state_begin, kv_begin, 11)
-    if gemma:
-        for page in range(context // 64):
-            struct.pack_into("<i", rows, map_origin + page * 4, page)
-    else:
-        struct.pack_into("<i", rows, map_origin, 0)
+    page_count = context // 64
+    page_map = [
+        ((page + 3) % page_count if args.specialized_qwen else page)
+        for page in range(page_count)
+    ]
+    rows = bytearray([83]) * (map_origin + 4 * page_count + 64)
+    struct.pack_into(
+        "<4q",
+        rows,
+        0,
+        state_begin,
+        state_begin,
+        kv_begin,
+        0 if args.specialized_qwen else 11,
+    )
+    for page, physical in enumerate(page_map):
+        struct.pack_into("<i", rows, map_origin + page * 4, physical)
     initial_state = (
         bytes([91]) * state_begin + bytes(state_bytes - state_begin) + bytes([91]) * 256
     )
@@ -170,7 +208,9 @@ def main():
         (args.output / "results.json").write_text(json.dumps(record, indent=2) + "\n")
 
     for form in ("loom", "loombc"):
-        module = args.emitted / ("epoch." + form)
+        module = (
+            args.source_module if form == "loom" else args.bytecode_module
+        ) or args.emitted / ("epoch." + form)
         work = args.output / form
         work.mkdir(exist_ok=True)
         with (
@@ -218,9 +258,40 @@ def main():
             }
         )
 
+        # Independently reflect the second public root before reusing a bank.
+        # A different layout must be handled explicitly, never fed normal-root bytes.
+        if args.decode_root:
+            with (
+                (work / "decode-parameters.tsv").open("w") as out,
+                (work / "decode-reflection.log").open("w") as err,
+            ):
+                subprocess.run(
+                    [str(args.reflector), args.decode_root, str(module)],
+                    env=env,
+                    stdout=out,
+                    stderr=err,
+                    check=True,
+                )
+            assert (work / "decode-parameters.tsv").read_bytes() == (
+                work / "parameters.tsv"
+            ).read_bytes(), "public roots require different parameter banks"
+            decode_roots = re.findall(
+                r"ROOT (\d+) length=(\d+) alignment=(\d+)",
+                (work / "decode-reflection.log").read_text(),
+            )
+            assert decode_roots == roots
         observations = {}
 
-        def run(name, begin, slot, position, tokens, state, selected=True):
+        def run(
+            name,
+            begin,
+            slot,
+            position,
+            tokens,
+            state,
+            selected=True,
+            poison_word=0x7FC50001,
+        ):
             case = work / name
             case.mkdir(exist_ok=True)
             epoch = bytearray([79]) * (metadata_bytes + 64)
@@ -244,11 +315,27 @@ def main():
             struct.pack_into("<i", epoch, 2060, eos)
             # Qwen eagerly embeds valid padding. Llama's stronger active guard
             # must avoid invalid IDs outside its descriptor's input span.
-            ids = [0 if qwen else -1] * 8
+            ids = [0 if qwen else -1] * tokens_capacity
             ids[begin : begin + len(tokens)] = tokens
-            input_ids = struct.pack("<8i", *ids) + bytes([71]) * 64
+            input_ids = (
+                struct.pack("<" + "i" * tokens_capacity, *ids) + bytes([71]) * 64
+            )
             output_ids = struct.pack("<20i", *(-99 - 7 * i for i in range(20)))
             residual = struct.pack("<f", -31.0) * (residual_bytes // 4 + 64)
+            case_root = (
+                args.decode_root
+                if args.decode_root and begin == 0 and len(tokens) == 1
+                else root
+            )
+            specialized = case_root != root
+            if specialized:
+                # Only the candidate's forbidden-read suffix is poisoned. The
+                # original embedding legitimately writes all static ID rows.
+                residual = (
+                    residual[: hidden * 4]
+                    + struct.pack("<I", poison_word) * (residual_bytes // 4 - hidden)
+                    + residual[residual_bytes:]
+                )
             buffers = [
                 residual,
                 bytes(epoch),
@@ -263,11 +350,11 @@ def main():
             tensors = ",".join(
                 [f"tensor<{length}xi8>"] + [f"tensor<{len(x)}xi8>" for x in buffers]
             )
-            fixture = f"command.decl @{root}() launch({declarations})\nfunc.def @noop({declarations}) {{ func.return }}\ncheck.scenario @actual_epoch {{\n check.trial[1](%trial:index,%entropy:check.entropy) {{\n"
+            fixture = f"command.decl @{case_root}() launch({declarations})\nfunc.def @noop({declarations}) {{ func.return }}\ncheck.scenario @actual_epoch {{\n check.trial[1](%trial:index,%entropy:check.entropy) {{\n"
             fixture += f'  %a0 = check.file.read.npy path("/proc/self/fd/{fd}") : tensor<{length}xi8>\n'
             for i, data in enumerate(buffers, 1):
                 fixture += f'  %a{i} = check.file.read.npy path("{case / f"arg{i}.npy"}") : tensor<{len(data)}xi8>\n'
-            fixture += f"  check.compare<@{root},@noop>(%a0,%a1,%a2,%a3,%a4,%a5,%a6) : ({tensors}) -> () {{\n"
+            fixture += f"  check.compare<@{case_root},@noop>(%a0,%a1,%a2,%a3,%a4,%a5,%a6) : ({tensors}) -> () {{\n"
             for i in (0, 2, 3, 5):
                 size = length if i == 0 else len(buffers[i - 1])
                 fixture += f"   check.expect.bitwise actual(%a{i}) expected(%a{i}) : tensor<{size}xi8>\n"
@@ -300,6 +387,11 @@ def main():
                 for i in range(1, 7)
             }
             assert actual[1][residual_bytes:] == residual[residual_bytes:]
+            if specialized:
+                assert (
+                    actual[1][hidden * 4 : residual_bytes]
+                    == residual[hidden * 4 : residual_bytes]
+                ), (name, "specialized root touched unconsumed residual suffix")
             assert actual[4][:state_begin] == state[:state_begin]
             assert actual[4][state_bytes:] == state[state_bytes:]
             assert actual[4] != state, (
@@ -310,11 +402,20 @@ def main():
             permitted = [(state_begin, gdn_end)] if qwen else []
             permitted += [
                 (
-                    kv_begin + (plane * context + position) * plane_token_bytes,
                     kv_begin
-                    + (plane * context + position + len(tokens)) * plane_token_bytes,
+                    + (plane * context + page_map[logical // 64] * 64 + logical % 64)
+                    * plane_token_bytes,
+                    kv_begin
+                    + (
+                        plane * context
+                        + page_map[logical // 64] * 64
+                        + logical % 64
+                        + 1
+                    )
+                    * plane_token_bytes,
                 )
                 for plane in range(plane_count)
+                for logical in range(position, position + len(tokens))
             ]
             cursor = 0
             for low, high in sorted(permitted):
@@ -395,6 +496,9 @@ def main():
                 "begin": begin,
                 "length": len(tokens),
                 "slot": slot if selected else -1,
+                "root": case_root,
+                "module_sha256": h.digest(module.read_bytes()),
+                "specialized_suffix_preserved": specialized,
                 "active_sha256": proof[0],
                 "full_state_sha256": proof[1],
                 "selected_i32_bytes": proof[2],
@@ -409,6 +513,68 @@ def main():
             for path in case.glob("arg*.npy"):
                 path.unlink()
             return proof, actual[4]
+
+        if args.specialized_qwen:
+
+            def prediction(proof):
+                assert proof[2] is not None
+                return struct.unpack("<i", bytes.fromhex(proof[2]))[0]
+
+            full, full_state = run(
+                "full_prefill", 0, 0, 0, [100 + i for i in range(128)], initial_state
+            )
+            d1, state = run(
+                "decode_after_full", 0, 7, 128, [prediction(full)], full_state
+            )
+            d2, state = run("second_decode", 0, 0, 129, [prediction(d1)], state)
+            partial, state = run(
+                "partial_prefill_after_decode",
+                0,
+                0,
+                130,
+                [200 + i for i in range(17)],
+                state,
+            )
+            d3, state = run(
+                "decode_after_partial", 0, 0, 147, [prediction(partial)], state
+            )
+            _, state = run(
+                "no_output_decode", 0, 0, 148, [prediction(d3)], state, False
+            )
+            run("decode_after_no_output", 0, 0, 149, [401], state)
+            # Independent fresh chains cross a real64-row physical page boundary.
+            prefix, prefix_state = run(
+                "page_prefix", 0, 0, 0, [100 + i for i in range(63)], initial_state
+            )
+            edge, edge_state = run(
+                "decode_page63", 0, 0, 63, [prediction(prefix)], prefix_state
+            )
+            across, _ = run("decode_page64", 0, 0, 64, [prediction(edge)], edge_state)
+            poison_a, _ = run(
+                "suffix_poison_a",
+                0,
+                7,
+                128,
+                [prediction(full)],
+                full_state,
+                poison_word=0x7FC50001,
+            )
+            poison_b, _ = run(
+                "suffix_poison_b",
+                0,
+                7,
+                128,
+                [prediction(full)],
+                full_state,
+                poison_word=0x7FC60002,
+            )
+            assert poison_a == poison_b
+            fresh, _ = run(
+                "reset_replay", 0, 0, 0, [100 + i for i in range(128)], initial_state
+            )
+            assert fresh == full
+            os.close(fd)
+            continue
 
         canonical, canonical_state = run(
             "canonical", 0, 0, 11, [100, 200, 300], initial_state

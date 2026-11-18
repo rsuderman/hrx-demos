@@ -20,6 +20,8 @@ struct TensorRequirement {
 struct ConfigurationFacts {
   std::vector<TensorRequirement> parameters;
   std::string source;
+  // Derived numerical execution policy, not a GGUF metadata field.
+  bool specialized_decode = false;
 };
 // Data only: no file I/O, native module or numerical invocation construction.
 // Input facts are borrowed; output owns names/ranges/source and may outlive

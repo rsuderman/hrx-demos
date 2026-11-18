@@ -171,6 +171,14 @@ TEST(CaseIdentity, BindsInputsAbiAndReplayWithoutConfusingImplementation) {
   };
   const auto baseline = identify(plan, invocation, roots, "none");
   EXPECT_FALSE(baseline.case_id.empty());
+  auto rooted = plan;
+  rooted.programs.resize(1);
+  rooted.programs[0].root_symbol = "generated.normal_epoch";
+  const auto normal = identify(rooted, invocation, roots, "none");
+  rooted.programs[0].root_symbol = "generated.decode_epoch";
+  const auto decode = identify(rooted, invocation, roots, "none");
+  EXPECT_NE(normal.logical_case_key, decode.logical_case_key);
+  EXPECT_NE(normal.case_id, decode.case_id);
   auto written_roots = roots;
   written_roots[0].fixture_suffix_bytes = kBenchmarkTailGuardBytes;
   EXPECT_EQ(identify(plan, invocation, written_roots, "none").case_id,
@@ -306,7 +314,21 @@ TEST_F(BenchmarkPlanTest, CopiesCompleteSelectedScheduleAndOwnsRequests) {
       << "explicit immutable Qwen35 asset and runfiles required";
   const auto root = (std::filesystem::path(srcdir) / workspace_name).string();
   std::string previous_workload;
-  for (const auto capacity : {1u, 8u}) {
+  std::unique_ptr<GgufModelBuilder> builder;
+  std::string error;
+  ASSERT_TRUE(GgufModelBuilder::Open(asset, &builder, &error)) << error;
+  for (const auto capacity : {1u, 8u, 128u, 512u}) {
+    GgufBuildOptions options;
+    options.prefill_capacity = capacity;
+    options.context_capacity = 512;
+    std::unique_ptr<GgufConfiguration> configuration;
+    ASSERT_TRUE(builder->ConfigureNumerical(options, &configuration, &error))
+        << error;
+    if (capacity == 128)
+      ASSERT_STREQ(configuration->specialized_decode_root(),
+                   "generated.qwen_decode_epoch");
+    else
+      ASSERT_EQ(configuration->specialized_decode_root(), nullptr);
     Workload workload;
     workload.phase = capacity == 1 ? "decode" : "prefill";
     workload.token_capacity = capacity;
@@ -318,6 +340,10 @@ TEST_F(BenchmarkPlanTest, CopiesCompleteSelectedScheduleAndOwnsRequests) {
                                    &plan, &error))
         << error;
     EXPECT_EQ(plan.workload.token_capacity, capacity);
+    // The secondary complete epoch is linked but must never become a second
+    // benchmark program merely because it is an architecture root.
+    ASSERT_EQ(plan.programs.size(), 1u);
+    EXPECT_EQ(plan.programs.front().root_symbol, "generated.qwen_epoch");
     EXPECT_FALSE(plan.selection_id.empty());
     EXPECT_NE(plan.workload_id, previous_workload);
     previous_workload = plan.workload_id;

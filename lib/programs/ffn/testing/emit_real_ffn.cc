@@ -7,7 +7,9 @@
 #include "lib/loomify/linking.h"
 #include "tools/model/model_descriptor.h"
 #include "loomc/target/amdgpu.h"
+#include <charconv>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -111,14 +113,23 @@ bool PartialSource(const char *path, std::string *source, std::string *error) {
 }
 } // namespace
 int main(int argc, char **argv) {
-  if (argc != 5) {
+  if (argc != 5 && argc != 6) {
     std::fprintf(
         stderr,
-        "usage: emitter LIBRARY_ROOT GGUF llama|qwen OUTPUT_STEM\n"
+        "usage: emitter LIBRARY_ROOT GGUF llama|qwen OUTPUT_STEM [PREFILL_ROWS]\n"
         "       emitter LIBRARY_ROOT VERIFIED_FACTS partial OUTPUT_STEM\n");
     return 1;
   }
+  uint64_t rows = 4;
+  if (argc == 6) {
+    const auto parsed =
+        std::from_chars(argv[5], argv[5] + std::strlen(argv[5]), rows);
+    if (parsed.ec != std::errc() || *parsed.ptr || rows < 1 || rows > 512)
+      return 1;
+  }
   const std::string family = argv[3];
+  if (family == "partial" && argc != 5)
+    return 1;
   if (family != "llama" && family != "qwen" && family != "partial")
     return 1;
   model::ModelDescriptor descriptor;
@@ -138,7 +149,8 @@ int main(int argc, char **argv) {
     if (!model::ReadGgufCatalog(input.get(), &catalog, &error) ||
         !model::LoadModelDescriptor(catalog, &descriptor, &error) ||
         descriptor.family != (family == "llama" ? "llama" : "qwen35") ||
-        !DeriveConfiguration(descriptor, argv[2], {4, 512}, &config, &error)) {
+        !DeriveConfiguration(descriptor, argv[2], {rows, 512}, &config,
+                             &error)) {
       std::fprintf(stderr, "%s\n", error.c_str());
       return 1;
     }
@@ -170,6 +182,12 @@ int main(int argc, char **argv) {
         names.push_back("real." + family + ".ffn.layer" +
                         std::to_string(layer) + "." + phase);
   }
+  if (family == "llama")
+    for (int layer : {0, 3})
+      for (const char *suffix :
+           {"configured_prefill", "configured_prefill_twice"})
+        names.push_back("real.llama.ffn.layer" + std::to_string(layer) + "." +
+                        suffix);
   std::vector<const char *> roots;
   for (const auto &name : names)
     roots.push_back(name.c_str());

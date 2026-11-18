@@ -172,6 +172,32 @@ func.def inline @ggml_q4k_compat_row(%input_size: index, %weight: buffer, %weigh
   func.return %result : f32
 }
 
+// One compatible dot, including its original reduction. Both the unchanged
+// single projection and paired SwiGLU consumer use this exact arithmetic path.
+func.def inline @ggml_q4k_compat_dot(%input_size: index, %weight: buffer, %weight_row: offset, %q8_input: buffer, %q8_row: offset, %lane: index, %valid_channel: i1, %specialized: i1, %one_row: i1, %reverse_minima: i1, %round_weight_scales: i1) -> (f32) {
+  %lane_acc = scf.if %valid_channel -> (f32) {
+    %value = scf.if %specialized -> (f32) {
+      %v = func.call @ggml_q4k_compat_row(%input_size, %weight, %weight_row, %q8_input, %q8_row, %lane, %one_row, %reverse_minima) : (index, buffer, offset, buffer, offset, index, i1, i1) -> (f32)
+      scf.yield %v : f32
+    } else {
+      %v = func.call @ggml_q4k_q8_1_x4_row_lane_policy(%round_weight_scales, %input_size, %weight, %weight_row, %q8_input, %q8_row, %lane) : (i1, index, buffer, offset, buffer, offset, index) -> (f32)
+      scf.yield %v : f32
+    }
+    scf.yield %value : f32
+  } else {
+    %c0_f32 = scalar.constant 0.0 : f32
+    scf.yield %c0_f32 : f32
+  }
+  %dot = scf.if %specialized -> (f32) {
+    %ordered_dot = func.call @ggml_qk_mmvq_compat_reduce(%lane_acc) : (f32) -> (f32)
+    scf.yield %ordered_dot : f32
+  } else {
+    %canonical_dot = kernel.subgroup.reduce<addf> %lane_acc : f32
+    scf.yield %canonical_dot : f32
+  }
+  func.return %dot : f32
+}
+
 kernel.def target(@llm.platform.projection.q4k.compatible.wave32) export("ggml_linear_q4k_q8_1_x4_compat") @ggml_linear_q4k_q8_1_x4_compat(%token_count: index, %input_size: index, %output_size: index) {
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048)] : index
   %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144)] : index
@@ -217,32 +243,76 @@ kernel.def target(@llm.platform.projection.q4k.compatible.wave32) export("ggml_l
     %q8_row_byte_base = index.scale %token, %q8_row_bytes : index, offset -> offset
     %specialized, %one_row, %reverse_minima = func.call @ggml_qk_mmvq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1, i1, i1)
     %round_weight_scales = func.call @ggml_qk_mmq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1)
-    %lane_acc = scf.if %valid_channel -> (f32) {
-      %value = scf.if %specialized -> (f32) {
-        %v = func.call @ggml_q4k_compat_row(%bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane, %one_row, %reverse_minima) : (index, buffer, offset, buffer, offset, index, i1, i1) -> (f32)
-        scf.yield %v : f32
-      } else {
-        %v = func.call @ggml_q4k_q8_1_x4_row_lane_policy(%round_weight_scales, %bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane) : (i1, index, buffer, offset, buffer, offset, index) -> (f32)
-        scf.yield %v : f32
-      }
-      scf.yield %value : f32
-    } else {
-      %c0_f32 = scalar.constant 0.0 : f32
-      scf.yield %c0_f32 : f32
-    }
-    %dot = scf.if %specialized -> (f32) {
-      %ordered_dot = func.call @ggml_qk_mmvq_compat_reduce(%lane_acc) : (f32) -> (f32)
-      scf.yield %ordered_dot : f32
-    } else {
-      %canonical_dot = kernel.subgroup.reduce<addf> %lane_acc : f32
-      scf.yield %canonical_dot : f32
-    }
+    %dot = func.call @ggml_q4k_compat_dot(%bounded_input_size, %weight_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane, %valid_channel, %specialized, %one_row, %reverse_minima, %round_weight_scales) : (index, buffer, offset, buffer, offset, index, i1, i1, i1, i1, i1) -> (f32)
     %is_lane_zero = index.cmp eq, %lane, %c0 : index
     scf.if %valid_channel {
       scf.if %is_lane_zero {
         %c0_offset = index.constant 0 : offset
         %output_view = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_token_count]x[%bounded_output_size]xf32>
         view.store %dot, %output_view[%token, %channel0] : f32, view<[%bounded_token_count]x[%bounded_output_size]xf32>
+      }
+    }
+  }
+  kernel.return
+}
+
+// First production caller uses dynamic fixed_count=-1; preserve its active-row
+// contract and each separately rounded compatible dot before activation.
+kernel.def target(@llm.platform.projection.q4k.compatible.wave32) export("llm.projection.q4k_compat_swiglu") @llm.projection.q4k_compat_swiglu(%token_count: index, %input_size: index, %output_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144)] : index
+  %subgroup_size = target.subgroup.size : index
+  %workgroup_size = index.constant 256 : index
+  %c1 = index.constant 1 : index
+  %subgroups_per_workgroup = index.div %workgroup_size, %subgroup_size : index
+  %output_padding = index.sub %subgroups_per_workgroup, %c1 : index
+  %padded_output_size = index.add %bounded_output_size, %output_padding : index
+  %output_tiles = index.div %padded_output_size, %subgroups_per_workgroup : index
+  kernel.launch.config workgroups(%output_tiles, %bounded_token_count, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count_view: buffer, %q8_input: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %q8_noalias, %gate_noalias, %up_noalias, %output_noalias = buffer.assume.noalias %q8_input, %gate, %up, %output : buffer, buffer, buffer, buffer
+  %token_capacity = config.get @ggml.linear_q4k_q8_1_x4.token_capacity : index
+  %output_capacity = config.get @ggml.linear_q4k_q8_1_x4.output_capacity : index
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048), le(%token_count, %token_capacity)] : index
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 32768), multiple_of(%input_size, 256)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
+  %subgroup_size = target.subgroup.size : index
+  %workgroup_size = index.constant 256 : index
+  %c0 = index.constant 0 : index
+  %c128 = index.constant 128 : index
+  %c144_bytes = index.constant 144 : offset
+  %c256 = index.constant 256 : index
+  %subgroups_per_workgroup = index.div %workgroup_size, %subgroup_size : index
+  %channel_tile = kernel.workgroup.id<x> : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  %active = func.call @llm.active_row(%token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, i32, offset, buffer) -> (i1)
+  scf.if %active {
+    %subgroup = kernel.subgroup.id : index
+    %lane = kernel.subgroup.lane.id : index
+    %channel_base = index.mul %channel_tile, %subgroups_per_workgroup : index
+    %channel0 = index.add %channel_base, %subgroup : index
+    %valid_channel = index.cmp ult, %channel0, %bounded_output_size : index
+    %safe_channel0 = scf.select %valid_channel, %channel0, %c0 : index
+    %safe_channel = index.assume %safe_channel0 [lt(%safe_channel0, %output_capacity)] : index
+    %q4_block_count = index.div %bounded_input_size, %c256 : index
+    %weight_row_bytes = index.scale %q4_block_count, %c144_bytes : index, offset -> offset
+    %weight_row_byte_base = index.scale %safe_channel, %weight_row_bytes : index, offset -> offset
+    %q8_group_count = index.div %bounded_input_size, %c128 : index
+    %q8_row_bytes = index.scale %q8_group_count, %c144_bytes : index, offset -> offset
+    %q8_row_byte_base = index.scale %token, %q8_row_bytes : index, offset -> offset
+    %specialized, %one_row, %reverse_minima = func.call @ggml_qk_mmvq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1, i1, i1)
+    %round_weight_scales = func.call @ggml_qk_mmq_compat_select(%bounded_token_count, %token, %row_origin, %fixed_count, %count_origin, %count_view) : (index, index, index, i32, offset, buffer) -> (i1)
+    %gate_dot = func.call @ggml_q4k_compat_dot(%bounded_input_size, %gate_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane, %valid_channel, %specialized, %one_row, %reverse_minima, %round_weight_scales) : (index, buffer, offset, buffer, offset, index, i1, i1, i1, i1, i1) -> (f32)
+    %up_dot = func.call @ggml_q4k_compat_dot(%bounded_input_size, %up_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane, %valid_channel, %specialized, %one_row, %reverse_minima, %round_weight_scales) : (index, buffer, offset, buffer, offset, index, i1, i1, i1, i1, i1) -> (f32)
+    %is_lane_zero = index.cmp eq, %lane, %c0 : index
+    scf.if %valid_channel {
+      scf.if %is_lane_zero {
+        %c0_offset = index.constant 0 : offset
+        %output_view = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_token_count]x[%bounded_output_size]xf32>
+        %activated_gate = scalar.siluf<afn> %gate_dot : f32
+        %result = scalar.mulf<nnan|ninf|nsz> %activated_gate, %up_dot : f32
+        view.store %result, %output_view[%token, %channel0] : f32, view<[%bounded_token_count]x[%bounded_output_size]xf32>
       }
     }
   }

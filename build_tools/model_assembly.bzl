@@ -44,11 +44,12 @@ def ordinary_assembly(family, reader_symbol, emitter_symbol, resource_stem, arch
         unsupported = unsupported,
         publisher_symbol = publisher_symbol or family + "_publish_epoch_id",
         roots = ["generated." + family + "_epoch"],
+        decode_root = None,
         products = ["//lib/architectures/" + family + ":" + name for name in ["implementation", "prepare_library", "execution"]],
         ordinary = True,
     )
 
-def custom_assembly(family, reader_symbol, emitter_symbol, resource_stem, publication, context_limit, required_operations, roots, products):
+def custom_assembly(family, reader_symbol, emitter_symbol, resource_stem, publication, context_limit, required_operations, roots, products, decode_root = None):
     """Register real custom products without generating their host/numerical ABI."""
     return struct(
         family = family,
@@ -59,6 +60,7 @@ def custom_assembly(family, reader_symbol, emitter_symbol, resource_stem, public
         context_limit = context_limit,
         required_operations = required_operations,
         roots = roots,
+        decode_root = decode_root,
         products = products,
         ordinary = False,
     )
@@ -84,6 +86,8 @@ def validate_assemblies(entries):
         stems[entry.resource_stem] = True
         if entry.publication not in _PUBLICATIONS or entry.context_limit < 1 or len(entry.products) != 3 or not entry.roots:
             fail("invalid assembly policy/products: " + entry.family)
+        if entry.decode_root and (entry.decode_root not in entry.roots or entry.decode_root == entry.roots[0]):
+            fail("invalid assembly decode root: " + entry.family)
         for product in entry.products:
             _label(product)
             if product in products:
@@ -143,7 +147,7 @@ def native_registry(name, entries):
     source += "const ArchitectureFiles *SelectArchitecture(std::string_view family) {\n  static const ArchitectureFiles entries[] = {\n"
     for e in entries:
         resources = ["resources::k" + e.resource_stem + suffix for suffix in ["Implementation", "Preparation", "Execution"]]
-        source += "    {" + ", ".join([json.encode(e.family)] + resources + ["resources::kWeights", json.encode("loomify-" + e.family), "{" + ", ".join([json.encode(root) for root in e.roots]) + "}", "{" + ", ".join(["RequiredOperation::" + op for op in e.required_operations]) + "}", "internal::" + e.emitter_symbol, "PublicationLayout::" + _PUBLICATIONS[e.publication], str(e.context_limit)]) + "},\n"
+        source += "    {" + ", ".join([json.encode(e.family)] + resources + ["resources::kWeights", json.encode("loomify-" + e.family), "{" + ", ".join([json.encode(root) for root in e.roots]) + "}", "{" + ", ".join(["RequiredOperation::" + op for op in e.required_operations]) + "}", "internal::" + e.emitter_symbol, "PublicationLayout::" + _PUBLICATIONS[e.publication], str(e.context_limit), json.encode(e.decode_root) if e.decode_root else "nullptr"]) + "},\n"
     source += "  };\n  for (const auto &entry : entries)\n    if (family == entry.family) return &entry;\n  return nullptr;\n}\n}\n"
     _write_sources(name = name, header = "assembly_registry.h", source = "assembly_registry.cc", header_content = header, source_content = source)
 

@@ -101,6 +101,51 @@ TEST_F(BenchmarkExportRealTest,
   EXPECT_FALSE(Export(options, &result, &error));
   EXPECT_EQ(Read(options.output), original);
 }
+TEST_F(BenchmarkExportRealTest, SelectedCompatibleLlamaPairMatchesRecipe) {
+  const char *llama = std::getenv("LOOMIFY_TEST_LLAMA_GGUF");
+  ASSERT_TRUE(llama && *llama) << "explicit immutable Llama3B GGUF required";
+  gguf_ = llama;
+  workload_.phase = "prefill";
+  workload_.token_capacity = 128;
+  workload_.active_tokens = 1;
+  workload_.history_tokens = 0;
+  Plan plan;
+  std::string error;
+  ASSERT_TRUE(BuildBenchmarkPlan(gguf_, workload_, library_root_, context_,
+                                 workspace_, &plan, &error))
+      << error;
+  size_t pairs = 0;
+  for (const auto &invocation : plan.invocations) {
+    if (invocation.kernel_symbol != "llm.projection.q4k_compat_swiglu")
+      continue;
+    ++pairs;
+    ASSERT_EQ(11u, invocation.arguments.size());
+    EXPECT_EQ(128u, invocation.arguments[0].value.scalar_bits);
+    EXPECT_EQ(3072u, invocation.arguments[1].value.scalar_bits);
+    EXPECT_EQ(8192u, invocation.arguments[2].value.scalar_bits);
+    EXPECT_EQ(0u, invocation.arguments[3].value.scalar_bits);
+    EXPECT_EQ(UINT32_MAX, invocation.arguments[4].value.scalar_bits);
+    EXPECT_EQ(0u, invocation.arguments[5].value.scalar_bits);
+    EXPECT_EQ(1024u, invocation.command.payload.dispatch.workgroup_count[0]);
+    EXPECT_EQ(128u, invocation.command.payload.dispatch.workgroup_count[1]);
+    PreparedCase prepared;
+    ASSERT_EQ(PreparationStatus::kReady,
+              PrepareProjectionCase(plan, invocation,
+                                    UINT64_C(64) * 1024 * 1024, &prepared,
+                                    &error))
+        << error;
+    EXPECT_EQ((std::vector<uint64_t>{128, 3072, 8192}),
+              prepared.source_workloads);
+    ASSERT_EQ(2u, prepared.weight_sources.size());
+    EXPECT_NE(prepared.weight_sources[0].key, prepared.weight_sources[1].key);
+    EXPECT_NE(prepared.weight_sources[0].source_offset,
+              prepared.weight_sources[1].source_offset);
+    EXPECT_EQ(14155776u, prepared.weight_sources[0].byte_length);
+    EXPECT_EQ(14155776u, prepared.weight_sources[1].byte_length);
+  }
+  EXPECT_EQ(28u, pairs);
+}
+
 TEST_F(BenchmarkExportRealTest, LinksDistinctSelectedArgmaxRequestsTogether) {
   Plan plan;
   std::string error;

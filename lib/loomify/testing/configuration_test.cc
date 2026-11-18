@@ -75,6 +75,32 @@ TEST(ConfigurationFactsTest, OwnsAllNamedRangesAndNoPrograms) {
     EXPECT_EQ(f.source.find("buffer.alloc"), std::string::npos);
   }
 }
+TEST(ConfigurationFactsTest, QwenDecodePolicyIsOneBoundedDerivedFact) {
+  for (bool large : {false, true})
+    for (uint64_t tokens : {1u, 128u, 512u})
+      for (uint64_t context : {512u, 1024u}) {
+        ConfigurationFacts facts;
+        std::string error;
+        ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(large),
+                                        "immutable fixture", {tokens, context},
+                                        &facts, &error))
+            << error;
+        const bool eligible = !large && tokens == 128 && context == 512;
+        EXPECT_EQ(facts.specialized_decode, eligible);
+        EXPECT_EQ(
+            Scalars(facts.source).at("runner.qwen38.specialized_decode").first,
+            eligible ? "1" : "0");
+      }
+  for (const auto &other :
+       {testing::LlamaModelFacts(), testing::Qwen3ModelFacts(),
+        testing::gemma3::ModelFacts()}) {
+    ConfigurationFacts facts;
+    std::string error;
+    ASSERT_TRUE(DeriveConfiguration(other, "fixture", {}, &facts, &error))
+        << error;
+    EXPECT_FALSE(facts.specialized_decode);
+  }
+}
 TEST(ConfigurationFactsTest, SharedGeometryAtHistoryAndPoolBoundaries) {
   for (bool llama : {true, false})
     for (uint64_t t : {1, 128, 129, 512})
@@ -545,8 +571,15 @@ TEST(ConfigurationFactsTest, SelectedArchitecturePreservesProductsAndLimits) {
     const auto *selected = SelectArchitecture(expected.family);
     ASSERT_NE(selected, nullptr);
     EXPECT_EQ(selected, SelectArchitecture(expected.family));
-    ASSERT_EQ(selected->roots.size(), 1u);
+    const bool qwen = std::string(expected.family) == "qwen35";
+    ASSERT_EQ(selected->roots.size(), qwen ? 2u : 1u);
     EXPECT_STREQ(selected->roots[0], expected.root);
+    if (qwen) {
+      EXPECT_STREQ(selected->decode_root, "generated.qwen_decode_epoch");
+      EXPECT_STREQ(selected->roots[1], selected->decode_root);
+    } else {
+      EXPECT_EQ(selected->decode_root, nullptr);
+    }
     EXPECT_EQ(selected->required_operations, expected.required_operations);
     EXPECT_EQ(selected->context_capacity_limit, expected.limit);
     EXPECT_NE(selected->emit_configuration, nullptr);

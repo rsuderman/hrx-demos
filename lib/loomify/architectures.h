@@ -25,6 +25,9 @@ struct ArchitectureFiles {
   ConfigurationEmitter emit_configuration = nullptr;
   PublicationLayout publication_layout = PublicationLayout::kUnspecified;
   uint64_t context_capacity_limit = 0;
+  // Optional numerical implementation; configuration decides whether it is
+  // active.
+  const char *decode_root = nullptr;
 };
 const ArchitectureFiles *SelectArchitecture(std::string_view family);
 } // namespace hrx::loomify_gguf

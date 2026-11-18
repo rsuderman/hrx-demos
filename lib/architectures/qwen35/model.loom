@@ -48,8 +48,6 @@ template.def<@loomify.qwen.output_encoding> @loomify_qwen_output_q6(%tag: index)
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // Complete text-model sequence. Configuration owns admitted GGUF facts only.
-config.decl @runner.qwen38.prefill_token_count : index
-
 config.decl @qwen.model.base_layers : index
 
 config.decl @qwen.model.embedding_storage_type : index
@@ -70,10 +68,9 @@ command.decl @qwen38_attention_layer_prefill(%tokens: index, %schedule: index, %
 
 command.decl @loomify.qwen.head(%tokens: index, %outputs: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer)
 
-command.def @loomify.qwen.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %resident_arena: buffer, %input: buffer, %selected_ids: buffer) {
+command.def @loomify.qwen.model(%tokens: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %rows: buffer, %resident_arena: buffer, %input: buffer, %selected_ids: buffer) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  %tokens = config.get @runner.qwen38.prefill_token_count : index
   %hidden = config.get @qwen.model.hidden_size : index
   %head = config.get @qwen.model.head_size : index
   %qh = config.get @qwen.model.attention_heads : index

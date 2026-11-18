@@ -34,6 +34,10 @@ const std::string &GgufConfiguration::platform() const {
 bool GgufConfiguration::has_package_configuration() const {
   return bool(impl_->package);
 }
+const char *GgufConfiguration::specialized_decode_root() const {
+  return impl_->numerical.specialized_decode ? impl_->architecture->decode_root
+                                             : nullptr;
+}
 BuiltGgufModule::BuiltGgufModule(std::unique_ptr<Impl> impl)
     : impl_(std::move(impl)) {}
 BuiltGgufModule::~BuiltGgufModule() = default;

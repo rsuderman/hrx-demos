@@ -157,7 +157,8 @@ ASSEMBLIES = [
         publication = "host_managed",
         context_limit = 262144,
         required_operations = ["kAttentionPrefillH256V1"],
-        roots = ["generated.qwen_epoch"],
+        roots = ["generated.qwen_epoch", "generated.qwen_decode_epoch"],
+        decode_root = "generated.qwen_decode_epoch",
         products = [
             "//lib/architectures/qwen35:implementation",
             "//lib/architectures/qwen35:prepare_library",

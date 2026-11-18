@@ -132,3 +132,34 @@ loom_checks(
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
     provider_name = "provider",
 )
+
+# Same independent logical/encoded helpers, with bounded R128 row classes and
+# direct old-vs-paired compatible consumers. The original operation cases remain.
+genrule(
+    name = "compatible_gated_checks",
+    testonly = True,
+    srcs = [
+        "fixtures.py",
+        "//lib/programs/projection:interface.loom",
+    ],
+    outs = ["generated_compatible_gated_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $(location //lib/programs/projection:interface.loom) $@ paired",
+)
+
+loom_provider_checks(
+    name = "compatible_gated",
+    checks = [":compatible_gated_checks"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "compatible_gated_provider",
+    provider_srcs = [
+        # The original active-SwiGLU witness imports the complete Llama FFN
+        # fragment, whose residual declarations also need their owned closure.
+        "//lib/kernels/elementwise:ffn_launches.loom",
+        "//lib/kernels/elementwise:residual_row.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/kernels/llama:ffn/ffn.loom",
+        "compatible_gated_comparison.loom",
+    ],
+)

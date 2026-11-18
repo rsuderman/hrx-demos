@@ -59,3 +59,58 @@ template.def<@llm.ffn.swiglu_packed> @llm_ffn_canonical_swiglu_packed(%policy: i
   }
   template.return
 }
+
+// One static eligibility decision shared by the compatible caller and packed
+// consumer; unsupported routes keep the original allocation and launch sequence.
+func.def pure inline @llm.ffn.compatible_q4_pair_eligible(%rows: index, %capacity: index, %width: index, %columns: index, %gate_tag: index, %up_tag: index, %begin: index, %fixed: i32, %origin: offset) -> (i1) {
+  %r = index.constant 128 : index
+  %k = index.constant 3072 : index
+  %n = index.constant 8192 : index
+  %q4 = index.constant 12 : index
+  %zero = index.constant 0 : index
+  %zero_offset = index.constant 0 : offset
+  %dynamic = scalar.constant -1 : i32
+  %rows_ok = index.cmp eq, %rows, %r : index
+  %capacity_ok = index.cmp eq, %capacity, %r : index
+  %width_ok = index.cmp eq, %width, %k : index
+  %columns_ok = index.cmp eq, %columns, %n : index
+  %gate_ok = index.cmp eq, %gate_tag, %q4 : index
+  %up_ok = index.cmp eq, %up_tag, %q4 : index
+  %begin_ok = index.cmp eq, %begin, %zero : index
+  %fixed_ok = scalar.cmpi eq, %fixed, %dynamic : i32
+  %origin_ok = index.cmp eq, %origin, %zero_offset : offset
+  %a = scalar.andi %rows_ok, %capacity_ok : i1
+  %b = scalar.andi %width_ok, %columns_ok : i1
+  %c = scalar.andi %gate_ok, %up_ok : i1
+  %d = scalar.andi %begin_ok, %fixed_ok : i1
+  %ab = scalar.andi %a, %b : i1
+  %cd = scalar.andi %c, %d : i1
+  %abcd = scalar.andi %ab, %cd : i1
+  %eligible = scalar.andi %abcd, %origin_ok : i1
+  func.return %eligible : i1
+}
+
+kernel.decl @llm.projection.q4k_compat_swiglu(%rows: index, %width$132: index, %columns$133: index) launch(%capacity: index, %width$135: index, %columns$136: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
+template.decl @llm.projection.compatible_pair_contract(%eligible: i1)
+
+template.def<@llm.projection.compatible_pair_contract> @llm_projection_compatible_pair_contract(%eligible: i1) where [eq(%eligible, 1)] {
+  template.return
+}
+
+template.def<@llm.ffn.swiglu_packed> @llm_ffn_compatible_swiglu_packed(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %ffn_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %activated: buffer) where [eq(%policy, 0), range(%launch_rows, 1, 512), le(%launch_rows, %row_capacity), range(%row_capacity, 1, 512), range(%ffn_width, 256, 32768), multiple_of(%ffn_width, 256)] {
+  %eligible = func.call pure @llm.ffn.compatible_q4_pair_eligible(%launch_rows, %row_capacity, %input_width, %ffn_width, %gate_tag, %up_tag, %row_origin, %fixed_count, %count_origin) : (index, index, index, index, index, index, index, i32, offset) -> (i1)
+  template.apply<@llm.projection.compatible_pair_contract>(%eligible) : (i1)
+  template.apply<@llm.ffn.q4k_input_contract>(%input_width) : (index)
+  %block = index.constant 256 : index
+  %block_bytes = index.constant 144 : index
+  %blocks = index.div %input_width, %block : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expected = index.mul %ffn_width, %row_bytes : index
+  %rows_limit = config.get @ggml.linear_q4k_q8_1_x4.token_capacity : index
+  %width_limit = config.get @ggml.linear_q4k_q8_1_x4.output_capacity : index
+  template.apply<@llm.projection.contract>(%gate_bytes, %expected, %row_capacity, %rows_limit, %ffn_width, %width_limit) : (index, index, index, index, index, index)
+  template.apply<@llm.projection.contract>(%up_bytes, %expected, %row_capacity, %rows_limit, %ffn_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @llm.projection.q4k_compat_swiglu[%launch_rows, %input_width, %ffn_width](%row_capacity, %input_width, %ffn_width, %row_origin, %fixed_count, %count_origin, %count, %packed, %gate, %up, %activated) : [index, index, index](index, index, index, index, i32, offset, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
