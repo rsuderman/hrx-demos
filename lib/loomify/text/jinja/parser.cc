@@ -181,7 +181,7 @@ public:
 
   // Statement parsers consume their prefix before parsing the remaining
   // expression.
-  bool ParseSet(std::string *name, Expr *out) {
+  bool ParseSet(std::string *name, Expr *out, bool *capture) {
     if (!Lex())
       return false;
     if (Peek().kind != Token::Name)
@@ -189,16 +189,26 @@ public:
     if (ConstantTarget(Peek().text))
       return Error(Peek().begin, "cannot assign to a constant");
     *name = Take().text;
+    if (Peek().kind == Token::End) {
+      *capture = true;
+      return true;
+    }
+    if (At("|"))
+      return Error(Peek().begin,
+                   "capture assignment filters are not supported");
     if (Accept(".")) {
       if (Peek().kind != Token::Name)
         return Error(Peek().begin, "expected namespace field name");
       *name += "." + Take().text;
+      if (Peek().kind == Token::End || At("|"))
+        return Error(Peek().begin,
+                     "namespace-field captures are not supported");
     }
     if (!Expect("="))
       return false;
     return Finish(out);
   }
-  bool ParseFor(std::string *name, Expr *out) {
+  bool ParseFor(std::string *name, Expr *out, std::optional<Expr> *predicate) {
     if (!Lex())
       return false;
     if (Peek().kind != Token::Name)
@@ -213,7 +223,18 @@ public:
     }
     if (!Expect("in"))
       return false;
-    return Finish(out);
+    // The top-level if starts a loop filter, not a conditional iterable.
+    // Parenthesized expressions still parse their own conditionals normally.
+    if (!Binary(0, out) || !CheckDepth(*out))
+      return false;
+    if (Accept("if")) {
+      Expr filter;
+      if (!Conditional(&filter) || !CheckDepth(filter))
+        return false;
+      *predicate = std::move(filter);
+    }
+    return Peek().kind == Token::End ||
+           Error(Peek().begin, "unexpected loop expression token");
   }
   bool ParseMacro(std::string *name, std::vector<std::string> *parameters,
                   std::vector<Expr> *defaults) {
@@ -416,8 +437,14 @@ private:
     if (!Accept("if"))
       return true;
     Expr yes = std::move(*out), condition, no;
-    if (!Binary(0, &condition) || !Expect("else") || !Conditional(&no))
+    if (!Binary(0, &condition))
       return false;
+    if (Accept("else")) {
+      if (!Conditional(&no))
+        return false;
+    } else {
+      no = Make(Expr::Kind::Undefined, "", condition.end, condition.end);
+    }
     *out = Make(Expr::Kind::Conditional, "", yes.offset, no.end);
     Child(out, std::move(condition));
     Child(out, std::move(yes));
@@ -889,10 +916,22 @@ private:
         ++position_;
       } else if (keyword.first == "set") {
         node.kind = Node::Kind::Set;
+        bool capture = false;
         if (!ExpressionParser(source_, keyword.second, s.end, diagnostic_)
-                 .ParseSet(&node.text, &node.expression))
+                 .ParseSet(&node.text, &node.expression, &capture))
           return false;
         ++position_;
+        if (capture) {
+          node.kind = Node::Kind::Capture;
+          if (!Nodes({"endset"}, &node.body, depth + 1))
+            return false;
+          if (position_ == segments_.size())
+            return Error(s.begin, "missing endset");
+          const auto closing = Keyword(segments_[position_]);
+          if (!EmptyTail(segments_[position_], closing.second))
+            return false;
+          node.end = segments_[position_++].end;
+        }
       } else if (keyword.first == "if") {
         if (!If(&node, depth))
           return false;
@@ -926,7 +965,7 @@ private:
       } else if (keyword.first == "for") {
         node.kind = Node::Kind::For;
         if (!ExpressionParser(source_, keyword.second, s.end, diagnostic_)
-                 .ParseFor(&node.text, &node.expression))
+                 .ParseFor(&node.text, &node.expression, &node.predicate))
           return false;
         ++position_;
         if (!Nodes({"else", "endfor"}, &node.body, depth + 1))

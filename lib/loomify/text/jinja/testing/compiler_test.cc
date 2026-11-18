@@ -325,6 +325,32 @@ TEST_P(JinjaExecutionTest, RejectsExplicitUnsupportedCapabilities) {
 INSTANTIATE_TEST_SUITE_P(SerializedForms, JinjaExecutionTest,
                          ::testing::Values(false, true));
 
+TEST(JinjaCompilerTest, RejectsUnprovedMacroNamespaceShadowing) {
+  for (
+      const char *body : {
+          "{% if flag %}{% set ns=namespace(value='local') %}{% endif %}{{ ns.value }}",
+          "{{ ns.value }}{% if flag %}{% set ns=namespace(value='local') %}{% endif %}",
+          "{% if flag %}{% set ns=namespace(value='local') %}{% else %}{{ ns.value }}{% endif %}",
+          "{% if flag %}{% set ns=namespace(value='local') %}{% set alias=ns %}{% endif %}{% set alias.value='escaped' %}",
+          "{% if flag %}{% set ns=namespace(value='one') %}{% else %}{% set ns=namespace(value='two') %}{% endif %}{{ ns.value }}",
+          "{% if flag %}{% set ns=namespace(value=ns.value) %}{{ ns.value }}{% endif %}",
+          "{% for item in [1] %}{% set ns=namespace(value=item) %}{% endfor %}{% if flag %}{% set ns=namespace(value='other') %}{% endif %}{{ ns.value }}",
+      }) {
+    const std::string source =
+        "{% set ns=namespace(value='outer') %}{% macro render() %}" +
+        std::string(body) + "{% endmacro %}{{ render() }}";
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output;
+    output.source = "preserved";
+    Diagnostic diagnostic;
+    EXPECT_FALSE(
+        CompileChatTemplate(source, "shadow.jinja", &output, &diagnostic));
+    EXPECT_EQ(output.source, "preserved");
+    EXPECT_NE(diagnostic.message.find("ambiguous identity"), std::string::npos);
+    EXPECT_GT(diagnostic.offset, 0u);
+  }
+}
+
 TEST(JinjaCompilerTest, RejectsUnsupportedSyntaxAndPreservesOutput) {
   for (
       const char *source :
@@ -351,6 +377,16 @@ TEST(JinjaCompilerTest, RejectsUnsupportedSyntaxAndPreservesOutput) {
        "{{ value.split() }}",
        "{{ value.split(',', 1) }}",
        "{{ value.split(unknown=',') }}",
+       "{{ value.replace('a') }}",
+       "{{ value.replace(old='a', new='b') }}",
+       "{{ value|replace('a') }}",
+       "{{ value|replace('a','b',new='c') }}",
+       "{{ value|replace('a','b',unknown=1) }}",
+       "{{ value|reject('equalto',1)|join(',',1) }}",
+       "{{ value|reject('equalto',1)|join(attribute='x') }}",
+       "{{ value|reject('equalto',1)|list(1) }}",
+       "{{ value|reject('odd')|list }}",
+       "{{ value|reject('equalto',value=1)|list }}",
        "{{ values|first(1) }}",
        "{{ missing|default('x', true, 'extra') }}",
        "{{ missing|default(unknown='x') }}",
@@ -396,6 +432,24 @@ TEST(JinjaCompilerTest, RejectsUnsupportedSyntaxAndPreservesOutput) {
     EXPECT_LE(diagnostic.offset, std::string_view(source).size());
   }
 }
+TEST(JinjaCompilerTest, RejectIteratorValuesRemainUnsupported) {
+  for (const char *source :
+       {"{{ values|reject('equalto',1) }}",
+        "{% set result=values|reject('equalto',1) %}{{ result|list }}",
+        "{% if values|reject('equalto',1) %}yes{% endif %}",
+        "{{ values|reject('equalto',1)|tojson }}"}) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(
+        CompileChatTemplate(source, "reject.jinja", &output, &diagnostic));
+    EXPECT_EQ(
+        diagnostic.message,
+        "reject iterator requires an immediate join or explicit list consumer");
+    EXPECT_EQ(diagnostic.source_name, "reject.jinja");
+    EXPECT_GT(diagnostic.offset, 0u);
+  }
+}
 TEST(JinjaCompilerTest, SourceLocationUsesOriginalTemplateBytes) {
   GeneratedInputRenderer output;
   Diagnostic diagnostic;
@@ -404,6 +458,29 @@ TEST(JinjaCompilerTest, SourceLocationUsesOriginalTemplateBytes) {
   EXPECT_EQ(diagnostic.source_name, "location.jinja");
   EXPECT_EQ(diagnostic.line, 2u);
   EXPECT_GT(diagnostic.column, 1u);
+}
+
+TEST(JinjaCompilerTest, FilteredMetadataAndMalformedCapturesDiagnose) {
+  for (
+      const auto *source :
+      {"{% for x in values if x %}{{ loop.index }}{% endfor %}",
+       "{% for x in values if x %}{% set alias=loop %}{{ alias.index }}{% endfor %}",
+       "{% for x in values if x %}{% set captured %}{{ loop.last }}{% endset %}{% endfor %}",
+       "{% macro read(value) %}{{ value.index }}{% endmacro %}{% for x in values if x %}{{ read(loop) }}{% endfor %}",
+       "{% for x in values if x %}{% for y in values if loop.first %}{{ y }}{% endfor %}{% endfor %}",
+       "{% set captured %}missing endset",
+       "{% set state.field %}text{% endset %}",
+       "{% set captured|trim %}text{% endset %}",
+       "{% set loop %}text{% endset %}",
+       "{% for x in values if %}{{ x }}{% endfor %}"}) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "syntax-negative.jinja", &output,
+                                     &diagnostic));
+    EXPECT_EQ(diagnostic.source_name, "syntax-negative.jinja");
+    EXPECT_FALSE(diagnostic.message.empty());
+  }
 }
 
 TEST(JinjaCompilerTest, MalformedLocationUsesOriginalBytesAndKeepsProduct) {

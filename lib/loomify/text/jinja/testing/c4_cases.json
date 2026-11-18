@@ -1,5 +1,104 @@
 [
   {
+    "id": "replace-unicode-empty-and-count-boundaries",
+    "source": "{{ value.replace('', '|') }};{{ value|replace('', '|', 2) }};{{ ''|replace('', '界') }};{{ 'aaaaa'|replace('aa','é',1) }};{{ 'aaaaa'.replace('aa','',-2) }};{{ value|replace('é','x',0) }}",
+    "environment": {"value": "aé🌍"}
+  },
+  {
+    "id": "replace-filter-coercion-and-keywords",
+    "source": "{{ value|replace(new=true, old=2, count=none) }};{{ missing|replace('', none) }};{{ 'aaa'|replace('a','b',true) }};{{ 'aéa'.replace('é','界') }};{{ 'abc'|replace('z','!') }}",
+    "environment": {"value": 212}
+  },
+  {
+    "id": "replace-escaping-and-method-chain",
+    "source": "{{ value|replace('\\\\','\\\\\\\\')|replace(\"'\",\"\\\\'\")|replace('\\n','\\\\n') }};{{ '/no_thinkhello/think'.replace('/no_think','').replace('/think','') }}",
+    "environment": {"value": "a\\b'c\né"}
+  },
+  {
+    "id": "reject-equalto-consumers-and-order",
+    "source": "{{ values|reject('equalto','code_interpreter')|join(delimiter) }};{{ values|reject('equalto','code_interpreter')|list|tojson }};{{ 'aéa界'|reject('equalto','a')|join }};{{ mapping|reject('equalto','z')|join('|') }};{{ numbers|reject('equalto',true)|list|tojson }}",
+    "environment": {"values": ["code_interpreter","é","é","x"], "delimiter": 7, "mapping": {"z": 1, "界": 2}, "numbers": [1,true,0,false,2,1.0]}
+  },
+  {
+    "id": "reject-equalto-falsy-inputs",
+    "source": "{{ missing|reject('equalto',1)|list|tojson }};{{ none|reject('equalto',1)|list|tojson }};{{ false|reject('equalto',1)|join('|') }};{{ 0|reject('equalto',1)|list|tojson }}",
+    "environment": {}
+  },
+  {
+    "id": "reject-join-delimiter-before-iteration-error",
+    "source": "{{ value|reject('equalto',1)|join(raise_exception('delimiter first')) }}",
+    "environment": {"value": 2},
+    "error_contains": "delimiter first"
+  },
+  {
+    "id": "replace-float-count-error",
+    "source": "{{ 'abc'|replace('a','x',count) }}",
+    "environment": {"count": 1.5},
+    "error_contains": "integer"
+  },
+  {
+    "id": "replace-method-string-argument-error",
+    "source": "{{ 'abc'.replace('a',value) }}",
+    "environment": {"value": 2},
+    "error_contains": "str"
+  },
+  {
+    "id": "reject-consumer-noniterable-error",
+    "source": "{{ value|reject('equalto',1)|list|tojson }}",
+    "environment": {"value": 2},
+    "error_contains": "iterable"
+  },
+  {
+    "id": "reject-evaluation-order-and-macro-effects",
+    "source": "{% set ns=namespace(log='') %}{% macro mark(tag,value) %}{% set ns.log=ns.log+tag %}{{ value }}{% endmacro %}{{ mark('S','aba')|reject('equalto',mark('R','a'))|join(mark('D','|')) }};{{ ns.log }}",
+    "environment": {}
+  },
+  {
+    "id": "replace-method-nonstring-receiver-error",
+    "source": "{{ value.replace('a','b') }}",
+    "environment": {"value": 2},
+    "error_contains": "replace"
+  },
+  {
+    "id": "replace-missing-receiver-before-arguments",
+    "source": "{{ missing.replace('a',raise_exception('argument')) }}",
+    "environment": {},
+    "error_contains": "undefined",
+    "native_error_contains": "cannot access a member of Undefined"
+  },
+  {
+    "id": "replace-defined-receiver-evaluates-arguments",
+    "source": "{{ value.replace('a',raise_exception('argument')) }}",
+    "environment": {"value": 2},
+    "error_contains": "argument"
+  },
+  {
+    "id": "replace-method-none-count-error",
+    "source": "{{ 'abc'.replace('a','b',none) }}",
+    "environment": {},
+    "error_contains": "integer"
+  },
+  {
+    "id": "replace-count-overflow-error",
+    "source": "{{ 'abc'|replace('a','b',count) }}",
+    "environment": {"count": 9223372036854775808},
+    "error_contains": "large"
+  },
+  {
+    "id": "replace-container-coercion-capability",
+    "source": "{{ value|replace('1','2') }}",
+    "environment": {"value": [1]},
+    "native_unsupported": "Python container repr for replacement is outside the bounded stringifier",
+    "native_error_contains": "invalid template value or operation"
+  },
+  {
+    "id": "reject-container-equality-capability",
+    "source": "{{ values|reject('equalto',rejected)|list|tojson }}",
+    "environment": {"values": [[1], [2]], "rejected": [1]},
+    "native_unsupported": "Reject reuses existing scalar equality; structural container equality is unsupported",
+    "native_error_contains": "invalid template value or operation"
+  },
+  {
     "id": "list-concatenation-unknown-left-known-list-errors",
     "source": "{{ (value+[])|tojson }}",
     "environment": {"value": "x"},
@@ -266,4 +365,18 @@
     "source": "{% macro render() %}{% set value='macro' %}{% generation %}{% set value='generation' %}{{ value }}{% endgeneration %}|{{ value }}{% endmacro %}{{ render() }}",
     "environment": {}
   }
+  ,{"id":"capture-empty-and-trimmed","source":"A{% set empty %}{% endset %}{% set text -%}\n café {{ name }} \n{%- endset %}[{{ empty }}][{{ text }}]Z","environment":{"name":"世界"}},
+  {"id":"capture-scope-and-namespace-effects","source":"{% set value='outer' %}{% set ns=namespace(n=0) %}{% set captured %}{% set value='inner' %}{% set ns.n=ns.n+1 %}{{ value }}{% endset %}{{ value }}|{{ captured }}|{{ ns.n }}","environment":{}},
+  {"id":"capture-unused-and-untaken-effects","source":"{% set ns=namespace(n=0) %}{% set unused %}{% set ns.n=ns.n+1 %}discarded{% endset %}{% if flag %}{% set taken %}{{ raise_exception('untaken capture') }}{% endset %}{% endif %}{{ ns.n }}","environment":{"flag":false}},
+  {"id":"capture-in-macro-and-loop","source":"{% macro render(v) %}{% set result %}[{{ v }}]{% endset %}{{ result }}{% endmacro %}{% for value in values %}{% set captured %}{{ render(value) }}{% endset %}{{ captured }}{% endfor %}|{{ captured is defined }}","environment":{"values":["a","b"]}},
+  {"id":"omitted-else-undefined","source":"{% set absent='yes' if flag %}{{ absent }}|{{ absent is defined }}|{{ absent|default('missing') }}|{{ (none if flag) is defined }}|{{ ('' if true) is defined }}","environment":{"flag":false}},
+  {"id":"omitted-else-lazy-effects","source":"{% set ns=namespace(n=0) %}{% macro tick() %}{% set ns.n=ns.n+1 %}yes{% endmacro %}{{ tick() if flag }}|{{ raise_exception('untaken expression') if flag }}|{{ tick() if true }}|{{ ns.n }}","environment":{"flag":false}},
+  {"id":"filtered-keys-source-fragment","source":"{% macro rest(json_dict, handled_keys) %}{%- for json_key in json_dict if json_key not in handled_keys %}[{{ json_key }}:{{ json_dict[json_key] }}]{% endfor %}{% endmacro %}{{ rest(values, handled) }}","environment":{"values":{"a":"A","b":"B","c":"C"},"handled":["b"]}},
+  {"id":"filtered-loop-else-accepted","source":"{% for value in values if value != 'skip' %}{{ value }}{% else %}empty{% endfor %}","environment":{"values":["skip","a","skip","b"]}},
+  {"id":"filtered-loop-else-all-rejected","source":"{% for value in values if value != 'skip' %}{{ value }}{% else %}empty{% endfor %}","environment":{"values":["skip","skip"]}},
+  {"id":"filtered-loop-else-empty","source":"{% for value in values if value != 'skip' %}{{ value }}{% else %}empty{% endfor %}","environment":{"values":[]}},
+  {"id":"filtered-loop-predicate-effects-and-body-order","source":"{% set ns=namespace(n=0) %}{% macro accept(v) %}{% set ns.n=ns.n+1 %}{{ v }}{% endmacro %}{% for value in values if accept(value) %}{{ ns.n }}:{{ value }};{% endfor %}|{{ ns.n }}","environment":{"values":["","a","","b"]}},
+  {"id":"filtered-loop-body-error-precedes-later-predicate","source":"{% for value in values if value or raise_exception('predicate later') %}{{ raise_exception('body first') }}{% endfor %}","environment":{"values":["a",""]},"error_contains":"body first","native_error_contains":"body first"},
+  {"id":"filtered-loop-outer-predicate-and-nested-metadata","source":"{% for outer in values %}{% for value in outer if loop.first %}{{ value }}{% for nested in ['x','y'] %}{{ loop.index }}{% endfor %}{% endfor %}{% endfor %}","environment":{"values":[["a","b"],["c"]]}},
+  {"id":"filtered-loop-parenthesized-conditional-iterable","source":"{% for value in (left if choose else right) if value %}{{ value }}{% endfor %}","environment":{"left":["","a"],"right":["b"],"choose":true}}
 ]

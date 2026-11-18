@@ -429,5 +429,61 @@ TEST(TemplateSelectorTest,
       "bos_token"));
 }
 
+TEST(JinjaSelectorTest, CaptureEffectsAndFilteredPredicatesRemainComputations) {
+  const std::string source =
+      "{% set ns=namespace(n=0) %}"
+      "{% set unused %}{% set ns.n=ns.n+1 %}discarded{% endset %}"
+      "{% set text %}{% for value in values if value == selected %}"
+      "{{ value }}{% endfor %}{% endset %}"
+      "{% if text == 'chosen' and ns.n == 1 %}{{ [7,0] }}"
+      "{% else %}{{ [2,0] }}{% endif %}";
+  GeneratedInputRenderer generated;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(CompileSelector(source, &generated, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto prepared = PrepareSelector(generated, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    ExpectSelection(*prepared,
+                    R"({"values":["ignored","chosen"],"selected":"chosen"})", 7,
+                    0);
+    ExpectSelection(*prepared, R"({"values":[],"selected":"chosen"})", 2, 0);
+  }
+}
+
+TEST(JinjaSourceTemplateTest, PredicateNamesAndCallsAreIndexed) {
+  std::unique_ptr<internal::SourceTemplate> unit;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(internal::SourceTemplate::Parse(
+      "{% macro allow(v) %}{{ v }}{% endmacro %}"
+      "{% set captured %}{% for item in values if allow(filter_only) %}"
+      "{{ item }}{% endfor %}{% endset %}",
+      "predicate-index.jinja", &unit, &diagnostic))
+      << diagnostic.message;
+  EXPECT_TRUE(unit->source_names().count("filter_only"));
+  ASSERT_EQ(unit->analysis_macro_calls().size(), 1u);
+  const auto &loop = unit->ast().body[1].body[0];
+  ASSERT_TRUE(loop.predicate);
+  EXPECT_EQ(unit->analysis_macro_calls()[0], &*loop.predicate);
+}
+
+TEST(TemplateSelectorTest, BufferedListOutputKeepsRendererCapabilityBoundary) {
+  GeneratedInputRenderer generated;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(CompileSelector("{% set s %}{{ [1,0] }}{% endset %}{{ [0,0] }}",
+                              &generated, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto prepared = PrepareSelector(generated, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    int64_t id = -1, mode = -1;
+    std::string error;
+    EXPECT_FALSE(prepared->SelectFormat("{}", &id, &mode, &error));
+    EXPECT_NE(error.find("invalid template value or operation"),
+              std::string::npos)
+        << error;
+  }
+}
+
 } // namespace
 } // namespace hrx::loomify_gguf::jinja::testing

@@ -1434,6 +1434,8 @@ private:
                       std::set<std::string> *out) const {
     for (const auto &node : nodes) {
       References(node.expression, out);
+      if (node.predicate)
+        References(*node.predicate, out);
       // A retained macro can capture a namespace solely to write it. Its
       // constructor/aliases must survive slicing even without a field read.
       if (node.kind == Node::Kind::Set &&
@@ -1516,6 +1518,8 @@ private:
       if ((node.kind == Node::Kind::If || node.kind == Node::Kind::For) &&
           (HasOutput(node.body) || HasOutput(node.otherwise)))
         References(node.expression, out);
+      if (node.predicate)
+        References(*node.predicate, out);
       OutputRoots(node.body, out, message, literals);
       OutputRoots(node.otherwise, out, message, literals);
     }
@@ -1552,6 +1556,12 @@ private:
         }
         continue;
       }
+      if (node.kind == Node::Kind::Capture) {
+        auto &refs = definitions_[node.text];
+        NodeReferences(node.body, &refs);
+        refs.insert(controls.begin(), controls.end());
+        OutputRoots(node.body, &literal_definitions_[node.text]);
+      }
       if (node.kind == Node::Kind::Set) {
         auto &refs = definitions_[node.text];
         References(node.expression, &refs);
@@ -1580,6 +1590,8 @@ private:
       auto nested_controls = controls;
       if (node.kind == Node::Kind::If || node.kind == Node::Kind::For)
         References(node.expression, &nested_controls);
+      if (node.predicate)
+        References(*node.predicate, &nested_controls);
       const bool message_loop =
           node.kind == Node::Kind::For && MessageSequence(node.expression);
       if (node.kind == Node::Kind::For) {
@@ -1641,6 +1653,16 @@ private:
     for (const auto &node : nodes) {
       if (node.kind == Node::Kind::Macro)
         continue;
+      if (node.kind == Node::Kind::Capture || node.predicate) {
+        // Buffered computations execute even when their text is unused. Keep
+        // their transitive macro/scalar inputs and source error paths alive.
+        NodeReferences(node.body, roots);
+        NodeReferences(node.otherwise, roots);
+        References(node.expression, roots);
+        if (node.predicate)
+          References(*node.predicate, roots);
+        roots->insert(controls.begin(), controls.end());
+      }
       if (node.kind == Node::Kind::Output) {
         const auto &e = node.expression;
         bool retain = false;
@@ -1661,6 +1683,8 @@ private:
       auto nested = controls;
       if (node.kind == Node::Kind::If || node.kind == Node::Kind::For)
         References(node.expression, &nested);
+      if (node.predicate)
+        References(*node.predicate, &nested);
       SelectorEffectRoots(node.body, needed, roots, nested);
       SelectorEffectRoots(node.otherwise, needed, roots, nested);
     }
@@ -2303,7 +2327,8 @@ private:
       if ((node.kind == Node::Kind::For && node.text == root) ||
           std::find(node.parameters.begin(), node.parameters.end(), root) !=
               node.parameters.end() ||
-          NamespaceEscapes(node.expression, root))
+          NamespaceEscapes(node.expression, root) ||
+          (node.predicate && NamespaceEscapes(*node.predicate, root)))
         return true;
       for (const auto &value : node.defaults)
         if (NamespaceEscapes(value, root))
@@ -2345,7 +2370,7 @@ private:
   }
   void ForgetMacroAssignments(const std::vector<Node> &nodes, Path *state) {
     for (const auto &node : nodes) {
-      if (node.kind == Node::Kind::Set &&
+      if ((node.kind == Node::Kind::Set || node.kind == Node::Kind::Capture) &&
           node.text.find('.') == std::string::npos)
         state->bindings[node.text] = {Origin::Request, Name(node.text)};
       ForgetMacroAssignments(node.body, state);
@@ -2358,6 +2383,16 @@ private:
     for (const auto &node : nodes) {
       if (MacroExpressionMayWrite(node.expression, field, *state, active))
         return true;
+      if (node.predicate &&
+          MacroExpressionMayWrite(*node.predicate, field, *state, active))
+        return true;
+      if (node.kind == Node::Kind::Capture) {
+        Path captured = *state;
+        if (MacroBlockMayWrite(node.body, field, &captured, active))
+          return true;
+        state->bindings[node.text] = {Origin::Request, Name(node.text)};
+        continue;
+      }
       if (node.kind == Node::Kind::Set) {
         const auto dot = node.text.find('.');
         if (dot == std::string::npos) {
@@ -2705,7 +2740,7 @@ private:
           // A strict-earlier sentinel remains earlier even if no search write
           // occurs; every possible write must select a historical record.
           for (const auto &loop : nodes) {
-            if (loop.kind != Node::Kind::For ||
+            if (loop.kind != Node::Kind::For || loop.predicate ||
                 loop.offset <= declaration.offset)
               continue;
             Expr anchor = loop.expression;
@@ -2769,7 +2804,7 @@ private:
                                BooleanIs(constructor.args[flag], true)};
           for (const auto &node : nodes) {
             if (node.offset <= declaration.offset ||
-                node.kind != Node::Kind::For)
+                node.kind != Node::Kind::For || node.predicate)
               continue;
             Expr iterated = node.expression;
             bool reversed = false;
@@ -3084,6 +3119,12 @@ private:
       value.defined = true;
       return value;
     }
+    if (expr.kind == Expr::Kind::Undefined) {
+      Value value{Origin::Request, expr};
+      value.defined = false;
+      value.truth = false;
+      return value;
+    }
     if (expr.kind == Expr::Kind::GetAttr || expr.kind == Expr::Kind::GetItem) {
       if (expr.args.empty())
         return {Origin::Unknown, expr};
@@ -3313,7 +3354,7 @@ private:
         const Value fallback = expr.args.size() > 1
                                    ? Resolve(expr.args[1], path, context)
                                    : Constant(std::string(), expr);
-        if (continuation_mode_ && subject.defined && !*subject.defined)
+        if (subject.defined && !*subject.defined)
           return fallback;
         if (fallback.defined && *fallback.defined)
           subject.defined = true;
@@ -3646,6 +3687,9 @@ private:
       }
       Value a = Resolve(expr.args[1], projection_mode_ ? yes : path, context);
       Value b = Resolve(expr.args[2], projection_mode_ ? no : path, context);
+      if (a.expression.kind == Expr::Kind::Undefined ||
+          b.expression.kind == Expr::Kind::Undefined)
+        return Phi(condition.expression, a, b);
       if (IsFuture(a.origin) && b.string && b.string->empty()) {
         Expr subject = a.expression;
         a.expression = expr;
@@ -3804,6 +3848,8 @@ private:
       }
     }
     Value value = Resolve(expression, path, context);
+    if (value.expression.kind == Expr::Kind::Undefined)
+      return {std::move(path)};
     if (value.last_expression && !projection_mode_ && context.target &&
         !context.continued_user)
       completion_rewrite_diagnostics_[expression.offset] =
@@ -3905,6 +3951,36 @@ private:
             }
             next.push_back(std::move(item));
           }
+        } else if (node.kind == Node::Kind::Capture) {
+          Path captured = path;
+          captured.parts.clear();
+          auto bodies = Walk(node.body, {std::move(captured)}, context);
+          if (bodies.size() != 1) {
+            Fail(node.offset, "capture did not form one buffered value");
+            continue;
+          }
+          auto &body = bodies.front();
+          if (body.rejected) {
+            path.rejected = true;
+            path.rejection = body.rejection;
+          }
+          // Ordinary capture locals do not escape. Existing namespace fields
+          // remain effects, just as in renderer lowering and retained prelude.
+          for (const auto &[name, value] : body.bindings)
+            if (name.find('.') != std::string::npos)
+              path.bindings[name] = value;
+          Value value{Origin::Request,
+                      Name(node.text, {node.offset, node.end})};
+          value.expansion = std::move(body.parts);
+          value.defined = true;
+          value.string_result = true;
+          std::string literal;
+          if (LiteralText(value.expansion, &literal)) {
+            value.string = literal;
+            value.truth = !literal.empty();
+          }
+          path.bindings[node.text] = std::move(value);
+          next.push_back(std::move(path));
         } else if (node.kind == Node::Kind::Set) {
           if (!Relevant(node.text, analysis_needed_)) {
             if (projection_mode_)
@@ -4007,6 +4083,12 @@ private:
             }
           }
         } else if (node.kind == Node::Kind::For) {
+          if (node.predicate) {
+            Fail(
+                node.predicate->offset,
+                "filtered repetition is unsupported in output format analysis");
+            continue;
+          }
           Value sequence = Resolve(node.expression, path, context);
           if (projection_mode_ && (sequence.origin == Origin::Arguments ||
                                    sequence.origin == Origin::ArgumentItems ||
@@ -4234,6 +4316,10 @@ private:
         if (!continuation_mode_)
           for (auto &path : paths)
             path = Emit(node.expression, std::move(path), {}).front();
+      } else if (node.kind == Node::Kind::Capture) {
+        paths = Walk({node}, std::move(paths), {});
+        for (auto &path : paths)
+          path.module_bindings[node.text] = path.bindings[node.text];
       } else if (node.kind == Node::Kind::Set) {
         for (auto &path : paths) {
           if (!Relevant(node.text, analysis_needed_)) {
@@ -4289,6 +4375,12 @@ private:
           Value sequence = Resolve(node.expression, path, {});
           if (sequence.origin != Origin::Messages)
             continue;
+          if (node.predicate) {
+            Fail(
+                node.predicate->offset,
+                "filtered message iteration is unsupported in output format analysis");
+            continue;
+          }
           if (!projection_mode_ && !continuation_mode_)
             completion_message_loops_.insert(node.offset);
           if (!projection_mode_ && !continuation_mode_ &&
@@ -4421,6 +4513,18 @@ private:
       }
       if (node.kind == Node::Kind::Text)
         continue;
+      if (node.kind == Node::Kind::For && node.predicate) {
+        // Preserve lazy predicate/body effects and errors, while consuming the
+        // ordinary source text privately rather than emitting selector pairs.
+        Node capture;
+        capture.kind = Node::Kind::Capture;
+        capture.text = FreshCountName("__text_filtered_output");
+        capture.offset = node.offset;
+        capture.end = node.end;
+        capture.body = {node};
+        out->push_back(std::move(capture));
+        continue;
+      }
       if (node.kind == Node::Kind::Set &&
           !Relevant(node.text, selector_needed_))
         continue;
@@ -4450,7 +4554,10 @@ private:
         set.expression = target->second.second;
         out->push_back(std::move(set));
       }
-      if (node.kind != Node::Kind::Macro) {
+      // Captures execute once and retain their full buffered source and
+      // effects, including when their string result is not used by the
+      // selector.
+      if (node.kind != Node::Kind::Macro && node.kind != Node::Kind::Capture) {
         copy.body.clear();
         copy.otherwise.clear();
         SlicePrelude(node.body, &copy.body);

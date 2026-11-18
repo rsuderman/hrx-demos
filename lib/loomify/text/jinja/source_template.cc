@@ -107,6 +107,8 @@ void SourceTemplate::GatherSourceNames(const std::vector<Node> &nodes) {
     for (const auto &name : node.parameters)
       source_names_.insert(name);
     GatherExpressionNames(node.expression);
+    if (node.predicate)
+      GatherExpressionNames(*node.predicate);
     for (const auto &value : node.defaults)
       GatherExpressionNames(value);
     GatherSourceNames(node.body);
@@ -127,6 +129,8 @@ void SourceTemplate::GatherMacroCallSites(const std::vector<Node> &nodes) {
     if (node.kind == Node::Kind::Macro)
       continue;
     expression(expression, node.expression);
+    if (node.predicate)
+      expression(expression, *node.predicate);
     GatherMacroCallSites(node.body);
     GatherMacroCallSites(node.otherwise);
   }

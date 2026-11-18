@@ -504,9 +504,23 @@ Items views are supported as immediate loop iterables, rather than general Pytho
 view values. Owning list concatenation, list conversion and join support text
 accumulation without mutating inputs. Scoped generation blocks produce text,
 preserving namespace effects while keeping ordinary assignments local.
+Block-set captures buffer ordinary text with local assignments and visible
+namespace effects. Conditional expressions may omit `else`, producing Undefined
+on the untaken path. Filtered loops evaluate predicates and bodies lazily and
+preserve loop-else behavior; reads of the current filtered loop's metadata remain
+unsupported. Nested ordinary loops retain their own metadata.
+Replace filters and string methods share checked nonoverlapping replacement,
+including count limits and empty-needle insertion at Unicode codepoint boundaries.
+Filters use the existing scalar string conversion; methods require string values.
+The reject filter supports positional `equalto` through immediate join or explicit
+list consumers, preserving order and existing scalar equality. Standalone, stored,
+truth-tested and directly serialized reject iterators remain unsupported.
 Statically named nonrecursive macros become Loom functions with explicit lexical
 captures and namespace field results. Namespace identities are resolved by the
-compiler; they are not runtime JSON objects. Container equality, unsafe mixed
+compiler; they are not runtime JSON objects. Closed macro-local constructors may
+shadow a module namespace while preserving default-expression lookup and called
+macros' module effects. Ambiguous conditional identities and escaping aliases
+remain unsupported. Container equality, unsafe mixed
 integer/float comparisons and compound mapping keys have explicit capability
 boundaries. Tuple data cannot cross macro or namespace-storage boundaries or
 participate in addition; supported constant tuple arguments remain available.
@@ -557,8 +571,9 @@ surrounding bytes; the independent reference also checks native token IDs agains
 HF tokenization of the actual output. Original Jinja bytes and IDs remain distinct.
 Compiler tests include branches beyond existing Serve admission. A finite supplied
 date keeps evaluation independent of the system clock.
-Focused [list/generation cases](../loomify/text/jinja/testing/c4_cases.json) cover
-ownership, macro-local state and generation scope. LFM3's richer tool inputs are
+Focused [list/string/consumer cases](../loomify/text/jinja/testing/c4_cases.json) cover
+ownership, macro-local state, generation scope, replacement and reject consumers.
+LFM3's richer tool inputs are
 compiler-language witnesses; they do not enable richer serving request behavior.
 
 The compiler entry point is independent of serving request admission. Package

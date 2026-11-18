@@ -4,6 +4,7 @@
 #define HRX_SOLUTIONS_LIB_LOOMIFY_TEXT_JINJA_PARSER_H_
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,7 @@ struct Expr {
     Integer,
     Boolean,
     None,
+    Undefined,
     Unary,
     Binary,
     Conditional,
@@ -48,13 +50,15 @@ struct Expr {
 };
 
 struct Node {
-  enum class Kind { Text, Output, Set, If, For, Macro, Generation };
+  enum class Kind { Text, Output, Set, Capture, If, For, Macro, Generation };
   Kind kind = Kind::Text;
   // Literal text, assignment target or loop variable, depending on kind.
   std::string text;
   size_t offset = 0;
   size_t end = 0;
   Expr expression;
+  // For only: evaluated in item scope, before binding this loop's metadata.
+  std::optional<Expr> predicate;
   std::vector<std::string> parameters;
   // Trailing parameter defaults, evaluated afresh at each invocation.
   std::vector<Expr> defaults;

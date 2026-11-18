@@ -1214,6 +1214,157 @@ func.def public @jinja.split(%value: buffer, %kind: i64, %separator: buffer, %se
   func.return %result, %three : buffer, i64
 }
 
+// The empty needle matches codepoint boundaries, including the end. Nonempty
+// needles use the existing nonoverlapping byte search over decoded UTF-8.
+func.def @jinja.replace_match(%value: buffer, %old: buffer, %position: offset) -> (offset, i1) {
+  %zero = index.constant 0 : offset
+  %size = buffer.length %old
+  %empty = index.cmp eq, %size, %zero : offset
+  %at, %found = scf.if %empty -> (offset, i1) {
+    %true = scalar.constant true : i1
+    scf.yield %position, %true : offset, i1
+  } else {
+    %at, %found = func.call @text.find(%value, %position, %old) : (buffer, offset, buffer) -> (offset, i1)
+    scf.yield %at, %found : offset, i1
+  }
+  func.return %at, %found : offset, i1
+}
+
+func.def @jinja.replace_bytes(%value: buffer, %old: buffer, %new: buffer, %limit: i64) -> (buffer) {
+  %zero = index.constant 0 : offset
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %max = scalar.constant 9223372036854775807 : i64
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %length = buffer.length %value
+  %old_length = buffer.length %old
+  %new_length = buffer.length %new
+  %empty = index.cmp eq, %old_length, %zero : offset
+  %negative = scalar.cmpi slt, %limit, %zero64 : i64
+  %maximum = scf.select %negative, %max, %limit : i64
+  %position, %matches, %active = scf.while(%position = %zero : offset, %matches = %zero64 : i64, %active = %true : i1) -> (offset, i64, i1) {
+    %room = scalar.cmpi slt, %matches, %maximum : i64
+    %more = scalar.andi %active, %room : i1
+    scf.condition %more, %position, %matches, %active : i1, offset, i64, i1
+  } do(%position: offset, %matches: i64, %active: i1) {
+    %at, %found = func.call @jinja.replace_match(%value, %old, %position) : (buffer, buffer, offset) -> (offset, i1)
+    %next, %count, %more = scf.if %found -> (offset, i64, i1) {
+      %count = scalar.addi %matches, %one64 : i64
+      %next, %more = scf.if %empty -> (offset, i1) {
+        %within = index.cmp ult, %at, %length : offset
+        %next = scf.if %within -> (offset) {
+          %width = func.call @jinja.utf8_width(%value, %at) : (buffer, offset) -> (offset)
+          %next = index.add %at, %width : offset
+          scf.yield %next : offset
+        } else {
+          scf.yield %at : offset
+        }
+        scf.yield %next, %within : offset, i1
+      } else {
+        %next = index.add %at, %old_length : offset
+        scf.yield %next, %true : offset, i1
+      }
+      scf.yield %next, %count, %more : offset, i64, i1
+    } else {
+      scf.yield %position, %matches, %false : offset, i64, i1
+    }
+    scf.yield %next, %count, %more : offset, i64, i1
+  }
+  %source64 = index.cast %length : offset to i64
+  %old64 = index.cast %old_length : offset to i64
+  %new64 = index.cast %new_length : offset to i64
+  // Nonoverlapping matches guarantee removed <= source length, so this product
+  // cannot overflow. Check expansion before multiplying replacement bytes.
+  %removed = scalar.muli %matches, %old64 : i64
+  %retained = scalar.subi %source64, %removed : i64
+  %room = scalar.subi %max, %retained : i64
+  %has_matches = scalar.cmpi sgt, %matches, %zero64 : i64
+  %divisor = scf.select %has_matches, %matches, %one64 : i64
+  %allowed = scalar.divsi %room, %divisor : i64
+  %fits = scalar.cmpi sle, %new64, %allowed : i64
+  %no_matches = scalar.cmpi eq, %matches, %zero64 : i64
+  %valid = scalar.ori %fits, %no_matches : i1
+  func.call @jinja.check(%valid) : (i1)
+  %added = scalar.muli %matches, %new64 : i64
+  %size64 = scalar.addi %retained, %added : i64
+  %bounded_size = scalar.assume %size64 [range(%size64, 0, 9223372036854775807)] : i64
+  %size = index.cast %bounded_size : i64 to offset
+  %output = buffer.alloca<private> align(1) %size : buffer
+  %read, %written, %remaining = scf.while(%read = %zero : offset, %written = %zero : offset, %remaining = %matches : i64) -> (offset, offset, i64) {
+    %more = scalar.cmpi sgt, %remaining, %zero64 : i64
+    scf.condition %more, %read, %written, %remaining : i1, offset, offset, i64
+  } do(%read: offset, %written: offset, %remaining: i64) {
+    %at, %found = func.call @jinja.replace_match(%value, %old, %read) : (buffer, buffer, offset) -> (offset, i1)
+    %prefix_length = index.sub %at, %read : offset
+    buffer.copy %value[%read], %output[%written], %prefix_length
+    %replacement_at = index.add %written, %prefix_length : offset
+    buffer.copy %new[%zero], %output[%replacement_at], %new_length
+    %after_replacement = index.add %replacement_at, %new_length : offset
+    %after_old = index.add %at, %old_length : offset
+    %next_read, %next_written = scf.if %empty -> (offset, offset) {
+      %within = index.cmp ult, %at, %length : offset
+      %read, %written = scf.if %within -> (offset, offset) {
+        %width = func.call @jinja.utf8_width(%value, %at) : (buffer, offset) -> (offset)
+        buffer.copy %value[%at], %output[%after_replacement], %width
+        %read = index.add %at, %width : offset
+        %written = index.add %after_replacement, %width : offset
+        scf.yield %read, %written : offset, offset
+      } else {
+        scf.yield %at, %after_replacement : offset, offset
+      }
+      scf.yield %read, %written : offset, offset
+    } else {
+      scf.yield %after_old, %after_replacement : offset, offset
+    }
+    %rest = scalar.subi %remaining, %one64 : i64
+    scf.yield %next_read, %next_written, %rest : offset, offset, i64
+  }
+  %tail = index.sub %length, %read : offset
+  buffer.copy %value[%read], %output[%written], %tail
+  func.return %output : buffer
+}
+
+// Filter and method share replacement storage; only argument preparation differs.
+func.def public @jinja.replace(%value: buffer, %kind: i64, %old: buffer, %old_kind: i64, %new: buffer, %new_kind: i64, %count: buffer, %count_kind: i64, %method: i1) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %six = scalar.constant 6 : i64
+  scf.if %method {
+    func.call @jinja.check_strings(%kind, %old_kind) : (i64, i64)
+    func.call @jinja.check_strings(%kind, %new_kind) : (i64, i64)
+  }
+  %source = func.call @jinja.string(%value, %kind) : (buffer, i64) -> (buffer)
+  %needle = func.call @jinja.string(%old, %old_kind) : (buffer, i64) -> (buffer)
+  %replacement = func.call @jinja.string(%new, %new_kind) : (buffer, i64) -> (buffer)
+  %none = scalar.cmpi eq, %count_kind, %six : i64
+  %false = scalar.constant false : i1
+  %filter = scalar.cmpi eq, %method, %false : i1
+  %default_count = scalar.andi %none, %filter : i1
+  %limit = scf.if %default_count -> (i64) {
+    %unlimited = scalar.constant -1 : i64
+    scf.yield %unlimited : i64
+  } else {
+    %number = scalar.cmpi eq, %count_kind, %one : i64
+    %yes = scalar.cmpi eq, %count_kind, %four : i64
+    %no = scalar.cmpi eq, %count_kind, %five : i64
+    %boolean = scalar.ori %yes, %no : i1
+    %numeric = scalar.ori %number, %boolean : i1
+    func.call @jinja.check(%numeric) : (i1)
+    %text = func.call @jinja.numeric_text(%count, %count_kind) : (buffer, i64) -> (buffer)
+    %integer = func.call @jinja.is_integer(%text) : (buffer) -> (i1)
+    %fits = func.call @jinja.index_integer_fits(%text) : (buffer) -> (i1)
+    %valid = scalar.andi %integer, %fits : i1
+    func.call @jinja.check(%valid) : (i1)
+    %limit = func.call @jinja.tointeger(%text, %one) : (buffer, i64) -> (i64)
+    scf.yield %limit : i64
+  }
+  %result = func.call @jinja.replace_bytes(%source, %needle, %replacement, %limit) : (buffer, buffer, buffer, i64) -> (buffer)
+  func.return %result, %zero : buffer, i64
+}
+
 func.def @jinja.charset_contains(%characters: buffer, %text: buffer, %position: offset, %width: offset) -> (i1) {
   %zero = index.constant 0 : offset
   %false = scalar.constant false : i1
@@ -1603,4 +1754,57 @@ func.def public @jinja.join_values(%value: buffer, %kind: i64, %separator: buffe
     scf.yield %next : buffer
   }
   func.return %result, %zero64 : buffer, i64
+}
+
+// Consume the supported reject-equalto iterable in its immediate join/list
+// consumer. The delimiter is already coerced before source iteration starts.
+// Falsy inputs are empty, matching Jinja's select/reject iterable conversion.
+func.def public @jinja.reject_equalto(%value: buffer, %kind: i64, %rejected: buffer, %rejected_kind: i64, %joined: i1, %delimiter: buffer) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %three = scalar.constant 3 : i64
+  %compact = scalar.constant -2 : i64
+  %open = global.load @jinja.open_array : buffer
+  %close = global.load @jinja.close_array : buffer
+  %comma = global.load @jinja.comma : buffer
+  %empty = global.load @jinja.empty : buffer
+  %begin = scf.select %joined, %empty, %open : buffer
+  %end = scf.select %joined, %empty, %close : buffer
+  %between = scf.select %joined, %delimiter, %comma : buffer
+  %truth = func.call @jinja.truth(%value, %kind) : (buffer, i64) -> (i1)
+  %body = scf.if %truth -> (buffer) {
+    %sequence, %sequence_kind = func.call @jinja.list(%value, %kind) : (buffer, i64) -> (buffer, i64)
+    // list owns a JSON array. Consume its checked member table directly instead
+    // of redispatching this guaranteed array through generic sequence helpers.
+    %members, %type, %length = func.call @members(%sequence) : (buffer) -> (buffer, i32, i64)
+    %bounded = scalar.assume %length [range(%length, 0, 2147483647)] : i64
+    %count = index.cast %bounded : i64 to offset
+    %zero = index.constant 0 : offset
+    %one = index.constant 1 : offset
+    %result, %unused_separator = scf.for %i = [%zero to %count step %one](%prior = %begin : buffer, %separator = %empty : buffer) -> (buffer, buffer) {
+      %ordinal = index.cast %i : offset to i64
+      %item, %item_kind = func.call @jinja.member(%sequence, %members, %length, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      %equal = func.call @jinja.equal(%item, %item_kind, %rejected, %rejected_kind) : (buffer, i64, buffer, i64) -> (i1)
+      %next, %next_separator = scf.if %equal -> (buffer, buffer) {
+        scf.yield %prior, %separator : buffer, buffer
+      } else {
+        %prefix = func.call @jinja.join(%prior, %separator) : (buffer, buffer) -> (buffer)
+        %text = scf.if %joined -> (buffer) {
+          %text = func.call @jinja.string(%item, %item_kind) : (buffer, i64) -> (buffer)
+          scf.yield %text : buffer
+        } else {
+          %json = func.call @jinja.tojson(%item, %item_kind, %compact) : (buffer, i64, i64) -> (buffer)
+          scf.yield %json : buffer
+        }
+        %next = func.call @jinja.join(%prefix, %text) : (buffer, buffer) -> (buffer)
+        scf.yield %next, %between : buffer, buffer
+      }
+      scf.yield %next, %next_separator : buffer, buffer
+    }
+    scf.yield %result : buffer
+  } else {
+    scf.yield %begin : buffer
+  }
+  %result = func.call @jinja.join(%body, %end) : (buffer, buffer) -> (buffer)
+  %result_kind = scf.select %joined, %zero64, %three : i64
+  func.return %result, %result_kind : buffer, i64
 }

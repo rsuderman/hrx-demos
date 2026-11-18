@@ -289,6 +289,9 @@ struct SourceControls {
         Reads(value, defined);
       if (node.kind == Node::Kind::Set) {
         defined.insert(node.text);
+      } else if (node.kind == Node::Kind::Capture) {
+        Discover(node.body, defined);
+        defined.insert(node.text);
       } else if (node.kind == Node::Kind::If) {
         const auto yes = Discover(node.body, defined);
         const auto no = Discover(node.otherwise, defined);
@@ -302,6 +305,8 @@ struct SourceControls {
         inner.insert(node.text.substr(0, comma));
         if (comma != std::string::npos)
           inner.insert(node.text.substr(comma + 1));
+        if (node.predicate)
+          Reads(*node.predicate, inner);
         inner.insert("loop");
         Discover(node.body, std::move(inner));
         Discover(node.otherwise, defined);
@@ -333,7 +338,9 @@ struct SourceControls {
     for (const auto &node : nodes) {
       if (node.kind == Node::Kind::If)
         expressions.push_back(node.expression);
-      if (node.kind == Node::Kind::Set) {
+      if (node.kind == Node::Kind::Capture) {
+        locals.insert(node.text);
+      } else if (node.kind == Node::Kind::Set) {
         locals.insert(node.text);
         const Expr *value = &node.expression;
         while (value->kind == Expr::Kind::Filter && !value->args.empty() &&
@@ -357,6 +364,8 @@ struct SourceControls {
         locals.insert(node.parameters.begin(), node.parameters.end());
       }
       Expression(node.expression);
+      if (node.predicate)
+        Expression(*node.predicate);
       for (const auto &value : node.defaults)
         Expression(value);
       Nodes(node.body);

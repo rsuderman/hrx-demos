@@ -48,6 +48,7 @@ struct State {
   std::map<std::string, Value> module_locals;
   std::set<std::string> defined_macros;
   bool module_frame = true;
+  bool selector_output = true;
   // Static identities never become JSON values. Only their presence and fields
   // flow through structured control flow; ordinary loop locals remain scoped.
   struct Namespace {
@@ -67,6 +68,7 @@ struct Loop {
   Value sequence;
   std::string position;
   std::string count;
+  bool filtered = false;
 };
 
 enum class LoweringProduct {
@@ -338,6 +340,8 @@ private:
                 "i1");
   }
   std::string ToString(Value value) {
+    if (value.known == KnownKind::String)
+      return value.data;
     return Call("jinja.string", {value.data, value.kind}, {"buffer", "i64"},
                 "buffer");
   }
@@ -405,7 +409,7 @@ private:
   }
   void GatherModule(const std::vector<Node> &nodes) {
     for (const auto &node : nodes) {
-      if (node.kind == Node::Kind::Set &&
+      if ((node.kind == Node::Kind::Set || node.kind == Node::Kind::Capture) &&
           node.text.find('.') == std::string::npos) {
         module_names_.insert(node.text);
         if (Constructor(node)) {
@@ -438,6 +442,8 @@ private:
   void Calls(const std::vector<Node> &nodes, std::set<std::string> *calls) {
     for (const auto &node : nodes) {
       Calls(node.expression, calls);
+      if (node.predicate)
+        Calls(*node.predicate, calls);
       Calls(node.body, calls);
       Calls(node.otherwise, calls);
     }
@@ -464,12 +470,134 @@ private:
     for (const auto &arg : expr.args)
       ReferencedNames(arg, names);
   }
+  // This is a lexical eligibility query, not namespace value analysis. A bare
+  // root could escape through an alias or JSON value, so only direct fields and
+  // defined tests can observe a proved local constructor.
+  static bool ClosedRootExpression(const Expr &expr, const std::string &root,
+                                   bool constructed) {
+    switch (expr.kind) {
+    case Expr::Kind::Name:
+    case Expr::Kind::String:
+    case Expr::Kind::Integer:
+    case Expr::Kind::Boolean:
+    case Expr::Kind::None:
+    case Expr::Kind::Undefined:
+    case Expr::Kind::Unary:
+    case Expr::Kind::Binary:
+    case Expr::Kind::Conditional:
+    case Expr::Kind::GetItem:
+    case Expr::Kind::GetAttr:
+    case Expr::Kind::Slice:
+    case Expr::Kind::Call:
+    case Expr::Kind::Filter:
+    case Expr::Kind::Test:
+    case Expr::Kind::List:
+    case Expr::Kind::Tuple:
+    case Expr::Kind::Dict:
+      break;
+    default:
+      return false;
+    }
+    if (expr.kind == Expr::Kind::Name && expr.text == root)
+      return false;
+    if (((expr.kind == Expr::Kind::GetAttr) ||
+         (expr.kind == Expr::Kind::Test &&
+          (expr.text == "defined" || expr.text == "undefined"))) &&
+        expr.args.size() == 1 && expr.args[0].kind == Expr::Kind::Name &&
+        expr.args[0].text == root)
+      return constructed;
+    for (const auto &arg : expr.args)
+      if (!ClosedRootExpression(arg, root, constructed))
+        return false;
+    return true;
+  }
+  static bool ClosedRootNodes(const std::vector<Node> &nodes,
+                              const std::string &root, size_t constructor,
+                              bool *constructed) {
+    for (const auto &node : nodes) {
+      if (!ClosedRootExpression(node.expression, root, *constructed))
+        return false;
+      if (node.predicate &&
+          !ClosedRootExpression(*node.predicate, root, *constructed))
+        return false;
+      switch (node.kind) {
+      case Node::Kind::Text:
+      case Node::Kind::Output:
+        break;
+      case Node::Kind::Set: {
+        if (node.text == root) {
+          if (!Constructor(node) || node.offset != constructor)
+            return false;
+          *constructed = true;
+        } else if (node.text.substr(0, node.text.find('.')) == root &&
+                   !*constructed) {
+          return false;
+        }
+        break;
+      }
+      case Node::Kind::If: {
+        bool yes = *constructed, no = *constructed;
+        if (!ClosedRootNodes(node.body, root, constructor, &yes) ||
+            !ClosedRootNodes(node.otherwise, root, constructor, &no))
+          return false;
+        *constructed = yes && no;
+        break;
+      }
+      case Node::Kind::For:
+      case Node::Kind::Generation: {
+        if (node.kind == Node::Kind::For &&
+            (node.text == root ||
+             std::find(node.parameters.begin(), node.parameters.end(), root) !=
+                 node.parameters.end()))
+          return false;
+        bool body = *constructed, otherwise = *constructed;
+        if (!ClosedRootNodes(node.body, root, constructor, &body) ||
+            !ClosedRootNodes(node.otherwise, root, constructor, &otherwise))
+          return false;
+        // Neither a zero-iteration loop nor a nested lexical frame establishes
+        // a constructor in the enclosing frame.
+        break;
+      }
+      default:
+        // New executable syntax must compose its real scope here explicitly.
+        return false;
+      }
+    }
+    return true;
+  }
+  static void
+  LocalConstructors(const std::vector<Node> &nodes,
+                    std::map<std::string, std::vector<size_t>> *constructors) {
+    for (const auto &node : nodes) {
+      if (Constructor(node))
+        (*constructors)[node.text].push_back(node.offset);
+      LocalConstructors(node.body, constructors);
+      LocalConstructors(node.otherwise, constructors);
+    }
+  }
+  static std::set<std::string> ClosedLocalRoots(const Node &macro) {
+    std::map<std::string, std::vector<size_t>> constructors;
+    LocalConstructors(macro.body, &constructors);
+    std::set<std::string> roots;
+    for (const auto &[root, sites] : constructors) {
+      if (sites.size() != 1 || root.find('.') != std::string::npos ||
+          std::find(macro.parameters.begin(), macro.parameters.end(), root) !=
+              macro.parameters.end())
+        continue;
+      bool constructed = false;
+      if (ClosedRootNodes(macro.body, root, sites.front(), &constructed))
+        roots.insert(root);
+    }
+    return roots;
+  }
   void ReferencedNames(const std::vector<Node> &nodes,
                        std::set<std::string> *names,
                        std::set<std::string> *writes,
                        std::set<size_t> *local_namespaces) {
     for (const auto &node : nodes) {
       ReferencedNames(node.expression, names);
+      if (node.predicate)
+        ReferencedNames(*node.predicate, names);
       if (node.kind == Node::Kind::Set) {
         const auto dot = node.text.find('.');
         if (dot != std::string::npos) {
@@ -490,6 +618,11 @@ private:
     auto &capture = macro_captures_[name];
     std::set<std::string> names, writes;
     ReferencedNames(macro.body, &names, &writes, &capture.local_namespaces);
+    capture.closed_local_roots = ClosedLocalRoots(macro);
+    for (const auto &root : capture.closed_local_roots) {
+      names.erase(root);
+      writes.erase(root);
+    }
     for (const auto &value : macro.defaults)
       ReferencedNames(value, &names);
     for (const auto &parameter : macro.parameters)
@@ -672,6 +805,10 @@ private:
   }
   Value Name(const std::string &name, State &state, size_t offset = 0,
              bool used = true) {
+    if (name == "loop" && !loops_.empty() && loops_.back().filtered) {
+      Fail(offset, "filtered-loop metadata is not supported");
+      return Undefined();
+    }
     if (macros_.count(name)) {
       Fail(offset, "macro objects cannot escape as values");
       return Undefined();
@@ -728,6 +865,8 @@ private:
               KnownKind::Boolean};
     case Kind::None:
       return {Literal(""), I64(6), KnownKind::None};
+    case Kind::Undefined:
+      return Undefined();
     case Kind::Unary: {
       if (expr.args[0].kind == Kind::Integer &&
           (expr.text == "+" || expr.text == "-")) {
@@ -943,6 +1082,10 @@ private:
 
   Value LoopAttribute(const Expr &expr, State &) {
     const auto &loop = loops_.back();
+    if (loop.filtered) {
+      Fail(expr.offset, "filtered-loop metadata is not supported");
+      return Undefined();
+    }
     if (expr.text == "index0")
       return Integer(loop.position);
     if (expr.text == "index") {
@@ -1046,7 +1189,75 @@ private:
       Fail(expr.offset, "filter needs a subject");
       return Undefined();
     }
+    // reject is a source iterator, not an ordinary list-valued expression.
+    // Fuse only its immediate consumers and defer consumption until after
+    // join's delimiter expression and conversion, as Jinja's lazy iterator
+    // requires.
+    const auto &subject = expr.args[0];
+    if ((expr.text == "list" || expr.text == "join") &&
+        subject.kind == Expr::Kind::Filter && subject.text == "reject") {
+      if (subject.args.size() != 3 ||
+          subject.args[1].kind != Expr::Kind::String ||
+          subject.args[1].text != "equalto" ||
+          std::any_of(subject.keywords.begin(), subject.keywords.end(),
+                      [](const auto &keyword) { return !keyword.empty(); }) ||
+          (expr.text == "list" && expr.args.size() != 1) ||
+          (expr.text == "join" &&
+           (expr.args.size() > 2 ||
+            (expr.keywords.size() > 1 && !expr.keywords[1].empty() &&
+             expr.keywords[1] != "d")))) {
+        Fail(expr.offset,
+             "reject supports positional equalto with immediate join or list");
+        return Undefined();
+      }
+      const auto input = Expression(subject.args[0], state);
+      const auto rejected = Expression(subject.args[2], state);
+      std::string delimiter;
+      if (expr.text == "join")
+        delimiter =
+            ToString(expr.args.size() == 2 ? Expression(expr.args[1], state)
+                                           : String(""));
+      auto result = Pair("jinja.reject_equalto",
+                         {input.data, input.kind, rejected.data, rejected.kind,
+                          Bool(expr.text == "join"),
+                          expr.text == "join" ? delimiter : Literal("")},
+                         {"buffer", "i64", "buffer", "i64", "i1", "buffer"});
+      result.known = expr.text == "join" ? KnownKind::String : KnownKind::List;
+      return result;
+    }
+    if (expr.text == "reject") {
+      Fail(
+          expr.offset,
+          "reject iterator requires an immediate join or explicit list consumer");
+      return Undefined();
+    }
     const auto value = Expression(expr.args[0], state);
+    if (expr.text == "replace") {
+      std::vector<Value> arguments(3);
+      bool supplied[3] = {};
+      size_t positional = 0;
+      const std::vector<std::string> names{"old", "new", "count"};
+      for (size_t i = 1; i < expr.args.size(); ++i) {
+        const auto &keyword = expr.keywords[i];
+        const size_t slot =
+            keyword.empty() ? positional++
+                            : std::find(names.begin(), names.end(), keyword) -
+                                  names.begin();
+        if (slot >= 3 || supplied[slot]) {
+          Fail(expr.offset, "invalid or duplicate replace argument");
+          return Undefined();
+        }
+        arguments[slot] = Expression(expr.args[i], state);
+        supplied[slot] = true;
+      }
+      if (!supplied[0] || !supplied[1]) {
+        Fail(expr.offset, "replace requires old and new arguments");
+        return Undefined();
+      }
+      if (!supplied[2])
+        arguments[2] = {Literal("-1"), I64(1), KnownKind::Integer};
+      return Replace(value, arguments, false);
+    }
     if (expr.text == "list" && expr.args.size() == 1) {
       auto result = TupleResult(
           Pair("jinja.list", {value.data, value.kind}, {"buffer", "i64"}),
@@ -1128,6 +1339,18 @@ private:
     }
     Fail(expr.offset, "unsupported filter or arguments: " + expr.text);
     return Undefined();
+  }
+
+  Value Replace(const Value &subject, const std::vector<Value> &arguments,
+                bool method) {
+    auto result = Pair("jinja.replace",
+                       {subject.data, subject.kind, arguments[0].data,
+                        arguments[0].kind, arguments[1].data, arguments[1].kind,
+                        arguments[2].data, arguments[2].kind, Bool(method)},
+                       {"buffer", "i64", "buffer", "i64", "buffer", "i64",
+                        "buffer", "i64", "i1"});
+    result.known = KnownKind::String;
+    return result;
   }
 
   std::string MacroSymbol(const std::string &name) {
@@ -1298,6 +1521,12 @@ private:
           });
       state.locals[macro.parameters[i]] = value;
     }
+    // Defaults use module lookup; only the body shadows these closed roots.
+    // Keep module_locals and captured namespace slots for transitive callees.
+    for (const auto &root : captures.closed_local_roots) {
+      state.bindings.erase(root);
+      state.locals.erase(root);
+    }
     EmitNodes(macro.body, state);
     std::vector<std::string> values{state.output}, types{"buffer"};
     NamespaceValues(NamespaceSubset(state, captures.effects), &values, &types);
@@ -1322,9 +1551,19 @@ private:
           return Undefined();
         }
       const auto subject = Expression(method.args[0], state);
+      // Undefined fails attribute lookup before call arguments are evaluated;
+      // other nonstrings reach the ordinary method/type failure after them.
+      if (method.text == "replace")
+        Require(Compare("ne", subject.kind, I64(7)),
+                Literal("cannot access a member of Undefined"));
       std::vector<Value> args;
       for (size_t i = 1; i < expr.args.size(); ++i)
         args.push_back(Expression(expr.args[i], state));
+      if (method.text == "replace" && (args.size() == 2 || args.size() == 3)) {
+        if (args.size() == 2)
+          args.push_back({Literal("-1"), I64(1), KnownKind::Integer});
+        return Replace(subject, args, true);
+      }
       if (method.text == "items" && args.empty()) {
         if (items_expression_ != &expr) {
           Fail(expr.offset,
@@ -1450,7 +1689,7 @@ private:
   static void Assigned(const std::vector<Node> &nodes,
                        std::set<std::string> *names) {
     for (const auto &node : nodes) {
-      if (node.kind == Node::Kind::Set &&
+      if ((node.kind == Node::Kind::Set || node.kind == Node::Kind::Capture) &&
           node.text.find('.') == std::string::npos && !Constructor(node))
         names->insert(node.text);
       if (node.kind == Node::Kind::If) {
@@ -1462,6 +1701,10 @@ private:
 
   void EmitIf(const Node &node, State &state) {
     const auto condition = Truth(Expression(node.expression, state));
+    EmitIf(node, condition, state);
+  }
+
+  void EmitIf(const Node &node, const std::string &condition, State &state) {
     Prebind(node.body, state);
     Prebind(node.otherwise, state);
     std::set<std::string> names;
@@ -1578,6 +1821,14 @@ private:
     std::vector<std::string> outputs{output}, types{"buffer"};
     auto merged = NamespaceResults(state, &outputs, &types);
     std::vector<std::string> header{prior + " = " + state.output + " : buffer"};
+    const bool track_accepted = node.predicate && !node.otherwise.empty();
+    std::string accepted, prior_accepted;
+    if (track_accepted) {
+      accepted = Fresh();
+      prior_accepted = Fresh();
+      outputs.push_back(accepted);
+      types.push_back("i1");
+    }
     State inner = state;
     inner.module_frame = false;
     for (auto &[id, object] : inner.namespaces) {
@@ -1594,6 +1845,8 @@ private:
         header.push_back(value.kind + " = " + start.kind + " : i64");
       }
     }
+    if (track_accepted)
+      header.push_back(prior_accepted + " = " + Bool(false) + " : i1");
     Line(Join(outputs) + " = scf.for " + position + " = [" + zero + " to " +
          extent + " step " + one + "](" + Join(header) + ") -> (" +
          Join(types) + ") {");
@@ -1629,18 +1882,39 @@ private:
     }
     auto neighbor_sequence = sequence;
     neighbor_sequence.tuple_data = neighbor_sequence.tuple_data || items_rows;
-    loops_.push_back({neighbor_sequence, ordinal, count});
-    EmitNodes(node.body, inner);
+    std::string any_accepted;
+    if (node.predicate) {
+      const auto condition = Truth(Expression(*node.predicate, inner));
+      loops_.push_back({neighbor_sequence, ordinal, count, true});
+      Node branch;
+      branch.kind = Node::Kind::If;
+      branch.offset = node.offset;
+      branch.body = node.body;
+      EmitIf(branch, condition, inner);
+      if (track_accepted) {
+        any_accepted = Fresh();
+        Line(any_accepted + " = scalar.ori " + prior_accepted + ", " +
+             condition + " : i1");
+      }
+    } else {
+      loops_.push_back({neighbor_sequence, ordinal, count});
+      EmitNodes(node.body, inner);
+    }
     loops_.pop_back();
     std::vector<std::string> yields{inner.output}, yield_types{"buffer"};
     NamespaceValues(inner, &yields, &yield_types);
+    if (track_accepted) {
+      yields.push_back(any_accepted);
+      yield_types.push_back("i1");
+    }
     Line("scf.yield " + Join(yields) + " : " + Join(yield_types));
     --indent_;
     Line("}");
     state.output = output;
     MergeNamespaces(state, std::move(merged), state, inner);
     if (!node.otherwise.empty()) {
-      const auto empty = Compare("eq", count, I64(0));
+      const auto empty =
+          track_accepted ? Not(accepted) : Compare("eq", count, I64(0));
       state.output =
           SelectValue(
               empty, state,
@@ -1669,7 +1943,7 @@ private:
         // Selector results are a compiler-checked integer pair, not template
         // text. The normal renderer deliberately rejects stringifying lists.
         // Preserve its semantics and retain the pair's existing JSON storage.
-        if (selector_ && !in_macro_ &&
+        if (selector_ && !in_macro_ && state.selector_output &&
             node.expression.kind == Expr::Kind::List) {
           state.output =
               Concat(state.output, Collection(node.expression, state).data);
@@ -1751,6 +2025,28 @@ private:
         if (state.module_frame && state.locals.count(node.text))
           state.module_locals[node.text] = state.locals.at(node.text);
         break;
+      case Node::Kind::Capture: {
+        if (Reserved(node.text) || macros_.count(node.text)) {
+          Fail(node.offset,
+               "assignment to reserved template builtin: " + node.text);
+          break;
+        }
+        if (state.bindings.count(node.text)) {
+          Fail(node.offset,
+               "namespace and JSON rebinding has ambiguous identity");
+          break;
+        }
+        State inner = state;
+        inner.output = Literal("");
+        inner.module_frame = false;
+        inner.selector_output = false;
+        EmitNodes(node.body, inner);
+        state.namespaces = std::move(inner.namespaces);
+        state.locals[node.text] = {inner.output, I64(0), KnownKind::String};
+        if (state.module_frame)
+          state.module_locals[node.text] = state.locals.at(node.text);
+        break;
+      }
       case Node::Kind::Macro:
         state.defined_macros.insert(node.text);
         break;
@@ -1789,7 +2085,7 @@ private:
   std::map<std::string, const Node *> macros_;
   std::map<std::string, std::set<std::string>> macro_calls_;
   struct MacroCaptures {
-    std::set<std::string> values;
+    std::set<std::string> values, closed_local_roots;
     std::set<size_t> namespaces, effects, local_namespaces;
   };
   std::map<std::string, MacroCaptures> macro_captures_;
@@ -1854,7 +2150,8 @@ private:
   void CheckShadowing(const std::vector<Node> &nodes) {
     for (const auto &node : nodes) {
       bool shadowed =
-          (node.kind == Node::Kind::Set && node.text == variable_) ||
+          ((node.kind == Node::Kind::Set || node.kind == Node::Kind::Capture) &&
+           node.text == variable_) ||
           (node.kind == Node::Kind::For && TargetContains(node.text)) ||
           (node.kind == Node::Kind::Macro &&
            (node.text == variable_ ||
@@ -2005,6 +2302,7 @@ private:
         next = Nodes(node.body, loop);
         break;
       case Node::Kind::Set:
+      case Node::Kind::Capture:
       case Node::Kind::Macro:
         // Macros retain their original string-returning semantics. Their output
         // is a value computed by a source expression, not a selection emission.

@@ -2282,5 +2282,76 @@ TEST(TextFormatAnalysisTest, ReasoningMarkersAreLiteralBuffers) {
   }
 }
 
+TEST(TextFormatAnalysisTest, CapturedAssistantBodyKeepsPayloadAndScope) {
+  const auto source =
+      Frame("{% set text %}{{ m.content }}{% endset %}{{ text }}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "capture-content.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  for (const auto &format : analysis.alternatives) {
+    EXPECT_EQ(format.assistant_header, "<turn>assistant:");
+    EXPECT_EQ(format.frame_suffix, "</turn>");
+  }
+}
+
+TEST(TextFormatAnalysisTest, UnsupportedFilteredMessageLoopLocatesPredicate) {
+  const std::string source =
+      "{% for m in messages if m.role == 'assistant' %}"
+      "{{ '<A>' }}{{ m.content }}{{ '<E>' }}{% endfor %}";
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  EXPECT_FALSE(AnalyzeTextFormat(source, "filtered-messages.jinja", {},
+                                 &analysis, &diagnostic));
+  EXPECT_EQ(diagnostic.source_name, "filtered-messages.jinja");
+  EXPECT_NE(diagnostic.message.find("filtered message iteration"),
+            std::string::npos);
+  EXPECT_EQ(diagnostic.offset, source.find("m.role"));
+}
+
+TEST(TextFormatAnalysisTest, OmittedElseEmptyEmissionKeepsContent) {
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(
+      AnalyzeTextFormat(Frame("{{ 'ignored' if false }}{{ m.content }}"),
+                        "omitted-else.jinja", {}, &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  EXPECT_EQ(analysis.alternatives.front().assistant_header, "<turn>assistant:");
+}
+
+TEST(TextFormatAnalysisTest, BufferedPreludeRetainsUnusedTextAndFilterEffects) {
+  const std::string source =
+      "{% set ns=namespace(n=0) %}"
+      "{% macro keep(v) %}{% set ns.n=ns.n+1 %}{{ v }}{% endmacro %}"
+      "{% set unused %}{{ keep('unused') }}{% endset %}"
+      "{% for item in items if keep(item) %}{% endfor %}" +
+      Frame("{{ m.content }}",
+            "{% if ns.n == expected %}{{ '<turn>assistant:' }}{% endif %}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "buffered-effects.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto prepared =
+        PrepareSelection(source, analysis.selector_template, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    for (int expected : {3, 4}) {
+      int64_t id = -1, mode = -1;
+      const auto environment =
+          R"({"messages":[{"role":"user","content":"q"}],"items":["a","","b"],"add_generation_prompt":true,"expected":)" +
+          std::to_string(expected) + "}";
+      ASSERT_TRUE(Select(*prepared, environment, &id, &mode));
+      ASSERT_GE(id, 0);
+      ASSERT_LT(static_cast<size_t>(id), analysis.alternatives.size());
+      EXPECT_EQ(analysis.alternatives[id].generation_prefix,
+                expected == 4 ? "<turn>assistant:" : "");
+    }
+  }
+}
+
 } // namespace
 } // namespace hrx::loomify_gguf::jinja
