@@ -2422,6 +2422,138 @@ TEST(TextFormatAnalysisTest, ReasoningMarkersAreLiteralBuffers) {
   }
 }
 
+TEST(TextFormatAnalysisTest,
+     RequestLoopCaptureRetainsSelectorAndRecipeEffects) {
+  const std::string source =
+      "{% set ns=namespace(n=0) %}"
+      "{% macro mark(v) %}{% set ns.n=ns.n+1 %}[{{ v }}]{% endmacro %}"
+      // fn is private here, then reused for a future value in the message loop.
+      "{% set buffered %}{% for v in values %}{% set fn=v %}{{ mark(fn) }}{% endfor %}{% endset %}" +
+      Frame(
+          "{% set fn=m.content %}"
+          "{% if buffered == expected and buffered == expected and ns.n == want %}"
+          "{{ fn }}{% else %}{{ raise_exception('capture effect mismatch') }}{% endif %}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "request-loop-capture.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  for (bool bytecode : {false, true}) {
+    auto selector =
+        PrepareSelection(source, analysis.selector_template, bytecode);
+    ASSERT_NE(selector, nullptr);
+    for (const auto &values :
+         {std::string(), std::string("[]"), std::string("[\"a\",\"b\"]")}) {
+      const bool empty = values.empty() || values == "[]";
+      const std::string fields =
+          (values.empty() ? std::string() : "\"values\":" + values + ',') +
+          "\"expected\":" + Quote(empty ? "" : "[a][b]") +
+          ",\"want\":" + (empty ? "0" : "2");
+      const std::string environment =
+          "{" + fields +
+          ",\"messages\":[{\"role\":\"user\",\"content\":\"q\"}],\"add_generation_prompt\":true}";
+      int64_t id = -1, mode = -1;
+      ASSERT_TRUE(Select(*selector, environment, &id, &mode));
+      ASSERT_GE(id, 0);
+      ASSERT_LT(static_cast<size_t>(id), analysis.alternatives.size());
+      internal::RecipeBuilder builder(analysis, source);
+      Template recipe;
+      std::string error;
+      ASSERT_TRUE(builder.Build(analysis.alternatives[id], &recipe, &error))
+          << error;
+      GeneratedInputRenderer product;
+      ASSERT_TRUE(CompileTemplateRenderer(source, "request-loop-recipe.jinja",
+                                          recipe, &product, &diagnostic))
+          << diagnostic.message;
+      auto prepared = PrepareProduct(product, bytecode);
+      ASSERT_NE(prepared, nullptr);
+      const auto assistant = R"({"role":"assistant","content":"PAYLOAD"})";
+      const std::string completed =
+          "{" + fields + ",\"messages\":[" + assistant +
+          "],\"add_generation_prompt\":false," +
+          Quote(builder.assistant_binding()) + ":" + assistant + "}";
+      std::string rendered;
+      ASSERT_TRUE(prepared->Render(completed, &rendered, &error)) << error;
+      EXPECT_EQ(rendered, "<turn>assistant:PAYLOAD</turn>");
+    }
+    GeneratedInputRenderer turn;
+    ASSERT_TRUE(EmitTextTurnControls(source, "request-loop-turn.jinja",
+                                     analysis, {}, &turn, &diagnostic))
+        << diagnostic.message;
+  }
+}
+
+TEST(TextFormatAnalysisTest, UnusedRequestLoopCaptureKeepsLazySourceErrors) {
+  const std::string source =
+      "{% if flag %}{% set unused %}{% for v in values %}"
+      "{{ raise_exception('eager buffered failure') }}{% endfor %}{% endset %}{% endif %}" +
+      Frame("{{ m.content }}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "capture-lazy-errors.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  for (bool bytecode : {false, true}) {
+    auto selector =
+        PrepareSelection(source, analysis.selector_template, bytecode);
+    ASSERT_NE(selector, nullptr);
+    int64_t id = -1, mode = -1;
+    std::string error;
+    ASSERT_TRUE(selector->SelectFormat(
+        Environment(",\"flag\":false,\"values\":[1]"), &id, &mode, &error))
+        << error;
+    EXPECT_FALSE(selector->SelectFormat(
+        Environment(",\"flag\":true,\"values\":[1]"), &id, &mode, &error));
+    EXPECT_NE(error.find("eager buffered failure"), std::string::npos) << error;
+    internal::RecipeBuilder builder(analysis, source);
+    Template recipe;
+    ASSERT_TRUE(builder.Build(analysis.alternatives.front(), &recipe, &error))
+        << error;
+    GeneratedInputRenderer product;
+    ASSERT_TRUE(CompileTemplateRenderer(source, "capture-error-recipe.jinja",
+                                        recipe, &product, &diagnostic))
+        << diagnostic.message;
+    auto prepared = PrepareProduct(product, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    const auto assistant = R"({"role":"assistant","content":"PAYLOAD"})";
+    const auto completed =
+        "{\"messages\":[" + std::string(assistant) +
+        "],\"add_generation_prompt\":false,\"flag\":true,\"values\":[1]," +
+        Quote(builder.assistant_binding()) + ":" + assistant + "}";
+    std::string rendered;
+    EXPECT_FALSE(prepared->Render(completed, &rendered, &error));
+    EXPECT_NE(error.find("eager buffered failure"), std::string::npos) << error;
+  }
+}
+
+TEST(TextFormatAnalysisTest, RequestCaptureCannotHideFutureDependencies) {
+  for (
+      const auto &prefix :
+      {std::string(
+           "{% set buffered %}{% for v in values %}{{ messages[-1].content }}{% endfor %}{% endset %}"),
+       std::string(
+           "{% macro hidden(v=messages[-1].content) %}{{ v }}{% endmacro %}"
+           "{% set buffered %}{% for v in values %}{{ hidden() }}{% endfor %}{% endset %}"),
+       std::string(
+           "{% set ns=namespace(value='') %}"
+           "{% set buffered %}{% for v in values %}{% set ns.value=messages[-1].content %}{% endfor %}{% endset %}"),
+       std::string(
+           "{% set fn=messages[-1].content %}"
+           "{% set buffered %}{% for v in values %}{{ fn }}{% set fn=v %}{% endfor %}{% endset %}"),
+       std::string(
+           "{% set fn=messages[-1].content %}"
+           "{% set buffered %}{% for v in values %}{% if flag %}{% set fn=v %}{% endif %}{{ fn }}{% endfor %}{% endset %}")}) {
+    const auto source = prefix + Frame("{{ m.content }}");
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "future-loop-capture.jinja", {},
+                                   &analysis, &diagnostic));
+    EXPECT_FALSE(diagnostic.message.empty());
+  }
+}
+
 TEST(TextFormatAnalysisTest, CapturedAssistantBodyKeepsPayloadAndScope) {
   const auto source =
       Frame("{% set text %}{{ m.content }}{% endset %}{{ text }}");

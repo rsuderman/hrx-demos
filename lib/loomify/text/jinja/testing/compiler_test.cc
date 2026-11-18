@@ -325,6 +325,47 @@ TEST_P(JinjaExecutionTest, RejectsExplicitUnsupportedCapabilities) {
 INSTANTIATE_TEST_SUITE_P(SerializedForms, JinjaExecutionTest,
                          ::testing::Values(false, true));
 
+TEST(JinjaCompilerTest, RejectsObservedConditionalCollectorIdentity) {
+  const std::string pair =
+      "{% if xml %}{% set ns=namespace(s='X') %}{{ ns.s }}{% endif %}"
+      "{% if python %}{% set ns=namespace(s='P') %}{{ ns.s }}{% endif %}";
+  for (const auto &source : {
+           pair + "{{ ns.s }}",
+           "{% set ns=namespace(s='outer') %}" + pair + "{{ ns is defined }}",
+           "{% set ns=namespace(s='outer') %}{% set alias=ns %}" + pair,
+           std::string("{% if xml %}{% set ns=namespace(s='X') %}"
+                       "{% else %}{{ ns.s }}{% endif %}") +
+               pair,
+           std::string("{% set ns=namespace(s='outer') %}"
+                       "{% if xml %}{% set ns=namespace(s=ns.s) %}"
+                       "{{ ns.s }}{% endif %}") +
+               pair,
+           "{% set ns=namespace(s='outer') %}"
+           "{% macro read() %}{{ ns.s }}{% endmacro %}" +
+               pair + "{{ read() }}",
+           "{% set ns=namespace(s='outer') %}"
+           "{% macro read(value=ns.s) %}{{ value }}{% endmacro %}" +
+               pair + "{{ read('explicit') }}",
+           "{% macro read() %}{{ ns.s }}{% endmacro %}"
+           "{% if xml %}{% set ns=namespace(s='X') %}{{ read() }}{% endif %}" +
+               pair,
+           std::string("{% if xml %}{% set ns=namespace(s='X') %}"
+                       "{% for key,ns in [('k',{'s':'row'})] %}{{ ns.s }}"
+                       "{% endfor %}{% endif %}") +
+               pair,
+       }) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output;
+    output.source = "preserved";
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "observed-region.jinja", &output,
+                                     &diagnostic));
+    EXPECT_EQ(output.source, "preserved");
+    EXPECT_NE(diagnostic.message.find("namespace"), std::string::npos);
+    EXPECT_GT(diagnostic.offset, 0u);
+  }
+}
+
 TEST(JinjaCompilerTest, RejectsUnprovedMacroNamespaceShadowing) {
   for (
       const char *body : {

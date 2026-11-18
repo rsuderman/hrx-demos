@@ -35,6 +35,7 @@ cc_test(
     deps = [
         "//lib/loomify:template_analysis",
         "//lib/loomify:template_probe_runner",
+        "//lib/loomify:template_qualification",
         "//lib/loomify/text/jinja:compiler",
         "//lib/loomify/text/jinja:format_analysis",
         "@googletest//:gtest_main",

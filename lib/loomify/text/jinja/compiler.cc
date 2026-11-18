@@ -96,9 +96,12 @@ public:
         if (macros_.count(parameter))
           Fail(node->offset,
                "macro parameters cannot shadow statically resolved macros");
-    GatherModule(ast.body);
     for (const auto &[name, node] : macros_)
       CheckCalls(name, *node);
+    DiscoverClosedRegions(ast.body);
+    for (const auto &[name, node] : macros_)
+      DiscoverClosedRegions(node->body, node->parameters);
+    GatherModule(ast.body);
     for (const auto &[name, node] : macros_)
       AnalyzeCaptures(name);
     if (failed_)
@@ -412,7 +415,7 @@ private:
       if ((node.kind == Node::Kind::Set || node.kind == Node::Kind::Capture) &&
           node.text.find('.') == std::string::npos) {
         module_names_.insert(node.text);
-        if (Constructor(node)) {
+        if (Constructor(node) && !closed_region_constructors_.count(&node)) {
           const auto [it, inserted] =
               module_bindings_.emplace(node.text, node.offset);
           if (!inserted && !macros_.empty())
@@ -511,6 +514,13 @@ private:
         return false;
     return true;
   }
+  static bool LoopBindsRoot(const Node &node, const std::string &root) {
+    if (node.kind != Node::Kind::For)
+      return false;
+    const auto comma = node.text.find(',');
+    return node.text.substr(0, comma) == root ||
+           (comma != std::string::npos && node.text.substr(comma + 1) == root);
+  }
   static bool ClosedRootNodes(const std::vector<Node> &nodes,
                               const std::string &root, size_t constructor,
                               bool *constructed) {
@@ -545,10 +555,7 @@ private:
       }
       case Node::Kind::For:
       case Node::Kind::Generation: {
-        if (node.kind == Node::Kind::For &&
-            (node.text == root ||
-             std::find(node.parameters.begin(), node.parameters.end(), root) !=
-                 node.parameters.end()))
+        if (LoopBindsRoot(node, root))
           return false;
         bool body = *constructed, otherwise = *constructed;
         if (!ClosedRootNodes(node.body, root, constructor, &body) ||
@@ -590,25 +597,184 @@ private:
     }
     return roots;
   }
+  bool MacroObservesRoot(const std::string &name, const std::string &root,
+                         std::set<std::string> *seen) {
+    if (!seen->insert(name).second)
+      return false;
+    const auto &macro = *macros_.at(name);
+    std::set<std::string> names, writes;
+    std::set<size_t> constructors;
+    ReferencedNames(macro.body, &names, &writes, &constructors, {}, false);
+    for (const auto &value : macro.defaults)
+      ReferencedNames(value, &names);
+    if (names.count(root) || writes.count(root) ||
+        std::find(macro.parameters.begin(), macro.parameters.end(), root) !=
+            macro.parameters.end())
+      return true;
+    for (const auto &callee : macro_calls_[name])
+      if (MacroObservesRoot(callee, root, seen))
+        return true;
+    return false;
+  }
+  bool RegionCallsSafe(const Expr &expr, const std::string &root) {
+    std::set<std::string> calls, seen;
+    Calls(expr, &calls);
+    for (const auto &callee : calls)
+      if (MacroObservesRoot(callee, root, &seen))
+        return false;
+    return true;
+  }
+  bool RegionCallsSafe(const std::vector<Node> &nodes,
+                       const std::string &root) {
+    for (const auto &node : nodes) {
+      if (!RegionCallsSafe(node.expression, root) ||
+          (node.predicate && !RegionCallsSafe(*node.predicate, root)) ||
+          !RegionCallsSafe(node.body, root) ||
+          !RegionCallsSafe(node.otherwise, root))
+        return false;
+    }
+    return true;
+  }
+  struct ClosedRegion {
+    const Node *owner;
+    const Node *constructor;
+    bool yes;
+  };
+  static void RegionCandidates(
+      const std::vector<Node> &nodes,
+      std::map<std::string, std::vector<ClosedRegion>> *candidates) {
+    for (const auto &node : nodes) {
+      // Only If arms in this lexical frame introduce candidate regions.
+      if (node.kind != Node::Kind::If)
+        continue;
+      for (bool yes : {true, false}) {
+        const auto &arm = yes ? node.body : node.otherwise;
+        const auto first =
+            std::find_if(arm.begin(), arm.end(), [](const Node &n) {
+              return n.kind != Node::Kind::Text ||
+                     n.text.find_first_not_of(" \t\r\n") != std::string::npos;
+            });
+        if (first != arm.end() && Constructor(*first) &&
+            first->text.find('.') == std::string::npos)
+          (*candidates)[first->text].push_back({&node, &*first, yes});
+        RegionCandidates(arm, candidates);
+      }
+    }
+  }
+  bool ClosedRegionFrame(const std::vector<Node> &nodes,
+                         const std::string &root,
+                         const std::vector<ClosedRegion> &regions,
+                         bool *crossed) {
+    for (const auto &node : nodes) {
+      if (node.kind == Node::Kind::Macro)
+        continue;
+      const auto region = [&](bool yes) {
+        return std::any_of(regions.begin(), regions.end(), [&](const auto &r) {
+          return r.owner == &node && r.yes == yes;
+        });
+      };
+      // Check sibling arms/conditions too, even when textually before the arm.
+      if (region(true) || region(false))
+        *crossed = true;
+      std::set<std::string> reads;
+      ReferencedNames(node.expression, &reads);
+      if (node.predicate)
+        ReferencedNames(*node.predicate, &reads);
+      const bool target =
+          node.text == root || node.text.rfind(root + ".", 0) == 0;
+      if (!ClosedRootExpression(node.expression, root, true) ||
+          (node.predicate &&
+           !ClosedRootExpression(*node.predicate, root, true)) ||
+          reads.count(root) ||
+          (*crossed &&
+           ((target && (node.kind == Node::Kind::Set ||
+                        node.kind == Node::Kind::Capture)) ||
+            !RegionCallsSafe(node.expression, root) ||
+            (node.predicate && !RegionCallsSafe(*node.predicate, root)))) ||
+          LoopBindsRoot(node, root))
+        return false;
+      switch (node.kind) {
+      case Node::Kind::Text:
+      case Node::Kind::Output:
+      case Node::Kind::Set:
+        break;
+      case Node::Kind::If:
+      case Node::Kind::For:
+      case Node::Kind::Capture:
+      case Node::Kind::Generation:
+        if ((!region(true) &&
+             !ClosedRegionFrame(node.body, root, regions, crossed)) ||
+            (!region(false) &&
+             !ClosedRegionFrame(node.otherwise, root, regions, crossed)))
+          return false;
+        break;
+      default:
+        return false;
+      }
+    }
+    return true;
+  }
+  void DiscoverClosedRegions(const std::vector<Node> &nodes,
+                             const std::vector<std::string> &parameters = {}) {
+    std::map<std::string, std::vector<ClosedRegion>> candidates;
+    RegionCandidates(nodes, &candidates);
+    for (const auto &[root, regions] : candidates) {
+      if (std::find(parameters.begin(), parameters.end(), root) !=
+          parameters.end())
+        continue;
+      bool valid = true, crossed = false;
+      for (const auto &region : regions) {
+        bool constructed = false;
+        const auto &arm =
+            region.yes ? region.owner->body : region.owner->otherwise;
+        valid &= ClosedRootNodes(arm, root, region.constructor->offset,
+                                 &constructed) &&
+                 RegionCallsSafe(arm, root);
+      }
+      if (!valid || !ClosedRegionFrame(nodes, root, regions, &crossed))
+        continue;
+      for (const auto &region : regions) {
+        closed_region_constructors_.insert(region.constructor);
+        auto &arms = closed_region_roots_[region.owner];
+        (region.yes ? arms.first : arms.second).insert(root);
+      }
+    }
+  }
   void ReferencedNames(const std::vector<Node> &nodes,
                        std::set<std::string> *names,
                        std::set<std::string> *writes,
-                       std::set<size_t> *local_namespaces) {
+                       std::set<size_t> *local_namespaces,
+                       const std::set<std::string> &excluded = {},
+                       bool region_exclusions = true) {
     for (const auto &node : nodes) {
-      ReferencedNames(node.expression, names);
+      std::set<std::string> direct;
+      ReferencedNames(node.expression, &direct);
       if (node.predicate)
-        ReferencedNames(*node.predicate, names);
+        ReferencedNames(*node.predicate, &direct);
+      for (const auto &name : direct)
+        if (!excluded.count(name))
+          names->insert(name);
       if (node.kind == Node::Kind::Set) {
         const auto dot = node.text.find('.');
         if (dot != std::string::npos) {
-          names->insert(node.text.substr(0, dot));
-          writes->insert(node.text.substr(0, dot));
+          if (!excluded.count(node.text.substr(0, dot))) {
+            names->insert(node.text.substr(0, dot));
+            writes->insert(node.text.substr(0, dot));
+          }
         }
       }
       if (Constructor(node))
         local_namespaces->insert(node.offset);
-      ReferencedNames(node.body, names, writes, local_namespaces);
-      ReferencedNames(node.otherwise, names, writes, local_namespaces);
+      auto yes = excluded, no = excluded;
+      if (const auto region = closed_region_roots_.find(&node);
+          region_exclusions && region != closed_region_roots_.end()) {
+        yes.insert(region->second.first.begin(), region->second.first.end());
+        no.insert(region->second.second.begin(), region->second.second.end());
+      }
+      ReferencedNames(node.body, names, writes, local_namespaces, yes,
+                      region_exclusions);
+      ReferencedNames(node.otherwise, names, writes, local_namespaces, no,
+                      region_exclusions);
     }
   }
   void AnalyzeCaptures(const std::string &name) {
@@ -680,7 +846,7 @@ private:
   }
   void Prebind(const std::vector<Node> &nodes, State &state) {
     for (const auto &node : nodes) {
-      if (Constructor(node)) {
+      if (Constructor(node) && !closed_region_constructors_.count(&node)) {
         const auto existing = state.bindings.find(node.text);
         if (existing != state.bindings.end() &&
             existing->second != node.offset) {
@@ -1756,6 +1922,21 @@ private:
     --indent_;
     Line("}");
     state.output = outputs[0];
+    if (const auto regions = closed_region_roots_.find(&node);
+        regions != closed_region_roots_.end()) {
+      const auto restore = [&](State &branch,
+                               const std::set<std::string> &roots) {
+        for (const auto &root : roots) {
+          const auto incoming = state.bindings.find(root);
+          if (incoming == state.bindings.end())
+            branch.bindings.erase(root);
+          else
+            branch.bindings[root] = incoming->second;
+        }
+      };
+      restore(yes, regions->second.first);
+      restore(no, regions->second.second);
+    }
     if (yes.bindings != no.bindings)
       Fail(node.offset,
            "conditional namespace aliases have ambiguous identity");
@@ -2009,9 +2190,15 @@ private:
                   "tuple-derived namespace fields are outside the supported list domain");
           }
           if (!state.locals.count(node.text)) {
-            const auto previous = state.bindings.find(node.text);
-            if (previous == state.bindings.end())
-              state.locals[node.text] = Name(node.text, state, 0, false);
+            if (closed_region_constructors_.count(&node)) {
+              // This proved constructor has now executed. Loop presence phis
+              // may need a fallback slot, but cannot observe its value.
+              state.locals[node.text] = Undefined();
+            } else {
+              const auto previous = state.bindings.find(node.text);
+              if (previous == state.bindings.end())
+                state.locals[node.text] = Name(node.text, state, 0, false);
+            }
           }
           state.bindings[node.text] = node.offset;
           auto &object = state.namespaces.at(node.offset);
@@ -2104,6 +2291,10 @@ private:
   std::map<std::string, MacroCaptures> macro_captures_;
   std::set<std::string> checking_macros_, checked_macros_, module_names_;
   std::map<std::string, size_t> module_bindings_;
+  std::set<const Node *> closed_region_constructors_;
+  std::map<const Node *,
+           std::pair<std::set<std::string>, std::set<std::string>>>
+      closed_region_roots_;
   bool in_macro_ = false;
   std::string current_macro_;
   std::set<std::string> called_macros_, external_bindings_, protected_bindings_;

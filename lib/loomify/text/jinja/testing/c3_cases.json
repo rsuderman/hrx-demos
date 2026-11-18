@@ -1,5 +1,137 @@
 [
   {
+    "id": "closed-conditional-collectors-outer-module-repeated-macro",
+    "source": "{% set ns=namespace(s='outer') %}{% macro render(xml,python,xs,ys) %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}{% endmacro %}{{ render(true,true,['a'],['b']) }};{{ render(false,true,[],[]) }};{{ render(true,false,[],[]) }};{{ ns.s }}",
+    "environment": {}
+  },
+  {
+    "id": "closed-conditional-collectors-module-default",
+    "source": "{% set ns=namespace(s='D') %}{% macro render(xml,python,xs,ys,value=ns.s) %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s=value) %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s=value) %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}{% endmacro %}{{ render(true,true,['a'],['b']) }};{{ render(false,true,[],[],'E') }};{{ ns.s }}",
+    "environment": {}
+  },
+  {
+    "id": "closed-conditional-collectors-other-slot-effects",
+    "source": "{% set counter=namespace(n=0) %}{% macro label(value) %}{% set counter.n=counter.n+1 %}{{ value }}{% endmacro %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s=label('V')) %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s=label('V')) %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }};{{ counter.n }}",
+    "environment": {
+      "xml": true,
+      "python": true,
+      "xs": [
+        "a"
+      ],
+      "ys": [
+        "b"
+      ]
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-untaken-error",
+    "source": "{% macro label(value) %}{{ raise_exception('collector reached') }}{% endmacro %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s=label('V')) %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s=label('V')) %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": false,
+      "python": false,
+      "xs": [
+        "a"
+      ],
+      "ys": [
+        "b"
+      ]
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-reached-error",
+    "source": "{% macro label(value) %}{{ raise_exception('collector reached') }}{% endmacro %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s=label('V')) %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s=label('V')) %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": true,
+      "python": false,
+      "xs": [],
+      "ys": []
+    },
+    "error_contains": "collector reached"
+  },
+  {
+    "id": "closed-conditional-collectors-neither",
+    "source": "{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": false,
+      "python": false,
+      "xs": [
+        "a"
+      ],
+      "ys": [
+        "b"
+      ]
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-xml",
+    "source": "{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": true,
+      "python": false,
+      "xs": [
+        "a",
+        "b"
+      ],
+      "ys": []
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-python",
+    "source": "{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": false,
+      "python": true,
+      "xs": [],
+      "ys": [
+        "c"
+      ]
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-both",
+    "source": "{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": true,
+      "python": true,
+      "xs": [
+        "a"
+      ],
+      "ys": [
+        "b",
+        "c"
+      ]
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-both-empty",
+    "source": "{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": true,
+      "python": true,
+      "xs": [],
+      "ys": []
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-unrelated-macro",
+    "source": "{% macro label(x) %}{{ x }}{% endmacro %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s=label('X')) %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}",
+    "environment": {
+      "xml": true,
+      "python": true,
+      "xs": [
+        "a"
+      ],
+      "ys": [
+        "b"
+      ]
+    }
+  },
+  {
+    "id": "closed-conditional-collectors-repeated-macro",
+    "source": "{% macro render(xml,python,xs,ys) %}{% set left='-' %}{% set right='-' %}{% if xml %}{% set ns=namespace(s='X') %}{% for part in xs %}{% set ns.s=ns.s+part %}{% endfor %}{% set left=ns.s %}{% endif %}{% if python %}{% set ns=namespace(s='P') %}{% for part in ys %}{% set ns.s=ns.s+part %}{% endfor %}{% set right=ns.s %}{% endif %}{{ left }}|{{ right }}{% endmacro %}{{ render(true,true,['a'],['b']) }};{{ render(false,true,[],[]) }};{{ render(true,false,[],[]) }}",
+    "environment": {}
+  },
+  {
     "id": "reasoning-missing-get-none-vs-dot-undefined",
     "source": "{{ m.get('thinking') is defined }}|{{ m.get('thinking') is none }}|{{ m.thinking is defined }}|{{ m.thinking is none }}|{{ m.get('reasoning') is defined }}|{{ m.get('reasoning') is none }}",
     "environment": {

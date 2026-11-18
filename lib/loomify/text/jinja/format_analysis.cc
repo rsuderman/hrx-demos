@@ -101,6 +101,8 @@ struct Context {
   std::vector<std::pair<Origin, Expr>> loops;
   size_t target_sequence = 0;
   size_t target_loop = 0;
+  // Only ScanTop grants same-scope availability of this retained producer.
+  std::optional<size_t> request_capture;
 };
 Expr Name(std::string name, SourceRange range = {}) {
   Expr result;
@@ -3970,6 +3972,130 @@ private:
     return {std::move(path)};
   }
 
+  void CaptureInputs(const std::vector<Node> &nodes,
+                     std::set<std::string> *locals,
+                     std::set<std::string> *inputs) const {
+    const auto read = [&](const Expr &expression,
+                          const std::set<std::string> &bound) {
+      std::set<std::string> names;
+      References(expression, &names);
+      for (const auto &name : names)
+        if (!bound.count(name.substr(0, name.find('.'))))
+          inputs->insert(name);
+    };
+    for (const auto &node : nodes) {
+      if (node.kind == Node::Kind::Macro)
+        continue; // Called macros retain their ordinary dependency closure.
+      // Reads happen before an assignment binds its local, including x = x.
+      read(node.expression, *locals);
+      if (node.kind == Node::Kind::Set) {
+        if (node.text.find('.') == std::string::npos)
+          locals->insert(node.text);
+        else {
+          Expr target = Name(node.text);
+          read(target, *locals);
+        }
+      } else if (node.kind == Node::Kind::If) {
+        auto yes = *locals, no = *locals;
+        CaptureInputs(node.body, &yes, inputs);
+        CaptureInputs(node.otherwise, &no, inputs);
+        for (auto it = yes.begin(); it != yes.end();)
+          if (!no.count(*it))
+            it = yes.erase(it);
+          else
+            ++it;
+        *locals = std::move(yes);
+      } else if (node.kind == Node::Kind::For) {
+        auto inner = *locals;
+        const auto comma = node.text.find(',');
+        inner.insert(node.text.substr(0, comma));
+        if (comma != std::string::npos)
+          inner.insert(node.text.substr(comma + 1));
+        if (node.predicate)
+          read(*node.predicate, inner);
+        inner.insert("loop");
+        CaptureInputs(node.body, &inner, inputs);
+        auto otherwise = *locals;
+        CaptureInputs(node.otherwise, &otherwise, inputs);
+      } else if (node.kind == Node::Kind::Capture ||
+                 node.kind == Node::Kind::Generation) {
+        auto inner = *locals;
+        CaptureInputs(node.body, &inner, inputs);
+        if (node.kind == Node::Kind::Capture)
+          locals->insert(node.text);
+      }
+    }
+  }
+  bool RequestCapture(const Node &node, const Path &path,
+                      const Context &context) const {
+    if (!context.request_capture || *context.request_capture != node.offset)
+      return false;
+    const auto has_loop = [&](auto &&self,
+                              const std::vector<Node> &nodes) -> bool {
+      for (const auto &child : nodes)
+        if (child.kind == Node::Kind::For || self(self, child.body) ||
+            self(self, child.otherwise))
+          return true;
+      return false;
+    };
+    bool buffered_loop = has_loop(has_loop, node.body);
+    // Capture locals must not pick up same-spelled producers in later message
+    // loops. Only their source-ordered external inputs enter global closure.
+    std::set<std::string> locals, inputs;
+    CaptureInputs(node.body, &locals, &inputs);
+    for (const auto &guard : path.guards)
+      References(guard, &inputs);
+    const auto dependencies = NeededClosure(std::move(inputs));
+    const auto request_parts = [&](auto &&self, const Parts &parts) -> bool {
+      for (const auto &part : parts)
+        if ((part.capture != TextCapture::Literal &&
+             part.capture != TextCapture::Expression &&
+             part.capture != TextCapture::Choice) ||
+            Future(part.predicate) || Future(part.value_expression) ||
+            Future(part.body_error) || Future(part.otherwise_error) ||
+            !self(self, part.body) || !self(self, part.otherwise))
+          return false;
+      return true;
+    };
+    for (const auto &name : dependencies) {
+      const auto root = name.substr(0, name.find('.'));
+      if (root == "messages" || message_sequences_.count(root) ||
+          predicate_bindings_.count(root) || count_target_names_.count(root))
+        return false;
+      if (const auto macro = macros_.find(name); macro != macros_.end())
+        buffered_loop |= has_loop(has_loop, macro->second->body);
+      for (const auto &key : {name, root}) {
+        const auto binding = path.bindings.find(key);
+        if (binding == path.bindings.end())
+          continue;
+        const auto &value = binding->second;
+        if (value.origin != Origin::Request || Future(value.expression) ||
+            !request_parts(request_parts, value.expansion))
+          return false;
+      }
+    }
+    // Keep the existing literal and semantic expansion paths where no private
+    // repetition needs opacity. A Request label alone never grants this path.
+    return buffered_loop;
+  }
+  void ForgetCaptureWrites(const Node &capture, Path *path) {
+    for (const auto &[field, unused] : definitions_) {
+      const auto dot = field.find('.');
+      if (dot == std::string::npos ||
+          !namespace_roots_.count(field.substr(0, dot)))
+        continue;
+      Path probe = *path;
+      if (!MacroBlockMayWrite(capture.body, field, &probe, {}))
+        continue;
+      Expr access;
+      access.kind = Expr::Kind::GetAttr;
+      access.text = field.substr(dot + 1);
+      access.args = {Name(field.substr(0, dot))};
+      Value runtime{Origin::Request, std::move(access)};
+      path->bindings[field] = runtime;
+      path->module_bindings[field] = std::move(runtime);
+    }
+  }
   std::vector<Path> Walk(const std::vector<Node> &nodes,
                          std::vector<Path> paths, const Context &context) {
     for (const auto &node : nodes) {
@@ -3999,6 +4125,16 @@ private:
             next.push_back(std::move(item));
           }
         } else if (node.kind == Node::Kind::Capture) {
+          if (RequestCapture(node, path, context)) {
+            ForgetCaptureWrites(node, &path);
+            Value value{Origin::Request,
+                        Name(node.text, {node.offset, node.end})};
+            value.defined = true;
+            value.string_result = true;
+            path.bindings[node.text] = std::move(value);
+            next.push_back(std::move(path));
+            continue;
+          }
           Path captured = path;
           captured.parts.clear();
           auto bodies = Walk(node.body, {std::move(captured)}, context);
@@ -4364,7 +4500,9 @@ private:
           for (auto &path : paths)
             path = Emit(node.expression, std::move(path), {}).front();
       } else if (node.kind == Node::Kind::Capture) {
-        paths = Walk({node}, std::move(paths), {});
+        Context capture_context;
+        capture_context.request_capture = node.offset;
+        paths = Walk({node}, std::move(paths), capture_context);
         for (auto &path : paths)
           path.module_bindings[node.text] = path.bindings[node.text];
       } else if (node.kind == Node::Kind::Set) {

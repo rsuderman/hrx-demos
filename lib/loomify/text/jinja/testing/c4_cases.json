@@ -1,5 +1,21 @@
 [
   {
+    "id": "request-loop-capture-buffered-effects-and-scope",
+    "source": "{% set ns=namespace(n=0) %}{% macro mark(v) %}{% set ns.n=ns.n+1 %}[{{ v }}]{% endmacro %}{% set original='outer' %}{% set captured %}{% set original='inner' %}{% for value in values %}{{ mark(value) }}{% endfor %}{% endset %}{{ captured }};{{ captured }};{{ ns.n }};{{ original }}",
+    "environment": {"values": ["é", "界"]}
+  },
+  {
+    "id": "request-loop-unused-capture-eager-error",
+    "source": "{% set unused %}{% for value in values %}{{ raise_exception('eager buffered failure') }}{% endfor %}{% endset %}done",
+    "environment": {"values": [1]},
+    "error_contains": "eager buffered failure"
+  },
+  {
+    "id": "request-loop-untaken-capture-stays-lazy",
+    "source": "{% if flag %}{% set unused %}{% for value in values %}{{ raise_exception('untaken buffered failure') }}{% endfor %}{% endset %}{% endif %}done",
+    "environment": {"flag": false, "values": [1]}
+  },
+  {
     "id": "replace-unicode-empty-and-count-boundaries",
     "source": "{{ value.replace('', '|') }};{{ value|replace('', '|', 2) }};{{ ''|replace('', '界') }};{{ 'aaaaa'|replace('aa','é',1) }};{{ 'aaaaa'.replace('aa','',-2) }};{{ value|replace('é','x',0) }}",
     "environment": {"value": "aé🌍"}

@@ -584,6 +584,9 @@ Items views are supported as immediate loop iterables, rather than general Pytho
 view values. Owning list concatenation, list conversion and join support text
 accumulation without mutating inputs. Scoped generation blocks produce text,
 preserving namespace effects while keeping ordinary assignments local.
+Proved request-only module captures retain their buffered native computations in
+selectors and recipes. Closed conditional namespace collectors can reuse a root
+name while retaining distinct slots and ordinary copied-out values.
 No-argument min reduces array-backed signed64 integer/boolean sequences, including
 tuple-backed inputs, preserving the first original scalar on ties and returning
 Undefined for empty or Undefined input; other ordering domains remain unsupported.
