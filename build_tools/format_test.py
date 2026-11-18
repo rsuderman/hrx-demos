@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -196,13 +197,14 @@ class FormatRunnerTest(unittest.TestCase):
         self.assertNotIn("--check", calls["black"])
         self.assertIn("--in-place", calls["bazel"])
 
-    def run_hook(self):
+    def run_hook(self, timeout=None):
         # Model the environment Git supplies, including its index override.
         env = dict(self.env, GIT_INDEX_FILE=str(self.root / ".git/index"))
         return subprocess.run(
             ["/bin/bash", str(self.root / "build_tools/pre-commit.sh")],
             cwd=self.root,
             env=env,
+            timeout=timeout,
             text=True,
             capture_output=True,
         )
@@ -233,6 +235,31 @@ class FormatRunnerTest(unittest.TestCase):
         self.assertEqual(target.read_text(), "good unstaged\n")
         self.assertEqual((self.root / ".git/index").read_bytes(), index)
         self.assertEqual(list((self.base / "hooks").glob("*/staged")), [])
+
+    def test_background_formatter_does_not_block_next_hook(self):
+        pidfile = self.base / "background.pid"
+        self.env["FORMAT_TEST_BACKGROUND_PID"] = str(pidfile)
+        self.track(
+            "build_tools/format.sh",
+            "#!/bin/bash\n"
+            'if [[ ! -f "$FORMAT_TEST_BACKGROUND_PID" ]]; then\n'
+            "  /bin/sleep 60 >/dev/null 2>&1 &\n"
+            '  echo "$!" > "$FORMAT_TEST_BACKGROUND_PID"\n'
+            "fi\n",
+        )
+        try:
+            first = self.run_hook(timeout=3)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            try:
+                second = self.run_hook(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.fail(
+                    "Background formatter retained hook lock and blocked next hook"
+                )
+            self.assertEqual(second.returncode, 0, second.stderr)
+        finally:
+            if pidfile.exists():
+                os.kill(int(pidfile.read_text()), signal.SIGTERM)
 
     def test_hook_uses_raw_blobs_without_smudge_filters(self):
         self.git("config", "filter.replace.smudge", "/bin/sed s/good/bad/g")

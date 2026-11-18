@@ -55,7 +55,9 @@ unset "${git_environment[@]}"
 git -C "$snapshot" init --quiet --template=
 git -C "$snapshot" update-index -z --index-info < "$state/index-info"
 cd -- "$snapshot"
-if ! bash "$snapshot/build_tools/format.sh" --check; then
+# Keep the lock in this parent only; persistent formatter children (Bazel)
+# must not keep it held after this hook exits.
+if ! bash "$snapshot/build_tools/format.sh" --check 9>&-; then
   echo 'Commit blocked by formatting. Run bash build_tools/format.sh --fix, review, and stage the fixes.' >&2
   exit 1
 fi
