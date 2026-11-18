@@ -584,6 +584,9 @@ Items views are supported as immediate loop iterables, rather than general Pytho
 view values. Owning list concatenation, list conversion and join support text
 accumulation without mutating inputs. Scoped generation blocks produce text,
 preserving namespace effects while keeping ordinary assignments local.
+No-argument min reduces array-backed signed64 integer/boolean sequences, including
+tuple-backed inputs, preserving the first original scalar on ties and returning
+Undefined for empty or Undefined input; other ordering domains remain unsupported.
 Block-set captures buffer ordinary text with local assignments and visible
 namespace effects. Conditional expressions may omit `else`, producing Undefined
 on the untaken path. Filtered loops evaluate predicates and bodies lazily and

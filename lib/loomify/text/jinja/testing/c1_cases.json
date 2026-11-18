@@ -1,4 +1,13 @@
 [
+  {"id":"min-original-scalar-kind-and-ties","source":"{{ a|min|tojson }};{{ b|min|tojson }};{{ c|min|tojson }};{{ d|min|tojson }};{{ e|min|tojson }}","environment":{"a":[true,1,2],"b":[1,true,2],"c":[false,0,2],"d":[0,false,2],"e":[9,-3,4,-3]}},
+  {"id":"min-inclusive-signed64-bounds","source":"{{ lo|min|tojson }};{{ hi|min|tojson }}","environment":{"lo":[9223372036854775807,-9223372036854775808,0],"hi":[9223372036854775807]}},
+  {"id":"min-dynamic-counts-and-tuple-scalars","source":"{% set x=[left|length,right|length]|min %}{{ x }};{{ (true,1)|min|tojson }};{{ [true,1]|min()|tojson }}","environment":{"left":[1,2],"right":[3]}},
+  {"id":"min-empty-and-undefined","source":"{{ empty|min is undefined }};{{ missing|min is undefined }};{{ empty|min|default('empty') }};{{ missing|min|default('missing') }}","environment":{"empty":[]}},
+  {"id":"min-empty-tojson-source-error","source":"{{ empty|min|tojson }}","environment":{"empty":[]},"error_contains":"Undefined is not JSON serializable"},
+  {"id":"min-falsy-noniterable-source-error","source":"{{ value|min|tojson }}","environment":{"value":false},"error_contains":"not iterable"},
+  {"id":"min-string-iterable-capability","source":"{{ value|min|tojson }}","environment":{"value":"ba"},"native_unsupported":"numeric min accepts array-backed sequences or Undefined, not string iteration"},
+  {"id":"min-float-candidate-capability","source":"{{ values|min|tojson }}","environment":{"values":[1,1.0]},"native_unsupported":"numeric min accepts signed64 integer and boolean elements, not float lexemes"},
+  {"id":"min-out-of-range-candidate-capability","source":"{{ values|min|tojson }}","environment":{"values":[-9223372036854775809,0]},"native_unsupported":"numeric min comparison values must fit signed64"},
   {"id":"integer-add-literals","source":"{{ 1 + 1 }}","environment":{}},
   {"id":"integer-add-parameters","source":"{{ left + right }}","environment":{"left":12,"right":5}},
   {"id":"integer-add-negative","source":"{{ left + right }}","environment":{"left":-5,"right":2}},

@@ -1287,11 +1287,20 @@ private:
     for (const auto &[name, value] : no)
       names.insert(name);
     for (const auto &name : names) {
+      const auto a = yes.find(name), b = no.find(name);
       if (!Relevant(name, analysis_needed_)) {
-        (*out)[name] = {Origin::Request, Name(name)};
+        // Macro formals are deliberately absent from global dependencies. An
+        // unchanged actual target binding must still survive a local branch;
+        // a later field read cannot become an external request for the formal.
+        if (a != yes.end() && b != no.end() &&
+            a->second.origin == Origin::Message &&
+            b->second.origin == Origin::Message &&
+            SameExpression(a->second.expression, b->second.expression))
+          (*out)[name] = a->second;
+        else
+          (*out)[name] = {Origin::Request, Name(name)};
         continue;
       }
-      const auto a = yes.find(name), b = no.find(name);
       const auto *last_a = a != yes.end() && a->second.last_expression
                                ? &*a->second.last_expression
                                : nullptr;
@@ -3146,8 +3155,21 @@ private:
           absent.truth = false;
           return absent;
         }
-        if (*member == "reasoning_content" || *member == "reasoning" ||
-            *member == "thinking")
+        if (*member == "reasoning" || *member == "thinking") {
+          if (context.target && !projection_mode_ && !context.continued_user) {
+            // The completed-record constructor supplies reasoning_content only.
+            // Historical workers retain their original, independently valued
+            // alias fields; an equal semantic enum is not an aliasing proof.
+            Expr missing = expr;
+            missing.kind = Expr::Kind::Undefined;
+            missing.args.clear();
+            return Resolve(missing, path, context);
+          }
+          Expr access = expr;
+          access.args[0] = parent.expression;
+          return {Origin::Request, std::move(access)};
+        }
+        if (*member == "reasoning_content")
           return Semantic(Origin::Reasoning, expr);
         if (*member == "tool_calls") {
           Value calls = Semantic(Origin::Calls, expr);
@@ -3445,6 +3467,31 @@ private:
         Value parent = Resolve(callee.args[0], path, context);
         if (callee.text == "get" && expr.args.size() >= 2 &&
             expr.args[1].kind == Expr::Kind::String) {
+          if (parent.origin == Origin::Message &&
+              (expr.args[1].text == "thinking" ||
+               expr.args[1].text == "reasoning")) {
+            if (expr.args.size() != 2) {
+              Fail(
+                  expr.offset,
+                  "defaulted reasoning field lookup is unsupported in format analysis");
+              return {Origin::Unknown, expr};
+            }
+            if (context.target && !projection_mode_ &&
+                !context.continued_user) {
+              // dict.get without a default returns defined None, unlike a
+              // missing attribute's Undefined. Both remain false in an OR.
+              Expr missing = expr;
+              missing.kind = Expr::Kind::None;
+              missing.args.clear();
+              Value value{Origin::Request, std::move(missing)};
+              value.defined = true;
+              value.truth = false;
+              return value;
+            }
+            Expr lookup = expr;
+            lookup.args[0].args[0] = parent.expression;
+            return {Origin::Request, std::move(lookup)};
+          }
           Expr access;
           access.kind = Expr::Kind::GetAttr;
           access.text = expr.args[1].text;

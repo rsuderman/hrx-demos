@@ -1430,6 +1430,146 @@ TEST(TextFormatAnalysisTest, JsonKeysAreDecodedAndMarkersNeedNotBeAngles) {
   }
 }
 
+TEST(TextFormatAnalysisTest,
+     ReasoningAliasProjectionReadsOriginalWorkerFields) {
+  const auto source = Frame(
+      "{{ m.content }}" +
+      ConditionalArgumentCalls("m.thinking == 'T' and m.reasoning == 'Q'"));
+  TextFormatAnalysis result;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "reasoning-projection.jinja", {},
+                                &result, &diagnostic))
+      << diagnostic.message;
+  const std::string call =
+      R"({"type":"function","function":{"name":"f","arguments":"{\"x\":1}"}})";
+  for (bool bytecode : {false, true}) {
+    auto prepared =
+        PrepareSelection(source, result.adaptation_selector_template, bytecode,
+                         TemplateSelectorKind::Adaptation);
+    ASSERT_NE(prepared, nullptr);
+    for (bool aliases_match : {true, false, true}) {
+      const std::string message =
+          "{\"role\":\"assistant\",\"content\":\"A\",\"thinking\":\"" +
+          std::string(aliases_match ? "T" : "other") +
+          "\",\"reasoning\":\"Q\",\"reasoning_content\":\"canonical\","
+          "\"tool_calls\":[" +
+          call + "]}";
+      const auto base = "{\"messages\":[" + message + "]}";
+      int64_t id = -1, mode = -1;
+      ASSERT_TRUE(Select(*prepared,
+                         WorkerEnvironment(result, base, message, 0, call, 0),
+                         &id, &mode));
+      TextAdaptation facts;
+      ASSERT_TRUE(DecodeTextAdaptation(id, &facts));
+      EXPECT_EQ(mode, 0);
+      EXPECT_EQ(facts.arguments_need_mapping, aliases_match);
+      EXPECT_EQ(facts.arguments_observe_string, !aliases_match);
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, DefaultedReasoningLookupPreservesFailureOutput) {
+  for (const char *field : {"thinking", "reasoning"}) {
+    const auto source = Frame("{% set r=m.get('" + std::string(field) +
+                              "', 'fallback') %}{{ r }}{{ m.content }}");
+    TextFormatAnalysis result;
+    result.alternatives.emplace_back().assistant_header = "preserved";
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "defaulted-reason.jinja", {},
+                                   &result, &diagnostic));
+    ASSERT_EQ(result.alternatives.size(), 1u);
+    EXPECT_EQ(result.alternatives[0].assistant_header, "preserved");
+    EXPECT_NE(diagnostic.message.find("defaulted reasoning field lookup"),
+              std::string::npos)
+        << diagnostic.message;
+    EXPECT_GT(diagnostic.offset, 0u);
+  }
+}
+
+TEST(TextFormatAnalysisTest, MissingHistoricalReasoningGetRemainsDefinedNone) {
+  const auto source =
+      Frame("{{ m.content }}" +
+            ConditionalArgumentCalls(
+                "m.get('thinking') is defined and m.get('thinking') is none "
+                "and m.thinking is undefined"));
+  TextFormatAnalysis result;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "missing-reasoning-get.jinja", {},
+                                &result, &diagnostic))
+      << diagnostic.message;
+  const std::string call =
+      R"({"type":"function","function":{"name":"f","arguments":"{\"x\":1}"}})";
+  const std::string message =
+      "{\"role\":\"assistant\",\"content\":\"A\",\"tool_calls\":[" + call +
+      "]}";
+  const auto base = "{\"messages\":[" + message + "]}";
+  for (bool bytecode : {false, true}) {
+    auto prepared =
+        PrepareSelection(source, result.adaptation_selector_template, bytecode,
+                         TemplateSelectorKind::Adaptation);
+    ASSERT_NE(prepared, nullptr);
+    int64_t id = -1, mode = -1;
+    ASSERT_TRUE(Select(*prepared,
+                       WorkerEnvironment(result, base, message, 0, call, 0),
+                       &id, &mode));
+    TextAdaptation facts;
+    ASSERT_TRUE(DecodeTextAdaptation(id, &facts));
+    EXPECT_EQ(mode, 0);
+    EXPECT_TRUE(facts.arguments_need_mapping);
+    EXPECT_FALSE(facts.arguments_observe_string);
+  }
+}
+
+TEST(TextFormatAnalysisTest, OnlyCanonicalFutureReasoningDefinesCapture) {
+  for (const char *lookup : {"m.thinking", "m.reasoning", "m.get('thinking')",
+                             "m.get('reasoning')"}) {
+    const auto source = Frame("{% set r=" + std::string(lookup) +
+                              " %}{% if r %}{{ '<think>'+r+'</think>' }}"
+                              "{% endif %}{{ m.content }}");
+    TextFormatAnalysis result;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(AnalyzeTextFormat(source, "absent-reason-alias.jinja", {},
+                                  &result, &diagnostic))
+        << lookup << ": " << diagnostic.message;
+    ASSERT_FALSE(result.alternatives.empty());
+    for (const auto &format : result.alternatives) {
+      EXPECT_TRUE(format.reasoning_open.empty());
+      EXPECT_TRUE(format.reasoning_close.empty());
+      EXPECT_EQ(format.assistant_header, "<turn>assistant:");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, MixedFutureFallbackDoesNotBecomeReasoningCapture) {
+  const auto source = Frame("{{ m.content or m.reasoning_content }}");
+  TextFormatAnalysis result;
+  result.alternatives.emplace_back().assistant_header = "preserved";
+  Diagnostic diagnostic;
+  EXPECT_FALSE(AnalyzeTextFormat(source, "mixed-fallback.jinja", {}, &result,
+                                 &diagnostic));
+  ASSERT_EQ(result.alternatives.size(), 1u);
+  EXPECT_EQ(result.alternatives[0].assistant_header, "preserved");
+  EXPECT_NE(diagnostic.message.find("unclassified non-finite"),
+            std::string::npos)
+      << diagnostic.message;
+}
+
+TEST(TextFormatAnalysisTest, OverwrittenMacroMessageDoesNotKeepTargetIdentity) {
+  const std::string source =
+      "{% macro show(record) %}{% if alternate | default(false) %}"
+      "{% set record=external_record %}{% endif %}"
+      "{{ record.content }}{% endmacro %}" +
+      Frame("{{ show(m) }}");
+  TextFormatAnalysis result;
+  result.alternatives.emplace_back().assistant_header = "preserved";
+  Diagnostic diagnostic;
+  EXPECT_FALSE(AnalyzeTextFormat(source, "overwritten-message.jinja", {},
+                                 &result, &diagnostic));
+  ASSERT_EQ(result.alternatives.size(), 1u);
+  EXPECT_EQ(result.alternatives[0].assistant_header, "preserved");
+  EXPECT_FALSE(diagnostic.message.empty());
+}
+
 TEST(TextFormatAnalysisTest, AdaptationSelectionIsPerOriginalMessage) {
   const auto source =
       Frame("{{ m.content }}" + ConditionalArgumentCalls("message_index == 1"));

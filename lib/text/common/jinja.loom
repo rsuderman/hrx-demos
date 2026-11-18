@@ -219,6 +219,61 @@ func.def @jinja.member(%source: buffer, %members: buffer, %count_value: i64, %or
   func.return %value, %kind : buffer, i64
 }
 
+// Finite signed64 integer/boolean reduction. Keep the original scalar winner
+// rather than its comparison scratch, including the first value on numeric ties.
+func.def public @jinja.min(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %three64 = scalar.constant 3 : i64
+  %four64 = scalar.constant 4 : i64
+  %five64 = scalar.constant 5 : i64
+  %seven64 = scalar.constant 7 : i64
+  %array = scalar.cmpi eq, %kind, %three64 : i64
+  %undefined = scalar.cmpi eq, %kind, %seven64 : i64
+  %supported = scalar.ori %array, %undefined : i1
+  func.call @jinja.check(%supported) : (i1)
+  %empty = global.load @jinja.empty : buffer
+  %result, %result_kind = scf.if %undefined -> (buffer, i64) {
+    scf.yield %empty, %seven64 : buffer, i64
+  } else {
+    %members, %type, %length = func.call @members(%value) : (buffer) -> (buffer, i32, i64)
+    %maximum_count = scalar.constant 2147483647 : i64
+    %nonnegative = scalar.cmpi sge, %length, %zero64 : i64
+    %within = scalar.cmpi sle, %length, %maximum_count : i64
+    %valid_count = scalar.andi %nonnegative, %within : i1
+    func.call @jinja.check(%valid_count) : (i1)
+    %bounded = scalar.assume %length [range(%length, 0, 2147483647)] : i64
+    %count = index.cast %bounded : i64 to offset
+    %zero = index.constant 0 : offset
+    %one = index.constant 1 : offset
+    %best, %best_kind, %best_number = scf.for %i = [%zero to %count step %one](%best = %empty : buffer, %best_kind = %seven64 : i64, %best_number = %zero64 : i64) -> (buffer, i64, i64) {
+      %ordinal = index.cast %i : offset to i64
+      %item, %item_kind = func.call @jinja.member(%value, %members, %length, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      %number = scalar.cmpi eq, %item_kind, %one64 : i64
+      %yes = scalar.cmpi eq, %item_kind, %four64 : i64
+      %no = scalar.cmpi eq, %item_kind, %five64 : i64
+      %boolean = scalar.ori %yes, %no : i1
+      %numeric = scalar.ori %number, %boolean : i1
+      func.call @jinja.check(%numeric) : (i1)
+      %text = func.call @jinja.numeric_text(%item, %item_kind) : (buffer, i64) -> (buffer)
+      %integer = func.call @jinja.is_integer(%text) : (buffer) -> (i1)
+      %fits = func.call @jinja.index_integer_fits(%text) : (buffer) -> (i1)
+      %valid = scalar.andi %integer, %fits : i1
+      func.call @jinja.check(%valid) : (i1)
+      %candidate = func.call @jinja.tointeger(%text, %one64) : (buffer, i64) -> (i64)
+      %first = index.cmp eq, %i, %zero : offset
+      %smaller = scalar.cmpi slt, %candidate, %best_number : i64
+      %select = scalar.ori %first, %smaller : i1
+      %next = scf.select %select, %item, %best : buffer
+      %next_kind = scf.select %select, %item_kind, %best_kind : i64
+      %next_number = scf.select %select, %candidate, %best_number : i64
+      scf.yield %next, %next_kind, %next_number : buffer, i64, i64
+    }
+    scf.yield %best, %best_kind : buffer, i64
+  }
+  func.return %result, %result_kind : buffer, i64
+}
+
 func.def @jinja.index_sequence(%value: buffer, %kind: i64, %ordinal: i64) -> (buffer, i64) {
   %zero64 = scalar.constant 0 : i64
   %one64 = scalar.constant 1 : i64

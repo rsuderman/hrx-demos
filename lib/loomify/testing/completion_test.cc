@@ -9,6 +9,8 @@
 #include "gtest/gtest.h"
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -327,6 +329,114 @@ TEST_P(CompletionTest, RawResponseAndReasoningMustMatchFiniteCandidateRule) {
   EXPECT_EQ(Render(R"({"messages":[]})"), "<assistant>Hello</turn>");
   Prepare(kPlain, "Hello", "thought", "", 0);
   EXPECT_EQ(Render(R"({"messages":[]})"), "<assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest, CanonicalReasoningFallbackPreservesHistoricalAliases) {
+  for (const char *fallback : {
+           "m.reasoning_content",
+           "m.reasoning or m.reasoning_content",
+           "m.thinking or m.reasoning or m.reasoning_content",
+       }) {
+    SCOPED_TRACE(fallback);
+    const std::string source =
+        "{% for m in messages %}{% if m.role == 'assistant' %}"
+        "{{ '<assistant>' }}{% set r=" +
+        std::string(fallback) +
+        " %}{% set r=r if r is string else '' %}"
+        "{% if r %}{{ '<think>'+r+'</think>' }}{% endif %}"
+        "{{ m.content+'</turn>' }}{% else %}"
+        "{{ '<'+m.role+'>'+m.content+'</turn>' }}{% endif %}{% endfor %}"
+        "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+    // Prepare invokes actual emitted turn_environment; its reasoning argument
+    // creates only reasoning_content, rather than a hand-built all-alias
+    // object.
+    Prepare(source, "A", "R", "", 0);
+    EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+              "<user>Hi</turn><assistant><think>R</think>A</turn>");
+    const std::string old_reason =
+        std::string(fallback) == "m.reasoning_content"                  ? "R"
+        : std::string(fallback) == "m.reasoning or m.reasoning_content" ? "Q"
+                                                                        : "T";
+    EXPECT_EQ(
+        Render(
+            R"({"messages":[{"role":"assistant","content":"old","thinking":"T","reasoning":"Q","reasoning_content":"R"},{"role":"user","content":"Hi"}]})"),
+        "<assistant><think>" + old_reason +
+            "</think>old</turn><user>Hi</turn><assistant><think>R</think>A</turn>");
+    Prepare(source, "A");
+    EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+              "<user>Hi</turn><assistant>A</turn>");
+  }
+}
+
+TEST_P(CompletionTest, CanonicalRecordOmitsNoncanonicalReasoningFields) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{% if m.thinking is defined or m.reasoning is defined %}"
+      "{{ raise_exception('noncanonical reasoning fields constructed') }}"
+      "{% endif %}{{ '<assistant>' }}"
+      "{% set r=m.thinking or m.reasoning or m.reasoning_content %}"
+      "{% if r %}{{ '<think>'+r+'</think>' }}{% endif %}"
+      "{{ m.content+'</turn>' }}{% else %}"
+      "{{ '<'+m.role+'>'+m.content+'</turn>' }}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  Prepare(source, "A", "R", "", 0);
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+            "<user>Hi</turn><assistant><think>R</think>A</turn>");
+}
+
+TEST_P(CompletionTest, CanonicalReasoningMacroRetainsActualMessageArgument) {
+  const std::string source =
+      "{% macro show(record) %}"
+      "{% set r=record.thinking or record.reasoning or record.reasoning_content %}"
+      "{% if r is string and r %}{{ '<think>'+r+'</think>' }}{% endif %}"
+      "{{ record.content }}{% endmacro %}"
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{{ '<assistant>'+show(m)+'</turn>' }}{% else %}"
+      "{{ '<'+m.role+'>'+m.content+'</turn>' }}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  Prepare(source, "A", "R", "", 0);
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"assistant","content":"old","thinking":"T","reasoning":"Q","reasoning_content":"R"},{"role":"user","content":"Hi"}]})"),
+      "<assistant><think>T</think>old</turn><user>Hi</turn><assistant><think>R</think>A</turn>");
+}
+
+TEST_P(CompletionTest, MissingReasoningGetIsDefinedNoneAndDotIsUndefined) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{{ '<assistant>' }}"
+      "{% if m.thinking is defined or m.reasoning is defined %}"
+      "{{ raise_exception('missing dot was defined') }}{% endif %}"
+      "{% if m.get('thinking') is undefined or m.get('reasoning') is undefined %}"
+      "{{ raise_exception('missing get was undefined') }}{% endif %}"
+      "{% if m.get('thinking') is not none or m.get('reasoning') is not none %}"
+      "{{ raise_exception('missing get was not None') }}{% endif %}"
+      "{{ m.content+'</turn>' }}{% else %}"
+      "{{ '<'+m.role+'>'+m.content+'</turn>' }}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  Prepare(source, "A", "R", "", 0);
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+            "<user>Hi</turn><assistant>A</turn>");
+}
+
+TEST_P(CompletionTest,
+       CompactOriginalUsesCanonicalReasonAndHistoricalPrecedence) {
+  const auto path = std::filesystem::path(Required("TEST_SRCDIR")) /
+                    Required("TEST_WORKSPACE") /
+                    "lib/text/compact_chatml/templates/f45005c5.jinja";
+  std::ifstream input(path);
+  ASSERT_TRUE(input);
+  const std::string source(std::istreambuf_iterator<char>(input), {});
+  Prepare(source, "A", "R", "", 0);
+  const auto actual = Render(
+      R"({"messages":[{"role":"assistant","content":"old","thinking":"T","reasoning":"Q","reasoning_content":"historical-R"},{"role":"user","content":"Hi"}],"model_options":{"preserve_thinking":true}})");
+  EXPECT_NE(actual.find("<think>T</think>old"), std::string::npos);
+  const std::string tail =
+      "<|im_start|>assistant\n<think>R</think>A<|im_end|>\n";
+  ASSERT_GE(actual.size(), tail.size());
+  EXPECT_EQ(actual.substr(actual.size() - tail.size()), tail);
+  EXPECT_EQ(actual.find("<think>Q</think>"), std::string::npos);
+  EXPECT_EQ(actual.find("<think>historical-R</think>"), std::string::npos);
 }
 
 TEST_P(CompletionTest, ToolCompletionUsesOrdinaryWireStringProjection) {

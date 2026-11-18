@@ -14,6 +14,7 @@ cc_test(
     srcs = ["//lib/loomify/testing:completion_test.cc"],
     copts = ["-std=c++17"],
     data = [
+        "//lib/loomify/text/jinja/testing:format_source_fixtures",
         "//lib/text/common:jinja.loom",
         "//lib/text/common:json.loom",
         "//lib/text/common:strings.loom",
@@ -23,6 +24,7 @@ cc_test(
         "//lib/text/output:json_calls.loom",
         "//lib/text/output:schema.loom",
         "//lib/text/output:stream.loom",
+        "//lib/text/output:tagged_calls.loom",
     ],
     linkstatic = True,
     deps = [

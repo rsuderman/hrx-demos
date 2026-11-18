@@ -1,5 +1,89 @@
 [
   {
+    "id": "reasoning-missing-get-none-vs-dot-undefined",
+    "source": "{{ m.get('thinking') is defined }}|{{ m.get('thinking') is none }}|{{ m.thinking is defined }}|{{ m.thinking is none }}|{{ m.get('reasoning') is defined }}|{{ m.get('reasoning') is none }}",
+    "environment": {
+      "m": {
+        "reasoning_content": "R"
+      }
+    }
+  },
+  {
+    "id": "reasoning-fallback-distinct-history-fields",
+    "source": "{% for m in messages %}{% set r=m.thinking or m.reasoning or m.reasoning_content %}{% set r=r if r is string else '' %}[{{ r }}]{% endfor %}",
+    "environment": {
+      "messages": [
+        {
+          "thinking": "T",
+          "reasoning": "Q",
+          "reasoning_content": "R"
+        },
+        {
+          "thinking": "",
+          "reasoning": "Q",
+          "reasoning_content": "R"
+        },
+        {
+          "thinking": 7,
+          "reasoning": "Q",
+          "reasoning_content": "R"
+        },
+        {
+          "thinking": null,
+          "reasoning": "",
+          "reasoning_content": "R"
+        },
+        {},
+        {
+          "reasoning_content": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "reasoning-fallback-lazy-macro-effect",
+    "source": "{% set ns=namespace(n=0) %}{% macro rhs() %}{% set ns.n=ns.n+1 %}fallback{% endmacro %}{% for m in messages %}[{{ m.reasoning_content or rhs() }}]{% endfor %}|{{ ns.n }}",
+    "environment": {
+      "messages": [
+        {
+          "reasoning_content": "R"
+        },
+        {},
+        {
+          "reasoning_content": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "reasoning-fallback-lazy-error-skipped",
+    "source": "{{ m.reasoning_content or raise_exception('reached reasoning fallback') }}",
+    "environment": {
+      "m": {
+        "reasoning_content": "R"
+      }
+    }
+  },
+  {
+    "id": "reasoning-fallback-lazy-error-reached",
+    "source": "{{ m.reasoning_content or raise_exception('reached reasoning fallback') }}",
+    "environment": {
+      "m": {}
+    },
+    "error_contains": "reached reasoning fallback"
+  },
+  {
+    "id": "reasoning-defaulted-get-retains-effect",
+    "source": "{% set ns=namespace(n=0) %}{% macro rhs() %}{% set ns.n=ns.n+1 %}default{% endmacro %}{{ m.get('thinking',rhs()) }}|{{ ns.n }}",
+    "environment": {
+      "m": {
+        "thinking": "T",
+        "reasoning": "Q",
+        "reasoning_content": "R"
+      }
+    }
+  },
+  {
     "id": "macro-closed-local-shadow-repeated-content",
     "source": "{% set ns=namespace(value='outer') %}{% macro render(content) %}{% if content is string %}{{ content }}{% elif content is iterable and content is not mapping %}{% set ns=namespace(parts=[]) %}{% for group in content %}{% for part in group %}{% set ns.parts=ns.parts+[part] %}{% endfor %}{% endfor %}{{ ns.parts|join('|') }}{% elif content is none %}none{% endif %}{% endmacro %}{{ render('text') }};{{ render([['a','b'],['c']]) }};{{ render(none) }};{{ render([['z']]) }};{{ ns.value }}",
     "environment": {}

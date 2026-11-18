@@ -1232,6 +1232,19 @@ private:
       return Undefined();
     }
     const auto value = Expression(expr.args[0], state);
+    if (expr.text == "min") {
+      if (expr.args.size() != 1 ||
+          std::any_of(expr.keywords.begin(), expr.keywords.end(),
+                      [](const auto &keyword) { return !keyword.empty(); })) {
+        Fail(
+            expr.offset,
+            "min supports only a no-argument signed64 integer/boolean array reduction");
+        return Undefined();
+      }
+      // Tuple-backed sequences use the same array storage. Only a validated
+      // scalar winner escapes, with its original numeric/boolean/Undefined tag.
+      return Pair("jinja.min", {value.data, value.kind}, {"buffer", "i64"});
+    }
     if (expr.text == "replace") {
       std::vector<Value> arguments(3);
       bool supplied[3] = {};
