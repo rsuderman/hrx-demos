@@ -1,0 +1,96 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
+
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+template.decl @llm.projection.scaled_contract(%rows: index, %input_width: index, %output_width: index, %bytes: index, %expected: index)
+
+template.decl @llm.projection.matrix(%capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+template.decl @llm.projection.prepare_canonical_prefix(%capacity: index, %input_width: index, %count: buffer, %input: buffer, %packed: buffer)
+
+kernel.decl @llm.projection.prepare_scaled_f16(%capacity$44: index, %padded_capacity$45: index, %input_width$46: index) launch(%capacity$47: index, %padded_capacity$48: index, %input_width$49: index, %count_origin: offset, %count: buffer, %input: buffer, %scales: buffer, %output: buffer)
+
+kernel.decl @llm.projection.prepare_f32_prefix(%capacity$55: index, %input_width$56: index) launch(%capacity$57: index, %input_width$58: index, %count: buffer, %input: buffer, %output: buffer)
+
+kernel.decl @llm.platform.q4k_scaled_f16_swiglu(%rows$84: index, %input_width$85: index, %output_width$86: index) launch(%rows$87: index, %input_width$88: index, %output_width$89: index, %count: buffer, %input: buffer, %scales: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
+kernel.decl @llm.projection.active_swiglu(%rows$279: index, %width$280: index) launch(%rows$281: index, %width$282: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)
+
+template.decl @llm.projection.scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %up_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %gate_weight: view<[%weight_bytes]xi8>, %up_weight: view<[%up_bytes]xi8>, %output_f32: buffer)
+
+template.def<@llm.projection.scaled_f16_swiglu> @llm_projection_scaled_f16_swiglu(%rows: index, %input_width: index, %output_width: index, %weight_bytes: index, %up_bytes: index, %count: buffer, %input_f16: buffer, %row_scale: buffer, %gate_weight: view<[%weight_bytes]xi8>, %up_weight: view<[%up_bytes]xi8>, %output_f32: buffer) {
+  %block = index.constant 256 : index
+  %block_bytes = index.constant 144 : index
+  %blocks = index.div %input_width, %block : index
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %bytes = index.mul %output_width, %row_bytes : index
+  template.apply<@llm.projection.scaled_contract>(%rows, %input_width, %output_width, %weight_bytes, %bytes) : (index, index, index, index, index)
+  template.apply<@llm.projection.scaled_contract>(%rows, %input_width, %output_width, %up_bytes, %bytes) : (index, index, index, index, index)
+  kernel.launch @llm.platform.q4k_scaled_f16_swiglu[%rows, %input_width, %output_width](%rows, %input_width, %output_width, %count, %input_f16, %row_scale, %gate_weight, %up_weight, %output_f32) : [index, index, index](index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.decl @llm.projection.gated_matrix(%capacity: index, %input_width: index, %output_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %input: buffer, %gate_weight: view<[%gate_bytes]xi8>, %up_weight: view<[%up_bytes]xi8>, %output: buffer)
+
+template.def<@llm.projection.gated_matrix> @llm_projection_gated_matrix(%capacity: index, %input_width: index, %output_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %input: buffer, %gate_weight: view<[%gate_bytes]xi8>, %up_weight: view<[%up_bytes]xi8>, %output: buffer) where [range(%capacity, 1, 512)] {
+  %q4 = index.constant 12 : index
+  %gate_q4 = index.cmp eq, %gate_tag, %q4 : index
+  %up_q4 = index.cmp eq, %up_tag, %q4 : index
+  %fused = scalar.andi %gate_q4, %up_q4 : i1
+  scf.if %fused {
+    %sixteen = index.constant 16 : index
+    %small = index.cmp ule, %capacity, %sixteen : index
+    scf.if %small {
+      %word = index.constant 4 : offset
+      %elements = index.mul %capacity, %output_width : index
+      %bytes = index.scale %elements, %word : index, offset -> offset
+      %gate = buffer.alloca<global> align(256) %bytes : buffer
+      %up = buffer.alloca<global> align(256) %bytes : buffer
+      %zero = index.constant 0 : index
+      %one = index.constant 1 : index
+      %origin = index.constant 0 : offset
+      %dynamic = scalar.constant -1 : i32
+      %input_elements = index.mul %capacity, %input_width : index
+      %block = index.constant 128 : index
+      %packet = index.constant 144 : offset
+      %groups = index.div %input_elements, %block : index
+      %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+      %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+      template.apply<@llm.projection.prepare_canonical_prefix>(%capacity, %input_width, %count, %input, %packed) : (index, index, buffer, buffer, buffer)
+      template.apply<@llm.projection.project_packed>(%one, %gate_tag, %capacity, %capacity, %input_width, %output_width, %gate_bytes, %zero, %dynamic, %origin, %count, %packed, %gate_weight, %gate) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%gate_bytes]xi8>, buffer)
+      template.apply<@llm.projection.project_packed>(%one, %up_tag, %capacity, %capacity, %input_width, %output_width, %up_bytes, %zero, %dynamic, %origin, %count, %packed, %up_weight, %up) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%up_bytes]xi8>, buffer)
+      kernel.launch @llm.projection.active_swiglu[%capacity, %output_width](%capacity, %output_width, %count, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, buffer)
+    } else {
+      %origin = index.constant 0 : offset
+      %padded = func.call pure @llm.projection.matrix_output_rows(%capacity) : (index) -> (index)
+      %two = index.constant 2 : offset
+      %eight = index.constant 8 : offset
+      %elements = index.mul %padded, %input_width : index
+      %half_bytes = index.scale %elements, %two : index, offset -> offset
+      %scale_bytes = index.scale %padded, %eight : index, offset -> offset
+      %prepared = buffer.alloca<global> align(256) %half_bytes : buffer
+      %scales = buffer.alloca<global> align(256) %scale_bytes : buffer
+      kernel.launch @llm.projection.prepare_scaled_f16[%capacity, %padded, %input_width](%capacity, %padded, %input_width, %origin, %count, %input, %scales, %prepared) : [index, index, index](index, index, index, offset, buffer, buffer, buffer, buffer)
+      template.apply<@llm.projection.scaled_f16_swiglu>(%padded, %input_width, %output_width, %gate_bytes, %up_bytes, %count, %prepared, %scales, %gate_weight, %up_weight, %output) : (index, index, index, index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+    }
+  } else {
+    %physical_rows = func.call pure @llm.projection.matrix_output_rows(%capacity) : (index) -> (index)
+    %word = index.constant 4 : offset
+    %elements = index.mul %physical_rows, %output_width : index
+    %bytes = index.scale %elements, %word : index, offset -> offset
+    %gate = buffer.alloca<global> align(256) %bytes : buffer
+    %up = buffer.alloca<global> align(256) %bytes : buffer
+    template.apply<@llm.projection.matrix>(%capacity, %input_width, %output_width, %gate_tag, %gate_bytes, %count, %input, %gate_weight, %gate) : (index, index, index, index, index, buffer, buffer, view<[%gate_bytes]xi8>, buffer)
+    template.apply<@llm.projection.matrix>(%capacity, %input_width, %output_width, %up_tag, %up_bytes, %count, %input, %up_weight, %up) : (index, index, index, index, index, buffer, buffer, view<[%up_bytes]xi8>, buffer)
+    kernel.launch @llm.projection.active_swiglu[%capacity, %output_width](%capacity, %output_width, %count, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, buffer)
+    // New heterogeneous outputs define inactive logical rows. In-place prefix
+    // preparation copies each active element to itself and zeros only inactive
+    // rows; padded allocation rows remain untouched. Retained Q4 uses no clear.
+    kernel.launch @llm.projection.prepare_f32_prefix[%capacity, %output_width](%capacity, %output_width, %count, %output, %output) : [index, index](index, index, buffer, buffer, buffer)
+  }
+  template.return
+}

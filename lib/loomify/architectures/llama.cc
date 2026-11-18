@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/configuration_internal.h"
 #include "lib/loomify/assembly_registry.h"
+#include "lib/loomify/architectures/ffn_binding.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
                const ConfigurationSettings &s, ConfigurationFacts *out,
@@ -32,8 +33,8 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", E, V, {12, 14}) ||
-      !p.Tensor(m.globals, "output", E, V, {14}) ||
+  if (!p.Tensor(m.globals, "token_embedding", E, V, {8, 12, 14}) ||
+      !p.Tensor(m.globals, "output", E, V, {8, 14}) ||
       !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
   const auto factors = std::count_if(
@@ -56,22 +57,8 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
       return Fail(error, "unsupported layer identity or geometry at layer " +
                              std::to_string(i));
     if (!p.Tensor(l.tensors, "post_norm", E, 1, {0}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_gate", E, F, {}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_up", E, F, {}, l.index) ||
-        !p.Tensor(l.tensors, "ffn_down", F, E, {}, l.index))
+        !BindFfnProjections(p, l, E, {}, ffn))
       return false;
-    const auto &gate = *Role(l.tensors, "ffn_gate"),
-               &up = *Role(l.tensors, "ffn_up"),
-               &down = *Role(l.tensors, "ffn_down");
-    if (gate.storage_type != up.storage_type || gate.byte_size != up.byte_size)
-      return Fail(
-          error,
-          "FFN gate/up must have matching encoding and encoded byte extents");
-    ffn.push_back({F, gate.storage_type, up.storage_type, down.storage_type,
-                   gate.byte_size, up.byte_size, down.byte_size});
-    p.Projection(gate, E, F);
-    p.Projection(up, E, F);
-    p.Projection(down, F, E);
     if (!p.Tensor(l.tensors, "input_norm", E, 1, {0}, l.index) ||
         !p.Tensor(l.tensors, "query", E, Q, {}, l.index) ||
         !p.Tensor(l.tensors, "key", E, KV, {}, l.index) ||
@@ -119,6 +106,8 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
           Role(m.globals, "token_embedding")->byte_size);
   p.Index("llama.model.output_weight_bytes",
           Role(m.globals, "output")->byte_size);
+  p.Index("llama.model.output_storage_type",
+          Role(m.globals, "output")->storage_type);
   p.Index("qwen38.greedy_argmax.output_capacity", m.vocabulary_size);
 
   p.OrdinaryPreparation(E, m.layers.size(), KV, history, s.token_capacity,

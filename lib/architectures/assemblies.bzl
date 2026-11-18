@@ -77,7 +77,11 @@ ASSEMBLIES = [
         ],
         implementation_srcs = [
             "//lib/kernels/decoder:implementation_sources",
+            "//lib/programs/projection:packed_sources",
+            "//lib/programs/projection:prepared_rows_sources",
             "//lib/programs/projection:matrix_sources",
+            "//lib/programs/ffn:gate_up_sources",
+            "//lib/programs/ffn:matrix_gate_up_sources",
             "//lib/kernels/selection:greedy_argmax.loom",
             "//lib/kernels/epoch:count.loom",
             "//lib/kernels/publication:two_stops.loom",
@@ -98,7 +102,11 @@ ASSEMBLIES = [
         ],
         implementation_srcs = [
             "//lib/kernels/decoder:implementation_sources",
+            "//lib/programs/projection:packed_sources",
+            "//lib/programs/projection:prepared_rows_sources",
             "//lib/programs/projection:matrix_sources",
+            "//lib/programs/ffn:gate_up_sources",
+            "//lib/programs/ffn:matrix_gate_up_sources",
             "//lib/kernels/selection:greedy_argmax.loom",
             "//lib/kernels/epoch:count.loom",
             "//lib/kernels/publication:two_stops.loom",

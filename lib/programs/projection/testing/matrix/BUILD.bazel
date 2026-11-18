@@ -20,9 +20,13 @@ genrule(
 loom_library(
     name = "provider",
     srcs = [
-        "//lib/programs/projection:matrix_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/ffn:matrix_gate_up_sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
     ],
 )
 
@@ -39,9 +43,13 @@ loom_merge(
     testonly = True,
     srcs = [
         ":fixtures",
-        "//lib/programs/projection:matrix_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/ffn:matrix_gate_up_sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
     ],
 )
 
@@ -71,9 +79,11 @@ loom_test(
     name = "output_rows_provider_" + format,
     testonly = True,
     srcs = [
-        "//lib/programs/projection:matrix_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
     ],
     output_format = format,
 ) for format in [
@@ -109,9 +119,13 @@ genrule(
     testonly = True,
     srcs = [
         ":shared_preparation_fixtures",
-        "//lib/programs/projection:matrix_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/ffn:matrix_gate_up_sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
     ],
     output_format = format,
 ) for format in [
@@ -122,6 +136,78 @@ genrule(
 [loom_test(
     name = "shared_preparation_" + format + "_test",
     srcs = [":shared_preparation_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]
+
+genrule(
+    name = "canonical_fixtures",
+    testonly = True,
+    srcs = ["canonical_fixtures.py"],
+    outs = ["canonical_checks.loom"],
+    cmd = "python3 $(location canonical_fixtures.py) $@",
+)
+
+[loom_merge(
+    name = "canonical_" + format,
+    testonly = True,
+    srcs = [
+        ":canonical_fixtures",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "canonical_" + format + "_test",
+    srcs = [":canonical_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for format in [
+    "text",
+    "bc",
+]]
+
+# Exercise the shared policy helper independently of matrix and FFN providers.
+genrule(
+    name = "policy_qkv_fixtures",
+    testonly = True,
+    srcs = [
+        "policy_qkv_fixtures.py",
+        "canonical_fixtures.py",
+    ],
+    outs = ["policy_qkv_checks.loom"],
+    cmd = "python3 $(location policy_qkv_fixtures.py) $(location canonical_fixtures.py) full $@",
+)
+
+[loom_merge(
+    name = "policy_qkv_" + format,
+    testonly = True,
+    srcs = [
+        ":policy_qkv_fixtures",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "policy_qkv_" + format + "_test",
+    srcs = [":policy_qkv_" + format],
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in [

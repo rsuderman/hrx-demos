@@ -13,7 +13,7 @@ loom_provider_checks(
         "//lib/kernels/selection:greedy_argmax.loom",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/programs/output:last_greedy.loom",
-        "//lib/programs/projection:implementation_sources",
+        "//lib/programs/projection:packed_sources",
     ],
 )
 
@@ -24,7 +24,7 @@ loom_provider_checks(
     provider_name = "gemma_head_provider",
     provider_srcs = [
         "//lib/programs/output:last_greedy.loom",
-        "//lib/programs/projection:implementation_sources",
+        "//lib/programs/projection:packed_sources",
         "//lib/kernels/selection:greedy_argmax.loom",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/programs/gemma3:output.loom",

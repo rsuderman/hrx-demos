@@ -4,7 +4,7 @@ template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index,
 
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-template.decl @loomify.ffn(%hidden: index, %ffn: index, %rows: index, %phase: index, %profile: index, %epsilon: f32, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%gate_bytes]xi8>, %down: view<[%down_bytes]xi8>)
+template.decl @loomify.ffn(%hidden: index, %ffn: index, %rows: index, %phase: index, %profile: index, %epsilon: f32, %gate_tag: index, %up_tag: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>)
 
 config.decl @llama.model.hidden_size : index
 
@@ -14,19 +14,16 @@ config.decl @loomify.ffn.profile : index
 
 func.decl pure @loomify.config.layer_ffn(%layer: index) -> (index, index, index, index, index, index, index)
 
-template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
-
 command.def public @loomify.llama.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%layer, 0, 64), range(%phase, 0, 1), range(%rows, 1, 512)] {
   %hidden = config.get @llama.model.hidden_size : index
   %epsilon = config.get @llama.model.rms_epsilon : f32
   %profile = config.get @loomify.ffn.profile : index
   %ffn, %gate_tag, %up_tag, %down_tag, %gate_bytes, %up_bytes, %down_bytes = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
-  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %gate_bytes, %up_bytes) : (index, index, index, index)
   %gamma = command.parameter %parameters, "blk.{}.ffn_norm.weight"[%layer] : view<[%hidden]xf32>
   %gate = command.parameter %parameters, "blk.{}.ffn_gate.weight"[%layer] : view<[%gate_bytes]xi8>
-  %up = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%gate_bytes]xi8>
+  %up = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%up_bytes]xi8>
   %down = command.parameter %parameters, "blk.{}.ffn_down.weight"[%layer] : view<[%down_bytes]xi8>
-  template.apply<@loomify.ffn>(%hidden, %ffn, %rows, %phase, %profile, %epsilon, %gate_tag, %down_tag, %gate_bytes, %down_bytes, %residual, %count, %gamma, %gate, %up, %down) : (index, index, index, index, index, f32, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%gate_bytes]xi8>, view<[%gate_bytes]xi8>, view<[%down_bytes]xi8>)
+  template.apply<@loomify.ffn>(%hidden, %ffn, %rows, %phase, %profile, %epsilon, %gate_tag, %up_tag, %down_tag, %gate_bytes, %up_bytes, %down_bytes, %residual, %count, %gamma, %gate, %up, %down) : (index, index, index, index, index, f32, index, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, view<[%down_bytes]xi8>)
   command.return
 }
 
@@ -50,8 +47,8 @@ template.def<@loomify.ffn.pack_input> @loomify_llama_ffn_pack_input(%rows: index
   template.return
 }
 
-kernel.decl @llama32_rmsnorm_f32(%token_count$107: index) launch(%token_count$108: index, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_f32(%token_count$105: index) launch(%token_count$106: index, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @llama32_rmsnorm_active_f32(%token_count$112: index) launch(%token_count$113: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llama32_rmsnorm_active_f32(%token_count$110: index) launch(%token_count$111: index, %begin: index, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows$120: index, %input_size$121: index) launch(%rows$122: index, %input_size$123: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer, %input: buffer, %output: buffer)
+kernel.decl @ggml_quantize_q8_1_x4_qk_compat_f32(%rows$118: index, %input_size$119: index) launch(%rows$120: index, %input_size$121: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer, %input: buffer, %output: buffer)

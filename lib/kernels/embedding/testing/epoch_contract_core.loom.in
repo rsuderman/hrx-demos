@@ -7,10 +7,87 @@
 // retain their broader independent arithmetic/packing coverage.
 template.decl @llm.embedding.epoch_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %bytes: index, %epoch: buffer, %count: buffer, %ids: buffer, %weight: view<[%bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
 
+// Signed Q8 wire construction is independent of the logical value oracle.
+func.def @epoch_contract.q8_setup_row(%ordinal: index, %base: offset, %weights: buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %eight = index.constant 8 : index
+  %n32 = index.constant 32 : index
+  %last = index.constant 31 : index
+  %stride = index.constant 34 : offset
+  %payload = index.constant 2 : offset
+  %first = index.cmp eq, %ordinal, %zero : index
+  %positive = scalar.constant 0.25 : f32
+  %negative = scalar.constant -0.5 : f32
+  %unit = scf.select %first, %positive, %negative : f32
+  scf.for %block = [%zero to %eight step %one] {
+    %add = index.scale %block, %stride : index, offset -> offset
+    %origin = index.add %base, %add : offset
+    %codes_origin = index.add %origin, %payload : offset
+    %dview = buffer.view %weights[%origin] : buffer -> view<1xf16>
+    %codes = buffer.view %weights[%codes_origin] : buffer -> view<32xi8>
+    %phase = index.rem %block, %three : index
+    %factor = index.add %phase, %one : index
+    %factor32 = index.cast %factor : index to i32
+    %factor_f = scalar.uitofp %factor32 : i32 to f32
+    %d32 = scalar.mulf %factor_f, %unit : f32
+    %d16 = scalar.fptrunc %d32 : f32 to f16
+    view.store %d16, %dview[0] : f16, view<1xf16>
+    scf.for %lane = [%zero to %n32 step %one] {
+      %at_first = index.cmp eq, %lane, %zero : index
+      %at_last = index.cmp eq, %lane, %last : index
+      %lane32 = index.cast %lane : index to i32
+      %sixteen = scalar.constant 16 : i32
+      %centered = scalar.subi %lane32, %sixteen : i32
+      %lo = scalar.constant -128 : i32
+      %hi = scalar.constant 127 : i32
+      %c0 = scf.select %at_first, %lo, %centered : i32
+      %c1 = scf.select %at_last, %hi, %c0 : i32
+      %code = scalar.trunci %c1 : i32 to i8
+      view.store %code, %codes[%lane] : i8, view<32xi8>
+    }
+  }
+  func.return
+}
+
+func.def @epoch_contract.q8_value(%input: index, %channel: index) -> (f32) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %n32 = index.constant 32 : index
+  %last = index.constant 31 : index
+  %parity = index.rem %input, %two : index
+  %first = index.cmp eq, %parity, %zero : index
+  %positive = scalar.constant 0.25 : f32
+  %negative = scalar.constant -0.5 : f32
+  %unit = scf.select %first, %positive, %negative : f32
+  %block = index.div %channel, %n32 : index
+  %phase = index.rem %block, %three : index
+  %factor = index.add %phase, %one : index
+  %factor32 = index.cast %factor : index to i32
+  %factor_f = scalar.uitofp %factor32 : i32 to f32
+  %d = scalar.mulf %factor_f, %unit : f32
+  %lane = index.rem %channel, %n32 : index
+  %at_first = index.cmp eq, %lane, %zero : index
+  %at_last = index.cmp eq, %lane, %last : index
+  %lane32 = index.cast %lane : index to i32
+  %sixteen = scalar.constant 16 : i32
+  %centered = scalar.subi %lane32, %sixteen : i32
+  %lo = scalar.constant -128 : i32
+  %hi = scalar.constant 127 : i32
+  %c0 = scf.select %at_first, %lo, %centered : i32
+  %code = scf.select %at_last, %hi, %c0 : i32
+  %logical = scalar.sitofp %code : i32 to f32
+  %value = scalar.mulf %logical, %d : f32
+  func.return %value : f32
+}
+
 func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stride0: index, %bytes: index, %weights: buffer, %ids: buffer, %count: buffer) {
   %rows = index.assume %rows0 [range(%rows0, 2, 513)] : index
   %vocab = index.assume %vocab0 [range(%vocab0, 2, 128257)] : index
-  %stride = index.assume %stride0 [range(%stride0, 144, 210)] : index
+  %stride = index.assume %stride0 [range(%stride0, 144, 272)] : index
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -21,6 +98,8 @@ func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stri
   %stride_bytes = index.cast %stride : index to offset
   %first_id = index.sub %vocab, %two : index
   %q6_tag = index.constant 14 : index
+  %q8_tag = index.constant 8 : index
+  %q8 = index.cmp eq, %tag, %q8_tag : index
   %q6 = index.cmp eq, %tag, %q6_tag : index
   %q5 = index.cmp eq, %tag, %thirteen : index
   %zero8 = scalar.constant 0 : i8
@@ -42,6 +121,9 @@ func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stri
     }
     %low = index.cmp eq, %r, %zero : index
     %d = scf.select %low, %half, %unit : f16
+    scf.if %q8 {
+      func.call @epoch_contract.q8_setup_row(%r, %base, %weights) : (index, offset, buffer) -> ()
+    } else {
     scf.if %q6 {
       %ql = buffer.view %weights[%base] : buffer -> view<128xi8>
       %qh_offset = index.constant 128 : offset
@@ -94,6 +176,7 @@ func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stri
         }
       }
     }
+    }
   }
   %nview = buffer.view %count[%zero_offset] : buffer -> view<1xi32>
   %n = view.load %nview[0] : view<1xi32> -> i32
@@ -142,6 +225,8 @@ func.def @epoch_contract.expected(%tag: index, %rows0: index, %vocab: index, %st
     %n = index.assume %n0 [range(%n0, 1, 513), le(%n0, %rows)] : index
     %out = buffer.view %output[%output_origin] : buffer -> view<[%rows]x256xf32>
     %q5_tag = index.constant 13 : index
+    %q8_tag = index.constant 8 : index
+    %q8 = index.cmp eq, %tag, %q8_tag : index
     %q6_tag = index.constant 14 : index
     %q5 = index.cmp eq, %tag, %q5_tag : index
     %q6 = index.cmp eq, %tag, %q6_tag : index
@@ -161,7 +246,11 @@ func.def @epoch_contract.expected(%tag: index, %rows0: index, %vocab: index, %st
       %is_low = index.cmp eq, %parity, %zero : index
       %value = scf.select %is_low, %low, %high : f32
       scf.for %c = [%zero to %width step %one] {
-        view.store %value, %out[%r, %c] : f32, view<[%rows]x256xf32>
+        %stored = scf.if %q8 -> (f32) {
+          %v = func.call @epoch_contract.q8_value(%input, %c) : (index, index) -> (f32)
+          scf.yield %v : f32
+        } else { scf.yield %value : f32 }
+        view.store %stored, %out[%r, %c] : f32, view<[%rows]x256xf32>
       }
     }
   }
@@ -241,6 +330,8 @@ func.def @ordinary_contract.expected(%tag: index, %vocab: index, %stride: index,
   %begin_valid = scalar.cmpi sge, %begin, %zero32 : i32
   %valid = scalar.andi %count_valid, %begin_valid : i1
   %q5_tag = index.constant 13 : index
+  %q8_tag = index.constant 8 : index
+  %q8 = index.cmp eq, %tag, %q8_tag : index
   %q6_tag = index.constant 14 : index
   %q5 = index.cmp eq, %tag, %q5_tag : index
   %q6 = index.cmp eq, %tag, %q6_tag : index
@@ -274,7 +365,13 @@ func.def @ordinary_contract.expected(%tag: index, %vocab: index, %stride: index,
       scf.yield %zero_f : f32
     }
     scf.for %c = [%zero to %width step %one] {
-      view.store %value, %out[%r, %c] : f32, view<3x256xf32>
+      %q8_used = scalar.andi %q8, %used : i1
+      %stored = scf.if %q8_used -> (f32) {
+        %input = index.cast %input32 : i32 to index
+        %v = func.call @epoch_contract.q8_value(%input, %c) : (index, index) -> (f32)
+        scf.yield %v : f32
+      } else { scf.yield %value : f32 }
+      view.store %stored, %out[%r, %c] : f32, view<3x256xf32>
     }
   }
   func.return

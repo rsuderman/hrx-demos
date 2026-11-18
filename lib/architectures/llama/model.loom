@@ -1,5 +1,7 @@
 // Scalar/layout limits of the maintained adjacent128 rotary recipe. These do
 // not identify a checkpoint; matrix encoding and dimensions are operation facts.
+func.decl pure @llm.projection.policy(%profile: index, %tag: index) -> (index)
+
 config.decl @llama.model.head_size : index
 
 template.decl @loomify.llama.model_layout(%hidden: index, %head: index, %vocabulary: index)
@@ -24,6 +26,8 @@ config.decl @llama.model.embedding_weight_bytes : index
 config.decl @llama.model.output_weight_bytes : index
 
 config.decl @llama.model.embedding_storage_type : index
+
+config.decl @llama.model.output_storage_type : index
 
 config.decl @llama.model.tie_word_embeddings : index
 
@@ -71,8 +75,8 @@ command.def @loomify.llama.model() launch(%parameters: buffer, %residual: buffer
     %separate = command.parameter %parameters, "output.weight" : view<[%output_bytes]xi8>
     scf.yield %separate : view<[%output_bytes]xi8>
   }
-  %head_policy = index.constant 0 : index
-  %head_tag = index.constant 14 : index
+  %head_tag = config.get @llama.model.output_storage_type : index
+  %head_policy = func.call pure @llm.projection.policy(%zero, %head_tag) : (index, index) -> (index)
   template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }

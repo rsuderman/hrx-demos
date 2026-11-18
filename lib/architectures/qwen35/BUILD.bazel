@@ -16,6 +16,7 @@ exports_files([
 # One complete numerical closure. Common/FFN members are owned by their BUILD
 # filegroup; complete layers retain their internal FFNs and numerical policy.
 _NUMERICAL_SOURCES = [
+    "//lib/kernels/decoder:rows.loom",
     "//lib/kernels/qwen:configured_provider_sources",
     "//lib/programs/qwen35:implementation_sources",
     "//lib/kernels/qwen/gdn:common.loom",
@@ -47,8 +48,8 @@ filegroup(
 filegroup(
     name = "implementation_sources",
     srcs = [
-        "model.loom",
         "epoch.loom",
+        "model.loom",
         ":numerical_sources",
     ],
 )
@@ -85,10 +86,10 @@ cc_test(
         "//lib/loomify:configuration_fixture",
         "//lib/loomify:token_policy",
         "//lib/loomify/testing:prepare_vm",
-        "@hrx_system//loom/binding/c:loomc",
-        "@hrx_system//loom/binding/c/target/vm",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/vm",
     ],
 )
 
@@ -111,8 +112,8 @@ cc_binary(
     copts = ["-std=c++17"],
     data = [
         ":block_fixture",
-        "//lib/platforms/amdgpu/gfx11:targets",
         "//lib/platforms/amdgpu/gfx11:attention_h256_implementation",
+        "//lib/platforms/amdgpu/gfx11:targets",
     ],
     deps = [
         "//lib/loomify:configuration",

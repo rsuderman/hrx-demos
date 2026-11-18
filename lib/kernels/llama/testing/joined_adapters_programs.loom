@@ -64,9 +64,9 @@ template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_g
 
 template.decl @llm.ffn.down_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %token_count: index, %token_capacity: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %shape_ffn_capacity_bytes: index, %shape_ffn_down_weight_bytes: index, %shape_hidden_capacity_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %control: buffer, %swiglu: buffer, %residual: buffer)
 
-template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_up_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_up_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
 
-template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_ffn_up_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_up_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
 command.def public retain @joined.1.prefill.active() launch(%v0: buffer, %v1: buffer, %v2: buffer, %v3: buffer, %v4: buffer, %v5: buffer, %v6: buffer, %v7: buffer, %v8: buffer, %v9: buffer, %v10: buffer, %v11: buffer, %v12: buffer, %v13: buffer, %v14: buffer, %v15: buffer, %v16: buffer, %v17: buffer, %v18: buffer, %v19: buffer, %v20: buffer, %v21: buffer, %v22: buffer, %v23: buffer) {
   command.serial {
@@ -186,7 +186,7 @@ command.def public retain @joined.1.prefill.active() launch(%v0: buffer, %v1: bu
     %v122 = index.constant 98304 : index
     %v123 = index.constant 27648 : index
     %v124 = index.constant 13824 : index
-    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
     %v125 = index.constant 8 : index
     %v126 = index.constant 3072 : index
     %v127 = index.constant 8192 : index
@@ -326,7 +326,7 @@ command.def public retain @joined.1.prefill.compact() launch(%v0: buffer, %v1: b
     %v122 = index.constant 36864 : index
     %v123 = index.constant 10368 : index
     %v124 = index.constant 13824 : index
-    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
     %v125 = index.constant 3 : index
     %v126 = index.constant 3072 : index
     %v127 = index.constant 8192 : index
@@ -496,7 +496,7 @@ command.def public retain @joined.1.decode.active() launch(%v0: buffer, %v1: buf
     %v122 = buffer.alloca<global> align(256) %v121 : buffer
     %v123 = scalar.constant 1 : i32
     kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
-    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
     %v124 = index.constant 1 : index
     %v125 = index.constant 3072 : index
     %v126 = index.constant 8192 : index
@@ -632,7 +632,7 @@ command.def public retain @joined.1.decode.compact() launch(%v0: buffer, %v1: bu
     %v122 = buffer.alloca<global> align(256) %v121 : buffer
     %v123 = scalar.constant 1 : i32
     kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
-    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
     %v124 = index.constant 1 : index
     %v125 = index.constant 3072 : index
     %v126 = index.constant 8192 : index
@@ -798,7 +798,7 @@ command.def public retain @joined.2.prefill.active() launch(%v0: buffer, %v1: bu
     %v122 = index.constant 98304 : index
     %v123 = index.constant 27648 : index
     %v124 = index.constant 13824 : index
-    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
     %v125 = index.constant 8 : index
     %v126 = index.constant 3072 : index
     %v127 = index.constant 8192 : index
@@ -927,7 +927,7 @@ command.def public retain @joined.2.prefill.active() launch(%v0: buffer, %v1: bu
     %v235 = index.constant 98304 : index
     %v236 = index.constant 27648 : index
     %v237 = index.constant 13824 : index
-    template.apply<@llm.ffn.gate_up_prefill>(%v222, %v223, %v224, %v224, %v224, %v225, %v221, %v221, %v221, %v228, %v229, %v225, %v230, %v234, %v231, %v236, %v237, %v232, %v233, %v213, %v25, %v220) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v231]xi8>, view<[%v231]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_prefill>(%v222, %v223, %v224, %v224, %v224, %v225, %v221, %v221, %v221, %v228, %v229, %v225, %v230, %v234, %v231, %v231, %v236, %v237, %v232, %v233, %v213, %v25, %v220) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%v231]xi8>, view<[%v231]xi8>, buffer, buffer, buffer)
     %v238 = index.constant 8 : index
     %v239 = index.constant 3072 : index
     %v240 = index.constant 8192 : index
@@ -1067,7 +1067,7 @@ command.def public retain @joined.2.prefill.compact() launch(%v0: buffer, %v1: b
     %v122 = index.constant 36864 : index
     %v123 = index.constant 10368 : index
     %v124 = index.constant 13824 : index
-    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_prefill>(%v109, %v110, %v111, %v111, %v111, %v112, %v108, %v108, %v108, %v115, %v116, %v112, %v117, %v121, %v118, %v118, %v123, %v124, %v119, %v120, %v100, %v25, %v107) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer, buffer)
     %v125 = index.constant 3 : index
     %v126 = index.constant 3072 : index
     %v127 = index.constant 8192 : index
@@ -1196,7 +1196,7 @@ command.def public retain @joined.2.prefill.compact() launch(%v0: buffer, %v1: b
     %v235 = index.constant 36864 : index
     %v236 = index.constant 10368 : index
     %v237 = index.constant 13824 : index
-    template.apply<@llm.ffn.gate_up_prefill>(%v222, %v223, %v224, %v224, %v224, %v225, %v221, %v221, %v221, %v228, %v229, %v225, %v230, %v234, %v231, %v236, %v237, %v232, %v233, %v213, %v25, %v220) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%v231]xi8>, view<[%v231]xi8>, buffer, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_prefill>(%v222, %v223, %v224, %v224, %v224, %v225, %v221, %v221, %v221, %v228, %v229, %v225, %v230, %v234, %v231, %v231, %v236, %v237, %v232, %v233, %v213, %v25, %v220) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%v231]xi8>, view<[%v231]xi8>, buffer, buffer, buffer)
     %v238 = index.constant 3 : index
     %v239 = index.constant 3072 : index
     %v240 = index.constant 8192 : index
@@ -1366,7 +1366,7 @@ command.def public retain @joined.2.decode.active() launch(%v0: buffer, %v1: buf
     %v122 = buffer.alloca<global> align(256) %v121 : buffer
     %v123 = scalar.constant 1 : i32
     kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
-    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
     %v124 = index.constant 1 : index
     %v125 = index.constant 3072 : index
     %v126 = index.constant 8192 : index
@@ -1491,7 +1491,7 @@ command.def public retain @joined.2.decode.active() launch(%v0: buffer, %v1: buf
     %v230 = buffer.alloca<global> align(256) %v229 : buffer
     %v231 = scalar.constant 1 : i32
     kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v216, %v217](%v216, %v217, %v223, %v231, %v224, %v208, %v208, %v230) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
-    template.apply<@llm.ffn.gate_up_decode>(%v217, %v218, %v219, %v219, %v219, %v220, %v226, %v221, %v227, %v228, %v230, %v215) : (index, index, i1, i1, i1, i1, index, index, view<[%v226]xi8>, view<[%v226]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v217, %v218, %v219, %v219, %v219, %v220, %v226, %v226, %v221, %v227, %v228, %v230, %v215) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v226]xi8>, view<[%v226]xi8>, buffer, buffer)
     %v232 = index.constant 1 : index
     %v233 = index.constant 3072 : index
     %v234 = index.constant 8192 : index
@@ -1627,7 +1627,7 @@ command.def public retain @joined.2.decode.compact() launch(%v0: buffer, %v1: bu
     %v122 = buffer.alloca<global> align(256) %v121 : buffer
     %v123 = scalar.constant 1 : i32
     kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v108, %v109](%v108, %v109, %v115, %v123, %v116, %v100, %v100, %v122) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
-    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v109, %v110, %v111, %v111, %v111, %v112, %v118, %v118, %v113, %v119, %v120, %v122, %v107) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v118]xi8>, view<[%v118]xi8>, buffer, buffer)
     %v124 = index.constant 1 : index
     %v125 = index.constant 3072 : index
     %v126 = index.constant 8192 : index
@@ -1752,7 +1752,7 @@ command.def public retain @joined.2.decode.compact() launch(%v0: buffer, %v1: bu
     %v230 = buffer.alloca<global> align(256) %v229 : buffer
     %v231 = scalar.constant 1 : i32
     kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32[%v216, %v217](%v216, %v217, %v223, %v231, %v224, %v208, %v208, %v230) : [index, index](index, index, index, i32, offset, buffer, buffer, buffer)
-    template.apply<@llm.ffn.gate_up_decode>(%v217, %v218, %v219, %v219, %v219, %v220, %v226, %v221, %v227, %v228, %v230, %v215) : (index, index, i1, i1, i1, i1, index, index, view<[%v226]xi8>, view<[%v226]xi8>, buffer, buffer)
+    template.apply<@llm.ffn.gate_up_decode>(%v217, %v218, %v219, %v219, %v219, %v220, %v226, %v226, %v221, %v227, %v228, %v230, %v215) : (index, index, i1, i1, i1, i1, index, index, index, view<[%v226]xi8>, view<[%v226]xi8>, buffer, buffer)
     %v232 = index.constant 1 : index
     %v233 = index.constant 3072 : index
     %v234 = index.constant 8192 : index

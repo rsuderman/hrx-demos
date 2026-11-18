@@ -22,9 +22,8 @@ loom_provider_checks(
     provider_name = "provider",
     provider_srcs = [
         "//lib/programs/ffn:canonical_swiglu.loom",
-        "//lib/programs/projection:implementation_sources",
-        "//lib/kernels/elementwise:ffn_launches.loom",
-        "//lib/kernels/elementwise:swiglu_row.loom",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/ffn:gate_up_sources",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
     ],
 )

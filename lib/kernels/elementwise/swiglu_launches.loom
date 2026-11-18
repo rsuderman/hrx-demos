@@ -1,0 +1,58 @@
+// Copyright 2026 The HRX Authors
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Curated from loom-pipeline/llm/common/ffn.loom; independently maintained by Loomify.
+// Existing activation launchers; residual launches remain independently owned.
+template.decl @llm.swiglu_f32.row(%ffn_size0: index, %row_count0: index, %row0: index, %gate: buffer, %up: buffer, %output: buffer)
+
+kernel.def @llm_ffn_swiglu_f32_decode(%ffn_size: index) {
+  %c1 = index.constant 1 : index
+  %channels_per_group = index.constant 256 : index
+  %bounded_ffn_size = index.assume %ffn_size [range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256)] : index
+  %workgroup_count = index.div %bounded_ffn_size, %channels_per_group : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%workgroup_count, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%ffn_size: index, %gate: buffer, %up: buffer, %output: buffer) {
+  %row_count = index.constant 1 : index
+  %row = index.constant 0 : index
+  template.apply<@llm.swiglu_f32.row>(%ffn_size, %row_count, %row, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def @llm_ffn_swiglu_f32_prefill(%token_count: index, %ffn_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 0, 512)] : index
+  %unit = index.constant 1 : index
+  %channels_per_group = index.constant 256 : index
+  %bounded_ffn_size = index.assume %ffn_size [range(%ffn_size, 256, 32768), multiple_of(%ffn_size, 256)] : index
+  %workgroup_count = index.div %bounded_ffn_size, %channels_per_group : index
+  %workgroup_size = index.constant 256 : index
+  kernel.launch.config workgroups(%workgroup_count, %bounded_token_count, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%ffn_size: index, %token_count: index, %gate: buffer, %up: buffer, %output: buffer) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 512)] : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  template.apply<@llm.swiglu_f32.row>(%ffn_size, %bounded_token_count, %token, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def @llm.projection.active_swiglu(%capacity: index, %output_width: index) {
+  %threads = index.constant 256 : index
+  %one = index.constant 1 : index
+  %groups = index.div %output_width, %threads : index
+  kernel.launch.config workgroups(%groups, %capacity, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%capacity_arg: index, %width_arg: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer) {
+  %capacity = index.assume %capacity_arg [range(%capacity_arg, 1, 512)] : index
+  %width = index.assume %width_arg [range(%width_arg, 256, 32768), multiple_of(%width_arg, 256)] : index
+  %row_id = kernel.workgroup.id<y> : index
+  %row = index.assume %row_id [lt(%row_id, %capacity)] : index
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %control = buffer.view %count[%origin] : buffer -> view<3xi32>
+  %active32 = view.load %control[%zero] : view<3xi32> -> i32
+  %active = index.cast %active32 : i32 to index
+  %live = index.cmp ult, %row, %active : index
+  scf.if %live {
+    template.apply<@llm.swiglu_f32.row>(%width, %capacity, %row, %gate, %up, %output) : (index, index, index, buffer, buffer, buffer)
+  }
+  kernel.return
+}

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/configuration_internal.h"
 #include "lib/loomify/assembly_registry.h"
+#include "lib/loomify/architectures/ffn_binding.h"
 namespace hrx::loomify_gguf::internal {
 bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
               const ConfigurationSettings &o, ConfigurationFacts *out,
@@ -73,21 +74,8 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
     const auto &t = l.tensors;
     if (!tensor(t, "input_norm", E, 1, {0}) ||
         !tensor(t, "post_norm", E, 1, {0}) ||
-        !tensor(t, "ffn_gate", E, F, {}) || !tensor(t, "ffn_up", E, F, {}) ||
-        !tensor(t, "ffn_down", F, E, {}))
+        !BindFfnProjections(p, l, E, {}, ffn))
       return false;
-    const auto gate = Role(t, "ffn_gate")->storage_type;
-    if (gate != Role(t, "ffn_up")->storage_type)
-      return Fail(error, "Qwen whole FFN requires matching gate/up encodings");
-    const auto &gate_tensor = *Role(t, "ffn_gate");
-    const auto &up_tensor = *Role(t, "ffn_up");
-    const auto &down_tensor = *Role(t, "ffn_down");
-    ffn.push_back({F, gate, up_tensor.storage_type, down_tensor.storage_type,
-                   gate_tensor.byte_size, up_tensor.byte_size,
-                   down_tensor.byte_size});
-    p.Projection(gate_tensor, E, F);
-    p.Projection(up_tensor, E, F);
-    p.Projection(down_tensor, F, E);
     if (l.kind == model::LayerKind::kGatedDeltaNet) {
       if (!l.recurrent_ordinal || *l.recurrent_ordinal != gdn_count ||
           l.attention_ordinal)

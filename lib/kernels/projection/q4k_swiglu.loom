@@ -1,0 +1,80 @@
+// Copyright 2026 The IREE Authors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Curated from loom-pipeline/llm/motifs/ggml/linear_q4k_q8_1_x4.loom at0aed77a.
+// Independently maintained ordinary canonical Qwen closure.
+target.decl @llm.platform.projection.q4k.canonical.wave32
+
+config.decl @ggml.linear_q4k_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
+
+config.decl @ggml.linear_q4k_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+
+func.decl @ggml_q4k_q8_1_x4_row_lane(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane: index) -> (f32)
+
+// Dense raw-layout projection. One subgroup owns one output channel while the
+// 256-thread workgroup exposes enough independent rows to saturate decode.
+// Paired canonical Q4_K projections keep both reductions in registers and
+// publish only the activated value, eliminating two intermediate tensors.
+kernel.def target(@llm.platform.projection.q4k.canonical.wave32) @llm.projection.q4k_swiglu(%token_count: index, %input_size: index, %output_size: index) {
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144)] : index
+  %subgroup_size = target.subgroup.size : index
+  %workgroup_size = index.constant 256 : index
+  %c1 = index.constant 1 : index
+  %subgroups_per_workgroup = index.div %workgroup_size, %subgroup_size : index
+  %output_padding = index.sub %subgroups_per_workgroup, %c1 : index
+  %padded_output_size = index.add %bounded_output_size, %output_padding : index
+  %output_tiles = index.div %padded_output_size, %subgroups_per_workgroup : index
+  kernel.launch.config workgroups(%output_tiles, %bounded_token_count, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %gate_weight: buffer, %up_weight: buffer, %output: buffer) {
+  %q8_noalias, %gate_noalias, %up_noalias, %output_noalias = buffer.assume.noalias %q8_input, %gate_weight, %up_weight, %output : buffer, buffer, buffer, buffer
+  %token_capacity = config.get @ggml.linear_q4k_q8_1_x4.token_capacity : index
+  %output_capacity = config.get @ggml.linear_q4k_q8_1_x4.output_capacity : index
+  %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048), le(%token_count, %token_capacity)] : index
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 32768), multiple_of(%input_size, 256)] : index
+  %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
+  %subgroup_size = target.subgroup.size : index
+  %workgroup_size = index.constant 256 : index
+  %c0 = index.constant 0 : index
+  %c128 = index.constant 128 : index
+  %c144_bytes = index.constant 144 : offset
+  %c256 = index.constant 256 : index
+  %subgroups_per_workgroup = index.div %workgroup_size, %subgroup_size : index
+  %channel_tile = kernel.workgroup.id<x> : index
+  %token0 = kernel.workgroup.id<y> : index
+  %token = index.assume %token0 [lt(%token0, %bounded_token_count)] : index
+  %subgroup = kernel.subgroup.id : index
+  %lane = kernel.subgroup.lane.id : index
+  %channel_base = index.mul %channel_tile, %subgroups_per_workgroup : index
+  %channel0 = index.add %channel_base, %subgroup : index
+  %valid_channel = index.cmp ult, %channel0, %bounded_output_size : index
+  %safe_channel0 = scf.select %valid_channel, %channel0, %c0 : index
+  %safe_channel = index.assume %safe_channel0 [lt(%safe_channel0, %output_capacity)] : index
+  %q4_block_count = index.div %bounded_input_size, %c256 : index
+  %weight_row_bytes = index.scale %q4_block_count, %c144_bytes : index, offset -> offset
+  %weight_row_byte_base = index.scale %safe_channel, %weight_row_bytes : index, offset -> offset
+  %q8_group_count = index.div %bounded_input_size, %c128 : index
+  %q8_row_bytes = index.scale %q8_group_count, %c144_bytes : index, offset -> offset
+  %q8_row_byte_base = index.scale %token, %q8_row_bytes : index, offset -> offset
+  // Preserve each projection's F32 accumulation and subgroup reduction.
+  %gate_lane, %up_lane = scf.if %valid_channel -> (f32, f32) {
+    %gate = func.call @ggml_q4k_q8_1_x4_row_lane(%bounded_input_size, %gate_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane) : (index, buffer, offset, buffer, offset, index) -> (f32)
+    %up = func.call @ggml_q4k_q8_1_x4_row_lane(%bounded_input_size, %up_noalias, %weight_row_byte_base, %q8_noalias, %q8_row_byte_base, %lane) : (index, buffer, offset, buffer, offset, index) -> (f32)
+    scf.yield %gate, %up : f32, f32
+  } else {
+    %zero = scalar.constant 0.0 : f32
+    scf.yield %zero, %zero : f32, f32
+  }
+  %gate = kernel.subgroup.reduce<addf> %gate_lane : f32
+  %up = kernel.subgroup.reduce<addf> %up_lane : f32
+  %is_lane_zero = index.cmp eq, %lane, %c0 : index
+  scf.if %valid_channel {
+    scf.if %is_lane_zero {
+      %c0_offset = index.constant 0 : offset
+      %output_view = buffer.view %output_noalias[%c0_offset] : buffer -> view<[%bounded_token_count]x[%bounded_output_size]xf32>
+      %activated_gate = scalar.siluf<afn> %gate : f32
+      %result = scalar.mulf<nnan|ninf|nsz> %activated_gate, %up : f32
+      view.store %result, %output_view[%token, %channel0] : f32, view<[%bounded_token_count]x[%bounded_output_size]xf32>
+    }
+  }
+  kernel.return
+}

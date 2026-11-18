@@ -331,7 +331,7 @@ check.scenario @{name} {{
 
 def gated_cases():
     out = [
-        "template.decl @llm.projection.gated_matrix(%T:index,%K:index,%N:index,%tag:index,%bytes:index,%count:buffer,%input:buffer,%gate:view<[%bytes]xi8>,%up:view<[%bytes]xi8>,%output:buffer)\n",
+        "template.decl @llm.projection.gated_matrix(%T:index,%K:index,%N:index,%gt:index,%ut:index,%gb:index,%ub:index,%count:buffer,%input:buffer,%gate:view<[%gb]xi8>,%up:view<[%ub]xi8>,%output:buffer)\n",
         "kernel.decl @llm.projection.active_swiglu(%T:index,%N:index) launch(%T:index,%N:index,%count:buffer,%gate:buffer,%up:buffer,%output:buffer)\n",
     ]
     for t, active in ((1, 0), (1, 1), (4, 1), (4, 4), (16, 0), (16, 15), (16, 16)):
@@ -352,7 +352,7 @@ def gated_cases():
 """)
             if route == "candidate":
                 out.append(
-                    f"  template.apply<@llm.projection.gated_matrix>(%T,%K,%N,%tag,%wb,%count,%input,%g,%u,%output) : (index,index,index,index,index,buffer,buffer,view<[%wb]xi8>,view<[%wb]xi8>,buffer)\n"
+                    f"  template.apply<@llm.projection.gated_matrix>(%T,%K,%N,%tag,%tag,%wb,%wb,%count,%input,%g,%u,%output) : (index,index,index,index,index,index,index,buffer,buffer,view<[%wb]xi8>,view<[%wb]xi8>,buffer)\n"
                 )
             else:
                 out.append(f"""  %bytes = index.constant {t*256*4} : offset

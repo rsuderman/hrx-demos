@@ -1,39 +1,28 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 #include "lib/loomify/architectures/ordinary_decoder.h"
+#include "lib/loomify/architectures/ffn_binding.h"
 
 namespace hrx::loomify_gguf::internal {
 bool BindOrdinaryDecoderMatrices(Producer &p, const model::LayerDescriptor &l,
                                  uint64_t E, uint64_t Q, uint64_t KV,
                                  ConfigRows &attention, ConfigRows &ffn) {
-  const auto F = l.feed_forward_width;
   if (!p.Tensor(l.tensors, "query", E, Q, {12, 14}, l.index) ||
       !p.Tensor(l.tensors, "key", E, KV, {12, 14}, l.index) ||
       !p.Tensor(l.tensors, "value", E, KV, {12, 14}, l.index) ||
       !p.Tensor(l.tensors, "attention_output", Q, E, {12, 14}, l.index) ||
-      !p.Tensor(l.tensors, "ffn_gate", E, F, {12}, l.index) ||
-      !p.Tensor(l.tensors, "ffn_up", E, F, {12}, l.index) ||
-      !p.Tensor(l.tensors, "ffn_down", F, E, {12, 14}, l.index))
+      !BindFfnProjections(p, l, E, {12, 14}, ffn))
     return false;
   const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
              &v = *Role(l.tensors, "value"),
-             &o = *Role(l.tensors, "attention_output"),
-             &g = *Role(l.tensors, "ffn_gate"), &u = *Role(l.tensors, "ffn_up"),
-             &d = *Role(l.tensors, "ffn_down");
-  if (g.storage_type != u.storage_type || g.byte_size != u.byte_size)
-    return Fail(p.error, "FFN gate/up must have matching encoded extents");
+             &o = *Role(l.tensors, "attention_output");
   attention.push_back({q.storage_type, k.storage_type, v.storage_type,
                        o.storage_type, q.byte_size, k.byte_size, v.byte_size,
                        o.byte_size});
-  ffn.push_back({F, g.storage_type, u.storage_type, d.storage_type, g.byte_size,
-                 u.byte_size, d.byte_size});
   p.Projection(q, E, Q);
   p.Projection(k, E, KV);
   p.Projection(v, E, KV);
   p.Projection(o, Q, E);
-  p.Projection(g, E, F);
-  p.Projection(u, E, F);
-  p.Projection(d, F, E);
   return true;
 }
 void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &m,

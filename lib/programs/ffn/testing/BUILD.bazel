@@ -28,12 +28,12 @@ cc_test(
     linkstatic = True,
     deps = [
         "//lib/loomify:configuration",
-        "//lib/loomify:native_linking",
         "//lib/loomify:configuration_fixture",
-        "@hrx_system//loom/binding/c/target/amdgpu",
-        "@hrx_system//loom/binding/c/target/cmd",
+        "//lib/loomify:native_linking",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+        "@hrx_system//loom/binding/c/target/cmd",
     ],
 )
 
@@ -44,6 +44,7 @@ cc_binary(
     cxxopts = ["-std=c++17"],
     data = [
         ":llama_fixture",
+        ":partial_provider",
         ":qwen_fixture",
     ],
     deps = [
@@ -51,6 +52,18 @@ cc_binary(
         "//lib/loomify:native_linking",
         "//tools/model:model_descriptor",
         "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)
+
+# Actual gate/up-only roots use the shared projection/activation providers.
+loom_merge(
+    name = "partial_provider",
+    testonly = True,
+    srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
     ],
 )
 
@@ -130,12 +143,14 @@ _FFN27_SOURCES = [
 # Add to lib/programs/ffn/testing/BUILD.bazel; shared BUILD owned by I.
 _CAPABILITY_COMMON = [
     "//lib/platforms/amdgpu/gfx11:targets.loom",
+    "//lib/kernels/decoder:implementation_sources",
     "//lib/programs/ffn:interface.loom",
     "//lib/programs/ffn:ffn.loom",
-    "//lib/programs/projection:implementation_sources",
+    "//lib/programs/projection:packed_sources",
+    "//lib/programs/projection:prepared_rows_sources",
+    "//lib/programs/ffn:gate_up_sources",
     "//lib/kernels/normalization:rmsnorm_row.loom",
     "//lib/kernels/elementwise:residual_row.loom",
-    "//lib/kernels/elementwise:swiglu_row.loom",
     "//lib/kernels/elementwise:ffn_launches.loom",
 ]
 
@@ -216,19 +231,19 @@ cc_test(
     srcs = ["capability_test.cc"],
     copts = ["-std=c++17"],
     data = [
-        "//lib/programs/ffn:interface.loom",
-        ":capability_canonical_provider_text",
         ":capability_canonical_provider_bc",
-        ":capability_compatible_provider_text",
+        ":capability_canonical_provider_text",
         ":capability_compatible_provider_bc",
+        ":capability_compatible_provider_text",
+        "//lib/programs/ffn:interface.loom",
     ],
     linkstatic = True,
     deps = [
         "//lib/loomify:native_linking",
-        "@hrx_system//loom/binding/c:loomc",
-        "@hrx_system//loom/binding/c/target/amdgpu",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
 
@@ -247,10 +262,9 @@ genrule(
     testonly = True,
     srcs = [
         ":gated_fixtures",
-        "//lib/programs/projection:implementation_sources",
-        "//lib/kernels/elementwise:ffn_launches.loom",
-        "//lib/kernels/elementwise:swiglu_row.loom",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/projection:packed_sources",
     ],
     output_format = format,
 ) for format in [
@@ -264,6 +278,63 @@ genrule(
     benchmark_smoke = False,
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for format in [
+    "text",
+    "bc",
+]]
+
+[genrule(
+    name = "independent_" + mode + "_fixtures",
+    testonly = True,
+    srcs = [
+        "independent_fixtures.py",
+        "//lib/kernels/qwen/testing/common:fixture_helpers.py",
+    ],
+    outs = ["independent_" + mode + "_checks.loom"],
+    cmd = "python3 $(location independent_fixtures.py) $(location //lib/kernels/qwen/testing/common:fixture_helpers.py) " + mode + " $@",
+) for mode in [
+    "classic",
+    "live_qwen",
+    "gated_tiny",
+    "gated_matrix",
+]]
+
+[loom_merge(
+    name = "independent_" + mode + "_" + format,
+    testonly = True,
+    srcs = [":independent_" + mode + "_fixtures"] + ([
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/ffn:matrix_gate_up_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+    ] if mode in [
+        "gated_tiny",
+        "gated_matrix",
+    ] else _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if mode == "classic" else _CAPABILITY_CANONICAL + ["//lib/programs/qwen35:ffn.loom"])),
+    output_format = format,
+) for mode in [
+    "classic",
+    "live_qwen",
+    "gated_tiny",
+    "gated_matrix",
+] for format in [
+    "text",
+    "bc",
+]]
+
+[loom_test(
+    name = "independent_" + mode + "_" + format + "_test",
+    srcs = [":independent_" + mode + "_" + format],
+    benchmark_smoke = False,
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+) for mode in [
+    "classic",
+    "live_qwen",
+    "gated_tiny",
+    "gated_matrix",
+] for format in [
     "text",
     "bc",
 ]]

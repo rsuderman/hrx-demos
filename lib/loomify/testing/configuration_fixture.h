@@ -4,6 +4,7 @@
 #define HRX_SOLUTIONS_LOOMIFY_CONFIGURATION_TEST_FIXTURE_H_
 #include "tools/model/model_descriptor.h"
 #include <cstdlib>
+#include <map>
 namespace hrx::loomify_gguf::testing {
 // Plain admitted full-profile descriptors. No native/compiler/graph objects.
 inline model::ModelDescriptor
@@ -85,6 +86,40 @@ LlamaModelFacts(uint64_t hidden = 3072, uint64_t vocabulary = 128256,
   }
   return m;
 }
+// Same role geometry as the two cached Q8 witnesses, with coherent tied
+// aliases.
+inline model::ModelDescriptor LlamaQ8ModelFacts(bool independent_head = false) {
+  auto m = independent_head
+               ? LlamaModelFacts(4096, 128256, 14336, 32, 32, 14, false, false)
+               : LlamaModelFacts();
+  uint64_t next = 4096;
+  std::map<std::string, model::TensorRecord> identities;
+  auto retag = [&](model::TensorBinding &binding) {
+    auto &tensor = binding.tensor;
+    const auto old = identities.find(tensor.name);
+    if (old != identities.end()) {
+      tensor = old->second;
+      return;
+    }
+    if (tensor.storage_type != 0) {
+      tensor.storage_type = 8;
+      if (!model::EncodedTensorByteSize(8, tensor.normalized_extents[0],
+                                        tensor.normalized_extents[1],
+                                        &tensor.byte_size))
+        std::abort();
+    }
+    tensor.absolute_offset = next;
+    next += (tensor.byte_size + 255) / 256 * 256;
+    identities.emplace(tensor.name, tensor);
+  };
+  for (auto &binding : m.globals)
+    retag(binding);
+  for (auto &layer : m.layers)
+    for (auto &binding : layer.tensors)
+      retag(binding);
+  return m;
+}
+
 inline model::ModelDescriptor LlamaPlainModelFacts() {
   auto m = LlamaModelFacts(2048, 110592, 7168, 24, 16, 12, false, false);
   m.rope.base = 1e8;

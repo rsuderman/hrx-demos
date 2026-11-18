@@ -17,14 +17,13 @@ exports_files(_SOURCES)
 filegroup(
     name = "implementation_sources",
     srcs = _SOURCES + [
-        "//lib/kernels/embedding:ordinary_f32_sources",
-        "//lib/programs/output:last_greedy.loom",
-        "//lib/programs/ffn:canonical_swiglu.loom",
-        "//lib/programs/projection:implementation_sources",
-        "//lib/kernels/decoder:implementation_sources",
         "//lib/kernels/convolution:shortconv3.loom",
-        "//lib/kernels/elementwise:ffn_launches.loom",
-        "//lib/kernels/elementwise:swiglu_row.loom",
+        "//lib/kernels/decoder:implementation_sources",
+        "//lib/kernels/embedding:ordinary_f32_sources",
         "//lib/kernels/publication:epoch_two_stops.loom",
+        "//lib/programs/ffn:canonical_swiglu.loom",
+        "//lib/programs/ffn:gate_up_sources",
+        "//lib/programs/output:last_greedy.loom",
+        "//lib/programs/projection:packed_sources",
     ],
 )

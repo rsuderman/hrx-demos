@@ -78,7 +78,7 @@ def emit():
         "template.decl @llm.projection.matrix(%T: index, %K: index, %N: index, %tag: index, %bytes: index, %count: buffer, %input: buffer, %weight: view<[%bytes]xi8>, %output: buffer)\n"
     )
     out.append(
-        "template.decl @llm.projection.gated_matrix(%T: index, %K: index, %N: index, %tag: index, %bytes: index, %count: buffer, %input: buffer, %gate: view<[%bytes]xi8>, %up: view<[%bytes]xi8>, %output: buffer)\n"
+        "template.decl @llm.projection.gated_matrix(%T: index, %K: index, %N: index, %gt: index, %ut: index, %gb: index, %ub: index, %count: buffer, %input: buffer, %gate: view<[%gb]xi8>, %up: view<[%ub]xi8>, %output: buffer)\n"
     )
     for tag in ("q4k", "q5_0", "q5k", "q6k", "q8_0"):
         out.append(
@@ -257,7 +257,7 @@ def emit():
         )
         if gated:
             out.append(
-                f"  template.apply<@llm.projection.gated_matrix>(%T,%K,%N,%tag,%bytes,%count,%input,%w,%u,%output) : (index,index,index,index,index,buffer,buffer,view<[%bytes]xi8>,view<[%bytes]xi8>,buffer)\n"
+                f"  template.apply<@llm.projection.gated_matrix>(%T,%K,%N,%tag,%tag,%bytes,%bytes,%count,%input,%w,%u,%output) : (index,index,index,index,index,index,index,buffer,buffer,view<[%bytes]xi8>,view<[%bytes]xi8>,buffer)\n"
             )
         else:
             out.append(

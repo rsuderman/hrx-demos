@@ -6,7 +6,7 @@
 import sys
 from pathlib import Path
 
-FORMATS = ((12, 144), (13, 176), (14, 210))
+FORMATS = ((8, 272), (12, 144), (13, 176), (14, 210))
 EPOCH_ROWS = (
     ("row512", 513, 0),
     ("shifted_input512", 512, 1),

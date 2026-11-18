@@ -16,6 +16,7 @@ struct SourceProfile {
   std::vector<std::string> pieces;
   size_t terminal_index;
   size_t eos_index;
+  bool optional_message_stop = false;
 };
 bool SelectSourceProfile(PublicationLayout layout,
                          const model::TextMetadata &text,
@@ -39,7 +40,7 @@ bool SelectSourceProfile(PublicationLayout layout,
       return true;
     }
     if (identity.piece == "<|eot_id|>") {
-      *profile = {{"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"}, 2, 2};
+      *profile = {{"<|end_of_text|>", "<|eom_id|>", "<|eot_id|>"}, 2, 2, true};
       return true;
     }
     if (identity.piece == "<|endofturn|>") {
@@ -87,6 +88,13 @@ bool ResolveSourceProfile(FILE *file, const model::TextMetadata &text,
           },
           error))
     return false;
+  // Earlier EOT vocabularies have no message stop. Alias its numerical slot
+  // only after the complete scan proves both mandatory source stops unique.
+  if (profile.optional_message_stop && !present[1] && present[0] &&
+      present[2]) {
+    facts->raw_stops[1] = facts->raw_stops[2];
+    present[1] = true;
+  }
   for (size_t i = 0; i < profile.pieces.size(); ++i)
     if (!present[i])
       return Fail(error, "publication requires " + profile.pieces[i]);

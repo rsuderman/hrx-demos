@@ -341,5 +341,55 @@ TEST(Qwen2ConfigurationRealAssets,
   }
 }
 #endif
+TEST(Qwen2Configuration, IndependentGateAndUpUseTheirOwnEncodedRanges) {
+  model::ModelDescriptor model;
+  std::string error;
+  ASSERT_TRUE(
+      model::LoadModelDescriptor(testing::qwen2::Catalog(), &model, &error))
+      << error;
+  auto &layer = model.layers[1];
+  auto up = std::find_if(
+      layer.tensors.begin(), layer.tensors.end(),
+      [](const auto &binding) { return binding.role == "ffn_up"; });
+  ASSERT_NE(up, layer.tensors.end());
+  up->tensor.storage_type = 13;
+  ASSERT_TRUE(model::EncodedTensorByteSize(13, model.embedding_width,
+                                           layer.feed_forward_width,
+                                           &up->tensor.byte_size));
+  ConfigurationFacts facts;
+  ASSERT_TRUE(DeriveConfiguration(model, "mixed.gguf", {}, &facts, &error))
+      << error;
+  const auto actual = std::find_if(
+      facts.parameters.begin(), facts.parameters.end(),
+      [](const auto &p) { return p.role == "ffn_up" && p.layer == 1; });
+  ASSERT_NE(actual, facts.parameters.end());
+  EXPECT_EQ(actual->tensor.storage_type, 13u);
+  EXPECT_EQ(actual->tensor.byte_size, up->tensor.byte_size);
+  EXPECT_EQ(actual->tensor.absolute_offset, up->tensor.absolute_offset);
+  EXPECT_EQ(Role(layer.tensors, "ffn_gate")->storage_type, 12u);
+  ++up->tensor.byte_size;
+  facts.source = "sentinel";
+  EXPECT_FALSE(DeriveConfiguration(model, "bad", {}, &facts, &error));
+  EXPECT_EQ(facts.source, "sentinel");
+}
+TEST(Qwen2Configuration, SharedFfnBindingRetainsDownFormatAdmission) {
+  auto model = testing::qwen2::ModelFacts();
+  auto &layer = model.layers[0];
+  auto down = std::find_if(
+      layer.tensors.begin(), layer.tensors.end(),
+      [](const auto &binding) { return binding.role == "ffn_down"; });
+  ASSERT_NE(down, layer.tensors.end());
+  down->tensor.storage_type = 13;
+  ASSERT_TRUE(model::EncodedTensorByteSize(13, layer.feed_forward_width,
+                                           model.embedding_width,
+                                           &down->tensor.byte_size));
+  ConfigurationFacts facts;
+  facts.source = "unchanged";
+  std::string error;
+  EXPECT_FALSE(DeriveConfiguration(model, "fixture", {}, &facts, &error));
+  EXPECT_EQ(error,
+            "unsupported tensor name, shape or encoding: " + down->tensor.name);
+  EXPECT_EQ(facts.source, "unchanged");
+}
 } // namespace
 } // namespace hrx::loomify_gguf

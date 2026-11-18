@@ -1,6 +1,7 @@
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("@hrx_system//loom/build_tools/bazel:loom_library.bzl", "loom_library")
+load("//build_tools:loom_merge.bzl", "loom_merge")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -9,6 +10,8 @@ exports_files([
     "ffn.loom",
     "matrix_swiglu.loom",
     "canonical_swiglu.loom",
+    "gate_up.loom",
+    "matrix_gate_up.loom",
 ])
 
 loom_library(
@@ -20,3 +23,30 @@ loom_library(
     name = "ffn",
     srcs = ["ffn.loom"],
 )
+
+filegroup(
+    name = "gate_up_sources",
+    srcs = [
+        "gate_up.loom",
+        "//lib/kernels/elementwise:swiglu_launches.loom",
+        "//lib/kernels/elementwise:swiglu_row.loom",
+        "//lib/kernels/projection:q4k_swiglu.loom",
+    ],
+)
+
+filegroup(
+    name = "matrix_gate_up_sources",
+    srcs = ["matrix_gate_up.loom"],
+)
+
+[loom_merge(
+    name = name + ("_text" if format == "text" else ""),
+    srcs = [":" + name + "_sources"],
+    output_format = format,
+) for name in [
+    "gate_up",
+    "matrix_gate_up",
+] for format in [
+    "bc",
+    "text",
+]]

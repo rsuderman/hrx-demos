@@ -194,6 +194,40 @@ TEST(ConfigurationFactsTest,
       EXPECT_FALSE(error.empty());
     }
 }
+TEST(ConfigurationFactsTest, FfnTensorChecksPrecedeGateAndUpGeometry) {
+  // A valid F32 tensor is not a canonical gate/up projection. The existing
+  // binders still validate all three tensor footprints before that geometry
+  // check, so a malformed down extent must be the first reported failure.
+  for (const auto &original :
+       {testing::LlamaModelFacts(), testing::QwenModelFacts(),
+        testing::qwen2::ModelFacts()})
+    for (const char *role : {"ffn_gate", "ffn_up"}) {
+      auto model = original;
+      auto &bindings = model.layers[0].tensors;
+      const auto find = [&](const char *name) {
+        return std::find_if(bindings.begin(), bindings.end(),
+                            [&](const auto &b) { return b.role == name; });
+      };
+      auto input = find(role), down = find("ffn_down");
+      ASSERT_NE(input, bindings.end());
+      ASSERT_NE(down, bindings.end());
+      input->tensor.storage_type = 0;
+      ASSERT_TRUE(model::EncodedTensorByteSize(
+          0, model.embedding_width, model.layers[0].feed_forward_width,
+          &input->tensor.byte_size));
+      ++down->tensor.byte_size;
+      ConfigurationFacts facts;
+      facts.source = "unchanged";
+      facts.parameters.resize(1);
+      std::string error;
+      EXPECT_FALSE(DeriveConfiguration(model, "fixture", {}, &facts, &error));
+      EXPECT_EQ(error,
+                "invalid encoded tensor byte range: " + down->tensor.name)
+          << original.family << role;
+      EXPECT_EQ(facts.source, "unchanged");
+      EXPECT_EQ(facts.parameters.size(), 1u);
+    }
+}
 TEST(ConfigurationFactsTest, LlamaScalarFactsPreserveQualifiedF32Bits) {
   ConfigurationFacts facts;
   std::string error;
@@ -1129,5 +1163,91 @@ TEST_F(ConfigurationNativeTest, RealHeadersPreserveEveryNamedRangeAndTuple) {
   }
 }
 #endif
+TEST(ConfigurationFactsTest, QwenFfnOperandsKeepIndependentFormatsAndExtents) {
+  auto descriptor = Model(false);
+  auto &layer = descriptor.layers.front();
+  auto up = std::find_if(layer.tensors.begin(), layer.tensors.end(),
+                         [](const auto &b) { return b.role == "ffn_up"; });
+  ASSERT_NE(up, layer.tensors.end());
+  const auto original_offset = up->tensor.absolute_offset;
+  up->tensor.storage_type = 8;
+  ASSERT_TRUE(model::EncodedTensorByteSize(8, descriptor.embedding_width,
+                                           layer.feed_forward_width,
+                                           &up->tensor.byte_size));
+  ConfigurationFacts facts;
+  std::string error;
+  ASSERT_TRUE(
+      DeriveConfiguration(descriptor, "independent.gguf", {}, &facts, &error))
+      << error;
+  const auto parameter = std::find_if(
+      facts.parameters.begin(), facts.parameters.end(),
+      [](const auto &p) { return p.role == "ffn_up" && p.layer == 0; });
+  ASSERT_NE(parameter, facts.parameters.end());
+  EXPECT_EQ(parameter->tensor.storage_type, 8u);
+  EXPECT_EQ(parameter->tensor.byte_size, up->tensor.byte_size);
+  EXPECT_EQ(parameter->tensor.absolute_offset, original_offset);
+  EXPECT_GE(std::stoull(Scalars(facts.source)
+                            .at("ggml.linear_q8_0_q8_1_x4.output_capacity")
+                            .first),
+            layer.feed_forward_width);
+  for (bool wrong_extent : {true, false}) {
+    auto bad = descriptor;
+    auto &operand = *std::find_if(
+        bad.layers.front().tensors.begin(), bad.layers.front().tensors.end(),
+        [](const auto &b) { return b.role == "ffn_up"; });
+    if (wrong_extent)
+      ++operand.tensor.byte_size;
+    else
+      operand.tensor.normalized_extents[0] += 256;
+    facts.source = "sentinel";
+    EXPECT_FALSE(DeriveConfiguration(bad, "bad", {}, &facts, &error));
+    EXPECT_EQ(facts.source, "sentinel");
+  }
+}
+TEST(ConfigurationFactsTest, LlamaQ8FactsKeepActualRootBindingAndCapacities) {
+  for (bool independent : {false, true}) {
+    auto model = testing::LlamaQ8ModelFacts(independent);
+    for (uint64_t rows : {1, 8, 17}) {
+      ConfigurationFacts facts;
+      std::string error;
+      ASSERT_TRUE(
+          DeriveConfiguration(model, "q8-asset", {rows, 256}, &facts, &error))
+          << error;
+      const auto scalars = Scalars(facts.source);
+      EXPECT_EQ(scalars.at("llama.model.embedding_storage_type").first, "8");
+      EXPECT_EQ(scalars.at("llama.model.output_storage_type").first, "8");
+      EXPECT_EQ(scalars.at("llama.model.tie_word_embeddings").first,
+                independent ? "0" : "1");
+      EXPECT_EQ(scalars.at("ggml.linear_q8_0_q8_1_x4.output_capacity").first,
+                "128256");
+      EXPECT_EQ(scalars.at("ggml.linear_q6k_q8_1_x4.output_capacity").first,
+                "1");
+      const model::TensorRecord *embedding = nullptr, *output = nullptr;
+      for (const auto &parameter : facts.parameters) {
+        if (parameter.role == "token_embedding")
+          embedding = &parameter.tensor;
+        if (parameter.role == "output")
+          output = &parameter.tensor;
+      }
+      ASSERT_NE(embedding, nullptr);
+      ASSERT_NE(output, nullptr);
+      EXPECT_EQ(output->name,
+                independent ? "output.weight" : "token_embd.weight");
+      EXPECT_EQ(embedding->byte_size,
+                model.embedding_width / 32 * 34 * model.vocabulary_size);
+      EXPECT_EQ(output->byte_size, embedding->byte_size);
+      EXPECT_EQ(output->absolute_offset == embedding->absolute_offset,
+                !independent);
+    }
+    auto &q = model.layers[0].tensors[5].tensor;
+    q.byte_size++;
+    ConfigurationFacts facts;
+    facts.source = "preserved";
+    std::string error;
+    EXPECT_FALSE(DeriveConfiguration(model, "bad-q8", {}, &facts, &error));
+    EXPECT_EQ(facts.source, "preserved");
+  }
+}
+
 } // namespace
 } // namespace hrx::loomify_gguf

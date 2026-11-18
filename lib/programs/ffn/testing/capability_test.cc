@@ -41,11 +41,14 @@ struct Input {
   int down_tag = 13;
   int up_tag = 12;
   bool bad_gate_bytes = false;
+  bool bad_up_bytes = false;
   bool bad_down_bytes = false;
   bool expected = true;
 };
 // Fixture byte sizes, not a production admission table.
 int Bytes(int tag, int input, int output) {
+  if (tag == 6)
+    return input / 32 * output * 22;
   if (tag == 8)
     return input / 32 * output * 34;
   const int block = tag == 12 ? 144 : tag == 13 ? 176 : 210;
@@ -100,15 +103,26 @@ std::vector<Input> Inputs() {
     result.back().expected = false;
     return result.back();
   };
-  auto &compat_gate = bad("unsupported_compatible_gate_q5");
-  compat_gate.profile = 0;
-  compat_gate.gate_tag = compat_gate.up_tag = 13;
-  auto &compat_down = bad("unsupported_compatible_down_q5");
-  compat_down.profile = 0;
-  auto &q8_gate = bad("unsupported_ffn_q8_gate");
-  q8_gate.gate_tag = q8_gate.up_tag = 8;
+  for (int profile : {0, 1}) {
+    for (int rows : {1, 16, 17}) {
+      for (const auto &tags : {std::tuple{12, 14, 14}, std::tuple{12, 13, 14},
+                               std::tuple{8, 12, 14}, std::tuple{12, 8, 8},
+                               std::tuple{8, 8, 8}, std::tuple{6, 13, 8}}) {
+        Input v;
+        std::tie(v.gate_tag, v.up_tag, v.down_tag) = tags;
+        v.profile = profile;
+        v.rows = rows;
+        v.phase = rows == 1 ? 1 : 0;
+        v.name = "independent_" + std::to_string(profile) + "_" +
+                 std::to_string(rows) + "_" + std::to_string(v.gate_tag) + "_" +
+                 std::to_string(v.up_tag) + "_" + std::to_string(v.down_tag);
+        result.push_back(v);
+      }
+    }
+  }
   bad("unknown_down_tag").down_tag = 99;
   bad("wrong_gate_bytes").bad_gate_bytes = true;
+  bad("wrong_up_bytes").bad_up_bytes = true;
   bad("wrong_down_bytes").bad_down_bytes = true;
   bad("hidden_row_alignment").hidden = 1408;
   bad("ffn_block_alignment").ffn = 640;
@@ -117,7 +131,7 @@ std::vector<Input> Inputs() {
   q6_limit.down_tag = 14;
   bad("decode_more_than_one_row").rows = 3;
   bad("unknown_profile").profile = 2;
-  bad("up_tag_mismatch").up_tag = 13;
+  bad("unknown_up_tag").up_tag = 99;
   return result;
 }
 using Case = std::tuple<Input, bool>;
@@ -155,18 +169,15 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
   ASSERT_TRUE(interface);
   std::ostringstream source;
   source << interface.rdbuf();
-  source
-      << "template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)\n";
   for (const char *format : {"q4k", "q5k", "q6k", "q8_0"})
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 512 : index\n"
            << "config.def @ggml.linear_" << format
            << "_q8_1_x4.output_capacity = 262144 : index\n";
-  // Q5_0 is an unused provider in these Q4/Q5_K/Q6 capability cases.
-  // Match Producer's unobserved-format facts, without enabling a Q5_0 FFN.
+  // Each independently encoded operand contributes its own provider capacity.
   source
       << "config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index\n"
-      << "config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index\n";
+      << "config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 262144 : index\n";
   source
       << "config.def @ggml.quantize_q8_1_x4.group_capacity = 524288 : index\n"
       << "config.def @" << family << ".model.hidden_size = " << v.hidden
@@ -179,6 +190,7 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
       << "command.def public @capability.root() launch(%residual: buffer, %count: buffer, %gamma_bytes: buffer, %gate_bytes: buffer, %up_bytes: buffer, %down_bytes: buffer) {\n";
   const int gate_bytes =
       v.bad_gate_bytes ? 1 : Bytes(v.gate_tag, v.hidden, v.ffn);
+  const int up_bytes = v.bad_up_bytes ? 1 : Bytes(v.up_tag, v.hidden, v.ffn);
   const int down_bytes =
       v.bad_down_bytes ? 1 : Bytes(v.down_tag, v.ffn, v.hidden);
   for (const auto &[key, value] :
@@ -191,6 +203,7 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
                                                  {"up_tag", v.up_tag},
                                                  {"down_tag", v.down_tag},
                                                  {"gate_size", gate_bytes},
+                                                 {"up_size", up_bytes},
                                                  {"down_size", down_bytes}})
     source << "  %" << key << " = index.constant " << value << " : index\n";
   source
@@ -198,10 +211,9 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
       << "  %origin = index.constant 0 : offset\n"
       << "  %gamma = buffer.view %gamma_bytes[%origin] : buffer -> view<[%hidden]xf32>\n"
       << "  %gate = buffer.view %gate_bytes[%origin] : buffer -> view<[%gate_size]xi8>\n"
-      << "  %up = buffer.view %up_bytes[%origin] : buffer -> view<[%gate_size]xi8>\n"
+      << "  %up = buffer.view %up_bytes[%origin] : buffer -> view<[%up_size]xi8>\n"
       << "  %down = buffer.view %down_bytes[%origin] : buffer -> view<[%down_size]xi8>\n"
-      << "  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %gate_size, %gate_size) : (index, index, index, index)\n"
-      << "  template.apply<@loomify.ffn>(%hidden, %ffn, %rows, %phase, %profile, %epsilon, %gate_tag, %down_tag, %gate_size, %down_size, %residual, %count, %gamma, %gate, %up, %down) : (index, index, index, index, index, f32, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%gate_size]xi8>, view<[%gate_size]xi8>, view<[%down_size]xi8>)\n"
+      << "  template.apply<@loomify.ffn>(%hidden, %ffn, %rows, %phase, %profile, %epsilon, %gate_tag, %up_tag, %down_tag, %gate_size, %up_size, %down_size, %residual, %count, %gamma, %gate, %up, %down) : (index, index, index, index, index, f32, index, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%gate_size]xi8>, view<[%up_size]xi8>, view<[%down_size]xi8>)\n"
       << "  command.return\n}\n";
   const auto product =
       Runfile(std::string("lib/programs/ffn/testing/capability_") +

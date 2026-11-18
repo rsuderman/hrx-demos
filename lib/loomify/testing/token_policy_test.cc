@@ -198,10 +198,10 @@ protected:
             bool chatml = false, std::string terminal = {}, bool gemma = false,
             bool qwen3 = false, bool qwen2 = false, bool plain = false,
             bool duplicate_stop = false, std::string extra_piece = {},
-            bool duplicate_terminal = false) {
+            bool duplicate_terminal = false, bool missing_end_text = false) {
     pieces = {"a",
               "<|begin_of_text|>",
-              "<|end_of_text|>",
+              missing_end_text ? "other_end_text" : "<|end_of_text|>",
               missing_stop ? "other" : "<|eom_id|>",
               terminal.empty() ? (chatml ? "<|im_end|>" : "<|eot_id|>")
                                : terminal,
@@ -1029,7 +1029,8 @@ TEST_F(TokenPolicyTest, SingleSentenceEosRejectsInvalidOrDuplicateIdentities) {
   EXPECT_EQ(facts->configuration_source, "prior");
 }
 TEST_F(TokenPolicyTest, MissingRequiredPublicationPiecePreservesOutput) {
-  Open(true);
+  Open(true, true, false, {}, false, false, false, false, false, {}, false,
+       true);
   std::optional<PublicationTokenFacts> facts = PublicationTokenFacts{};
   facts->raw_stops.resize(3);
   facts->raw_stops[2].id = 99;
@@ -1037,7 +1038,102 @@ TEST_F(TokenPolicyTest, MissingRequiredPublicationPiecePreservesOutput) {
       DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
   ASSERT_TRUE(facts);
   EXPECT_EQ(facts->raw_stops[2].id, 99);
-  EXPECT_NE(error.find("<|eom_id|>"), std::string::npos);
+  EXPECT_NE(error.find("<|end_of_text|>"), std::string::npos);
+}
+TEST_F(TokenPolicyTest, MissingOptionalMessageStopAliasesActualTurnStop) {
+  Open(true);
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error))
+      << error;
+  ASSERT_TRUE(facts);
+  ASSERT_EQ(facts->raw_stops.size(), 3u);
+  EXPECT_EQ(facts->terminal_index, 2u);
+  EXPECT_EQ(facts->raw_stops[0].id, 2);
+  for (size_t i : {1u, 2u}) {
+    EXPECT_EQ(facts->raw_stops[i].id, 4);
+    EXPECT_EQ(facts->raw_stops[i].piece, "<|eot_id|>");
+  }
+  EXPECT_EQ(facts->configuration_source,
+            "config.def @llama.publication.end_text_id = 2 : i32\n"
+            "config.def @llama.publication.end_message_id = 4 : i32\n"
+            "config.def @llama.publication.end_turn_id = 4 : i32\n");
+  PreparedTokenBindings prepared;
+  ASSERT_TRUE(PrepareTokenBindings({}, text, Json(), &prepared, &error));
+  BoundTokenPolicy bound;
+  ASSERT_TRUE(FinalizeTokenPolicy(file.get(), prepared, text, facts,
+                                  {"<|eot_id|>"}, {}, &bound, &error))
+      << error;
+  EXPECT_EQ(bound.terminal.id, 4);
+  auto wrong = *facts;
+  wrong.raw_stops[1].id = 3;
+  EXPECT_FALSE(FinalizeTokenPolicy(file.get(), prepared, text, wrong,
+                                   {"<|eot_id|>"}, {}, &bound, &error));
+  EXPECT_NE(error.find("identity mismatch"), std::string::npos);
+}
+TEST_F(TokenPolicyTest, OptionalMessageStopDoesNotMaskSourceObligations) {
+  Open(true);
+  std::optional<PublicationTokenFacts> facts;
+  ASSERT_TRUE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  PreparedTokenBindings prepared;
+  ASSERT_TRUE(PrepareTokenBindings({}, text, Json(), &prepared, &error));
+  BoundTokenPolicy bound;
+  bound.text_source = "prior";
+  EXPECT_FALSE(FinalizeTokenPolicy(file.get(), prepared, text, facts,
+                                   {"<|eot_id|>"}, {"<|eom_id|>"}, &bound,
+                                   &error));
+  EXPECT_NE(error.find("GGUF missing required atomic marker: <|eom_id|>"),
+            std::string::npos);
+  EXPECT_EQ(bound.text_source, "prior");
+  EXPECT_FALSE(FinalizeTokenPolicy(file.get(), prepared, text, facts,
+                                   {"<|eom_id|>"}, {}, &bound, &error));
+  EXPECT_NE(error.find("no native special terminal"), std::string::npos);
+  EXPECT_EQ(bound.text_source, "prior");
+}
+TEST_F(TokenPolicyTest, OptionalMessageStopDoesNotMaskInvalidSourceIdentities) {
+  std::optional<PublicationTokenFacts> facts =
+      PublicationTokenFacts{{{77, "prior"}}, 0, "prior"};
+  Open(false, true, false, {}, false, false, false, false, false, "<|eom_id|>");
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_NE(error.find("invalid publication piece <|eom_id|>"),
+            std::string::npos);
+  EXPECT_EQ(facts->configuration_source, "prior");
+  Open(true, true, false, {}, false, false, false, false, false, {}, true);
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_NE(error.find("invalid publication piece <|eot_id|>"),
+            std::string::npos);
+  EXPECT_EQ(facts->configuration_source, "prior");
+  // Isolate the missing mandatory EOT; when EOM is also absent the ordered
+  // unresolved-slot diagnostic reports that earlier slot first.
+  Open(false, true, false, "other_terminal");
+  text.token_pieces[4] = "<|eot_id|>";
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_NE(error.find("publication requires <|eot_id|>"), std::string::npos);
+  EXPECT_EQ(facts->configuration_source, "prior");
+  Open(true);
+  for (auto &token : text.tokens)
+    if (token.source_key == "tokenizer.ggml.eos_token_id")
+      token.id = 3;
+  text.token_pieces[3] = "<|eot_id|>";
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_NE(error.find("disagrees with declared EOS"), std::string::npos);
+  EXPECT_EQ(facts->configuration_source, "prior");
+  Open(true);
+  text.tokens.erase(std::remove_if(text.tokens.begin(), text.tokens.end(),
+                                   [](const auto &t) {
+                                     return t.source_key ==
+                                            "tokenizer.ggml.eos_token_id";
+                                   }),
+                    text.tokens.end());
+  EXPECT_FALSE(
+      DerivePublicationTokenFacts(file.get(), "llama", text, &facts, &error));
+  EXPECT_NE(error.find("declared EOS"), std::string::npos);
+  EXPECT_EQ(facts->configuration_source, "prior");
 }
 TEST_F(TokenPolicyTest, UnknownPublicationProviderPreservesOutput) {
   std::optional<PublicationTokenFacts> facts =

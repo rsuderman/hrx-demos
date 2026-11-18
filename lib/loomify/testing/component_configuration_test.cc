@@ -60,7 +60,7 @@ TEST(ComponentConfigurationTest,
 
 TEST(ComponentConfigurationTest,
      OrdinaryGatherHasItsOwnFiniteEncodingContract) {
-  for (const auto tag : {12u, 13u, 14u}) {
+  for (const auto tag : {8u, 12u, 13u, 14u}) {
     SCOPED_TRACE(tag);
     for (const auto hidden : {256u, 32768u}) {
       const auto tensor = Encoded(tag, hidden, 262144);
@@ -83,7 +83,7 @@ TEST(ComponentConfigurationTest,
     tensor.byte_size--;
     EXPECT_FALSE(CheckOrdinaryEmbedding(tensor, 256, 3, &result, nullptr));
   }
-  auto unsupported = Encoded(8, 256, 3);
+  auto unsupported = Encoded(1, 256, 3);
   OrdinaryEmbeddingFacts result{};
   EXPECT_FALSE(CheckOrdinaryEmbedding(unsupported, 256, 3, &result, nullptr));
 }

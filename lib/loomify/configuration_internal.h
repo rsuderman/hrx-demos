@@ -109,8 +109,8 @@ inline bool CheckOrdinaryEmbedding(const model::TensorRecord &tensor,
                                    OrdinaryEmbeddingFacts *facts,
                                    std::string *error) {
   if (!facts ||
-      (tensor.storage_type != 12 && tensor.storage_type != 13 &&
-       tensor.storage_type != 14) ||
+      (tensor.storage_type != 8 && tensor.storage_type != 12 &&
+       tensor.storage_type != 13 && tensor.storage_type != 14) ||
       hidden < 256 || hidden > 32768 || hidden % 256 || !vocabulary ||
       vocabulary > 262144)
     return Fail(error, "unsupported ordinary embedding geometry or encoding: " +

@@ -7,7 +7,7 @@ config.decl @gemma3.model.vocabulary_size : index
 
 config.decl @gemma3.model.embedding_scale : f32
 
-template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %embedding_row_bytes: index, %token_id_i32: i32, %output_byte_offset: offset, %scale: f32, %weight: buffer, %output: buffer)
+template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %token_id_i32: i32, %output_byte_offset: offset, %scale: f32, %weight: buffer, %output: buffer)
 
 func.decl @llm.active_row(%row: index, %begin: index, %fixed_count: i32, %origin: offset, %count: buffer) -> (i1)
 
@@ -22,10 +22,6 @@ kernel.def @gemma3_token_embedding_epoch_q8_f32(%token_count0: index) {
   %token_count = index.assume %token_count_value [range(%token_count_value, 1, 2048)] : index
   %hidden_size = config.get @gemma3.model.hidden_size : index
   %vocabulary = config.get @gemma3.model.vocabulary_size : index
-  %block_values = index.constant 32 : index
-  %block_bytes = index.constant 34 : index
-  %blocks = index.div %hidden_size, %block_values : index
-  %embedding_row_bytes = index.mul %blocks, %block_bytes : index
   %row_value = kernel.workgroup.id<x> : index
   %row = index.assume %row_value [range(%row_value, 0, 2047), lt(%row_value, %token_count)] : index
   %begin = index.constant 0 : index
@@ -49,7 +45,7 @@ kernel.def @gemma3_token_embedding_epoch_q8_f32(%token_count0: index) {
     %id = index.assume %id_value [range(%id_value, 0, 262143), lt(%id_value, %vocabulary)] : index
     %bounded_id = index.cast %id : index to i32
     %scale = config.get @gemma3.model.embedding_scale : f32
-    template.apply<@llm.token_embedding_q8_0_f32.row>(%hidden_size, %embedding_row_bytes, %bounded_id, %output_origin, %scale, %weight, %output) : (index, index, i32, offset, f32, buffer, buffer)
+    template.apply<@llm.token_embedding_q8_0_f32.row>(%hidden_size, %bounded_id, %output_origin, %scale, %weight, %output) : (index, i32, offset, f32, buffer, buffer)
   }
   kernel.return
 }

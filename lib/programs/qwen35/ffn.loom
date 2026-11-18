@@ -1,14 +1,24 @@
-template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index, %gate_tag: index, %down_tag: index, %gate_bytes: index, %down_bytes: index)
+template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index)
 
-template.decl @loomify.ffn.match_up(%gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index)
+template.decl @llm.ffn.swiglu_packed(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %ffn_width: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %activated: buffer)
+
+template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
+
+kernel.decl @llm.projection.prepare_f32_prefix(%capacity$30: index, %input_width$31: index) launch(%capacity$32: index, %input_width$33: index, %count: buffer, %input: buffer, %output: buffer)
+
+template.decl @loomify.qwen.ffn_route(%generic: i1, %m4: i1)
+
+template.def<@loomify.qwen.ffn_route> @loomify_qwen_ffn_route(%generic: i1, %m4: i1) where [eq(%generic, 1), eq(%m4, 0)] {
+  template.return
+}
 
 // Copyright 2026 The IREE Authors
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated from loom-pipeline/llm/qwen/programs/qwen38/ffn.loom at0aed77a.
 // Independently maintained ordinary canonical Qwen closure.
-template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
+template.decl @llm.ffn.gate_up_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %shape_ffn_gate_weight_bytes: index, %shape_ffn_up_weight_bytes: index, %shape_ffn_row_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_up_weight_bytes]xi8>, %post_normalized_q8: buffer, %swiglu: buffer)
 
-template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
+template.decl @llm.ffn.gate_up_prefill(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_gate_is_q4: i1, %ffn_gate_is_q6: i1, %token_count: index, %token_capacity: index, %schedule_token_count: index, %projection_row_origin: index, %projection_count_origin: offset, %uses_m4: i1, %m4_token_count: index, %shape_ffn_capacity_bytes: index, %shape_ffn_gate_weight_bytes: index, %shape_ffn_up_weight_bytes: index, %shape_hidden_q8_capacity_bytes: index, %shape_hidden_q8_depth4_bytes: index, %ffn_gate_weight: view<[%shape_ffn_gate_weight_bytes]xi8>, %ffn_up_weight: view<[%shape_ffn_up_weight_bytes]xi8>, %post_normalized: buffer, %control: buffer, %swiglu: buffer)
 
 template.decl @llm.ffn.down_decode(%hidden_size: index, %ffn_size: index, %use_generic_quantized_projections: i1, %use_mmvq_compat: i1, %ffn_down_is_q4: i1, %ffn_down_is_q6: i1, %shape_ffn_down_weight_bytes: index, %shape_ffn_row_bytes: index, %shape_hidden_row_bytes: index, %ffn_down_weight: view<[%shape_ffn_down_weight_bytes]xi8>, %swiglu: buffer, %residual: buffer)
 
@@ -25,8 +35,7 @@ command.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters:
   %lookup_ffn, %gate_tag, %up_tag, %down_tag, %shape_ffn_gate_weight_bytes, %up_bytes, %down_bytes = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
   %hidden_size = config.get @qwen.model.hidden_size : index
   %canonical = index.constant 1 : index
-  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %shape_ffn_gate_weight_bytes, %up_bytes) : (index, index, index, index)
-  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical, %gate_tag, %down_tag, %shape_ffn_gate_weight_bytes, %down_bytes) : (index, index, index, index, index, index, index)
+  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical) : (index, index, index)
   %format_q4 = index.constant 12 : index
   %format_q6 = index.constant 14 : index
   %ffn_gate_is_q4 = index.cmp eq, %gate_tag, %format_q4 : index
@@ -34,9 +43,14 @@ command.def public @qwen38_ffn_gate_up_decode(%layer: index) launch(%parameters:
 
   %shape_ffn_row_bytes = config.get @qwen.model.ffn_row_bytes : index
   %ffn_gate_weight = command.parameter %parameters, "blk.{}.ffn_gate.weight"[%layer] : view<[%shape_ffn_gate_weight_bytes]xi8>
-  %ffn_up_weight = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%shape_ffn_gate_weight_bytes]xi8>
+  %ffn_up_weight = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%up_bytes]xi8>
   %mmvq_compat = scalar.constant false : i1
-  template.apply<@llm.ffn.gate_up_decode>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_gate_is_q4, %ffn_gate_is_q6, %shape_ffn_gate_weight_bytes, %shape_ffn_row_bytes, %ffn_gate_weight, %ffn_up_weight, %post_normalized_q8, %swiglu) : (index, index, i1, i1, i1, i1, index, index, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer, buffer)
+  template.apply<@loomify.qwen.ffn_route>(%use_generic_quantized_projections, %mmvq_compat) : (i1, i1)
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %fixed_one = scalar.constant 1 : i32
+  // Canonical decode already owns a one-row packet; fixed_count avoids reading it as a count.
+  template.apply<@llm.ffn.swiglu_packed>(%canonical, %one, %one, %hidden_size, %lookup_ffn, %gate_tag, %up_tag, %shape_ffn_gate_weight_bytes, %up_bytes, %recipe_zero, %fixed_one, %origin, %post_normalized_q8, %post_normalized_q8, %ffn_gate_weight, %ffn_up_weight, %swiglu) : (index, index, index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
   command.return
 }
 
@@ -53,8 +67,7 @@ command.def public @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_to
   %lookup_ffn, %gate_tag, %up_tag, %down_tag, %shape_ffn_gate_weight_bytes, %up_bytes, %down_bytes = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
   %hidden_size = config.get @qwen.model.hidden_size : index
   %canonical = index.constant 1 : index
-  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %shape_ffn_gate_weight_bytes, %up_bytes) : (index, index, index, index)
-  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical, %gate_tag, %down_tag, %shape_ffn_gate_weight_bytes, %down_bytes) : (index, index, index, index, index, index, index)
+  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical) : (index, index, index)
   %format_q4 = index.constant 12 : index
   %format_q6 = index.constant 14 : index
   %ffn_gate_is_q4 = index.cmp eq, %gate_tag, %format_q4 : index
@@ -70,11 +83,34 @@ command.def public @qwen38_ffn_gate_up_prefill(%token_count: index, %schedule_to
   %uses_m4 = scalar.andi %verifying, %isolated : i1
   %token_capacity = index.constant 512 : index
   %ffn_gate_weight = command.parameter %parameters, "blk.{}.ffn_gate.weight"[%layer] : view<[%shape_ffn_gate_weight_bytes]xi8>
-  %ffn_up_weight = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%shape_ffn_gate_weight_bytes]xi8>
+  %ffn_up_weight = command.parameter %parameters, "blk.{}.ffn_up.weight"[%layer] : view<[%up_bytes]xi8>
   %mmvq_compat = scalar.constant false : i1
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
-  template.apply<@llm.ffn.gate_up_prefill>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_gate_is_q4, %ffn_gate_is_q6, %token_count, %token_capacity, %schedule_token_count, %projection_row_origin, %projection_count_origin, %uses_m4, %verification_depth, %shape_ffn_capacity_bytes, %shape_ffn_gate_weight_bytes, %shape_hidden_q8_capacity_bytes, %shape_hidden_q8_depth4_bytes, %ffn_gate_weight, %ffn_up_weight, %post_normalized, %control, %swiglu) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%shape_ffn_gate_weight_bytes]xi8>, buffer, buffer, buffer)
+  %same_tag = index.cmp eq, %gate_tag, %up_tag : index
+  %same_bytes = index.cmp eq, %shape_ffn_gate_weight_bytes, %up_bytes : index
+  %same = scalar.andi %same_tag, %same_bytes : i1
+  %q4_tag = index.constant 12 : index
+  %q6_tag = index.constant 14 : index
+  %old_low = index.cmp uge, %gate_tag, %q4_tag : index
+  %old_high = index.cmp ule, %gate_tag, %q6_tag : index
+  %old_tag = scalar.andi %old_low, %old_high : i1
+  %retained = scalar.andi %same, %old_tag : i1
+  scf.if %retained {
+    template.apply<@llm.ffn.gate_up_prefill>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_gate_is_q4, %ffn_gate_is_q6, %token_count, %token_capacity, %schedule_token_count, %projection_row_origin, %projection_count_origin, %uses_m4, %verification_depth, %shape_ffn_capacity_bytes, %shape_ffn_gate_weight_bytes, %up_bytes, %shape_hidden_q8_capacity_bytes, %shape_hidden_q8_depth4_bytes, %ffn_gate_weight, %ffn_up_weight, %post_normalized, %control, %swiglu) : (index, index, i1, i1, i1, i1, index, index, index, index, offset, i1, index, index, index, index, index, index, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%up_bytes]xi8>, buffer, buffer, buffer)
+  } else {
+    template.apply<@loomify.qwen.ffn_route>(%use_generic_quantized_projections, %uses_m4) : (i1, i1)
+    %word = index.constant 4 : offset
+    %elements = index.mul %token_count, %hidden_size : index
+    %defined_bytes = index.scale %elements, %word : index, offset -> offset
+    %defined = buffer.alloca<global> align(256) %defined_bytes : buffer
+    kernel.launch @llm.projection.prepare_f32_prefix[%token_count, %hidden_size](%token_count, %hidden_size, %control, %post_normalized, %defined) : [index, index](index, index, buffer, buffer, buffer)
+    %packed_bytes = index.cast %shape_hidden_q8_capacity_bytes : index to offset
+    %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
+    %dynamic = scalar.constant -1 : i32
+    template.apply<@llm.projection.pack_input>(%canonical, %token_count, %token_count, %hidden_size, %projection_row_origin, %dynamic, %projection_count_origin, %control, %defined, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.ffn.swiglu_packed>(%canonical, %token_count, %token_count, %hidden_size, %lookup_ffn, %gate_tag, %up_tag, %shape_ffn_gate_weight_bytes, %up_bytes, %projection_row_origin, %dynamic, %projection_count_origin, %control, %packed, %ffn_gate_weight, %ffn_up_weight, %swiglu) : (index, index, index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_gate_weight_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  }
   command.return
 }
 
@@ -92,8 +128,7 @@ command.def public @qwen38_ffn_down_decode(%layer: index) launch(%parameters: bu
   %lookup_ffn, %gate_tag, %up_tag, %down_tag, %gate_bytes, %up_bytes, %shape_ffn_down_weight_bytes = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
   %hidden_size = config.get @qwen.model.hidden_size : index
   %canonical = index.constant 1 : index
-  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %gate_bytes, %up_bytes) : (index, index, index, index)
-  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical, %gate_tag, %down_tag, %gate_bytes, %shape_ffn_down_weight_bytes) : (index, index, index, index, index, index, index)
+  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical) : (index, index, index)
   %format_q4 = index.constant 12 : index
   %format_q6 = index.constant 14 : index
   %ffn_down_is_q6 = index.cmp eq, %down_tag, %format_q6 : index
@@ -116,8 +151,7 @@ command.def public @qwen38_ffn_down_prefill(%token_count: index, %schedule_token
   %lookup_ffn, %gate_tag, %up_tag, %down_tag, %gate_bytes, %up_bytes, %shape_ffn_down_weight_bytes = func.call pure @loomify.config.layer_ffn(%layer) : (index) -> (index, index, index, index, index, index, index)
   %hidden_size = config.get @qwen.model.hidden_size : index
   %canonical = index.constant 1 : index
-  template.apply<@loomify.ffn.match_up>(%gate_tag, %up_tag, %gate_bytes, %up_bytes) : (index, index, index, index)
-  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical, %gate_tag, %down_tag, %gate_bytes, %shape_ffn_down_weight_bytes) : (index, index, index, index, index, index, index)
+  template.apply<@loomify.ffn.admit>(%hidden_size, %lookup_ffn, %canonical) : (index, index, index)
   %format_q4 = index.constant 12 : index
   %format_q6 = index.constant 14 : index
   %ffn_down_is_q6 = index.cmp eq, %down_tag, %format_q6 : index

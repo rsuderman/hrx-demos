@@ -9,16 +9,18 @@ exports_files([
     "projection.loom",
     "rows.loom",
     "matrix.loom",
+    "prepared_rows.loom",
 ])
 
+# Definition-owning fragments. Dependencies are supplied once by the final
+# architecture composition; a fragment never embeds another fragment.
+# Activation and residual definitions belong to their FFN/elementwise owners.
+# Keeping them out of packed prevents duplicate providers when fragments link.
 filegroup(
-    name = "implementation_sources",
+    name = "packed_sources",
     srcs = [
         "projection.loom",
         "rows.loom",
-        "//lib/kernels/elementwise:ffn_launches.loom",
-        "//lib/kernels/elementwise:residual_row.loom",
-        "//lib/kernels/elementwise:swiglu_row.loom",
         "//lib/kernels/epoch:active_rows.loom",
         "//lib/kernels/projection:block32_launch.loom",
         "//lib/kernels/projection:block32_sources",
@@ -35,24 +37,35 @@ filegroup(
         "//lib/kernels/projection:q8_0.loom",
         "//lib/kernels/projection:qk_common.loom",
         "//lib/kernels/projection:qk_mmvq_compat.loom",
+        "//lib/kernels/projection:scaled_f16.loom",
         "//lib/kernels/quantization:q8_1_x4.loom",
         "//lib/kernels/quantization:q8_1_x4_canonical.loom",
         "//lib/kernels/quantization:q8_1_x4_mmvq_compat.loom",
     ],
 )
 
-loom_merge(
-    name = "implementation",
-    srcs = [":implementation_sources"],
-)
-
 filegroup(
     name = "matrix_sources",
     srcs = [
         "matrix.loom",
-        ":implementation_sources",
-        "//lib/kernels/elementwise:swiglu_row.loom",
         "//lib/kernels/projection:f16_staging.loom",
-        "//lib/kernels/projection:scaled_f16.loom",
     ],
 )
+
+filegroup(
+    name = "prepared_rows_sources",
+    srcs = ["prepared_rows.loom"],
+)
+
+[loom_merge(
+    name = name + ("_text" if format == "text" else ""),
+    srcs = [":" + name + "_sources"],
+    output_format = format,
+) for name in [
+    "packed",
+    "prepared_rows",
+    "matrix",
+] for format in [
+    "bc",
+    "text",
+]]

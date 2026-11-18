@@ -25,7 +25,19 @@ cc_test(
     data = [
         ":provider_bc",
         ":provider_text",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:implementation",
+        "//lib/programs/ffn:gate_up",
+        "//lib/programs/ffn:gate_up_text",
+        "//lib/programs/ffn:matrix_gate_up",
+        "//lib/programs/ffn:matrix_gate_up_text",
         "//lib/programs/projection:interface.loom",
+        "//lib/programs/projection:matrix",
+        "//lib/programs/projection:matrix_text",
+        "//lib/programs/projection:packed",
+        "//lib/programs/projection:packed_text",
+        "//lib/programs/projection:prepared_rows",
+        "//lib/programs/projection:prepared_rows_text",
     ],
     linkstatic = True,
     deps = [
@@ -45,7 +57,7 @@ loom_provider_checks(
     provider_name = "provider",
     provider_srcs = [
         "//lib/platforms/amdgpu/gfx11:targets.loom",
-        "//lib/programs/projection:implementation_sources",
+        "//lib/programs/projection:packed_sources",
     ],
 )
 
@@ -76,6 +88,28 @@ loom_checks(
     checks = ["routed_rows_checks.loom"],
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
     provider_name = "provider",
+)
+
+genrule(
+    name = "q8_head_fixtures",
+    testonly = True,
+    srcs = ["q8_head_fixtures.py"],
+    outs = ["q8_head_checks.loom"],
+    cmd = "python3 $(location q8_head_fixtures.py) $@",
+)
+
+loom_provider_checks(
+    name = "q8_head",
+    checks = [":q8_head_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "q8_head_provider",
+    provider_srcs = [
+        "//lib/kernels/decoder:implementation_sources",
+        "//lib/kernels/selection:greedy_argmax.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/output:last_greedy.loom",
+        "//lib/programs/projection:packed_sources",
+    ],
 )
 
 loom_checks(

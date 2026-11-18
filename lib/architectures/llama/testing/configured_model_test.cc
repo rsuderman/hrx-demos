@@ -633,6 +633,13 @@ TEST_F(ConfiguredLlamaModelTest, RealGgufMaintainedArchitectureAndEpochRoot) {
   Build(descriptor, 1, false, true);
   Build(descriptor, 128, true);
 }
+TEST_F(ConfiguredLlamaModelTest, Q8TiedAndIndependentHeadProducts) {
+  for (bool independent : {false, true})
+    for (uint64_t rows : {8, 17})
+      for (bool text : {false, true})
+        Build(testing::LlamaQ8ModelFacts(independent), rows, false, text);
+}
+
 TEST_F(ConfiguredLlamaModelTest, FullDescriptorFixtureUsesMaintainedProducts) {
   for (bool text : {false, true})
     Build(testing::LlamaModelFacts(), 128, false, text);
@@ -780,7 +787,10 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
              Case{513, 256, 128257, 13, 22573232, true},
              Case{513, 256, 128257, 14, 26933970, true},
              Case{2048, 256, 3, 12, 432, true},
-             Case{8, 512, 3, 8, 1632, false},
+             Case{8, 512, 3, 8, 1632, true},
+             Case{8, 32768, 3, 8, 104448, true},
+             Case{8, 33024, 3, 8, 105264, false},
+             Case{8, 512, 3, 1, 3072, false},
              Case{8, 513, 3, 12, 864, false},
              Case{8, 512, 0, 12, 864, false},
              Case{0, 512, 3, 12, 864, false},
