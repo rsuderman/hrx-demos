@@ -873,6 +873,69 @@ TEST_P(OutputEmitterTest, NeutralPrefixPreservesExplicitFramingAndCheckpoint) {
   }
 }
 
+TEST_P(OutputEmitterTest, InlineReasoningTransformsPreserveCanonicalReplay) {
+  for (bool macro_content : {false, true}) {
+    SCOPED_TRACE(macro_content ? "macro content" : "direct content");
+    const std::string source =
+        std::string(
+            macro_content
+                ? "{% macro normalize(value) %}{{ value }}{% endmacro %}"
+                : "") +
+        "{% for m in messages %}{% if m.role == 'assistant' %}"
+        "{% set content = " +
+        (macro_content ? "normalize(m.content)" : "m.content") +
+        " | trim %}{% set reason = '' %}"
+        "{% if m.reasoning_content is string %}"
+        "{% set reason = m.reasoning_content %}"
+        "{% elif '</think>' in content %}"
+        "{% set reason = content.split('</think>')[0].rstrip('\\n')"
+        ".split('<think>')[-1].lstrip('\\n') %}"
+        "{% set content = content.split('</think>')[-1].lstrip('\\n') %}"
+        "{% endif %}"
+        "{{ '<reply><think>' + reason + '</think>' + content + '</reply>' }}"
+        "{% endif %}{% endfor %}"
+        "{% if add_generation_prompt %}{{ '<reply><think>' }}"
+        "{% if enable_thinking is defined and enable_thinking is false %}"
+        "{{ '</think>' }}{% endif %}{% endif %}";
+    struct Case {
+      bool thinking;
+      const char *response;
+      const char *content;
+      const char *reasoning;
+      const char *checkpoint;
+    };
+    const Case cases[] = {
+        {false, "<think>\nINLINE_WHY\n</think>\n\nINLINE_ANSWER",
+         "<think>\nINLINE_WHY\n</think>\n\nINLINE_ANSWER", "",
+         "<reply><think>INLINE_WHY</think>INLINE_ANSWER</reply>"},
+        {false, "PLAIN_ANSWER", "PLAIN_ANSWER", "",
+         "<reply><think></think>PLAIN_ANSWER</reply>"},
+        {true, "EXPLICIT_WHY</think><think>BODY_LITERAL</think>FINAL_ANSWER",
+         "<think>BODY_LITERAL</think>FINAL_ANSWER", "EXPLICIT_WHY",
+         "<reply><think>EXPLICIT_WHY</think><think>BODY_LITERAL</think>FINAL_ANSWER</reply>"},
+    };
+    for (const auto &test : cases) {
+      SCOPED_TRACE(test.response);
+      OutputFixture program;
+      std::string error;
+      ASSERT_TRUE(OutputProgram(source, test.response, &program, &error))
+          << error;
+      const auto request =
+          std::string(
+              "{\"messages\":[{\"role\":\"user\",\"content\":\"a\"}],") +
+          "\"enable_thinking\":" + (test.thinking ? "true}" : "false}");
+      const auto result = RunNativeOutput(program, request, GetParam());
+      ASSERT_TRUE(result.has_value());
+      ASSERT_EQ(result->exit, 0) << result->error;
+      const auto report =
+          iree_make_string_view(result->output.data(), result->output.size());
+      EXPECT_EQ(JsonString(report, "content"), test.content);
+      EXPECT_EQ(JsonString(report, "reasoning_content"), test.reasoning);
+      EXPECT_EQ(JsonString(report, "checkpoint"), test.checkpoint);
+    }
+  }
+}
+
 TEST_P(OutputEmitterTest, SourceDerivedJsonEnvelopeAndMemberNames) {
   constexpr std::string_view source =
       "{% for m in messages %}{% if m.role == 'assistant' %}"

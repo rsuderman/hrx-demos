@@ -388,7 +388,7 @@ See [descriptor/configuration tests](../loomify/testing/lfm3_configuration_test.
 |---|---|---|
 | Q5_K row and ordinary embedding | [Q5 row](../kernels/embedding/q5k_rows.loom) shares the [Q5 codec](../kernels/projection/q5k_codec.loom) with projection. [Ordinary gather](../kernels/embedding/ordinary_f32.loom) selects actual tags12/13/14 and owns dispatch/footprint checks. It reads active IDs/table, writes F32 rows and zeroes inactive or invalid-position rows. Generic epoch gather retains inactive-preservation semantics. | [SOURCE/BC gather checks](../kernels/embedding/testing/q5k_checks.loom), direct row/epoch/ordinary packet cases. |
 | Canonical row projection and F32 gate projection | [Rows](../programs/projection/rows.loom) reuse pack/project with actual tags and own packed scratch; callers define inactive inputs. [F32 kernel](../kernels/projection/f32_rows.loom) reads active rows and row-major weights, writes disjoint outputs with inactive zeros; input/output widths1..32768 and rows1..512. | [F32 checks](../programs/projection/testing/f32_rows_checks.loom) include2048→16 and inactive/input guards. |
-| GDN F32 or prepacked gate routing | The shared [row projection operation](../programs/projection/rows.loom) selects the existing F32 kernel from actual tag0 and original normalized F32 activations; other supported tags retain the existing packed operation. [GDN assembly](../programs/qwen35/gdn.loom) selects alpha and beta independently, without an architecture/model flag. F32 weights are row-major W[N,K], exact4*K*Nbytes, T<=C<=512 and K,N1..32768; no repacking or new dot arithmetic. | [Configuration/lookup tests](../loomify/testing/configuration_test.cc) cover0/0,0/13,13/0 and malformed F32 extents. [Model tests](../architectures/qwen35/testing/model_test.cc) inspect actual kernel inputs and recurrence outputs after SOURCE/BC materialization; external real-header tests cover both Ornith9B variants. This numerical capability does not imply those models' exact chat templates or complete Serve packages are admitted. |
+| GDN F32 or prepacked gate routing | The shared [row projection operation](../programs/projection/rows.loom) selects the existing F32 kernel from actual tag0 and original normalized F32 activations; other supported tags retain the existing packed operation. [GDN assembly](../programs/qwen35/gdn.loom) selects alpha and beta independently, without an architecture/model flag. F32 weights are row-major W[N,K], exact4*K*Nbytes, T<=C<=512 and K,N1..32768; no repacking or new dot arithmetic. | [Configuration/lookup tests](../loomify/testing/configuration_test.cc) cover0/0,0/13,13/0 and malformed F32 extents. [Model tests](../architectures/qwen35/testing/model_test.cc) inspect actual kernel inputs and recurrence outputs after SOURCE/BC materialization; external real-header tests cover both Ornith9B variants. The configured builder also reuses this path for the Ornith ordinary-chat package coverage below. |
 | Explicit-encoding last-active greedy head | [Shared head](../programs/output/last_greedy.loom) takes encoding and packing policy. It owns normalized, packed, logit and reduction scratch derived from hidden/vocabulary dimensions; callers supply residual/gamma/weight/output and their authored norm hook. Llama/Qwen2/Qwen3 retain policy0/tag14; LFM3/Spark select canonical policy1 and actual output tag. Gemma uses the same sequence through its stored-gamma norm hook. Numerical argmax remains separate from source stop publication. | [Q5 head checks](../programs/output/testing/q5_head_checks.loom), existing head/output checks. |
 | Seven-tap short convolution | [Operation](../kernels/convolution/shortconv.loom) reads B/C/X projections and channel-major F32 weights, writes output and updates only six selected history rows. Fresh absolute position0 never reads old history; append carries samples across chunks. It is not GDN convolution or SiLU preparation. Width256..32768 multiple256, rows1..512. | [Arithmetic/history/guard checks](../kernels/convolution/testing/checks.loom) and [programs](../kernels/convolution/testing/programs.loom). |
 | Factor-aware H128 Q/K preparation and gated window attention | [Row wrappers](../kernels/attention/factored_rows.loom) reuse head RMS, NeoX rotary and causal row/window attention. Global frequency divisors are a bound F32 tensor; local rows use factor1 and their own rotary base. R query/norms/factors/gate/map/cache; W rotated rows/attention and selected KV positions through publication. | [Focused SOURCE/BC checks](../kernels/attention/testing/lfm3/checks.loom). |
@@ -461,6 +461,26 @@ count when appending the analysis mode's target role cannot change that count.
 The proof preserves guarded indexing and original runtime assignments; unproved
 mutable count aliases still diagnose. This is shared source analysis, not an
 Ornith/Qwen template lookup or complete-model qualification.
+
+After request-choice splitting, a path with no assistant-body bytes remains
+non-admitted by the guarded selector rather than becoming an empty response
+format. Empty generation prefixes remain valid; emitting partial frames retain
+strict native terminal checks. Source split/index transforms are preserved in
+both resolved values and macro-expansion provenance, including typed list
+intermediates, so completion replay follows the original template. The focused
+[format-analysis](../loomify/text/jinja/testing/format_analysis_test.cc),
+[token-policy](../loomify/testing/token_policy_test.cc) and
+[completion](../loomify/testing/output_emitter_test.cc) tests exercise these seams.
+
+Ornith 1.0 and 1.5 9B Q4_K_M ordinary CHAT packages reuse the existing qwen35
+configuration/model sequence and generated text controls from their original
+GGUF templates. Qualified serving bounds are SOURCE/bytecode, prefill8/17 and
+context128, with dependent decode, a second full-history turn, reset and shutdown.
+Original-template prompt/full-token-ID, channel, tool and completion-replay checks
+are separate from the model execution proof. Optional USER availability is reported per generated package. Exact float spelling, media, positive retained
+checkpoints and full-model numerical fidelity remain outside this envelope. Use
+[the local smoke command](../../build_tools/loomify-smoke.py) with explicit external
+GGUF/tokenizer paths to repeat a bounded run without another model-specific tool.
 
 The [native proof consumer](../loomify/text/jinja/testing/consumer.BUILD.bazel)
 executes generated SOURCE and bytecode against the independent

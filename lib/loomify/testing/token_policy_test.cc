@@ -4,6 +4,7 @@
 #include "lib/loomify/chat_policy.h"
 #include "lib/loomify/publication_internal.h"
 #include "lib/loomify/template_analysis.h"
+#include "lib/loomify/text/jinja/format_analysis.h"
 #include "lib/loomify/template_probe_runner.h"
 #include "tools/model/text_metadata.h"
 #include "gtest/gtest.h"
@@ -1096,6 +1097,53 @@ TEST_F(TokenPolicyTest, TextStrategyDoesNotRequireNumericalPublication) {
                                  text, publication, {}, Json(), &bound,
                                  &error));
   EXPECT_NE(error.find("native special terminal"), std::string::npos);
+}
+TEST_F(TokenPolicyTest, EmptyAssistantRoutesDoNotWeakenTerminalBinding) {
+  Open();
+  const std::string prefix =
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{% if emit_target %}{{ '<A>' + m.content + '<|eot_id|>' }}";
+  const std::string suffix =
+      "{% endif %}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<A>' }}{% endif %}";
+  BoundTokenPolicy bound;
+  for (bool emitting_alternative : {false, true}) {
+    SCOPED_TRACE(emitting_alternative);
+    const auto source =
+        prefix +
+        (emitting_alternative ? "{% else %}{{ '<partial>bad-terminal' }}"
+                              : "") +
+        suffix;
+    jinja::TextFormatAnalysis analysis;
+    jinja::Diagnostic diagnostic;
+    ASSERT_TRUE(jinja::AnalyzeTextFormat(source, "terminal-choice.jinja", {},
+                                         &analysis, &diagnostic))
+        << diagnostic.message;
+    ASSERT_FALSE(analysis.alternatives.empty());
+    std::vector<std::string> frames;
+    for (const auto &format : analysis.alternatives)
+      frames.push_back(format.frame_suffix);
+    if (!emitting_alternative) {
+      for (const auto &frame : frames)
+        EXPECT_EQ(frame, "<|eot_id|>");
+      ASSERT_TRUE(BindAnalyzedFrame(file.get(), {}, frames, text, {}, {},
+                                    Json(), &bound, &error))
+          << error;
+      EXPECT_EQ(bound.terminal.piece, "<|eot_id|>");
+    } else {
+      ASSERT_TRUE(
+          std::any_of(frames.begin(), frames.end(), [](const auto &frame) {
+            return frame.find("bad-terminal") != std::string::npos;
+          }));
+      const auto prior = bound;
+      EXPECT_FALSE(BindAnalyzedFrame(file.get(), {}, frames, text, {}, {},
+                                     Json(), &bound, &error));
+      EXPECT_NE(error.find("native special terminal"), std::string::npos);
+      EXPECT_EQ(bound.terminal.id, prior.terminal.id);
+      EXPECT_EQ(bound.terminal.piece, prior.terminal.piece);
+      EXPECT_EQ(bound.text_source, prior.text_source);
+    }
+  }
 }
 TEST_F(TokenPolicyTest, TextTerminalGuardAppliesWithoutNumericalPublication) {
   // GGUF and JSON agree on the ID/piece, but the selected header protocol

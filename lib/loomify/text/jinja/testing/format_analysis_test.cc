@@ -1740,6 +1740,67 @@ std::string LeadingPrefixSource(std::string_view second_role = "developer",
          "{% endif %}";
 }
 
+TEST(TextFormatAnalysisTest, EmptyTargetRoutesRemainNonAdmitted) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{% if emit_target %}{{ '<A>' + m.content + '<|eot_id|>' }}"
+      "{% endif %}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<A>' }}{% endif %}";
+  TextFormatAnalysis result;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(
+      AnalyzeTextFormat(source, "empty-target.jinja", {}, &result, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(result.alternatives.empty());
+  for (const auto &format : result.alternatives) {
+    EXPECT_FALSE(format.assistant_pattern.empty());
+    EXPECT_EQ(format.assistant_header, "<A>");
+    EXPECT_EQ(format.frame_suffix, "<|eot_id|>");
+  }
+  GeneratedInputRenderer generated;
+  ASSERT_TRUE(CompileChatTemplate(source, "empty-target.jinja", &generated,
+                                  &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    SCOPED_TRACE(bytecode ? "bytecode" : "source");
+    auto renderer = PrepareProduct(generated, bytecode);
+    auto selector =
+        PrepareSelection(source, result.selector_template, bytecode);
+    ASSERT_NE(renderer, nullptr);
+    ASSERT_NE(selector, nullptr);
+    for (bool generation : {false, true}) {
+      for (bool emits : {false, true}) {
+        const auto environment =
+            std::string(
+                R"({"messages":[{"role":"assistant","content":"payload"}],"emit_target":)") +
+            (emits ? "true" : "false") +
+            ",\"add_generation_prompt\":" + (generation ? "true}" : "false}");
+        SCOPED_TRACE(environment);
+        std::string rendered, error;
+        ASSERT_TRUE(renderer->Render(environment, &rendered, &error)) << error;
+        EXPECT_EQ(rendered, std::string(emits ? "<A>payload<|eot_id|>" : "") +
+                                (generation ? "<A>" : ""));
+        int64_t id = -41, mode = -42;
+        if (emits) {
+          ASSERT_TRUE(Select(*selector, environment, &id, &mode));
+          ASSERT_GE(id, 0);
+          ASSERT_LT(static_cast<size_t>(id), result.alternatives.size());
+          EXPECT_EQ(result.alternatives[id].frame_suffix, "<|eot_id|>");
+          EXPECT_EQ(result.alternatives[id].generation_prefix,
+                    generation ? "<A>" : "");
+        } else {
+          EXPECT_FALSE(selector->SelectFormat(environment, &id, &mode, &error));
+          EXPECT_NE(error.find("no source-qualified text format"),
+                    std::string::npos)
+              << error;
+          EXPECT_EQ(id, -41);
+          EXPECT_EQ(mode, -42);
+        }
+      }
+    }
+  }
+}
+
 TEST(TextFormatAnalysisTest, LeadingPrefixCountsKeepOriginalBranchAnchors) {
   const auto source = LeadingPrefixSource();
   TextFormatAnalysis result;
@@ -1813,6 +1874,71 @@ TEST(TextFormatAnalysisTest, LeadingPrefixCountsKeepOriginalBranchAnchors) {
       EXPECT_FALSE(selector->SelectFormat(empty, &id, &mode, &error));
       EXPECT_EQ(id, -41);
       EXPECT_EQ(mode, -42);
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, CountedMacroSplitKeepsTypedListBeforeIndexing) {
+  const char *source =
+      "{% macro normalize(value) %}"
+      "{{ ('HEAD|' if messages|length > 1 else 'ONE|') ~ value }}"
+      "{% endmacro %}{% for m in messages %}"
+      "{% if m.role == 'assistant' %}"
+      "{% set text = normalize(m.content) %}"
+      "{{ '<A>' + text.split('|')[-1] + '</A>' }}"
+      "{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<A>' }}{% endif %}";
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "counted-split.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  const TextFormatPart *content = nullptr;
+  const auto find = [&](auto &&self,
+                        const std::vector<TextFormatPart> &parts) -> void {
+    for (const auto &part : parts) {
+      if (!content && (part.capture == TextCapture::Content ||
+                       (part.capture == TextCapture::Expression &&
+                        HasCapture(part.body, TextCapture::Content))))
+        content = &part;
+      self(self, part.body);
+      self(self, part.otherwise);
+    }
+  };
+  find(find, analysis.alternatives.front().assistant_pattern);
+  ASSERT_NE(content, nullptr);
+  Template projection;
+  projection.body.assign(analysis.selector_template.body.begin(),
+                         analysis.selector_template.body.begin() +
+                             analysis.selector_prelude_size);
+  Node output;
+  output.kind = Node::Kind::Output;
+  output.expression = content->value_expression;
+  projection.body.push_back(std::move(output));
+  GeneratedInputRenderer generated;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "counted-split.jinja", projection,
+                                      &generated, &diagnostic))
+      << diagnostic.message;
+  std::string fields;
+  for (const auto &[name, capture] : analysis.predicate_bindings)
+    if (capture == TextCapture::Content)
+      fields += "," + Quote(name) + ":\"PAYLOAD\"";
+  ASSERT_FALSE(fields.empty());
+  for (bool bytecode : {false, true}) {
+    auto prepared = PrepareProduct(generated, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    for (
+        const char *messages :
+        {"[]", R"([{"role":"user","content":"old"}])",
+         R"([{"role":"user","content":"old"},{"role":"assistant","content":"prior"}])"}) {
+      std::string actual, error;
+      ASSERT_TRUE(prepared->Render("{\"messages\":" + std::string(messages) +
+                                       ",\"add_generation_prompt\":true" +
+                                       fields + "}",
+                                   &actual, &error))
+          << error;
+      EXPECT_EQ(actual, "PAYLOAD");
     }
   }
 }

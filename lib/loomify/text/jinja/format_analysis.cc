@@ -609,6 +609,14 @@ public:
     if (failed_)
       return false;
     bodies_ = FormatChoices(bodies_, true);
+    // Splitting a request guard can expose an arm which emits no assistant
+    // bytes. It is not a format: preserve its non-admission through the guarded
+    // selector's unmatched terminal, rather than assigning it a frame/stop.
+    // Nonempty partial frames still undergo normal description/token checks.
+    bodies_.erase(
+        std::remove_if(bodies_.begin(), bodies_.end(),
+                       [](const Path &path) { return path.parts.empty(); }),
+        bodies_.end());
     generations_ = FormatChoices(generations_);
     if (bodies_.empty())
       return Fail(0, "no supported assistant content emission was found");
@@ -1198,6 +1206,28 @@ private:
       result = Binary("~", std::move(result), std::move(value));
     }
     return result;
+  }
+  Value TransformedPayload(Value value, Expr expression, const Expr &source) {
+    value.expression = std::move(expression);
+    value.string.reset();
+    value.boolean.reset();
+    value.defined.reset();
+    value.truth.reset();
+    value.string_result = false;
+    value.append_invariant = false;
+    if (!value.expansion.empty()) {
+      if (!PatternExpression(value.expansion)) {
+        Fail(source.offset, "payload transform over repetition is unsupported");
+        return value;
+      }
+      TextFormatPart transformed;
+      transformed.capture = TextCapture::Expression;
+      transformed.source = Range(source);
+      transformed.value_expression = value.expression;
+      transformed.body = std::move(value.expansion);
+      value.expansion = {std::move(transformed)};
+    }
+    return value;
   }
   Value Phi(const Expr &condition, const Value &yes, const Value &no) {
     if (SameExpression(yes.expression, no.expression) &&
@@ -3003,8 +3033,17 @@ private:
       value.expression = TargetCounts(value.expression);
       if (CountDependent(value.expansion)) {
         TargetCounts(&value.expansion);
-        if (const auto expression = PatternExpression(value.expansion))
-          value.expression = *expression;
+        // A transform wrapper retains its typed value; its body is provenance.
+        // Rendering it again would stringify a split list before later
+        // indexing.
+        const bool typed_wrapper =
+            value.expansion.size() == 1 &&
+            value.expansion.front().capture == TextCapture::Expression &&
+            SameExpression(value.expression,
+                           value.expansion.front().value_expression);
+        if (!typed_wrapper)
+          if (const auto expression = PatternExpression(value.expansion))
+            value.expression = *expression;
       }
     }
     return value;
@@ -3102,8 +3141,13 @@ private:
       }
       if ((parent.origin == Origin::Content ||
            parent.origin == Origin::Reasoning) &&
-          expr.kind == Expr::Kind::GetItem)
-        return parent;
+          expr.kind == Expr::Kind::GetItem) {
+        Expr rebuilt = expr;
+        rebuilt.args[0] = parent.expression;
+        for (size_t i = 1; i < rebuilt.args.size(); ++i)
+          rebuilt.args[i] = Resolve(expr.args[i], path, context).expression;
+        return TransformedPayload(std::move(parent), std::move(rebuilt), expr);
+      }
       if (parent.origin == Origin::Loop && member && !context.loops.empty()) {
         const auto &[sequence, expression] = context.loops.back();
         if (context.continued_user && sequence == Origin::Messages) {
@@ -3395,8 +3439,14 @@ private:
           }
           return parent;
         }
-        if (parent.origin == Origin::Content && callee.text == "split")
-          return parent;
+        if (parent.origin == Origin::Content && callee.text == "split") {
+          Expr rebuilt = expr;
+          rebuilt.args[0].args[0] = parent.expression;
+          for (size_t i = 1; i < rebuilt.args.size(); ++i)
+            rebuilt.args[i] = Resolve(expr.args[i], path, context).expression;
+          return TransformedPayload(std::move(parent), std::move(rebuilt),
+                                    expr);
+        }
       }
       Expr rebuilt = expr;
       for (size_t i = 0; i < rebuilt.args.size(); ++i)
