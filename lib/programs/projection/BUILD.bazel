@@ -6,6 +6,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "interface.loom",
+    "contract.loom",
     "projection.loom",
     "rows.loom",
     "matrix.loom",
@@ -20,11 +21,14 @@ filegroup(
     name = "packed_sources",
     srcs = [
         "projection.loom",
+        "contract.loom",
         "rows.loom",
         "//lib/kernels/epoch:active_rows.loom",
         "//lib/kernels/projection:block32_launch.loom",
         "//lib/kernels/projection:block32_sources",
+        "//lib/kernels/projection:classic_q4.loom",
         "//lib/kernels/projection:f32_rows.loom",
+        "//lib/kernels/projection:iq4_xs.loom",
         "//lib/kernels/projection:q4k.loom",
         "//lib/kernels/projection:q4k_canonical.loom",
         "//lib/kernels/projection:q4k_compat.loom",

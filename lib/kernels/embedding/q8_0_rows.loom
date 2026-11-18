@@ -1,7 +1,7 @@
 // Copyright 2026 AMD ROCm™ Software
 // SPDX-License-Identifier: MIT
 // F32 gather/scaling uses the same owned signed Q8_0 word codec as projection.
-template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32)
+template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32)
 
 template.decl @llm.token_embedding_q8_0_f32.row(%hidden_size: index, %token: i32, %output_origin: offset, %scale: f32, %weight: buffer, %output: buffer)
 
@@ -26,7 +26,7 @@ template.def<@llm.token_embedding_q8_0_f32.row> device @llm_token_embedding_q8_0
   scf.for %packet = [%thread to %words step %threads] {
     %block = index.div %packet, %eight : index
     %word = index.rem %packet, %eight : index
-    %codes, %d = template.apply<@ggml.block32.word>(%tag, %weight_noalias, %row_origin, %block, %word) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32)
+    %codes, %d, %minimum = template.apply<@ggml.block32.word>(%tag, %weight_noalias, %row_origin, %block, %word) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
     %values = vector.sitofp %codes : vector<4xi8> to vector<4xf32>
     %d_vector = vector.splat %d : vector<4xf32>
     %decoded = vector.mulf %values, %d_vector : vector<4xf32>

@@ -650,6 +650,29 @@ TEST_F(ConfiguredLlamaModelTest,
     for (uint64_t rows : {8u, 64u})
       Build(testing::LlamaPlainModelFacts(), rows, false, text);
 }
+TEST_F(ConfiguredLlamaModelTest, RotaryFactorSourcesCompileForBothHeadWidths) {
+  // Always compile the ordinary-factor branch, even without cached real models.
+  // Stored-factor checkpoints must retain the same H/2 tensor contract.
+  for (uint64_t head_width : {64u, 128u})
+    for (bool checkpoint_factors : {false, true}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "head_width=" << head_width
+                   << " checkpoint_factors=" << checkpoint_factors);
+      auto descriptor = testing::LlamaModelFacts(2048, 128256, 8192, 1, 16, 14,
+                                                 true, checkpoint_factors);
+      descriptor.key_head_width = descriptor.value_head_width = head_width;
+      descriptor.rope.width = head_width;
+      descriptor.layers[0].query_heads = 2048 / head_width;
+      descriptor.layers[0].kv_heads = 1024 / head_width;
+      for (auto &binding : descriptor.globals)
+        if (binding.role == "rope_frequencies") {
+          binding.tensor.normalized_extents[0] = head_width / 2;
+          binding.tensor.byte_size = 4 * (head_width / 2);
+        }
+      for (bool text : {false, true})
+        Build(descriptor, 17, true, text);
+    }
+}
 TEST_F(ConfiguredLlamaModelTest,
        RealHyperclovaxUsesMaintainedArchitectureAndEpochRoot) {
   const char *path = std::getenv("LOOMIFY_TEST_HYPERCLOVAX_GGUF");

@@ -17,7 +17,8 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
     return p.Tensor(bindings, role, in, out, tags, layer);
   };
   if (m.family != "qwen35" || !m.ssm || m.layers.empty() ||
-      m.layers.size() > 64)
+      m.layers.size() > 64 ||
+      (m.stored_layer_count && m.stored_layer_count < m.layers.size()))
     return Fail(
         error,
         "Qwen configuration requires supported layer identities and SSM facts");
@@ -164,7 +165,8 @@ bool EmitQwen(const model::ModelDescriptor &m, const std::string &asset,
   p.Index("qwen.model.ffn_size", F);
   p.Index("qwen.model.vocabulary_size", V);
   p.Index("qwen.model.base_layers", m.layers.size());
-  p.Index("qwen.model.checkpoint_layers", m.layers.size());
+  p.Index("qwen.model.checkpoint_layers",
+          m.stored_layer_count ? m.stored_layer_count : m.layers.size());
   p.Index("qwen.model.group_count", attention_count);
   p.Index("qwen.model.attention_heads", QH);
   p.Index("qwen.model.kv_heads", KH);

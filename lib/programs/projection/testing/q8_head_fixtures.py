@@ -10,6 +10,12 @@ text = ["""// Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 1 : index
 config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q4_0_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q4_0_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_q4_1_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_q4_1_q8_1_x4.output_capacity = 1 : index
+config.def @ggml.linear_iq4_xs_q8_1_x4.token_capacity = 512 : index
+config.def @ggml.linear_iq4_xs_q8_1_x4.output_capacity = 1 : index
 config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 1 : index
 config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 1 : index
 config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 1 : index

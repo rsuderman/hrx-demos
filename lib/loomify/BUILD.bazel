@@ -642,12 +642,22 @@ cc_test(
     size = "small",
     srcs = ["//lib/loomify/testing:qwen2_configuration_test.cc"],
     copts = _CXXOPTS,
+    data = [
+        "//lib/architectures/qwen2:implementation",
+        "//lib/architectures/qwen2:implementation_text",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:implementation",
+    ],
+    linkstatic = True,
     deps = [
         ":configuration",
+        ":native_linking",
         "//lib/loomify/testing:qwen2_fixture",
         "//tools/model:model_descriptor",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
 

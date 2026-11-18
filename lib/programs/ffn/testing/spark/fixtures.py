@@ -13,8 +13,17 @@ h = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
 h.out.clear()
 h.emit("// Copyright 2026 AMD ROCm Software\n// SPDX-License-Identifier: MIT\n")
-for tag in (6, 8, 12, 13, 14):
-    name = {6: "q5_0", 8: "q8_0", 12: "q4k", 13: "q5k", 14: "q6k"}[tag]
+for tag in (2, 3, 6, 8, 12, 13, 14, 23):
+    name = {
+        2: "q4_0",
+        3: "q4_1",
+        23: "iq4_xs",
+        6: "q5_0",
+        8: "q8_0",
+        12: "q4k",
+        13: "q5k",
+        14: "q6k",
+    }[tag]
     h.emit(
         f"config.def @ggml.linear_{name}_q8_1_x4.token_capacity = 3 : index\nconfig.def @ggml.linear_{name}_q8_1_x4.output_capacity = 10240 : index\n"
     )

@@ -146,12 +146,16 @@ struct Encoding {
   const char *name;
 };
 Encoding Storage(uint32_t type) {
-  // Only the first checkpoint's encodings and existing useful tested formats.
+  // Exact GGML storage layouts used by the maintained numerical operations.
   switch (type) {
   case 0:
     return {1, 4, "f32"};
   case 1:
     return {1, 2, "f16"};
+  case 2:
+    return {32, 18, "q4_0"};
+  case 3:
+    return {32, 20, "q4_1"};
   case 6:
     return {32, 22, "q5_0"};
   case 8:
@@ -162,6 +166,8 @@ Encoding Storage(uint32_t type) {
     return {256, 176, "q5_K"};
   case 14:
     return {256, 210, "q6_K"};
+  case 23:
+    return {256, 136, "iq4_XS"};
   default:
     throw std::runtime_error("unsupported GGUF tensor encoding");
   }

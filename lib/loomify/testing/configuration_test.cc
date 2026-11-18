@@ -369,6 +369,31 @@ TEST(ConfigurationFactsTest, Qwen27UsesActualFormatsBindingsAnd64LayerLookups) {
     EXPECT_EQ(unchanged.source, "sentinel");
   }
 }
+TEST(ConfigurationFactsTest,
+     QwenStoredLayersDoNotIntroduceAuxiliaryParameters) {
+  auto model = testing::QwenModelFacts(true);
+  ConfigurationFacts ordinary, raw;
+  std::string error;
+  ASSERT_TRUE(DeriveConfiguration(model, "same-asset", {}, &ordinary, &error))
+      << error;
+  model.stored_layer_count = 65;
+  ASSERT_TRUE(DeriveConfiguration(model, "same-asset", {}, &raw, &error))
+      << error;
+  const auto scalars = Scalars(raw.source);
+  EXPECT_EQ(scalars.at("qwen.model.base_layers").first, "64");
+  EXPECT_EQ(scalars.at("qwen.model.checkpoint_layers").first, "65");
+  ASSERT_EQ(raw.parameters.size(), ordinary.parameters.size());
+  for (size_t i = 0; i < raw.parameters.size(); ++i) {
+    EXPECT_EQ(raw.parameters[i].tensor.name,
+              ordinary.parameters[i].tensor.name);
+    EXPECT_EQ(raw.parameters[i].tensor.absolute_offset,
+              ordinary.parameters[i].tensor.absolute_offset);
+  }
+  model.stored_layer_count = 63;
+  raw.source = "unchanged";
+  EXPECT_FALSE(DeriveConfiguration(model, "same-asset", {}, &raw, &error));
+  EXPECT_EQ(raw.source, "unchanged");
+}
 TEST(ConfigurationFactsTest, IndependentGgufLayerMapControlsRoutesAndStorage) {
   model::ModelDescriptor model;
   model::GgufCatalog catalog;
@@ -918,8 +943,8 @@ TEST_F(ConfigurationNativeTest, PlainLlamaMixedLayerLookupsRoundTrip) {
                       bytecode);
 }
 TEST_F(ConfigurationNativeTest, GdnGateFormatsReachLookupsIndependently) {
-  for (const auto &[alpha, beta] :
-       std::vector<std::pair<uint32_t, uint32_t>>{{0, 0}, {0, 13}, {13, 0}}) {
+  for (const auto &[alpha, beta] : std::vector<std::pair<uint32_t, uint32_t>>{
+           {0, 0}, {0, 13}, {13, 0}, {1, 1}, {1, 12}, {8, 1}}) {
     SCOPED_TRACE(std::to_string(alpha) + "/" + std::to_string(beta));
     const auto descriptor =
         testing::WithGdnGateFormats(testing::QwenModelFacts(), alpha, beta);

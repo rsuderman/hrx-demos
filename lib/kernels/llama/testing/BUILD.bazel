@@ -180,6 +180,14 @@ loom_test(
 )
 
 # The same isolated adapter proofs execute from maintained SOURCE and BC.
+genrule(
+    name = "h64_rotary_fixtures",
+    testonly = True,
+    srcs = ["h64_rotary_fixtures.py"],
+    outs = ["h64_rotary_checks.loom"],
+    cmd = "python3 $(location h64_rotary_fixtures.py) $@",
+)
+
 _PLAIN_PROOFS = {
     "epoch_embedding": _DIRECT["embedding"],
     "plain_embedding": [
@@ -189,6 +197,12 @@ _PLAIN_PROOFS = {
     ],
     "plain_rotary": [
         "plain_rotary_checks.loom",
+        "//lib/kernels/llama:attention/attention_prepare.loom",
+        "//lib/kernels/llama:attention/rotary.loom",
+        "//lib/kernels/attention:kv_position.loom",
+    ],
+    "h64_rotary": [
+        ":h64_rotary_fixtures",
         "//lib/kernels/llama:attention/attention_prepare.loom",
         "//lib/kernels/llama:attention/rotary.loom",
         "//lib/kernels/attention:kv_position.loom",

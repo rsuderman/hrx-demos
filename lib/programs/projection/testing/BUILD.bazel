@@ -83,6 +83,26 @@ loom_provider_checks(
     ],
 )
 
+genrule(
+    name = "f16_rows_fixtures",
+    testonly = True,
+    srcs = ["f16_rows_fixtures.py"],
+    outs = ["f16_rows_checks.loom"],
+    cmd = "python3 $(location f16_rows_fixtures.py) $@",
+)
+
+loom_provider_checks(
+    name = "f16_rows",
+    checks = [":f16_rows_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "f16_rows_provider",
+    provider_srcs = [
+        "//lib/kernels/projection:f32_rows.loom",
+        "//lib/programs/projection:contract.loom",
+        "//lib/programs/projection:rows.loom",
+    ],
+)
+
 loom_checks(
     name = "routed_rows",
     checks = ["routed_rows_checks.loom"],

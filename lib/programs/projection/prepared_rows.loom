@@ -24,7 +24,7 @@ kernel.decl @llm.projection.prepare_f32_prefix(%rows$401: index, %input_width$40
 // Exact logical-row output; canonical scratch is defined without reading inactive input.
 template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
-template.def<@llm.projection.policy_rows> @llm_projection_policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%profile, 0, 1), range(%rows, 1, 512), range(%input_width, 256, 32768), multiple_of(%input_width, 256)] {
+template.def<@llm.projection.policy_rows> @llm_projection_policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%profile, 0, 1), range(%rows, 1, 512), range(%input_width, 128, 32768), multiple_of(%input_width, 128)] {
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
@@ -69,7 +69,7 @@ template.def<@llm.projection.prepare_canonical_prefix> @llm_projection_prepare_c
 
 template.decl @llm.projection.policy_qkv(%profile: index, %rows: index, %hidden: index, %q_size: index, %kv: index, %q_tag: index, %k_tag: index, %v_tag: index, %q_bytes: index, %k_bytes: index, %v_bytes: index, %count: buffer, %normalized: buffer, %q_weight: view<[%q_bytes]xi8>, %k_weight: view<[%k_bytes]xi8>, %v_weight: view<[%v_bytes]xi8>, %q: buffer, %k: buffer, %v: buffer)
 
-template.def<@llm.projection.policy_qkv> @llm_projection_policy_qkv(%profile: index, %rows: index, %hidden: index, %q_size: index, %kv: index, %q_tag: index, %k_tag: index, %v_tag: index, %q_bytes: index, %k_bytes: index, %v_bytes: index, %count: buffer, %normalized: buffer, %q_weight: view<[%q_bytes]xi8>, %k_weight: view<[%k_bytes]xi8>, %v_weight: view<[%v_bytes]xi8>, %q: buffer, %k: buffer, %v: buffer) where [range(%profile, 0, 1), range(%rows, 1, 512), range(%hidden, 256, 32768), multiple_of(%hidden, 256)] {
+template.def<@llm.projection.policy_qkv> @llm_projection_policy_qkv(%profile: index, %rows: index, %hidden: index, %q_size: index, %kv: index, %q_tag: index, %k_tag: index, %v_tag: index, %q_bytes: index, %k_bytes: index, %v_bytes: index, %count: buffer, %normalized: buffer, %q_weight: view<[%q_bytes]xi8>, %k_weight: view<[%k_bytes]xi8>, %v_weight: view<[%v_bytes]xi8>, %q: buffer, %k: buffer, %v: buffer) where [range(%profile, 0, 1), range(%rows, 1, 512), range(%hidden, 128, 32768), multiple_of(%hidden, 128)] {
   %zero = index.constant 0 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32

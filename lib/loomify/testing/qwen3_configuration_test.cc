@@ -8,10 +8,75 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <map>
 namespace hrx::loomify_gguf {
 namespace {
+TEST(Qwen3Configuration,
+     ClassicQ4UsesActualFormatsAndIndependentE2560QueryWidth) {
+  auto model = testing::Qwen3ModelFacts(2560);
+  uint64_t next = 4096;
+  std::map<std::string, model::TensorRecord> aliases;
+  auto relocate = [&](model::TensorRecord &tensor) {
+    const auto existing = aliases.find(tensor.name);
+    if (existing != aliases.end()) {
+      tensor = existing->second;
+      return;
+    }
+    ASSERT_TRUE(model::EncodedTensorByteSize(
+        tensor.storage_type, tensor.normalized_extents[0],
+        tensor.normalized_extents[1], &tensor.byte_size));
+    tensor.absolute_offset = next;
+    next += (tensor.byte_size + 255) / 256 * 256;
+    aliases.emplace(tensor.name, tensor);
+  };
+  for (auto &binding : model.globals)
+    relocate(binding.tensor);
+  for (auto &layer : model.layers) {
+    layer.query_heads = 32;
+    layer.feed_forward_width = 9728;
+    for (auto &binding : layer.tensors) {
+      auto &tensor = binding.tensor;
+      if (tensor.storage_type != 0) {
+        tensor.storage_type = binding.role == "ffn_down" ? 3 : 2;
+        if (binding.role == "query")
+          tensor.normalized_extents[1] = 4096;
+        if (binding.role == "attention_output")
+          tensor.normalized_extents[0] = 4096;
+        if (binding.role == "ffn_gate" || binding.role == "ffn_up")
+          tensor.normalized_extents[1] = 9728;
+        if (binding.role == "ffn_down")
+          tensor.normalized_extents[0] = 9728;
+      }
+      relocate(tensor);
+    }
+  }
+  ConfigurationFacts facts;
+  std::string error;
+  ASSERT_TRUE(
+      DeriveConfiguration(model, "classic-q4", {17, 512}, &facts, &error))
+      << error;
+  EXPECT_NE(facts.source.find("@qwen3.model.hidden_size = 2560"),
+            std::string::npos);
+  EXPECT_NE(facts.source.find("@qwen3.model.query_size = 4096"),
+            std::string::npos);
+  EXPECT_NE(
+      facts.source.find("@ggml.linear_q4_0_q8_1_x4.output_capacity = 9728"),
+      std::string::npos);
+  EXPECT_NE(
+      facts.source.find("@ggml.linear_q4_1_q8_1_x4.output_capacity = 2560"),
+      std::string::npos);
+  for (const auto &binding : facts.parameters) {
+    if (!binding.layer)
+      continue;
+    if (binding.role == "ffn_down")
+      EXPECT_EQ(binding.tensor.storage_type, 3u);
+    else if (binding.tensor.storage_type != 0)
+      EXPECT_EQ(binding.tensor.storage_type, 2u);
+  }
+}
+
 TEST(Qwen3Configuration, IndependentQueryWidthAndDataOnlyBindings) {
-  for (const auto hidden : {1024u, 2048u}) {
+  for (const auto hidden : {1024u, 1536u, 2048u}) {
     const auto m = testing::Qwen3ModelFacts(hidden);
     ConfigurationFacts f;
     std::string error;
@@ -79,7 +144,7 @@ TEST(Qwen3Configuration,
     if (mutation == 6)
       m.layers[1].attention_window = 512;
     if (mutation == 7)
-      m = testing::Qwen3ModelFacts(1536);
+      m.embedding_width = 2432;
     if (mutation == 8)
       m.layers[0].tensors[2].tensor.storage_type = 14;
     if (mutation == 9)

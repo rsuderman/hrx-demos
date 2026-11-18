@@ -20,8 +20,10 @@ def f32(value):
 def emit():
     lines = ["// Generated independent bias/NeoX fixtures."]
     lines += [
+        "kernel.decl @llm.decoder.prepare_qk_bias_h64(%rows: index, %heads: index) launch(%capacity: index, %step: f32, %origin: offset, %epoch: buffer, %input: buffer, %bias: buffer, %output: buffer)",
         "kernel.decl @llm.decoder.prepare_qk_bias_h128(%rows: index, %heads: index) launch(%capacity: index, %step: f32, %origin: offset, %epoch: buffer, %input: buffer, %bias: buffer, %output: buffer)",
         "kernel.decl @llm.decoder.add_bias_active(%rows: index, %width: index) launch(%width: index, %count: buffer, %bias: buffer, %projection: buffer)",
+        "kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width: index, %count: buffer, %source: buffer, %residual: buffer)",
     ]
     cases = [
         ("q0", 12, 0, 2),
@@ -34,9 +36,15 @@ def emit():
         ("past_end", 2, 128, 2),
         ("negative_position", 2, -1, 2),
     ]
-    step = f32(-2 * math.log(1000000.0) / 128)
-    for name, heads, base, active in cases:
-        width, size = heads * 128, 3 * heads * 128
+    cases = [
+        (f"h{h}_{name}", 14 if h == 64 and heads == 12 else heads, h, base, active)
+        for h in [64, 128]
+        for name, heads, base, active in cases
+    ]
+    for name, heads, head_size, base, active in cases:
+        half = head_size // 2
+        step = f32(-2 * math.log(1000000.0) / head_size)
+        width, size = heads * head_size, 3 * heads * head_size
         inputs = [
             (
                 f32(2 + (i % 43) / 16)
@@ -53,23 +61,23 @@ def emit():
             ):
                 continue
             for head in range(heads):
-                for lane in range(128):
-                    pair = lane % 64
+                for lane in range(head_size):
+                    pair = lane % half
                     lo = f32(
-                        inputs[row * width + head * 128 + pair]
-                        + bias[head * 128 + pair]
+                        inputs[row * width + head * head_size + pair]
+                        + bias[head * head_size + pair]
                     )
                     hi = f32(
-                        inputs[row * width + head * 128 + pair + 64]
-                        + bias[head * 128 + pair + 64]
+                        inputs[row * width + head * head_size + pair + half]
+                        + bias[head * head_size + pair + half]
                     )
                     angle = f32((base + row) * f32(math.exp(f32(pair * step))))
                     value = (
                         lo * math.cos(angle) - hi * math.sin(angle)
-                        if lane < 64
+                        if lane < half
                         else lo * math.sin(angle) + hi * math.cos(angle)
                     )
-                    expected[row * width + head * 128 + lane] = f32(value)
+                    expected[row * width + head * head_size + lane] = f32(value)
         for key, values in [("input", inputs), ("bias", bias), ("expected", expected)]:
             blob = b"".join(struct.pack("<f", v) for v in values).hex()
             lines.append(
@@ -121,7 +129,7 @@ command.def @{name}.actual() launch(%epoch: buffer, %input: buffer, %bias: buffe
   %capacity = index.constant 128 : index
   %step = scalar.constant {step!r} : f32
   %origin = index.constant 12 : offset
-  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %heads](%capacity, %step, %origin, %epoch, %input, %bias, %output) : [index, index](index, f32, offset, buffer, buffer, buffer, buffer)
+  kernel.launch @llm.decoder.prepare_qk_bias_h{head_size}[%rows, %heads](%capacity, %step, %origin, %epoch, %input, %bias, %output) : [index, index](index, f32, offset, buffer, buffer, buffer, buffer)
   command.return
 }}
 func.def @{name}.expected(%epoch: buffer, %input: buffer, %bias: buffer, %output: buffer) {{
@@ -162,12 +170,13 @@ check.scenario @qkv_bias.{name} {{
   check.return
 }}""")
     # Exact elementwise bias anchors, including all inactive rows and guards.
-    for active in [-1, 0, 1, 2, 4]:
-        name = f"v{active}" if active >= 0 else "v_negative"
-        v_bias = [f32((i % 19 - 9) / 32) for i in range(256)]
-        v_input = [f32(2 + (i % 43) / 16) for i in range(768)]
+    for width, active in [(w, a) for w in [128, 256, 896] for a in [-1, 0, 1, 2, 4]]:
+        size = 3 * width
+        name = f"v{width}_{active}" if active >= 0 else f"v{width}_negative"
+        v_bias = [f32((i % 19 - 9) / 32) for i in range(width)]
+        v_input = [f32(2 + (i % 43) / 16) for i in range(size)]
         v_expected = [
-            f32(v + v_bias[i % 256]) if 0 <= i < active * 256 and active <= 3 else v
+            f32(v + v_bias[i % width]) if 0 <= i < active * width and active <= 3 else v
             for i, v in enumerate(v_input)
         ]
         for key, values in [
@@ -185,8 +194,8 @@ check.scenario @qkv_bias.{name} {{
   %one = index.constant 1 : index
 """)
         for key, argument, count in [
-            ("input", "projection", 768),
-            ("bias", "bias", 256),
+            ("input", "projection", size),
+            ("bias", "bias", width),
         ]:
             lines.append(
                 f"""  %{key}_bank = global.load @bias.oracle.{name}.{key} : buffer
@@ -202,34 +211,70 @@ check.scenario @qkv_bias.{name} {{
         lines.append(
             f"""command.def @{name}.actual() launch(%count: buffer, %bias: buffer, %projection: buffer) {{
   %rows = index.constant 3 : index
-  %width = index.constant 256 : index
+  %width = index.constant {width} : index
   kernel.launch @llm.decoder.add_bias_active[%rows, %width](%width, %count, %bias, %projection) : [index, index](index, buffer, buffer, buffer)
   command.return
 }}
 func.def @{name}.expected(%count: buffer, %bias: buffer, %projection: buffer) {{
   %origin = index.constant 0 : offset
-  %out = buffer.view %projection[%origin] : buffer -> view<768xf32>
+  %out = buffer.view %projection[%origin] : buffer -> view<{size}xf32>
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  %size = index.constant 768 : index
+  %size = index.constant {size} : index
   %bank = global.load @bias.oracle.{name}.expected : buffer
-  %source = buffer.view %bank[%origin] : buffer -> view<768xf32>
+  %source = buffer.view %bank[%origin] : buffer -> view<{size}xf32>
   scf.for %i = [%zero to %size step %one] {{
-    %value = view.load %source[%i] : view<768xf32> -> f32
-    view.store %value, %out[%i] : f32, view<768xf32>
+    %value = view.load %source[%i] : view<{size}xf32> -> f32
+    view.store %value, %out[%i] : f32, view<{size}xf32>
   }}
   func.return
 }}
 check.scenario @qkv_bias.{name} {{
   check.trial[1](%trial: index, %entropy: check.entropy) {{
     %count = check.generate.fill value({active}) : tensor<3xi32>
-    %bias = check.generate.fill value(0.75) : tensor<256xf32>
-    %owner = check.generate.fill value(2.5) : tensor<776xf32>
-    %out = check.tensor.view %owner offset(16) : tensor<776xf32> -> tensor<768xf32>
-    check.generate<@{name}.init>(%bias, %out) : (tensor<256xf32>, tensor<768xf32>) -> ()
-    check.compare<@{name}.actual, @{name}.expected>(%count, %bias, %out) : (tensor<3xi32>, tensor<256xf32>, tensor<768xf32>) -> () {{
-      check.expect.bitwise actual(%owner) expected(%owner) : tensor<776xf32>
-      check.expect.bitwise actual(%bias) expected(%bias) : tensor<256xf32>
+    %bias = check.generate.fill value(0.75) : tensor<{width}xf32>
+    %owner = check.generate.fill value(2.5) : tensor<{size+8}xf32>
+    %out = check.tensor.view %owner offset(16) : tensor<{size+8}xf32> -> tensor<{size}xf32>
+    check.generate<@{name}.init>(%bias, %out) : (tensor<{width}xf32>, tensor<{size}xf32>) -> ()
+    check.compare<@{name}.actual, @{name}.expected>(%count, %bias, %out) : (tensor<3xi32>, tensor<{width}xf32>, tensor<{size}xf32>) -> () {{
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<{size+8}xf32>
+      check.expect.bitwise actual(%bias) expected(%bias) : tensor<{width}xf32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+    }}
+  }}
+  check.return
+}}"""
+        )
+    for active in [0, 1, 2, 4]:
+        name = f"residual896_count{active}"
+        lines.append(
+            f"""command.def @{name}.actual() launch(%count: buffer, %source: buffer, %output: buffer) {{
+  %rows = index.constant 3 : index
+  %width = index.constant 896 : index
+  kernel.launch @llm.decoder.residual[%rows, %width](%width, %count, %source, %output) : [index, index](index, buffer, buffer, buffer)
+  command.return
+}}
+func.def @{name}.expected(%count: buffer, %source: buffer, %output: buffer) {{
+  %origin = index.constant 0 : offset
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %elements = index.constant {active * 896 if active <= 3 else 0} : index
+  %out = buffer.view %output[%origin] : buffer -> view<2688xf32>
+  %value = scalar.constant 3.0 : f32
+  scf.for %i = [%zero to %elements step %one] {{
+    view.store %value, %out[%i] : f32, view<2688xf32>
+  }}
+  func.return
+}}
+check.scenario @{name} {{
+  check.trial[1](%trial: index, %entropy: check.entropy) {{
+    %count = check.generate.fill value({active}) : tensor<3xi32>
+    %source = check.generate.fill value(1.0) : tensor<2688xf32>
+    %owner = check.generate.fill value(2.0) : tensor<2696xf32>
+    %output = check.tensor.view %owner offset(16) : tensor<2696xf32> -> tensor<2688xf32>
+    check.compare<@{name}.actual, @{name}.expected>(%count, %source, %output) : (tensor<3xi32>, tensor<2688xf32>, tensor<2688xf32>) -> () {{
+      check.expect.bitwise actual(%owner) expected(%owner) : tensor<2696xf32>
+      check.expect.bitwise actual(%source) expected(%source) : tensor<2688xf32>
       check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
     }}
   }}

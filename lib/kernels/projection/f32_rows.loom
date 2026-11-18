@@ -2,12 +2,33 @@
 // SPDX-License-Identifier: MIT
 // Small ordinary F32 projections, including unquantized per-head gate weights.
 // Each workitem owns output columns; inactive inputs are never read.
+// F16 weights extend at their load; both paths retain original F32 activations
+// and the same ascending-K multiply followed by add.
+template.decl @llm.projection.unquantized_rows(%half_weights: i1, %input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
 kernel.def @llm.projection.f32_rows_kernel(%rows0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
   kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %half = scalar.constant false : i1
+  template.apply<@llm.projection.unquantized_rows>(%half, %input_width0, %output_width0, %count, %input, %weight, %output) : (i1, index, index, buffer, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def @llm.projection.f16_rows_kernel(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %half = scalar.constant true : i1
+  template.apply<@llm.projection.unquantized_rows>(%half, %input_width0, %output_width0, %count, %input, %weight, %output) : (i1, index, index, buffer, buffer, buffer, buffer)
+  kernel.return
+}
+
+template.def<@llm.projection.unquantized_rows> device @llm_projection_unquantized_rows(%half_weights: i1, %input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
   %input_width = index.assume %input_width0 [range(%input_width0, 1, 32768)] : index
   %output_width = index.assume %output_width0 [range(%output_width0, 1, 32768)] : index
   %rows0 = kernel.workgroup.count<x> : index
@@ -31,14 +52,22 @@ kernel.def @llm.projection.f32_rows_kernel(%rows0: index) {
   %active = scalar.andi %valid, %inside : i1
   %input_noalias, %weight_noalias, %output_noalias = buffer.assume.noalias %input, %weight, %output : buffer, buffer, buffer
   %x = buffer.view %input_noalias[%origin] : buffer -> view<[%rows]x[%input_width]xf32>
-  %w = buffer.view %weight_noalias[%origin] : buffer -> view<[%output_width]x[%input_width]xf32>
   %y = buffer.view %output_noalias[%origin] : buffer -> view<[%rows]x[%output_width]xf32>
   scf.for %column0 = [%thread to %output_width step %step] {
     %column = index.assume %column0 [range(%column0, 0, 32767), lt(%column0, %output_width)] : index
     %value = scf.if %active -> (f32) {
       %sum = scf.for %k = [%zero to %input_width step %one](%acc = %zero_f : f32) -> (f32) {
         %a = view.load %x[%row, %k] : view<[%rows]x[%input_width]xf32> -> f32
-        %b = view.load %w[%column, %k] : view<[%output_width]x[%input_width]xf32> -> f32
+        %b = scf.if %half_weights -> (f32) {
+          %w = buffer.view %weight_noalias[%origin] : buffer -> view<[%output_width]x[%input_width]xf16>
+          %stored = view.load %w[%column, %k] : view<[%output_width]x[%input_width]xf16> -> f16
+          %extended = scalar.extf %stored : f16 to f32
+          scf.yield %extended : f32
+        } else {
+          %w = buffer.view %weight_noalias[%origin] : buffer -> view<[%output_width]x[%input_width]xf32>
+          %stored = view.load %w[%column, %k] : view<[%output_width]x[%input_width]xf32> -> f32
+          scf.yield %stored : f32
+        }
         %product = scalar.mulf %a, %b : f32
         %next = scalar.addf %acc, %product : f32
         scf.yield %next : f32
@@ -49,5 +78,5 @@ kernel.def @llm.projection.f32_rows_kernel(%rows0: index) {
     }
     view.store %value, %y[%row, %column] : f32, view<[%rows]x[%output_width]xf32>
   }
-  kernel.return
+  template.return
 }

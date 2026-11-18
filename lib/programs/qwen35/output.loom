@@ -13,6 +13,8 @@ config.decl @qwen.model.logits_row_bytes : index
 
 config.decl @qwen.model.output_weight_bytes : index
 
+config.decl @qwen.model.output_storage_type : index
+
 config.decl @qwen.model.hidden_q8_row_bytes : index
 
 config.decl @qwen.model.vocabulary_size : index
@@ -37,7 +39,7 @@ kernel.decl @ggml_quantize_q8_1_x4_f32(%rows$56: index, %width$57: index) launch
 
 kernel.decl @qwen38_output_normalize_spans(%output_capacity: index) launch(%epoch: buffer, %epsilon: f32, %input: buffer, %weight: buffer, %output: buffer)
 
-// One private row retains the selected ordinal and canonical Q6 arithmetic.
+// One private row retains the selected ordinal and canonical per-format arithmetic.
 // Selected capacity remains1; the epoch owns all public output publication.
 command.def @loomify.qwen.head(%token_capacity: index, %output_capacity: index) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %selected_ids: buffer) where [range(%token_capacity, 1, 512), range(%output_capacity, 1, 1)] {
   %one = index.constant 1 : index
@@ -74,8 +76,8 @@ command.def @loomify.qwen.head(%token_capacity: index, %output_capacity: index) 
   %canonical = index.constant 1 : index
   %fixed_count = scalar.constant 1 : i32
   template.apply<@llm.projection.pack_input>(%canonical, %one, %one, %hidden, %zero, %fixed_count, %origin, %epoch, %normalized, %q8) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  %q6 = index.constant 14 : index
-  template.apply<@llm.projection.project_packed>(%canonical, %q6, %one, %one, %hidden, %vocab, %output_bytes, %zero, %fixed_count, %origin, %epoch, %q8, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%output_bytes]xi8>, buffer)
+  %output_tag = config.get @qwen.model.output_storage_type : index
+  template.apply<@llm.projection.project_packed>(%canonical, %output_tag, %one, %one, %hidden, %vocab, %output_bytes, %zero, %fixed_count, %origin, %epoch, %q8, %weight, %logits) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%output_bytes]xi8>, buffer)
   kernel.launch @qwen38_greedy_argmax_partial_rows_f32[%one, %vocab](%one, %vocab, %logits, %partial_logits, %partial_ids) : [index, index](index, index, buffer, buffer, buffer)
   kernel.launch @qwen38_greedy_argmax_reduce_rows_f32[%one, %vocab](%one, %vocab, %partial_logits, %partial_ids, %selected_ids) : [index, index](index, index, buffer, buffer, buffer)
   command.return

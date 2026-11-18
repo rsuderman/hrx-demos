@@ -119,7 +119,8 @@ struct Loader {
 
 uint64_t Product(uint64_t a, uint64_t b);
 void ReadDecoderDimensions(const Loader &, ModelDescriptor &,
-                           bool allow_zero_kv = false);
+                           bool allow_zero_kv = false,
+                           bool allow_auxiliary_tail = false);
 void ReadRope(const Loader &, ModelDescriptor &, double base);
 void BindGlobals(const Loader &, ModelDescriptor &);
 void BindFeedForward(const Loader &, const ModelDescriptor &,

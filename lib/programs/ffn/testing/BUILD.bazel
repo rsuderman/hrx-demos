@@ -294,6 +294,7 @@ genrule(
     cmd = "python3 $(location independent_fixtures.py) $(location //lib/kernels/qwen/testing/common:fixture_helpers.py) " + mode + " $@",
 ) for mode in [
     "classic",
+    "classic_q4",
     "live_qwen",
     "gated_tiny",
     "gated_matrix",
@@ -313,10 +314,14 @@ genrule(
     ] if mode in [
         "gated_tiny",
         "gated_matrix",
-    ] else _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if mode == "classic" else _CAPABILITY_CANONICAL + ["//lib/programs/qwen35:ffn.loom"])),
+    ] else _CAPABILITY_COMMON + (_CAPABILITY_COMPATIBLE if mode in [
+        "classic",
+        "classic_q4",
+    ] else _CAPABILITY_CANONICAL + ["//lib/programs/qwen35:ffn.loom"])),
     output_format = format,
 ) for mode in [
     "classic",
+    "classic_q4",
     "live_qwen",
     "gated_tiny",
     "gated_matrix",
@@ -332,6 +337,7 @@ genrule(
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
 ) for mode in [
     "classic",
+    "classic_q4",
     "live_qwen",
     "gated_tiny",
     "gated_matrix",

@@ -35,13 +35,25 @@ template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q4(%tag: 
   template.return
 }
 
+template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q5(%tag: index) where [eq(%tag, 13)] {
+  template.return
+}
+
 template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q6(%tag: index) where [eq(%tag, 14)] {
+  template.return
+}
+
+template.def<@loomify.qwen.embedding_encoding> @loomify_qwen_embedding_q8(%tag: index) where [eq(%tag, 8)] {
   template.return
 }
 
 template.decl @loomify.qwen.output_encoding(%tag: index)
 
 template.def<@loomify.qwen.output_encoding> @loomify_qwen_output_q6(%tag: index) where [eq(%tag, 14)] {
+  template.return
+}
+
+template.def<@loomify.qwen.output_encoding> @loomify_qwen_output_q8(%tag: index) where [eq(%tag, 8)] {
   template.return
 }
 
@@ -61,6 +73,8 @@ func.decl pure @loomify.config.layer_route(%slot: index) -> (index, index, index
 kernel.decl @qwen38_token_embedding_q6k_f16_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
 
 kernel.decl @qwen38_token_embedding_q4k_f32_prefill(%tokens: index) launch(%ids: buffer, %weight: buffer, %output: buffer)
+
+template.decl @llm.embedding.gather_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
 
 command.decl @qwen38_gdn_layer_prefill(%tokens: index, %schedule: index, %layer: index, %ordinal: index, %verification: index, %spans: index) launch(%parameters: buffer, %residual: buffer, %state: buffer, %epoch: buffer, %capture: buffer, %rows: buffer)
 
@@ -92,7 +106,15 @@ command.def @loomify.qwen.model(%tokens: index) launch(%parameters: buffer, %res
   scf.if %embedding_q4 {
     kernel.launch @qwen38_token_embedding_q4k_f32_prefill[%tokens](%input, %embedding, %residual) : [index](buffer, view<[%embedding_bytes]xi8>, buffer)
   } else {
-    kernel.launch @qwen38_token_embedding_q6k_f16_prefill[%tokens](%input, %embedding, %residual) : [index](buffer, view<[%embedding_bytes]xi8>, buffer)
+    %q6 = index.constant 14 : index
+    %embedding_q6 = index.cmp eq, %embedding_tag, %q6 : index
+    scf.if %embedding_q6 {
+      kernel.launch @qwen38_token_embedding_q6k_f16_prefill[%tokens](%input, %embedding, %residual) : [index](buffer, view<[%embedding_bytes]xi8>, buffer)
+    } else {
+      %origin = index.constant 0 : offset
+      %embedding_output = buffer.view %residual[%origin] : buffer -> view<[%tokens]x[%hidden]xf32>
+      template.apply<@llm.embedding.gather_f32>(%tokens, %hidden, %vocabulary, %embedding_tag, %embedding_bytes, %input, %embedding, %embedding_output) : (index, index, index, index, index, buffer, view<[%embedding_bytes]xi8>, view<[%tokens]x[%hidden]xf32>)
+    }
   }
   // Each complete layer finishes before the next one reuses this scratch.
   %capture_bytes = index.constant 256 : offset

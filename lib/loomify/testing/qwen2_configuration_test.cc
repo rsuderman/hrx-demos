@@ -9,8 +9,123 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#ifndef LOOMIFY_QWEN2_REAL_ASSETS
+#include "lib/loomify/linking.h"
+#include "loomc/source.h"
+#include "loomc/target/amdgpu.h"
+#include <filesystem>
+#endif
 namespace hrx::loomify_gguf {
 namespace {
+#ifndef LOOMIFY_QWEN2_REAL_ASSETS
+TEST(Qwen2ModelRoot, TiedQ8AndQ6HeadsMaterializeTheirActualPolicies) {
+  auto ok = [](loomc_status_t status) {
+    const bool success = loomc_status_is_ok(status);
+    if (!success) {
+      const auto message = loomc_status_message(status);
+      ADD_FAILURE() << std::string(message.data, message.size);
+    }
+    loomc_status_free(status);
+    return success;
+  };
+  loomc_target_environment_t *raw_environment = nullptr;
+  ASSERT_TRUE(ok(loomc_target_environment_create_amdgpu(
+      loomc_allocator_system(), &raw_environment)));
+  std::unique_ptr<loomc_target_environment_t,
+                  decltype(&loomc_target_environment_release)>
+      environment(raw_environment, loomc_target_environment_release);
+  loomc_context_target_options_t target{};
+  target.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
+  target.target_environment = environment.get();
+  loomc_context_options_t options{};
+  options.next = &target;
+  loomc_context_t *raw_context = nullptr;
+  ASSERT_TRUE(ok(
+      loomc_context_create(&options, loomc_allocator_system(), &raw_context)));
+  std::unique_ptr<loomc_context_t, decltype(&loomc_context_release)> context(
+      raw_context, loomc_context_release);
+  loomc_workspace_t *raw_workspace = nullptr;
+  ASSERT_TRUE(ok(loomc_workspace_create(nullptr, loomc_allocator_system(),
+                                        &raw_workspace)));
+  std::unique_ptr<loomc_workspace_t, decltype(&loomc_workspace_release)>
+      workspace(raw_workspace, loomc_workspace_release);
+  const char *srcdir = std::getenv("TEST_SRCDIR");
+  const char *workspace_name = std::getenv("TEST_WORKSPACE");
+  ASSERT_TRUE(srcdir && workspace_name);
+  const auto root = std::filesystem::path(srcdir) / workspace_name;
+  for (uint32_t tag : {8u, 14u}) {
+    SCOPED_TRACE(tag);
+    auto descriptor = testing::qwen2::ModelFacts(1536, 1, 3072);
+    uint64_t next = 4096;
+    std::map<std::string, model::TensorRecord> aliases;
+    auto place = [&](model::TensorRecord &tensor) {
+      const auto found = aliases.find(tensor.name);
+      if (found != aliases.end()) {
+        tensor = found->second;
+        return;
+      }
+      if (tensor.name == "token_embd.weight") {
+        tensor.storage_type = tag;
+        EXPECT_TRUE(model::EncodedTensorByteSize(
+            tag, 1536, descriptor.vocabulary_size, &tensor.byte_size));
+      }
+      tensor.absolute_offset = next;
+      next += (tensor.byte_size + 255) / 256 * 256;
+      aliases.emplace(tensor.name, tensor);
+    };
+    for (auto &binding : descriptor.globals)
+      place(binding.tensor);
+    for (auto &layer : descriptor.layers)
+      for (auto &binding : layer.tensors)
+        place(binding.tensor);
+    ConfigurationFacts facts;
+    std::string error;
+    ASSERT_TRUE(DeriveConfiguration(descriptor, "root-fixture", {1, 128},
+                                    &facts, &error))
+        << error;
+    // Constructed publication IDs complete the same public epoch entrypoint
+    // used by exported models; numerical head selection is independent of them.
+    const auto configuration =
+        facts.source + "config.def @qwen2.publication.end_text_id = 2 : i32\n"
+                       "config.def @qwen2.publication.end_turn_id = 4 : i32\n";
+    for (bool bytecode : {false, true}) {
+      SCOPED_TRACE(bytecode);
+      const auto product =
+          root / "lib/architectures/qwen2" /
+          (bytecode ? "implementation.loombc" : "implementation_text.loom");
+      loomc_module_t *raw_module = nullptr;
+      ASSERT_TRUE(LinkConfiguredProducts(
+          context.get(), workspace.get(), configuration,
+          {product.string(),
+           (root / "lib/platforms/amdgpu/gfx11/targets.loom").string(),
+           (root /
+            "lib/platforms/amdgpu/gfx11/projection/implementation.loombc")
+               .string()},
+          {"generated.qwen2_epoch"}, true, &raw_module, &error))
+          << error;
+      std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> module(
+          raw_module, loomc_module_release);
+      loomc_source_t *raw_text = nullptr;
+      ASSERT_TRUE(ok(loomc_module_serialize_text_to_source(
+          module.get(), nullptr, loomc_allocator_system(), &raw_text)));
+      std::unique_ptr<loomc_source_t, decltype(&loomc_source_release)> printed(
+          raw_text, loomc_source_release);
+      const auto bytes = loomc_source_contents(printed.get());
+      const std::string text(reinterpret_cast<const char *>(bytes.data),
+                             bytes.data_length);
+      EXPECT_NE(
+          text.find(tag == 8
+                        ? "kernel.launch @ggml_linear_q8_0_q8_1_x4["
+                        : "kernel.launch @ggml_linear_q6k_q8_1_x4_compat["),
+          std::string::npos);
+      if (tag == 8)
+        EXPECT_EQ(text.find("kernel.launch @ggml_linear_q6k_q8_1_x4_compat["),
+                  std::string::npos);
+    }
+  }
+}
+#endif
+
 const model::TensorRecord *
 Role(const std::vector<model::TensorBinding> &bindings,
      const std::string &role) {

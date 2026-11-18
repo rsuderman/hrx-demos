@@ -37,7 +37,18 @@ template.def<@llm.embedding.exact_extent> @llm_embedding_exact_extent(%actual: i
 
 template.decl @llm.embedding.table_contract(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index)
 
-template.def<@llm.embedding.table_contract> @llm_embedding_table_contract(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index) where [range(%rows, 1, 2048), ge(%hidden, 256), multiple_of(%hidden, 256), range(%vocabulary, 1, 2147483648)] {
+template.decl @llm.embedding.row_geometry(%hidden: index, %tag: index)
+
+template.def<@llm.embedding.row_geometry> @llm_embedding_q8_geometry(%hidden: index, %tag: index) where [eq(%tag, 8), range(%hidden, 32, 32768), multiple_of(%hidden, 32)] {
+  template.return
+}
+
+template.def<@llm.embedding.row_geometry> @llm_embedding_k_geometry(%hidden: index, %tag: index) where [range(%tag, 12, 14), ge(%hidden, 256), multiple_of(%hidden, 256)] {
+  template.return
+}
+
+template.def<@llm.embedding.table_contract> @llm_embedding_table_contract(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index) where [range(%rows, 1, 2048), ge(%hidden, 32), range(%vocabulary, 1, 2147483648)] {
+  template.apply<@llm.embedding.row_geometry>(%hidden, %tag) : (index, index)
   %maximum = index.constant 9223372036854775807 : index
   %q8_tag = index.constant 8 : index
   %q8 = index.cmp eq, %tag, %q8_tag : index
@@ -80,10 +91,11 @@ template.def<@llm.embedding.decode_f32_row> device @llm_embedding_decode_f32_row
   scf.if %q8 {
     // The command table contract admits this geometry. Epoch kernels forward
     // hidden as a runtime argument, so retain its facts for the device template.
-    %q8_hidden = index.assume %hidden [range(%hidden, 256, 32768), multiple_of(%hidden, 256), multiple_of(%hidden, 32)] : index
+    %q8_hidden = index.assume %hidden [range(%hidden, 32, 32768), multiple_of(%hidden, 32)] : index
     %scale = scalar.constant 1.0 : f32
     template.apply<@llm.token_embedding_q8_0_f32.row>(%q8_hidden, %token, %output_origin, %scale, %weight, %output) : (index, i32, offset, f32, buffer, buffer)
   } else {
+    %k_hidden = index.assume %hidden [ge(%hidden, 256), multiple_of(%hidden, 256)] : index
     %q4_tag = index.constant 12 : index
     %q5_tag = index.constant 13 : index
     %q4 = index.cmp eq, %tag, %q4_tag : index
@@ -94,15 +106,15 @@ template.def<@llm.embedding.decode_f32_row> device @llm_embedding_decode_f32_row
     %other_bytes = scf.select %q5, %q5_bytes, %q6_bytes : index
     %block_bytes = scf.select %q4, %q4_bytes, %other_bytes : index
     %block_values = index.constant 256 : index
-    %blocks = index.div %hidden, %block_values : index
+    %blocks = index.div %k_hidden, %block_values : index
     %row_bytes = index.mul %blocks, %block_bytes : index
     scf.if %q4 {
-      template.apply<@llm.token_embedding_q4k_f32.row>(%hidden, %row_bytes, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+      template.apply<@llm.token_embedding_q4k_f32.row>(%k_hidden, %row_bytes, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
     } else {
       scf.if %q5 {
-        template.apply<@llm.token_embedding_q5k_f32.row>(%hidden, %row_bytes, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+        template.apply<@llm.token_embedding_q5k_f32.row>(%k_hidden, %row_bytes, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
       } else {
-        template.apply<@llm.token_embedding_q6k_f32.row>(%hidden, %row_bytes, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+        template.apply<@llm.token_embedding_q6k_f32.row>(%k_hidden, %row_bytes, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
       }
     }
   }

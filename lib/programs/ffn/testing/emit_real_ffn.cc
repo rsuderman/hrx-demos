@@ -43,7 +43,8 @@ bool PartialSource(const char *path, std::string *source, std::string *error) {
     return false;
   }
   const auto supported = [](uint64_t tag) {
-    return tag == 6 || tag == 8 || tag == 12 || tag == 13 || tag == 14;
+    return tag == 2 || tag == 3 || tag == 6 || tag == 8 || tag == 12 ||
+           tag == 13 || tag == 14 || tag == 23;
   };
   const auto valid_name = [](const std::string &name, const char *suffix) {
     const std::string end = suffix;
@@ -54,7 +55,7 @@ bool PartialSource(const char *path, std::string *source, std::string *error) {
                std::string::npos;
   };
   uint64_t expected_gate = 0, expected_up = 0;
-  if (profile > 1 || hidden < 256 || hidden > 32768 || hidden % 256 ||
+  if (profile > 1 || hidden < 128 || hidden > 32768 || hidden % 128 ||
       ffn < 256 || ffn > 32768 || ffn % 256 || !supported(gate_tag) ||
       !supported(up_tag) ||
       ((gate_tag == 14 || up_tag == 14) && hidden > 17408) ||
@@ -71,7 +72,8 @@ bool PartialSource(const char *path, std::string *source, std::string *error) {
       << "template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n"
       << "kernel.decl @llm.projection.active_swiglu(%rows: index, %width: index) launch(%rows: index, %width: index, %count: buffer, %gate: buffer, %up: buffer, %output: buffer)\n"
       << "kernel.decl @llm.projection.prepare_f32_prefix(%rows: index, %width: index) launch(%rows: index, %width: index, %count: buffer, %input: buffer, %output: buffer)\n";
-  for (const char *format : {"q4k", "q5k", "q6k", "q5_0", "q8_0"})
+  for (const char *format :
+       {"q4k", "q5k", "q6k", "q5_0", "q8_0", "q4_0", "q4_1", "iq4_xs"})
     text << "config.def @ggml.linear_" << format
          << "_q8_1_x4.token_capacity = 512 : index\n"
          << "config.def @ggml.linear_" << format

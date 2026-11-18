@@ -1,0 +1,8 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared command-time byte extent and allocation limits for row projections.
+template.decl @llm.projection.contract(%bytes: index, %expected: index, %rows: index, %row_limit: index, %width: index, %width_limit: index)
+
+template.def<@llm.projection.contract> @llm_projection_contract(%bytes: index, %expected: index, %rows: index, %row_limit: index, %width: index, %width_limit: index) where [eq(%bytes, %expected), le(%rows, %row_limit), le(%width, %width_limit)] {
+  template.return
+}

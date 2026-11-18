@@ -12,7 +12,7 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
                 "configuration requires output and source asset identity");
   const auto E = m.embedding_width, V = m.vocabulary_size, H = m.key_head_width;
   if (m.family != "qwen3" || m.layers.empty() || m.layers.size() > 64 || !E ||
-      E > 32768 || E % 1024 || !V || V > 262144 || H != 128 ||
+      E > 32768 || E % 256 || !V || V > 262144 || H != 128 ||
       m.value_head_width != H || m.ssm || !m.output_tied_to_embedding ||
       m.rope.width != H || m.rope.scaling_factor != 1 ||
       (m.rope.scaling_kind != "none" && m.rope.scaling_kind != "linear") ||

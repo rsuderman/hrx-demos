@@ -80,7 +80,7 @@ kernel.decl @llm.decoder.residual(%rows: index, %width$171: index) launch(%width
 
 template.decl @loomify.ffn.admit(%hidden: index, %ffn: index, %profile: index)
 
-template.def<@loomify.ffn.admit> @loomify_ffn_independent_admit(%hidden: index, %ffn: index, %profile: index) where [range(%hidden, 1024, 32768), multiple_of(%hidden, 256), range(%ffn, 256, 32768), multiple_of(%ffn, 256), range(%profile, 0, 1)] {
+template.def<@loomify.ffn.admit> @loomify_ffn_independent_admit(%hidden: index, %ffn: index, %profile: index) where [range(%hidden, 128, 32768), multiple_of(%hidden, 128), range(%ffn, 256, 32768), multiple_of(%ffn, 256), range(%profile, 0, 1)] {
   template.return
 }
 

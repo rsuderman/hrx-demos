@@ -32,14 +32,24 @@ template.decl @llm.decoder.prepare_qkv(%layer: index, %rows: index, %control_ori
 
 kernel.decl @llm.decoder.prepare_qk_bias_h128(%rows: index, %heads: index) launch(%capacity: index, %rope_log_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %bias: buffer, %output: buffer)
 
-kernel.decl @llm.decoder.add_bias_active(%rows: index, %width$64: index) launch(%width$65: index, %count: buffer, %bias: buffer, %projection: buffer)
+kernel.decl @llm.decoder.prepare_qk_bias_h64(%rows: index, %heads: index) launch(%capacity: index, %rope_log_step: f32, %control_origin: offset, %epoch: buffer, %projection: buffer, %bias: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.add_bias_active(%rows: index, %width$73: index) launch(%width$74: index, %count: buffer, %bias: buffer, %projection: buffer)
 
 template.def<@llm.decoder.prepare_qkv> @qwen2_prepare_qkv(%layer: index, %rows: index, %control_origin: offset, %capacity: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %rope_step: f32, %epsilon: f32, %parameters: buffer, %q: buffer, %k: buffer, %v: buffer, %query: buffer, %key: buffer, %count: buffer, %epoch: buffer) where [range(%rows, 1, 512)] {
+  %head_size = index.div %qwidth, %qh : index
   %qbias = command.parameter %parameters, "blk.{}.attn_q.bias"[%layer] : view<[%qwidth]xf32>
   %kbias = command.parameter %parameters, "blk.{}.attn_k.bias"[%layer] : view<[%kv]xf32>
   %vbias = command.parameter %parameters, "blk.{}.attn_v.bias"[%layer] : view<[%kv]xf32>
-  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %qh](%capacity, %rope_step, %control_origin, %epoch, %q, %qbias, %query) : [index, index](index, f32, offset, buffer, buffer, view<[%qwidth]xf32>, buffer)
-  kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %kh](%capacity, %rope_step, %control_origin, %epoch, %k, %kbias, %key) : [index, index](index, f32, offset, buffer, buffer, view<[%kv]xf32>, buffer)
+  %h64 = index.constant 64 : index
+  %small_head = index.cmp eq, %head_size, %h64 : index
+  scf.if %small_head {
+    kernel.launch @llm.decoder.prepare_qk_bias_h64[%rows, %qh](%capacity, %rope_step, %control_origin, %epoch, %q, %qbias, %query) : [index, index](index, f32, offset, buffer, buffer, view<[%qwidth]xf32>, buffer)
+    kernel.launch @llm.decoder.prepare_qk_bias_h64[%rows, %kh](%capacity, %rope_step, %control_origin, %epoch, %k, %kbias, %key) : [index, index](index, f32, offset, buffer, buffer, view<[%kv]xf32>, buffer)
+  } else {
+    kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %qh](%capacity, %rope_step, %control_origin, %epoch, %q, %qbias, %query) : [index, index](index, f32, offset, buffer, buffer, view<[%qwidth]xf32>, buffer)
+    kernel.launch @llm.decoder.prepare_qk_bias_h128[%rows, %kh](%capacity, %rope_step, %control_origin, %epoch, %k, %kbias, %key) : [index, index](index, f32, offset, buffer, buffer, view<[%kv]xf32>, buffer)
+  }
   kernel.launch @llm.decoder.add_bias_active[%rows, %kv](%kv, %count, %vbias, %v) : [index, index](index, buffer, view<[%kv]xf32>, buffer)
   template.return
 }

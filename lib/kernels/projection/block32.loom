@@ -3,9 +3,9 @@
 // Shared signed block32 word access and unchanged Q8_1_x4 dot traversal.
 template.decl @ggml.q8_1_x4.word(%q8_input: buffer, %row_byte_base: offset, %q8_block: index, %word_in_block: index) -> (vector<4xi8>, f32)
 
-template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32)
+template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32)
 
-template.def<@ggml.block32.word> device @ggml_block32_q8_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32) where [eq(%tag, 8)] {
+template.def<@ggml.block32.word> device @ggml_block32_q8_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32) where [eq(%tag, 8)] {
   %block_bytes = index.constant 34 : offset
   %word_bytes = index.constant 4 : offset
   %payload_bytes = index.constant 2 : offset
@@ -20,10 +20,11 @@ template.def<@ggml.block32.word> device @ggml_block32_q8_word(%tag: index, %weig
   %packed = vector.load %word_view[0] : view<1xi32> -> vector<1xi32>
   %codes = vector.bitcast %packed : vector<1xi32> to vector<4xi8>
   %d = scalar.extf %d16 : f16 to f32
-  template.return %codes, %d : vector<4xi8>, f32
+  %minimum = scalar.constant 0.0 : f32
+  template.return %codes, %d, %minimum : vector<4xi8>, f32, f32
 }
 
-template.def<@ggml.block32.word> device @ggml_block32_q5_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32) where [eq(%tag, 6)] {
+template.def<@ggml.block32.word> device @ggml_block32_q5_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32) where [eq(%tag, 6)] {
   %block_bytes = index.constant 22 : offset
   %two = index.constant 2 : offset
   %six = index.constant 6 : offset
@@ -79,7 +80,8 @@ template.def<@ggml.block32.word> device @ggml_block32_q5_word(%tag: index, %weig
   %center = vector.splati 16 : vector<4xi8>
   %codes = vector.subi %codes0, %center : vector<4xi8>
   %d = scalar.extf %d16 : f16 to f32
-  template.return %codes, %d : vector<4xi8>, f32
+  %minimum = scalar.constant 0.0 : f32
+  template.return %codes, %d, %minimum : vector<4xi8>, f32, f32
 }
 
 func.def inline @ggml_block32_q8_1_x4_row_lane(%weight_tag: index, %input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane0: index) -> (f32) {
@@ -104,14 +106,30 @@ func.def inline @ggml_block32_q8_1_x4_row_lane(%weight_tag: index, %input_size: 
     %valid_block = index.cmp ult, %block0, %block_count : index
     %contribution = scf.if %valid_block -> (f32) {
       %block = index.assume %block0 [range(%block0, 0, 1023), lt(%block0, %block_count)] : index
-      %weight_values, %weight_d = template.apply<@ggml.block32.word>(%weight_tag, %weight, %weight_row_byte_base, %block, %word) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32)
+      %weight_values, %weight_d, %weight_minimum = template.apply<@ggml.block32.word>(%weight_tag, %weight, %weight_row_byte_base, %block, %word) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
       %q8_values, %q8_d = template.apply<@ggml.q8_1_x4.word>(%q8_input, %q8_row_byte_base, %block, %word) : (buffer, offset, index, index) -> (vector<4xi8>, f32)
       %dot = vector.dot4i<s8s8> %weight_values, %q8_values, %c0_i32v : vector<4xi8>, vector<4xi8>, vector<1xi32>
       %dot_i32 = vector.extract %dot[0] : vector<1xi32> -> i32
       %dot_f32 = scalar.sitofp %dot_i32 : i32 to f32
       %scale = scalar.mulf<reassoc|nnan|ninf|nsz> %weight_d, %q8_d : f32
       %scaled_dot = scalar.mulf<reassoc|nnan|ninf|nsz> %dot_f32, %scale : f32
-      scf.yield %scaled_dot : f32
+      // Only affine Q4_1 changes the old signed block32 contraction. Each lane
+      // owns four codes, so its correction consumes exactly that word's sum.
+      %q4_1_tag = index.constant 3 : index
+      %affine = index.cmp eq, %weight_tag, %q4_1_tag : index
+      %value = scf.if %affine -> (f32) {
+        %ones = vector.splati 1 : vector<4xi8>
+        %sum = vector.dot4i<s8s8> %ones, %q8_values, %c0_i32v : vector<4xi8>, vector<4xi8>, vector<1xi32>
+        %sum_i32 = vector.extract %sum[0] : vector<1xi32> -> i32
+        %sum_f32 = scalar.sitofp %sum_i32 : i32 to f32
+        %scaled_minimum = scalar.mulf<reassoc|nnan|ninf|nsz> %weight_minimum, %q8_d : f32
+        %correction = scalar.mulf<reassoc|nnan|ninf|nsz> %sum_f32, %scaled_minimum : f32
+        %result = scalar.addf<reassoc|nnan|ninf|nsz> %scaled_dot, %correction : f32
+        scf.yield %result : f32
+      } else {
+        scf.yield %scaled_dot : f32
+      }
+      scf.yield %value : f32
     } else {
       scf.yield %c0_f32 : f32
     }

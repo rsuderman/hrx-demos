@@ -73,7 +73,7 @@ kernel.def @llm.decoder.rmsnorm_active(%rows0: index, %width0: index) {
 
 kernel.def @llm.decoder.residual(%rows0: index, %width0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
-  %width = index.assume %width0 [range(%width0, 1024, 32768), multiple_of(%width0, 4)] : index
+  %width = index.assume %width0 [range(%width0, 4, 32768), multiple_of(%width0, 4)] : index
   %bias = index.constant 1023 : index
   %tile = index.constant 1024 : index
   %rounded = index.add %width, %bias : index
@@ -82,7 +82,7 @@ kernel.def @llm.decoder.residual(%rows0: index, %width0: index) {
   %threads = index.constant 256 : index
   kernel.launch.config workgroups(%groups, %rows, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%width0: index, %count: buffer, %source: buffer, %residual: buffer) {
-  %width = index.assume %width0 [range(%width0, 1024, 32768), multiple_of(%width0, 4)] : index
+  %width = index.assume %width0 [range(%width0, 4, 32768), multiple_of(%width0, 4)] : index
   %rows = kernel.workgroup.count<y> : index
   %row0 = kernel.workgroup.id<y> : index
   %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index

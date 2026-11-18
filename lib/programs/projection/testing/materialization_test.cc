@@ -72,6 +72,20 @@ std::vector<Input> Inputs() {
       {"canonical_q5", 1, 13, 768, 1, 4, 25872},
       {"canonical_q6", 1, 14, 768, 1, 4, 30870},
       {"canonical_q8", 1, 8, 768, 1, 4, 39984},
+      {"canonical_q4_0", 1, 2, 128, 1, 4, 3528},
+      {"canonical_q4_1", 1, 3, 128, 1, 4, 3920},
+      {"canonical_iq4_xs", 1, 23, 256, 1, 4, 6664},
+      {"bad_q4_0_weight_bytes", 1, 2, 128, 1, 4, 3527, 524288, 262144, false},
+      {"bad_q4_1_weight_bytes", 1, 3, 128, 1, 4, 3921, 524288, 262144, false},
+      {"bad_iq4_xs_weight_bytes", 1, 23, 256, 1, 4, 6663, 524288, 262144,
+       false},
+      {"bad_iq4_xs_alignment", 1, 23, 128, 1, 4, 3332, 524288, 262144, false},
+      {"unsupported_compatible_q4_0", 0, 2, 128, 1, 4, 3528, 524288, 262144,
+       false},
+      {"unsupported_compatible_q4_1", 0, 3, 128, 1, 4, 3920, 524288, 262144,
+       false},
+      {"unsupported_compatible_iq4_xs", 0, 23, 256, 1, 4, 6664, 524288, 262144,
+       false},
       {"compatible_q4", 0},
       {"compatible_q6", 0, 14, 768, 1, 4, 30870},
       {"canonical_q5_0_minimum", 1, 6, 128, 1, 4, 4312},
@@ -128,7 +142,12 @@ std::vector<Input> Inputs() {
   routed("routed_q8_preserved", 8, 4096, 32, 17, 512, 139264, true);
   routed("routed_f32_short_weights", 0, 4096, 32, 17, 512, 524284, false);
   routed("routed_f32_long_weights", 0, 4096, 32, 17, 512, 524292, false);
-  routed("routed_f16_rejected", 1, 4096, 32, 17, 512, 262144, false);
+  routed("routed_f16", 1, 4096, 32, 17, 512, 262144, true);
+  routed("routed_f16_state", 1, 1024, 16, 8, 17, 32768, true);
+  routed("routed_f16_short_weights", 1, 1024, 16, 8, 17, 32766, false);
+  routed("routed_f16_long_weights", 1, 1024, 16, 8, 17, 32770, false);
+  routed("routed_f16_small_capacity", 1, 1024, 16, 17, 8, 32768, false);
+  routed("routed_f16_large_output", 1, 1024, 32769, 8, 17, 67110912, false);
   routed("routed_bad_tag", 99, 4096, 32, 17, 512, 524288, false);
   routed("routed_f32_zero_rows", 0, 4096, 32, 0, 512, 524288, false);
   routed("routed_f32_large_capacity", 0, 4096, 32, 17, 513, 524288, false);
@@ -204,7 +223,8 @@ TEST_P(ProjectionMaterializationTest,
   if (input.prepacked_rows)
     source
         << "template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %raw: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n";
-  for (const char *format : {"q4k", "q5k", "q6k", "q8_0", "q5_0"})
+  for (const char *format :
+       {"q4k", "q5k", "q6k", "q8_0", "q5_0", "q4_0", "q4_1", "iq4_xs"})
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 2048 : index\n"
            << "config.def @ggml.linear_" << format
@@ -322,6 +342,8 @@ TEST(ProjectionComponents, SeparateProductsAcceptLateConfiguration) {
         "template.decl @llm.projection.project_packed(%policy: index, %tag: index, %rows: index, %capacity: index, %K: index, %N: index, %B: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %weight: view<[%B]xi8>, %output: buffer)\n";
     const std::string qkv_declaration =
         "template.decl @llm.projection.policy_qkv(%profile: index, %rows: index, %K: index, %Q: index, %KV: index, %qt: index, %kt: index, %vt: index, %QB: index, %KB: index, %VB: index, %count: buffer, %input: buffer, %qweight: view<[%QB]xi8>, %kweight: view<[%KB]xi8>, %vweight: view<[%VB]xi8>, %q: buffer, %k: buffer, %v: buffer)\n";
+    const std::string matrix_qkv_declaration =
+        "template.decl @llm.projection.matrix_qkv(%rows: index, %K: index, %Q: index, %KV: index, %qt: index, %kt: index, %vt: index, %QB: index, %KB: index, %VB: index, %count: buffer, %input: buffer, %qweight: view<[%QB]xi8>, %kweight: view<[%KB]xi8>, %vweight: view<[%VB]xi8>, %q: buffer, %k: buffer, %v: buffer)\n";
     const std::string gate_up_declaration =
         "template.decl @llm.ffn.swiglu_packed(%policy: index, %rows: index, %capacity: index, %K: index, %N: index, %gt: index, %ut: index, %GB: index, %UB: index, %begin: index, %fixed: i32, %origin: offset, %count: buffer, %packed: buffer, %gate: view<[%GB]xi8>, %up: view<[%UB]xi8>, %output: buffer)\n";
     struct Probe {
@@ -341,20 +363,28 @@ TEST(ProjectionComponents, SeparateProductsAcceptLateConfiguration) {
           Probe{"qkv_compatible", true, false, false, 14, 1},
           Probe{"qkv_canonical", true, false, false, 14, 2},
           Probe{"qkv_mixed", true, false, false, 14, 3},
+          Probe{"qkv_iq_profile0_t16", true, false, false, 14, 4},
+          Probe{"qkv_iq_profile1_t16", true, false, false, 14, 5},
+          Probe{"qkv_iq_profile0_t17", true, false, false, 14, 6},
+          Probe{"qkv_iq_profile1_t17", true, false, false, 14, 7},
+          Probe{"matrix_qkv_iq_t16", true, false, false, 14, 8},
+          Probe{"matrix_qkv_iq_t17", true, false, false, 14, 9},
           Probe{"matrix", true, false, false, 14, 0, 1},
           Probe{"matrix_gate_up", true, true, false, 14, 0, 2}}) {
       SCOPED_TRACE(probe.name);
       std::ostringstream source;
-      source << (probe.matrix == 2   ? matrix_gate_up_declaration
+      source << (probe.qkv >= 8      ? matrix_qkv_declaration
+                 : probe.matrix == 2 ? matrix_gate_up_declaration
                  : probe.matrix == 1 ? matrix_declaration
                  : probe.qkv         ? qkv_declaration
                  : probe.gate_up     ? gate_up_declaration
                  : probe.prepared    ? prepared_declaration
                                      : packed_declarations);
-      for (const char *format : {"q4k", "q5k", "q6k", "q5_0", "q8_0"})
+      for (const char *format :
+           {"q4k", "q5k", "q6k", "q5_0", "q8_0", "q4_0", "q4_1", "iq4_xs"})
         source << "config.def @ggml.linear_" << format
-               << "_q8_1_x4.token_capacity = " << (probe.matrix ? 17 : 1)
-               << " : index\n"
+               << "_q8_1_x4.token_capacity = "
+               << (probe.matrix || probe.qkv >= 4 ? 17 : 1) << " : index\n"
                << "config.def @ggml.linear_" << format
                << "_q8_1_x4.output_capacity = 256 : index\n";
       source
@@ -386,21 +416,34 @@ TEST(ProjectionComponents, SeparateProductsAcceptLateConfiguration) {
               << "  template.apply<@llm.projection.matrix>(%rows, %K, %N, %mt, %MB, %count, %input, %mw, %output) : (index, index, index, index, index, buffer, buffer, view<[%MB]xi8>, buffer)\n";
         }
       } else if (probe.qkv) {
-        const int qt = probe.qkv == 1 ? 12 : 8;
+        const bool iq = probe.qkv >= 4;
+        const bool canonical =
+            probe.qkv == 2 || probe.qkv == 5 || probe.qkv == 7;
+        const int qt = probe.qkv == 1 || iq ? 12 : 8;
         const int qb = qt == 12 ? 36864 : 69632;
         source
-            << "  %profile = index.constant " << (probe.qkv == 2 ? 1 : 0)
+            << "  %profile = index.constant " << (canonical ? 1 : 0)
+            << " : index\n"
+            << "  %R = index.constant "
+            << (probe.qkv == 6 || probe.qkv == 7 || probe.qkv == 9 ? 17
+                : iq                                               ? 16
+                                                                   : 1)
             << " : index\n"
             << "  %qt = index.constant " << qt << " : index\n"
-            << "  %kt = index.constant 12 : index\n"
+            << "  %kt = index.constant " << (iq ? 23 : 12) << " : index\n"
             << "  %vt = index.constant 14 : index\n"
             << "  %QB = index.constant " << qb << " : index\n"
-            << "  %KB = index.constant 36864 : index\n"
+            << "  %KB = index.constant " << (iq ? 34816 : 36864) << " : index\n"
             << "  %VB = index.constant 53760 : index\n"
             << "  %qw = buffer.view %weights[%origin] : buffer -> view<[%QB]xi8>\n"
             << "  %kw = buffer.view %up[%origin] : buffer -> view<[%KB]xi8>\n"
-            << "  %vw = buffer.view %vweights[%origin] : buffer -> view<[%VB]xi8>\n"
-            << "  template.apply<@llm.projection.policy_qkv>(%profile, %one, %K, %N, %N, %qt, %kt, %vt, %QB, %KB, %VB, %count, %input, %qw, %kw, %vw, %output, %koutput, %voutput) : (index, index, index, index, index, index, index, index, index, index, index, buffer, buffer, view<[%QB]xi8>, view<[%KB]xi8>, view<[%VB]xi8>, buffer, buffer, buffer)\n";
+            << "  %vw = buffer.view %vweights[%origin] : buffer -> view<[%VB]xi8>\n";
+        if (probe.qkv >= 8)
+          source
+              << "  template.apply<@llm.projection.matrix_qkv>(%R, %K, %N, %N, %qt, %kt, %vt, %QB, %KB, %VB, %count, %input, %qw, %kw, %vw, %output, %koutput, %voutput) : (index, index, index, index, index, index, index, index, index, index, buffer, buffer, view<[%QB]xi8>, view<[%KB]xi8>, view<[%VB]xi8>, buffer, buffer, buffer)\n";
+        else
+          source
+              << "  template.apply<@llm.projection.policy_qkv>(%profile, %R, %K, %N, %N, %qt, %kt, %vt, %QB, %KB, %VB, %count, %input, %qw, %kw, %vw, %output, %koutput, %voutput) : (index, index, index, index, index, index, index, index, index, index, index, buffer, buffer, view<[%QB]xi8>, view<[%KB]xi8>, view<[%VB]xi8>, buffer, buffer, buffer)\n";
       } else if (probe.gate_up) {
         source
             << "  %ut = index.constant " << probe.up_tag << " : index\n"
@@ -422,7 +465,7 @@ TEST(ProjectionComponents, SeparateProductsAcceptLateConfiguration) {
         products.push_back(prepared);
       if (!probe.omit_dependency && probe.gate_up)
         products.push_back(gate_up);
-      if (probe.matrix) {
+      if (probe.matrix || probe.qkv >= 8) {
         products.push_back(matrix);
         products.push_back(schedule);
         if (probe.matrix == 2)
@@ -454,15 +497,35 @@ TEST(ProjectionComponents, SeparateProductsAcceptLateConfiguration) {
             ++n;
           return n;
         };
+        const bool canonical =
+            probe.qkv == 2 || probe.qkv == 5 || probe.qkv == 7;
         EXPECT_EQ(count("kernel.launch @ggml_quantize_q8_1_x4_qk_compat_f32["),
-                  probe.qkv == 2 ? 0u : 1u)
+                  canonical || probe.qkv >= 8 ? 0u : 1u)
             << text;
         EXPECT_EQ(count("kernel.launch @ggml_quantize_q8_1_x4_f32["),
-                  probe.qkv == 1 ? 0u : 1u)
+                  probe.qkv == 8   ? 3u
+                  : probe.qkv == 1 ? 0u
+                                   : 1u)
             << text;
         EXPECT_EQ(count("kernel.launch @llm.projection.prepare_f32_prefix["),
-                  probe.qkv == 1 ? 0u : 1u)
+                  probe.qkv == 8   ? 3u
+                  : probe.qkv == 1 ? 0u
+                                   : 1u)
             << text;
+        if (probe.qkv >= 4)
+          EXPECT_EQ(count("kernel.launch @ggml_linear_iq4_xs_q8_1_x4["), 1u)
+              << text;
+        if (probe.qkv >= 8) {
+          EXPECT_EQ(count("kernel.launch @llm.projection.prepare_scaled_f16["),
+                    probe.qkv == 9 ? 2u : 0u)
+              << text;
+          EXPECT_EQ(count("kernel.launch @llm.platform.q4k_scaled_f16_store["),
+                    probe.qkv == 9 ? 1u : 0u)
+              << text;
+          EXPECT_EQ(count("kernel.launch @llm.platform.q6k_scaled_f16_store["),
+                    probe.qkv == 9 ? 1u : 0u)
+              << text;
+        }
       }
       if (probe.omit_dependency) {
         EXPECT_EQ(raw_module, nullptr);

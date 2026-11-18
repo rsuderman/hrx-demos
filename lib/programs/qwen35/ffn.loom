@@ -4,6 +4,14 @@ template.decl @llm.ffn.swiglu_packed(%policy: index, %launch_rows: index, %row_c
 
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
 
+template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+kernel.decl @llm_ffn_residual_add_f32_decode(%hidden$54: index) launch(%hidden$55: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
+kernel.decl @llm_ffn_residual_add_f32_prefill(%rows: index, %hidden$60: index) launch(%hidden$61: index, %capacity: index, %lhs: buffer, %rhs: buffer, %output: buffer)
+
 kernel.decl @llm.projection.prepare_f32_prefix(%capacity$30: index, %input_width$31: index) launch(%capacity$32: index, %input_width$33: index, %count: buffer, %input: buffer, %output: buffer)
 
 template.decl @loomify.qwen.ffn_route(%generic: i1, %m4: i1)
@@ -138,7 +146,24 @@ command.def public @qwen38_ffn_down_decode(%layer: index) launch(%parameters: bu
   %ffn_down_weight = command.parameter %parameters, "blk.{}.ffn_down.weight"[%layer] : view<[%shape_ffn_down_weight_bytes]xi8>
   %ffn_down_is_q4 = index.cmp eq, %down_tag, %format_q4 : index
   %mmvq_compat = scalar.constant false : i1
-  template.apply<@llm.ffn.down_decode>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_down_is_q4, %ffn_down_is_q6, %shape_ffn_down_weight_bytes, %shape_ffn_row_bytes, %shape_hidden_row_bytes, %ffn_down_weight, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, view<[%shape_ffn_down_weight_bytes]xi8>, buffer, buffer)
+  %old_low = index.cmp uge, %down_tag, %format_q4 : index
+  %old_high = index.cmp ule, %down_tag, %format_q6 : index
+  %retained = scalar.andi %old_low, %old_high : i1
+  scf.if %retained {
+    template.apply<@llm.ffn.down_decode>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_down_is_q4, %ffn_down_is_q6, %shape_ffn_down_weight_bytes, %shape_ffn_row_bytes, %shape_hidden_row_bytes, %ffn_down_weight, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, view<[%shape_ffn_down_weight_bytes]xi8>, buffer, buffer)
+  } else {
+    template.apply<@loomify.qwen.ffn_route>(%use_generic_quantized_projections, %mmvq_compat) : (i1, i1)
+    %one = index.constant 1 : index
+    %origin = index.constant 0 : offset
+    %fixed_one = scalar.constant 1 : i32
+    %hidden_bytes = index.cast %shape_hidden_row_bytes : index to offset
+    %ffn_bytes = index.cast %shape_ffn_row_bytes : index to offset
+    %projected = buffer.alloca<global> align(256) %hidden_bytes : buffer
+    %packed = buffer.alloca<global> align(256) %ffn_bytes : buffer
+    template.apply<@llm.projection.pack_input>(%canonical, %one, %one, %lookup_ffn, %recipe_zero, %fixed_one, %origin, %swiglu, %swiglu, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    template.apply<@llm.projection.project_packed>(%canonical, %down_tag, %one, %one, %lookup_ffn, %hidden_size, %shape_ffn_down_weight_bytes, %recipe_zero, %fixed_one, %origin, %swiglu, %packed, %ffn_down_weight, %projected) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%shape_ffn_down_weight_bytes]xi8>, buffer)
+    kernel.launch @llm_ffn_residual_add_f32_decode[%hidden_size](%hidden_size, %residual, %projected, %residual) : [index](index, buffer, buffer, buffer)
+  }
   command.return
 }
 
@@ -169,7 +194,18 @@ command.def public @qwen38_ffn_down_prefill(%token_count: index, %schedule_token
   %mmvq_compat = scalar.constant false : i1
   %projection_row_origin = index.constant 0 : index
   %projection_count_origin = index.constant 0 : offset
-  template.apply<@llm.ffn.down_prefill>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_down_is_q4, %ffn_down_is_q6, %token_count, %token_capacity, %projection_row_origin, %projection_count_origin, %uses_m4, %shape_ffn_capacity_bytes, %shape_ffn_down_weight_bytes, %shape_hidden_capacity_bytes, %ffn_down_weight, %control, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%shape_ffn_down_weight_bytes]xi8>, buffer, buffer, buffer)
+  %old_low = index.cmp uge, %down_tag, %format_q4 : index
+  %old_high = index.cmp ule, %down_tag, %format_q6 : index
+  %retained = scalar.andi %old_low, %old_high : i1
+  scf.if %retained {
+    template.apply<@llm.ffn.down_prefill>(%hidden_size, %lookup_ffn, %use_generic_quantized_projections, %mmvq_compat, %ffn_down_is_q4, %ffn_down_is_q6, %token_count, %token_capacity, %projection_row_origin, %projection_count_origin, %uses_m4, %shape_ffn_capacity_bytes, %shape_ffn_down_weight_bytes, %shape_hidden_capacity_bytes, %ffn_down_weight, %control, %swiglu, %residual) : (index, index, i1, i1, i1, i1, index, index, index, offset, i1, index, index, index, view<[%shape_ffn_down_weight_bytes]xi8>, buffer, buffer, buffer)
+  } else {
+    template.apply<@loomify.qwen.ffn_route>(%use_generic_quantized_projections, %uses_m4) : (i1, i1)
+    %hidden_bytes = index.cast %shape_hidden_capacity_bytes : index to offset
+    %projected = buffer.alloca<global> align(256) %hidden_bytes : buffer
+    template.apply<@llm.projection.policy_rows>(%canonical, %token_count, %lookup_ffn, %hidden_size, %down_tag, %shape_ffn_down_weight_bytes, %control, %swiglu, %ffn_down_weight, %projected) : (index, index, index, index, index, index, buffer, buffer, view<[%shape_ffn_down_weight_bytes]xi8>, buffer)
+    kernel.launch @llm_ffn_residual_add_f32_prefill[%token_count, %hidden_size](%hidden_size, %token_capacity, %residual, %projected, %residual) : [index, index](index, index, buffer, buffer, buffer)
+  }
   command.return
 }
 

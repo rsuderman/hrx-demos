@@ -169,7 +169,8 @@ TEST_P(FfnCapabilityTest, ActualFactsReachNativeOperationCapabilities) {
   ASSERT_TRUE(interface);
   std::ostringstream source;
   source << interface.rdbuf();
-  for (const char *format : {"q4k", "q5k", "q6k", "q8_0"})
+  for (const char *format :
+       {"q4k", "q5k", "q6k", "q8_0", "q4_0", "q4_1", "iq4_xs"})
     source << "config.def @ggml.linear_" << format
            << "_q8_1_x4.token_capacity = 512 : index\n"
            << "config.def @ggml.linear_" << format

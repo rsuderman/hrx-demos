@@ -143,6 +143,119 @@ TEST(ModelDescriptor, QwenHybridStateAndExplicitMapPrecedence) {
   EXPECT_EQ(m.layers[1].attention_ordinal, 0);
   EXPECT_EQ(m.ssm->convolution_history_elements, 48);
   EXPECT_EQ(m.ssm->recurrent_state_elements, 32);
+  EXPECT_EQ(m.stored_layer_count, 2);
+}
+GgufCatalog QwenWithAuxiliaryTail(uint64_t stored = 3, uint64_t auxiliary = 1) {
+  auto c = Model(true);
+  const auto prototype = c.tensors;
+  c.tensors.erase(std::remove_if(c.tensors.begin(), c.tensors.end(),
+                                 [](const auto &t) {
+                                   return t.name.rfind("blk.", 0) == 0;
+                                 }),
+                  c.tensors.end());
+  Field(c, "block_count").scalar = stored;
+  Scalar(c, "qwen35.nextn_predict_layers", auxiliary);
+  auto &map = Field(c, "attention.recurrent_layers");
+  map.element_count = stored;
+  map.elements.clear();
+  for (uint64_t i = 0; i < stored; ++i) {
+    const bool recurrent = i % 4 != 3;
+    map.elements.push_back(recurrent);
+    if (i >= stored - auxiliary)
+      continue;
+    const std::string prefix = recurrent ? "blk.0." : "blk.1.";
+    for (auto tensor : prototype)
+      if (tensor.name.rfind(prefix, 0) == 0) {
+        tensor.name = "blk." + std::to_string(i) + "." +
+                      tensor.name.substr(prefix.size());
+        tensor.absolute_offset = 4096 + i * 8192;
+        c.tensors.push_back(std::move(tensor));
+      }
+  }
+  // The excluded tail need not expose decoder roles. Keep opaque graph data
+  // in the catalog instead of fabricating a stripped replacement checkpoint.
+  Tensor(c, "blk." + std::to_string(stored - 1) + ".nextn.eh_proj.weight",
+         {16, 8});
+  return c;
+}
+TEST(ModelDescriptor, QwenSelectsOrdinaryPrefixAndRetainsStoredIdentities) {
+  auto c = QwenWithAuxiliaryTail(65);
+  const auto catalog_size = c.tensors.size();
+  const auto untouched_tail = c.tensors.back();
+  Tensor(c, "blk.64.nextn.optional.bias", {8});
+  Tensor(c, "blk.64.nextn.optional.scale", {8});
+  ModelDescriptor m;
+  std::string error;
+  ASSERT_TRUE(LoadModelDescriptor(c, &m, &error)) << error;
+  ASSERT_EQ(m.layers.size(), 64);
+  EXPECT_EQ(m.stored_layer_count, 65);
+  size_t recurrent = 0, attention = 0;
+  for (size_t i = 0; i < m.layers.size(); ++i) {
+    const auto &layer = m.layers[i];
+    EXPECT_EQ(layer.index, i);
+    if (layer.kind == LayerKind::kGatedDeltaNet)
+      EXPECT_EQ(layer.recurrent_ordinal, recurrent++);
+    else
+      EXPECT_EQ(layer.attention_ordinal, attention++);
+    for (const auto &binding : layer.tensors) {
+      EXPECT_EQ(binding.tensor.name.rfind("blk." + std::to_string(i) + ".", 0),
+                0);
+      EXPECT_EQ(binding.tensor.absolute_offset, 4096 + i * 8192);
+    }
+  }
+  EXPECT_EQ(recurrent, 48);
+  EXPECT_EQ(attention, 16);
+  EXPECT_EQ(c.tensors.size(), catalog_size + 2);
+  EXPECT_EQ(c.tensors[catalog_size - 1].name, untouched_tail.name);
+  EXPECT_EQ(c.tensors[catalog_size - 1].absolute_offset,
+            untouched_tail.absolute_offset);
+}
+TEST(ModelDescriptor, QwenTailValidatesStoredDimensionAndRecurrentArrays) {
+  auto c = QwenWithAuxiliaryTail();
+  auto &ff = Field(c, "feed_forward_length");
+  ff.source_type = 9;
+  ff.element_count = 3;
+  ff.elements = {uint64_t(16), uint64_t(16), uint64_t(48)};
+  ModelDescriptor m;
+  std::string error;
+  ASSERT_TRUE(LoadModelDescriptor(c, &m, &error)) << error;
+  EXPECT_EQ(m.layers.size(), 2);
+  EXPECT_EQ(m.layers.back().feed_forward_width, 16);
+  ff.element_count = 2;
+  ff.elements.pop_back();
+  Reject(c, "array length");
+  c = QwenWithAuxiliaryTail();
+  Field(c, "attention.recurrent_layers").element_count = 2;
+  Field(c, "attention.recurrent_layers").elements.pop_back();
+  Reject(c, "recurrent array length");
+  c = QwenWithAuxiliaryTail();
+  Field(c, "attention.recurrent_layers").elements.back() = uint64_t(2);
+  Reject(c, "boolean recurrent map");
+}
+TEST(ModelDescriptor, QwenTailFailuresDoNotPublishPartialDescriptor) {
+  auto c = QwenWithAuxiliaryTail();
+  Field(c, "nextn_predict_layers").scalar = uint64_t(3);
+  Reject(c, "ordinary layer");
+  Field(c, "nextn_predict_layers").scalar = uint64_t(4);
+  Reject(c, "ordinary layer");
+  Field(c, "nextn_predict_layers").scalar = int64_t(-1);
+  Reject(c, "integer");
+  c = QwenWithAuxiliaryTail();
+  c.tensors.erase(std::remove_if(c.tensors.begin(), c.tensors.end(),
+                                 [](const auto &t) {
+                                   return t.name == "blk.1.ffn_down.weight";
+                                 }),
+                  c.tensors.end());
+  Reject(c, "blk.1.ffn_down.weight");
+  c = QwenWithAuxiliaryTail();
+  Tensor(c, "blk.1.unknown.bias", {8});
+  Reject(c, "optional bias");
+  c = QwenWithAuxiliaryTail();
+  Tensor(c, "blk.3.unknown.scale", {8});
+  Reject(c, "optional scale");
+  c = Model();
+  Scalar(c, "llama.nextn_predict_layers", uint64_t(1));
+  Reject(c, "MoE/MTP");
 }
 TEST(ModelDescriptor, FallbackAndMalformedRecurrentMap) {
   auto c = Model(true);
@@ -221,9 +334,6 @@ TEST(ModelDescriptor, UnsupportedVariantsRemainCatalogFacts) {
   Reject(c, "unsupported architecture");
   c = Model();
   Scalar(c, "llama.expert_count", uint64_t(8));
-  Reject(c, "MoE/MTP");
-  c = Model(true);
-  Scalar(c, "qwen35.nextn_predict_layers", uint64_t(1));
   Reject(c, "MoE/MTP");
   c = Model();
   Scalar(c, "llama.rope.scaling.type", std::string("yarn"), 8);

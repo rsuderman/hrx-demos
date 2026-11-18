@@ -79,6 +79,7 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
   switch (tensor.storage_type) {
   case 12:
   case 13:
+  case 23:
     block = 256;
     maximum = 32768;
     break;
@@ -86,6 +87,8 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
     block = 256;
     maximum = 17408;
     break;
+  case 2:
+  case 3:
   case 6:
   case 8:
     block = 128;
@@ -108,10 +111,11 @@ inline bool CheckOrdinaryEmbedding(const model::TensorRecord &tensor,
                                    uint64_t hidden, uint64_t vocabulary,
                                    OrdinaryEmbeddingFacts *facts,
                                    std::string *error) {
+  const uint64_t block = tensor.storage_type == 8 ? 32 : 256;
   if (!facts ||
       (tensor.storage_type != 8 && tensor.storage_type != 12 &&
        tensor.storage_type != 13 && tensor.storage_type != 14) ||
-      hidden < 256 || hidden > 32768 || hidden % 256 || !vocabulary ||
+      hidden < block || hidden > 32768 || hidden % block || !vocabulary ||
       vocabulary > 262144)
     return Fail(error, "unsupported ordinary embedding geometry or encoding: " +
                            tensor.name);
@@ -141,11 +145,14 @@ struct Producer {
   }
   void ProjectionCapacities() {
     for (const auto &entry : std::vector<std::pair<uint32_t, const char *>>{
+             {2, "ggml.linear_q4_0_q8_1_x4."},
+             {3, "ggml.linear_q4_1_q8_1_x4."},
              {6, "ggml.linear_q5_0_q8_1_x4."},
              {12, "ggml.linear_q4k_q8_1_x4."},
              {13, "ggml.linear_q5k_q8_1_x4."},
              {14, "ggml.linear_q6k_q8_1_x4."},
-             {8, "ggml.linear_q8_0_q8_1_x4."}}) {
+             {8, "ggml.linear_q8_0_q8_1_x4."},
+             {23, "ggml.linear_iq4_xs_q8_1_x4."}}) {
       // The operation owns format support. This only sizes the reused product
       // from its actual tensor consumers; unused products receive a minimal
       // bound.

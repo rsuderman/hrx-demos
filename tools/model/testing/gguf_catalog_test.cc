@@ -117,9 +117,11 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
     const char *name;
     uint64_t bytes;
   };
-  const Case cases[] = {{0, "f32", 2048}, {1, "f16", 1024},  {6, "q5_0", 352},
-                        {8, "q8_0", 544}, {12, "q4_K", 288}, {13, "q5_K", 352},
-                        {14, "q6_K", 420}};
+  const Case cases[] = {{0, "f32", 2048},  {1, "f16", 1024},
+                        {2, "q4_0", 288},  {3, "q4_1", 320},
+                        {6, "q5_0", 352},  {8, "q8_0", 544},
+                        {12, "q4_K", 288}, {13, "q5_K", 352},
+                        {14, "q6_K", 420}, {23, "iq4_XS", 272}};
   for (const auto &test : cases) {
     SCOPED_TRACE(test.name);
     const uint64_t relative = uint64_t{1} << 32;
@@ -147,6 +149,10 @@ TEST(GgufCatalog, FirstModelEncodingsRetainRankIdentityAndSparseStorageSpans) {
 TEST(GgufCatalog, RejectsBadStorageGeometryAndTruncationTransactionally) {
   std::vector<std::string> cases = {
       TensorHeader(99, {256, 2}),
+      TensorHeader(2, {31, 2}),
+      TensorHeader(3, {33, 2}),
+      TensorHeader(23, {255, 2}),
+      TensorHeader(23, {256, UINT64_MAX}),
       TensorHeader(12, {255, 2}),
       TensorHeader(14, {128, 2}),
       TensorHeader(13, {255, 2}),

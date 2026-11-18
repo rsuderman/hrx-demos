@@ -28,9 +28,9 @@ func.decl @llm_rotary_span_position(%token_capacity: index, %token: index, %posi
 // Existing config-free 64-token native page-map contract from spans.loom.
 func.decl @qwen38_kv_position(%logical_capacity: index, %map: buffer, %map_origin: offset, %position: index, %pool_capacity: index) -> (index)
 
-template.decl @llm.rotary.query_row128(%row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer)
+template.decl @llm.rotary.query_row(%head_width: index, %row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer)
 
-template.decl @llm.rotary.kv_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
+template.decl @llm.rotary.kv_row(%head_width: index, %row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
 
 target.decl @llm.platform.attention.llama_prepare.wave32
 
@@ -93,7 +93,7 @@ kernel.def target(@llm.platform.attention.llama_prepare.wave32) @llama32_rotary_
     %row_byte_count = index.mul %row_elements, %word_bytes : index
     %row_bytes = index.cast %row_byte_count : index to offset
     %projection_origin = index.scale %token_begin, %row_bytes : index, offset -> offset
-    template.apply<@llm.rotary.query_row128>(%active, %heads, %active_token, %head, %lane, %position, %theta_scale, %projection_origin, %projection_origin, %factors, %projection, %query) : (index, index, index, index, index, index, f32, offset, offset, buffer, buffer, buffer)
+    template.apply<@llm.rotary.query_row>(%head_width, %active, %heads, %active_token, %head, %lane, %position, %theta_scale, %projection_origin, %projection_origin, %factors, %projection, %query) : (index, index, index, index, index, index, index, f32, offset, offset, buffer, buffer, buffer)
   }
   kernel.return
 }
@@ -137,6 +137,7 @@ kernel.def target(@llm.platform.attention.llama_prepare.wave32) @llama32_publish
     %value_origin = index.add %cache_base, %value_add : offset
     %logical_position = index.assume %position [range(%position, 0, 131071), lt(%position, %capacity)] : index
     %physical_position = func.call @qwen38_kv_position(%capacity, %map, %map_origin, %logical_position, %pool_capacity) : (index, buffer, offset, index, index) -> (index)
+    %head_width = config.get @llama.model.head_size : index
     %theta_scale = config.get @llama.model.rotary_step : f32
     %word_bytes = index.constant 4 : index
     %row_byte_count = index.mul %kv_size, %word_bytes : index
@@ -144,7 +145,7 @@ kernel.def target(@llm.platform.attention.llama_prepare.wave32) @llama32_publish
     %projection_origin = index.scale %token_begin, %row_bytes : index, offset -> offset
     %physical_valid = index.cmp ult, %physical_position, %physical_capacity : index
     scf.if %physical_valid {
-      template.apply<@llm.rotary.kv_row128>(%active, %heads, %physical_capacity, %active_token, %head, %lane, %logical_position, %physical_position, %theta_scale, %projection_origin, %key_origin, %value_origin, %factors, %key, %value, %cache) : (index, index, index, index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer)
+      template.apply<@llm.rotary.kv_row>(%head_width, %active, %heads, %physical_capacity, %active_token, %head, %lane, %logical_position, %physical_position, %theta_scale, %projection_origin, %key_origin, %value_origin, %factors, %key, %value, %cache) : (index, index, index, index, index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer)
     }
   }
   kernel.return
@@ -156,8 +157,11 @@ kernel.def target(@llm.platform.attention.llama_prepare.wave32) @llama32_publish
 // owns valid block IDs and unique active physical slots. No bookkeeping slot
 // or architectural recurrence is read. Logical positions always own RoPE.
 command.def public @llama32_prepare_attention(%layer0: index, %token_capacity: index, %control_origin: offset, %token_begin: index, %cache_base: offset, %map_origin: offset, %control_kind: index) launch(%parameters: buffer, %control: buffer, %map: buffer, %query_projection: buffer, %key_projection: buffer, %value_projection: buffer, %query: buffer, %cache: buffer) where [range(%token_capacity, 1, 512), range(%control_kind, 0, 1)] {
-  %factors = command.parameter %parameters, "rope_freqs.weight" : view<64xf32>
-  kernel.launch @llama32_rotary_query[%token_capacity](%control_kind, %control_origin, %token_begin, %control, %factors, %query_projection, %query) : [index](index, offset, index, buffer, view<64xf32>, buffer, buffer)
-  kernel.launch @llama32_publish_kv[%token_capacity](%layer0, %cache_base, %control_kind, %control_origin, %token_begin, %map_origin, %control, %map, %factors, %key_projection, %value_projection, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<64xf32>, buffer, buffer, buffer)
+  %head_width = config.get @llama.model.head_size : index
+  %two = index.constant 2 : index
+  %factor_count = index.div %head_width, %two : index
+  %factors = command.parameter %parameters, "rope_freqs.weight" : view<[%factor_count]xf32>
+  kernel.launch @llama32_rotary_query[%token_capacity](%control_kind, %control_origin, %token_begin, %control, %factors, %query_projection, %query) : [index](index, offset, index, buffer, view<[%factor_count]xf32>, buffer, buffer)
+  kernel.launch @llama32_publish_kv[%token_capacity](%layer0, %cache_base, %control_kind, %control_origin, %token_begin, %map_origin, %control, %map, %factors, %key_projection, %value_projection, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%factor_count]xf32>, buffer, buffer, buffer)
   command.return
 }

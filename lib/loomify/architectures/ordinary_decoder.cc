@@ -7,15 +7,25 @@ namespace hrx::loomify_gguf::internal {
 bool BindOrdinaryDecoderMatrices(Producer &p, const model::LayerDescriptor &l,
                                  uint64_t E, uint64_t Q, uint64_t KV,
                                  ConfigRows &attention, ConfigRows &ffn) {
-  if (!p.Tensor(l.tensors, "query", E, Q, {12, 14}, l.index) ||
-      !p.Tensor(l.tensors, "key", E, KV, {12, 14}, l.index) ||
-      !p.Tensor(l.tensors, "value", E, KV, {12, 14}, l.index) ||
-      !p.Tensor(l.tensors, "attention_output", Q, E, {12, 14}, l.index) ||
-      !BindFfnProjections(p, l, E, {12, 14}, ffn))
+  if (!p.Tensor(l.tensors, "query", E, Q, {2, 3, 6, 8, 12, 14}, l.index) ||
+      !p.Tensor(l.tensors, "key", E, KV, {2, 3, 6, 8, 12, 14}, l.index) ||
+      !p.Tensor(l.tensors, "value", E, KV, {2, 3, 6, 8, 12, 14}, l.index) ||
+      !p.Tensor(l.tensors, "attention_output", Q, E, {2, 3, 6, 8, 12, 14},
+                l.index) ||
+      !BindFfnProjections(p, l, E, {2, 3, 12, 14}, ffn))
     return false;
   const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
              &v = *Role(l.tensors, "value"),
              &o = *Role(l.tensors, "attention_output");
+  for (const auto &projection :
+       std::vector<std::tuple<const model::TensorRecord *, uint64_t, uint64_t>>{
+           {&q, E, Q}, {&k, E, KV}, {&v, E, KV}, {&o, Q, E}}) {
+    CanonicalProjectionFacts checked;
+    if (!CheckCanonicalProjection(*std::get<0>(projection),
+                                  std::get<1>(projection),
+                                  std::get<2>(projection), &checked, p.error))
+      return false;
+  }
   attention.push_back({q.storage_type, k.storage_type, v.storage_type,
                        o.storage_type, q.byte_size, k.byte_size, v.byte_size,
                        o.byte_size});

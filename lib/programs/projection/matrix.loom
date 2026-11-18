@@ -69,13 +69,22 @@ template.def<@llm.projection.matrix> @llm_projection_matrix(%capacity: index, %i
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
   %six = index.constant 6 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %twenty_three = index.constant 23 : index
   %eight = index.constant 8 : index
   %thirteen = index.constant 13 : index
   %q5_0 = index.cmp eq, %tag, %six : index
   %q8_0 = index.cmp eq, %tag, %eight : index
   %q5k = index.cmp eq, %tag, %thirteen : index
+  %q4_0 = index.cmp eq, %tag, %two : index
+  %q4_1 = index.cmp eq, %tag, %three : index
+  %iq4_xs = index.cmp eq, %tag, %twenty_three : index
   %block32 = scalar.ori %q5_0, %q8_0 : i1
-  %canonical_only = scalar.ori %block32, %q5k : i1
+  %classic_q4 = scalar.ori %q4_0, %q4_1 : i1
+  %classic = scalar.ori %block32, %classic_q4 : i1
+  %quantized = scalar.ori %classic, %q5k : i1
+  %canonical_only = scalar.ori %quantized, %iq4_xs : i1
   scf.if %canonical_only {
     template.apply<@llm.projection.policy_rows>(%one, %capacity, %input_width, %output_width, %tag, %weight_bytes, %count, %input, %weight, %output) : (index, index, index, index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   } else {

@@ -37,6 +37,7 @@ _NUMERICAL_SOURCES = [
     "//lib/kernels/qwen:output/publication.loom",
     "//lib/kernels/embedding:q6k_rows.loom",
     "//lib/kernels/embedding:q4k_rows.loom",
+    "//lib/kernels/embedding:gather_f32_sources",
     "//lib/kernels/selection:greedy_argmax.loom",
 ]
 

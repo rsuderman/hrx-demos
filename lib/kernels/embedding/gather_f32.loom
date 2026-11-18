@@ -1,0 +1,34 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Dense ID packets reuse the same row codecs as epoch/ordinary embedding.
+// Every launched ID is valid and produces one row; activity belongs to the caller.
+template.decl @llm.embedding.decode_f32_row(%hidden: index, %tag: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+
+template.decl @llm.embedding.table_contract(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index)
+
+kernel.def @llm.embedding.gather_f32_kernel(%rows0: index) {
+  %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
+  %one = index.constant 1 : index
+  %threads = index.constant 256 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%hidden: index, %tag: index, %ids: buffer, %weight: buffer, %output: buffer) {
+  %rows = kernel.workgroup.count<x> : index
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [range(%row0, 0, 511), lt(%row0, %rows)] : index
+  %origin = index.constant 0 : offset
+  %four = index.constant 4 : offset
+  %row_bytes = index.scale %hidden, %four : index, offset -> offset
+  %output_origin = index.scale %row, %row_bytes : index, offset -> offset
+  %tokens = buffer.view %ids[%origin] : buffer -> view<[%rows]xi32>
+  %token = view.load %tokens[%row] : view<[%rows]xi32> -> i32
+  template.apply<@llm.embedding.decode_f32_row>(%hidden, %tag, %token, %output_origin, %weight, %output) : (index, index, i32, offset, buffer, buffer)
+  kernel.return
+}
+
+template.decl @llm.embedding.gather_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>)
+
+template.def<@llm.embedding.gather_f32> @llm_embedding_gather_f32(%rows: index, %hidden: index, %vocabulary: index, %tag: index, %weight_bytes: index, %ids: buffer, %weight: view<[%weight_bytes]xi8>, %output: view<[%rows]x[%hidden]xf32>) where [range(%rows, 1, 512)] {
+  template.apply<@llm.embedding.table_contract>(%rows, %hidden, %vocabulary, %tag, %weight_bytes) : (index, index, index, index, index)
+  kernel.launch @llm.embedding.gather_f32_kernel[%rows](%hidden, %tag, %ids, %weight, %output) : [index](index, index, buffer, view<[%weight_bytes]xi8>, view<[%rows]x[%hidden]xf32>)
+  template.return
+}

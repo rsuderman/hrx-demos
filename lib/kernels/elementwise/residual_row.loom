@@ -5,7 +5,7 @@
 template.decl @llm.residual_add_f32.row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer)
 
 template.def<@llm.residual_add_f32.row> device @llm_residual_add_f32_row(%hidden_size0: index, %row_count0: index, %row0: index, %lhs: buffer, %rhs: buffer, %output: buffer) {
-  %hidden_size = index.assume %hidden_size0 [range(%hidden_size0, 1024, 32768), multiple_of(%hidden_size0, 4)] : index
+  %hidden_size = index.assume %hidden_size0 [range(%hidden_size0, 4, 32768), multiple_of(%hidden_size0, 4)] : index
   %row_count, %row = index.assume %row_count0, %row0 [range(%row_count0, 1, 512), lt(%row0, %row_count0)] : index, index
   %workgroup = kernel.workgroup.id<x> : index
   %lane = kernel.workitem.id<x> : index

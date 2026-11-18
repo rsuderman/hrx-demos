@@ -72,7 +72,7 @@ for name, hidden, intermediate, compatible, down_tags in [
         for tag in down_tags
     ]
     bank = 2 * (2 * gate_bytes + max(down_bytes) + hidden * 4) + 1048576
-    for tag in ("q4k", "q5k", "q6k", "q8_0"):
+    for tag in ("q4k", "q5k", "q6k", "q8_0", "q4_0", "q4_1", "iq4_xs"):
         h.emit(
             f"config.def @ggml.linear_{tag}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{tag}_q8_1_x4.output_capacity = 262144 : index\n"
         )

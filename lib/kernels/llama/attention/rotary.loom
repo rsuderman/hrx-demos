@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Curated from loom-pipeline; independently maintained by Loomify.
 // Guarded adjacent-pair RoPE over explicit scalar positions and F32 rows.
-// The finite schedule has 128 workitems per head, 64 F32 frequency
+// The finite schedule has 64 or 128 workitems per head, head_width/2 F32 frequency
 // divisors >=1, theta_scale in (0,1], positions<=131071, and F16 token-major
 // K/V planes. It owns no native packet fields.
+
+config.decl @llama.model.head_size : index
 
 // A caller supplies one scalar absolute position per token. Invalid counts,
 // padded tokens and signed positions outside [0,position_limit) are no-ops.
@@ -62,14 +64,16 @@ func.def public inline @llm_rotary_span_position(%token_capacity: index, %token:
   func.return %valid, %position : i1, index
 }
 
-template.decl @llm.rotary.adjacent128_value(%pair0: index, %position: index, %theta_scale: f32, %even: f32, %odd: f32, %is_odd: i1, %factors: buffer) -> (f32)
+template.decl @llm.rotary.adjacent_value(%head_width: index, %pair0: index, %position: index, %theta_scale: f32, %even: f32, %odd: f32, %is_odd: i1, %factors: buffer) -> (f32)
 
 // F32 recurrence matches GGML normal RoPE: theta starts at the position,
 // multiplies theta_scale once per prior pair, and divides by factor[pair].
 // Factors must be finite and >=1; theta_scale is in (0,1]. No reassociation or FMA contraction is
 // permitted across this phase/rotation sequence. Callers rotate Q/K only.
-template.def<@llm.rotary.adjacent128_value> device @llm_rotary_adjacent128_value(%pair0: index, %position: index, %theta_scale: f32, %even: f32, %odd: f32, %is_odd: i1, %factors: buffer) -> (f32) {
-  %pair = index.assume %pair0 [range(%pair0, 0, 63)] : index
+template.def<@llm.rotary.adjacent_value> device @llm_rotary_adjacent_value(%head_width: index, %pair0: index, %position: index, %theta_scale: f32, %even: f32, %odd: f32, %is_odd: i1, %factors: buffer) -> (f32) {
+  %two = index.constant 2 : index
+  %factor_count = index.div %head_width, %two : index
+  %pair = index.assume %pair0 [range(%pair0, 0, 63), lt(%pair0, %factor_count)] : index
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %origin = index.constant 0 : offset
@@ -79,8 +83,8 @@ template.def<@llm.rotary.adjacent128_value> device @llm_rotary_adjacent128_value
     %next = scalar.mulf %angle, %theta_scale : f32
     scf.yield %next : f32
   }
-  %factor_view = buffer.view %factors[%origin] : buffer -> view<64xf32>
-  %factor = view.load %factor_view[%pair] : view<64xf32> -> f32
+  %factor_view = buffer.view %factors[%origin] : buffer -> view<[%factor_count]xf32>
+  %factor = view.load %factor_view[%pair] : view<[%factor_count]xf32> -> f32
   %phase = scalar.divf %theta, %factor : f32
   // Reduce before approximate native trig. For this schedule position<=131071,
   // 0<theta_scale<=1 and factor>=1. The first two 2*pi pieces have nine
@@ -116,21 +120,20 @@ template.def<@llm.rotary.adjacent128_value> device @llm_rotary_adjacent128_value
 // Call only after position/active validation. Projection and query rows must
 // be disjoint: both lanes of each adjacent pair read before independent stores.
 // Origins are bytes; row_count is the validated active extent, not padded grid.
-// Each view owns row_count*heads*128 F32 values after its byte origin.
-template.decl @llm.rotary.query_row128(%row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer)
+// Each view owns row_count*heads*head_width F32 values after its byte origin.
+template.decl @llm.rotary.query_row(%head_width: index, %row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer)
 
-template.def<@llm.rotary.query_row128> device @llm_rotary_query_row128(%row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer) {
+template.def<@llm.rotary.query_row> device @llm_rotary_query_row(%head_width: index, %row_count: index, %heads: index, %token: index, %head: index, %lane: index, %position: index, %theta_scale: f32, %projection_origin: offset, %query_origin: offset, %factors: buffer, %projection: buffer, %query: buffer) {
   %c2 = index.constant 2 : index
-  %c128 = index.constant 128 : index
   %one = index.constant 1 : index
   %zero = index.constant 0 : index
-  %width = index.mul %heads, %c128 : index
+  %width = index.mul %heads, %head_width : index
   %pair = index.div %lane, %c2 : index
   %parity = index.rem %lane, %c2 : index
   %is_odd = index.cmp ne, %parity, %zero : index
   %even_lane = index.mul %pair, %c2 : index
   %odd_lane = index.add %even_lane, %one : index
-  %head_base = index.mul %head, %c128 : index
+  %head_base = index.mul %head, %head_width : index
   %even_index = index.add %head_base, %even_lane : index
   %odd_index = index.add %head_base, %odd_lane : index
   %output_index = index.add %head_base, %lane : index
@@ -138,7 +141,7 @@ template.def<@llm.rotary.query_row128> device @llm_rotary_query_row128(%row_coun
   %output_view = buffer.view %query[%query_origin] : buffer -> view<[%row_count]x[%width]xf32>
   %even = view.load %input_view[%token, %even_index] : view<[%row_count]x[%width]xf32> -> f32
   %odd = view.load %input_view[%token, %odd_index] : view<[%row_count]x[%width]xf32> -> f32
-  %rotated = template.apply<@llm.rotary.adjacent128_value>(%pair, %position, %theta_scale, %even, %odd, %is_odd, %factors) : (index, index, f32, f32, f32, i1, buffer) -> (f32)
+  %rotated = template.apply<@llm.rotary.adjacent_value>(%head_width, %pair, %position, %theta_scale, %even, %odd, %is_odd, %factors) : (index, index, index, f32, f32, f32, i1, buffer) -> (f32)
   view.store %rotated, %output_view[%token, %output_index] : f32, view<[%row_count]x[%width]xf32>
   template.return
 }
@@ -148,28 +151,27 @@ template.def<@llm.rotary.query_row128> device @llm_rotary_query_row128(%row_coun
 // K/V plane origins may share the same arena. Active physical slots are unique;
 // all projection rows are disjoint from addressed cache writes. Values convert
 // once to F16 at publication; V is never rotated or normalized.
-template.decl @llm.rotary.kv_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
+template.decl @llm.rotary.kv_row(%head_width: index, %row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer)
 
-template.decl @llm.rotary.kv_separate_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer)
+template.decl @llm.rotary.kv_separate_row(%head_width: index, %row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer)
 
-template.def<@llm.rotary.kv_row128> device @llm_rotary_kv_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer) {
-  template.apply<@llm.rotary.kv_separate_row128>(%row_count, %heads, %physical_capacity, %token, %head, %lane, %logical_position, %physical_position, %theta_scale, %projection_origin, %key_origin, %value_origin, %factors, %key, %value, %cache, %cache) : (index, index, index, index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+template.def<@llm.rotary.kv_row> device @llm_rotary_kv_row(%head_width: index, %row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %cache: buffer) {
+  template.apply<@llm.rotary.kv_separate_row>(%head_width, %row_count, %heads, %physical_capacity, %token, %head, %lane, %logical_position, %physical_position, %theta_scale, %projection_origin, %key_origin, %value_origin, %factors, %key, %value, %cache, %cache) : (index, index, index, index, index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
   template.return
 }
 
-template.def<@llm.rotary.kv_separate_row128> device @llm_rotary_kv_separate_row128(%row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer) {
+template.def<@llm.rotary.kv_separate_row> device @llm_rotary_kv_separate_row(%head_width: index, %row_count: index, %heads: index, %physical_capacity: index, %token: index, %head: index, %lane: index, %logical_position: index, %physical_position: index, %theta_scale: f32, %projection_origin: offset, %key_origin: offset, %value_origin: offset, %factors: buffer, %key: buffer, %value: buffer, %key_cache: buffer, %value_cache: buffer) {
   %physical = index.assume %physical_position [lt(%physical_position, %physical_capacity)] : index
   %c2 = index.constant 2 : index
-  %c128 = index.constant 128 : index
   %one = index.constant 1 : index
   %zero = index.constant 0 : index
-  %width = index.mul %heads, %c128 : index
+  %width = index.mul %heads, %head_width : index
   %pair = index.div %lane, %c2 : index
   %parity = index.rem %lane, %c2 : index
   %is_odd = index.cmp ne, %parity, %zero : index
   %even_lane = index.mul %pair, %c2 : index
   %odd_lane = index.add %even_lane, %one : index
-  %head_base = index.mul %head, %c128 : index
+  %head_base = index.mul %head, %head_width : index
   %even_index = index.add %head_base, %even_lane : index
   %odd_index = index.add %head_base, %odd_lane : index
   %output_index = index.add %head_base, %lane : index
@@ -180,7 +182,7 @@ template.def<@llm.rotary.kv_separate_row128> device @llm_rotary_kv_separate_row1
   %even = view.load %key_view[%token, %even_index] : view<[%row_count]x[%width]xf32> -> f32
   %odd = view.load %key_view[%token, %odd_index] : view<[%row_count]x[%width]xf32> -> f32
   %raw_value = view.load %value_view[%token, %output_index] : view<[%row_count]x[%width]xf32> -> f32
-  %rotated = template.apply<@llm.rotary.adjacent128_value>(%pair, %logical_position, %theta_scale, %even, %odd, %is_odd, %factors) : (index, index, f32, f32, f32, i1, buffer) -> (f32)
+  %rotated = template.apply<@llm.rotary.adjacent_value>(%head_width, %pair, %logical_position, %theta_scale, %even, %odd, %is_odd, %factors) : (index, index, index, f32, f32, f32, i1, buffer) -> (f32)
   %key_f16 = scalar.fptrunc %rotated : f32 to f16
   %value_f16 = scalar.fptrunc %raw_value : f32 to f16
   view.store %key_f16, %key_cache_view[%physical, %output_index] : f16, view<[%physical_capacity]x[%width]xf16>
@@ -192,14 +194,20 @@ template.def<@llm.rotary.kv_separate_row128> device @llm_rotary_kv_separate_row1
 // this small scratch buffer, initialized before query/KV readers consume it.
 kernel.def @llama32_unit_rope_factors() {
   %one = index.constant 1 : index
-  %threads = index.constant 64 : index
+  %two = index.constant 2 : index
+  // Model configuration resolves before target compilation, so H/2 is a fixed
+  // workgroup size rather than a command launch argument.
+  %head_width = config.get @llama.model.head_size : index
+  %width = index.assume %head_width [range(%head_width, 64, 128), multiple_of(%head_width, 64)] : index
+  %threads = index.div %width, %two : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%factors: buffer) {
+  %factor_count = kernel.workgroup.size<x> : index
   %lane_value = kernel.workitem.id<x> : index
-  %lane = index.assume %lane_value [range(%lane_value, 0, 63)] : index
+  %lane = index.assume %lane_value [range(%lane_value, 0, 63), lt(%lane_value, %factor_count)] : index
   %origin = index.constant 0 : offset
-  %values = buffer.view %factors[%origin] : buffer -> view<64xf32>
+  %values = buffer.view %factors[%origin] : buffer -> view<[%factor_count]xf32>
   %one = scalar.constant 1.0 : f32
-  view.store %one, %values[%lane] : f32, view<64xf32>
+  view.store %one, %values[%lane] : f32, view<[%factor_count]xf32>
   kernel.return
 }

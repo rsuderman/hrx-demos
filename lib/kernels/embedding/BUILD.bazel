@@ -13,40 +13,40 @@ filegroup(
             "epoch_f32.loom",
             "storage.loom",
             "ordinary_f32.loom",
+            "gather_f32.loom",
         ],
     ),
 )
 
+_ROW_CODEC_SOURCES = [
+    "q4k_rows.loom",
+    "q5k_rows.loom",
+    "q6k_rows.loom",
+    "q8_0_rows.loom",
+    "storage.loom",
+    "//lib/kernels/projection:block32_sources",
+    "//lib/kernels/projection:q4k.loom",
+    "//lib/kernels/projection:q5k_codec.loom",
+    "//lib/kernels/projection:qk_common.loom",
+]
+
 filegroup(
     name = "epoch_f32_sources",
-    srcs = [
+    srcs = _ROW_CODEC_SOURCES + [
         "epoch_f32.loom",
-        "q4k_rows.loom",
-        "q5k_rows.loom",
-        "q6k_rows.loom",
-        "q8_0_rows.loom",
-        "storage.loom",
         "//lib/kernels/epoch:active_rows.loom",
-        "//lib/kernels/projection:block32_sources",
-        "//lib/kernels/projection:q4k.loom",
-        "//lib/kernels/projection:q5k_codec.loom",
-        "//lib/kernels/projection:qk_common.loom",
     ],
 )
 
 filegroup(
     name = "ordinary_f32_sources",
-    srcs = [
+    srcs = _ROW_CODEC_SOURCES + [
         "ordinary_f32.loom",
-        "q4k_rows.loom",
-        "q5k_rows.loom",
-        "q6k_rows.loom",
-        "q8_0_rows.loom",
-        "storage.loom",
         "//lib/kernels/epoch:active_rows.loom",
-        "//lib/kernels/projection:block32_sources",
-        "//lib/kernels/projection:q4k.loom",
-        "//lib/kernels/projection:q5k_codec.loom",
-        "//lib/kernels/projection:qk_common.loom",
     ],
+)
+
+filegroup(
+    name = "gather_f32_sources",
+    srcs = _ROW_CODEC_SOURCES + ["gather_f32.loom"],
 )

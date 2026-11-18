@@ -27,6 +27,19 @@ config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 3 : index
 
 config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 16 : index
 
+// Unused classic-Q4/IQ4 bounds complete the shared packed provider closure.
+config.def @ggml.linear_q4_0_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q4_0_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_q4_1_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_q4_1_q8_1_x4.output_capacity = 1 : index
+
+config.def @ggml.linear_iq4_xs_q8_1_x4.token_capacity = 1 : index
+
+config.def @ggml.linear_iq4_xs_q8_1_x4.output_capacity = 1 : index
+
 func.def @gate.sibling.input(%rows: index, %width: index, %active: index, %pattern: index, %input: buffer, %weight: buffer, %count: buffer) {
   %z = index.constant 0 : index
   %one = index.constant 1 : index

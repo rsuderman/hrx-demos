@@ -19,9 +19,10 @@ model::TensorRecord Encoded(uint32_t tag, uint64_t input, uint64_t output,
 
 TEST(ComponentConfigurationTest,
      CanonicalFormatBoundsFollowTheConsumedOperation) {
-  for (const auto tag : {6u, 8u, 12u, 13u, 14u}) {
+  for (const auto tag : {2u, 3u, 6u, 8u, 12u, 13u, 14u, 23u}) {
     SCOPED_TRACE(tag);
-    const uint64_t minimum = tag == 6 || tag == 8 ? 128 : 256;
+    const uint64_t minimum =
+        tag == 2 || tag == 3 || tag == 6 || tag == 8 ? 128 : 256;
     const uint64_t maximum = tag == 14 ? 17408 : 32768;
     for (const auto width : {minimum, maximum}) {
       const auto tensor = Encoded(tag, width, 262144);
@@ -86,6 +87,18 @@ TEST(ComponentConfigurationTest,
   auto unsupported = Encoded(1, 256, 3);
   OrdinaryEmbeddingFacts result{};
   EXPECT_FALSE(CheckOrdinaryEmbedding(unsupported, 256, 3, &result, nullptr));
+}
+
+TEST(ComponentConfigurationTest, NarrowQ8GatherDoesNotBroadenKBlockFormats) {
+  const auto q8 = Encoded(8, 896, 151936);
+  OrdinaryEmbeddingFacts result{};
+  ASSERT_TRUE(CheckOrdinaryEmbedding(q8, 896, 151936, &result, nullptr));
+  EXPECT_EQ(result.hidden_size, 896u);
+  for (const auto tag : {12u, 13u, 14u}) {
+    auto tensor = Encoded(tag, 1024, 3);
+    tensor.normalized_extents[0] = 896;
+    EXPECT_FALSE(CheckOrdinaryEmbedding(tensor, 896, 3, &result, nullptr));
+  }
 }
 
 TEST(ComponentConfigurationTest, BindingFailuresDoNotPublishPartialFacts) {

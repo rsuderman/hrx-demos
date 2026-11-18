@@ -1,0 +1,115 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Q4_0 nibble ordering/scale curated from @g_q4_0_icodes in the cached
+// unsloth-Qwen3-0.6B-loom program, source SHA256 d2f13ed8e84baacdc7885c15ee5d070fd836a590f8fa6fb12d751b996daf9f8d.
+// Q4_1's adjacent F16 d/m and low16/high16 payload follow GGML block_q4_1
+// and dequantize_row_q4_1 at llama.cpp dace2471. No runtime dependency.
+
+func.def inline @ggml_classic_q4_word(%weight: buffer, %base: offset, %payload: offset, %word: index) -> (vector<4xi8>, f32) {
+  %four = index.constant 4 : index
+  %four_bytes = index.constant 4 : offset
+  %payload_word = index.rem %word, %four : index
+  %word_add = index.scale %payload_word, %four_bytes : index, offset -> offset
+  %origin = index.add %payload, %word_add : offset
+  %scale_view = buffer.view %weight[%base] : buffer -> view<1xf16>
+  %code_view = buffer.view %weight[%origin] : buffer -> view<4xi8>
+  %d16 = view.load %scale_view[0] : view<1xf16> -> f16
+  %packed_bytes = vector.load %code_view[0] : view<4xi8> -> vector<4xi8>
+  %packed = vector.bitcast %packed_bytes : vector<4xi8> to vector<1xi32>
+  %half = index.div %word, %four : index
+  %bits = index.mul %half, %four : index
+  %bits32 = index.cast %bits : index to i32
+  %shift = vector.splat %bits32 : vector<1xi32>
+  %mask = vector.splati 252645135 : vector<1xi32>
+  %shifted = vector.shrui %packed, %shift : vector<1xi32>
+  %nibbles = vector.andi %shifted, %mask : vector<1xi32>
+  %codes = vector.bitcast %nibbles : vector<1xi32> to vector<4xi8>
+  %scale = scalar.extf %d16 : f16 to f32
+  func.return %codes, %scale : vector<4xi8>, f32
+}
+
+template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32)
+
+template.def<@ggml.block32.word> device @ggml_block32_q4_0_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32) where [eq(%tag, 2)] {
+  %block_bytes = index.constant 18 : offset
+  %two = index.constant 2 : offset
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %base = index.add %row_origin, %block_add : offset
+  %payload = index.add %base, %two : offset
+  %unsigned_codes, %scale = func.call @ggml_classic_q4_word(%weight, %base, %payload, %word) : (buffer, offset, offset, index) -> (vector<4xi8>, f32)
+  %eight = vector.splati 8 : vector<4xi8>
+  %codes = vector.subi %unsigned_codes, %eight : vector<4xi8>
+  %minimum = scalar.constant 0.0 : f32
+  template.return %codes, %scale, %minimum : vector<4xi8>, f32, f32
+}
+
+template.def<@ggml.block32.word> device @ggml_block32_q4_1_word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32) where [eq(%tag, 3)] {
+  %block_bytes = index.constant 20 : offset
+  %two = index.constant 2 : offset
+  %four = index.constant 4 : offset
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %base = index.add %row_origin, %block_add : offset
+  %minimum_origin = index.add %base, %two : offset
+  %payload = index.add %base, %four : offset
+  %codes, %scale = func.call @ggml_classic_q4_word(%weight, %base, %payload, %word) : (buffer, offset, offset, index) -> (vector<4xi8>, f32)
+  %minimum_view = buffer.view %weight[%minimum_origin] : buffer -> view<1xf16>
+  %m16 = view.load %minimum_view[0] : view<1xf16> -> f16
+  %minimum = scalar.extf %m16 : f16 to f32
+  template.return %codes, %scale, %minimum : vector<4xi8>, f32, f32
+}
+
+config.decl @ggml.linear_q4_0_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
+
+config.decl @ggml.linear_q4_0_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+
+config.decl @ggml.linear_q4_1_q8_1_x4.token_capacity : %value: index where [range(%value, 1, 2048)]
+
+config.decl @ggml.linear_q4_1_q8_1_x4.output_capacity : %value: index where [range(%value, 1, 262144)]
+
+target.decl @llm.platform.projection.q4_0.wave32
+
+target.decl @llm.platform.projection.q4_1.wave32
+
+func.decl pure @ggml_block32_q8_1_x4_output_tiles(%output_size: index, %subgroup_size: index) -> (index)
+
+func.decl @ggml_block32_q8_1_x4_project(%weight_tag: index, %weight_row_bytes: offset, %token_capacity: index, %output_capacity: index, %token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer)
+
+kernel.def target(@llm.platform.projection.q4_0.wave32) export("ggml_linear_q4_0_q8_1_x4") @ggml_linear_q4_0_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
+  %tokens = index.assume %token_count [range(%token_count, 1, 2048)] : index
+  %one = index.constant 1 : index
+  %wg = index.constant 256 : index
+  %subgroup = target.subgroup.size : index
+  %tiles = func.call pure @ggml_block32_q8_1_x4_output_tiles(%output_size, %subgroup) : (index, index) -> (index)
+  kernel.launch.config workgroups(%tiles, %tokens, %one) workgroup_size(%wg, %one, %one) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer) {
+  %tokens = config.get @ggml.linear_q4_0_q8_1_x4.token_capacity : index
+  %outputs = config.get @ggml.linear_q4_0_q8_1_x4.output_capacity : index
+  %width = index.assume %input_size [range(%input_size, 128, 32768), multiple_of(%input_size, 128)] : index
+  %tag = index.constant 2 : index
+  %block = index.constant 32 : index
+  %bytes = index.constant 18 : offset
+  %blocks = index.div %width, %block : index
+  %row_bytes = index.scale %blocks, %bytes : index, offset -> offset
+  func.call @ggml_block32_q8_1_x4_project(%tag, %row_bytes, %tokens, %outputs, %token_count, %width, %output_size, %q8_input, %weight, %output) : (index, offset, index, index, index, index, index, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def target(@llm.platform.projection.q4_1.wave32) export("ggml_linear_q4_1_q8_1_x4") @ggml_linear_q4_1_q8_1_x4(%token_count: index, %input_size: index, %output_size: index) {
+  %tokens = index.assume %token_count [range(%token_count, 1, 2048)] : index
+  %one = index.constant 1 : index
+  %wg = index.constant 256 : index
+  %subgroup = target.subgroup.size : index
+  %tiles = func.call pure @ggml_block32_q8_1_x4_output_tiles(%output_size, %subgroup) : (index, index) -> (index)
+  kernel.launch.config workgroups(%tiles, %tokens, %one) workgroup_size(%wg, %one, %one) : index
+} launch(%token_count: index, %input_size: index, %output_size: index, %q8_input: buffer, %weight: buffer, %output: buffer) {
+  %tokens = config.get @ggml.linear_q4_1_q8_1_x4.token_capacity : index
+  %outputs = config.get @ggml.linear_q4_1_q8_1_x4.output_capacity : index
+  %width = index.assume %input_size [range(%input_size, 128, 32768), multiple_of(%input_size, 128)] : index
+  %tag = index.constant 3 : index
+  %block = index.constant 32 : index
+  %bytes = index.constant 20 : offset
+  %blocks = index.div %width, %block : index
+  %row_bytes = index.scale %blocks, %bytes : index, offset -> offset
+  func.call @ggml_block32_q8_1_x4_project(%tag, %row_bytes, %tokens, %outputs, %token_count, %width, %output_size, %q8_input, %weight, %output) : (index, offset, index, index, index, index, index, buffer, buffer, buffer)
+  kernel.return
+}

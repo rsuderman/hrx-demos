@@ -16,6 +16,8 @@ _SOURCES = [
     "//lib/kernels/projection:q5k_codec.loom",
     "//lib/kernels/projection:q6k_compat.loom",
     "//lib/kernels/projection:q5_0.loom",
+    "//lib/kernels/projection:classic_q4.loom",
+    "//lib/kernels/projection:iq4_xs.loom",
     "//lib/kernels/projection:q8_0.loom",
     "//lib/kernels/selection:greedy_argmax.loom",
     "//lib/kernels/llama:attention/attention_prepare.loom",

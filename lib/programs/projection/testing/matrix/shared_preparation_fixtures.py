@@ -22,7 +22,7 @@ def emit():
         "template.decl @llm.projection.matrix(%T:index,%K:index,%N:index,%tag:index,%bytes:index,%count:buffer,%input:buffer,%weight:view<[%bytes]xi8>,%output:buffer)\n"
         "template.decl @llm.projection.prepare_canonical_prefix(%T:index,%K:index,%count:buffer,%input:buffer,%packed:buffer)\n"
     )
-    for tag in ("q4k", "q5_0", "q5k", "q6k", "q8_0"):
+    for tag in ("q4k", "q5_0", "q5k", "q6k", "q8_0", "q4_0", "q4_1", "iq4_xs"):
         out.append(
             f"config.def @ggml.linear_{tag}_q8_1_x4.token_capacity = 512 : index\n"
             f"config.def @ggml.linear_{tag}_q8_1_x4.output_capacity = 256 : index\n"

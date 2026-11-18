@@ -60,7 +60,7 @@ const char *Qwen35TensorSuffix(std::string_view role, bool is_layer) {
 }
 void LoadQwen35(const Loader &l, ModelDescriptor &m) {
   l.Unsupported("attention.sliding_window");
-  ReadDecoderDimensions(l, m);
+  ReadDecoderDimensions(l, m, false, true);
   ReadRope(l, m, l.Real("rope.freq_base", 10000));
   BindGlobals(l, m);
   auto sections = l.Field("rope.dimension_sections");
@@ -97,7 +97,7 @@ void LoadQwen35(const Loader &l, ModelDescriptor &m) {
       Product(s.convolution_kernel - 1, conv_width);
   s.recurrent_state_elements = Product(s.state_width, s.inner_width);
   m.ssm = s;
-  const auto recurrent = Recurrent(l, m.layers.size());
+  const auto recurrent = Recurrent(l, m.stored_layer_count);
   uint32_t attention_ordinal = 0, recurrent_ordinal = 0;
   for (auto &d : m.layers) {
     const auto e = m.embedding_width;

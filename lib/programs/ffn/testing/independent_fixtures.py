@@ -14,7 +14,16 @@ h = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
 h.out.clear()
 h.emit("// Copyright 2026 AMD ROCm Software\n// SPDX-License-Identifier: MIT\n")
-for tag, name in ((6, "q5_0"), (8, "q8_0"), (12, "q4k"), (13, "q5k"), (14, "q6k")):
+for tag, name in (
+    (2, "q4_0"),
+    (3, "q4_1"),
+    (6, "q5_0"),
+    (8, "q8_0"),
+    (12, "q4k"),
+    (13, "q5k"),
+    (14, "q6k"),
+    (23, "iq4_xs"),
+):
     h.emit(
         f"config.def @ggml.linear_{name}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{name}_q8_1_x4.output_capacity = 262144 : index\n"
     )
@@ -25,8 +34,8 @@ def extent(tag, width, columns):
     return (
         width
         * columns
-        // (32 if tag in (6, 8) else 256)
-        * {6: 22, 8: 34, 12: 144, 13: 176, 14: 210}[tag]
+        // (32 if tag in (2, 3, 6, 8) else 256)
+        * {2: 18, 3: 20, 6: 22, 8: 34, 12: 144, 13: 176, 14: 210}[tag]
     )
 
 
@@ -42,7 +51,7 @@ def weight_body(tag, width, role, buffer, label, up_divisor=8187):
         )
         body = body.replace("scalar.constant 1 : i8", "scalar.constant 3 : i8")
         return body
-    size = 22 if tag == 6 else 34
+    size = {2: 18, 3: 20, 6: 22, 8: 34}[tag]
     factor = "%inverse_channel" if role == "up" else "%channel_factor"
     body = f"""  %blocks_{label} = index.constant {width//32} : index
   %stride_{label} = index.constant {size} : offset
@@ -60,9 +69,21 @@ def weight_body(tag, width, role, buffer, label, up_divisor=8187):
     view.store %d16_{label}, %ds_{label}[0] : f16, view<1xf16>
     %bytes_{label} = buffer.view %{buffer}[%base_{label}] : buffer -> view<{size}xi8>
 """
-    for number, (begin, end, code) in enumerate(
-        ((2, 6, -1), (6, 22, 51)) if tag == 6 else ((2, 34, 3),)
-    ):
+    if tag == 3:
+        # q=2, m=d produces the independently assumed logical coefficient3*d.
+        # Keep nonzero affine data through the entire normalize/gate/up/down path.
+        body += f"""    %madd_{label} = index.constant 2 : offset
+    %morigin_{label} = index.add %base_{label}, %madd_{label} : offset
+    %mview_{label} = buffer.view %{buffer}[%morigin_{label}] : buffer -> view<1xf16>
+    view.store %d16_{label}, %mview_{label}[0] : f16, view<1xf16>
+"""
+    payloads = {
+        2: ((2, 18, -69),),
+        3: ((4, 20, 34),),
+        6: ((2, 6, -1), (6, 22, 51)),
+        8: ((2, 34, 3),),
+    }
+    for number, (begin, end, code) in enumerate(payloads[tag]):
         body += f"""    %lo_{label}{number} = index.constant {begin} : index
     %hi_{label}{number} = index.constant {end} : index
     %code_{label}{number} = scalar.constant {code} : i8
@@ -193,6 +214,8 @@ def classic():
         (1, (13, 12, 14)),
         (1, (14, 12, 8)),
     ]
+    if mode == "classic_q4":
+        tuples = [(0, (2, 2, 2)), (0, (2, 2, 3)), (1, (3, 2, 3))]
     for profile, tags in tuples:
         gt, ut, dt = tags
         cases = [(1, 1), (17, 0), (17, 1), (17, 17)]
@@ -649,7 +672,7 @@ check.scenario @{name}.witness {{
             h.emit("    }\n  }\n  check.return\n}\n")
 
 
-if mode == "classic":
+if mode in ("classic", "classic_q4"):
     classic()
 elif mode == "live_qwen":
     live_qwen()

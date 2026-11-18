@@ -13,7 +13,11 @@ func.decl pure @loomify.config.layer_attention(%layer: index) -> (index, index, 
 
 kernel.decl @llm.decoder.publish_kv_h128(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
 
-kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %heads: index, %key_heads$60: index) launch(%key_heads$61: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+kernel.decl @llm.decoder.publish_kv_h64(%rows: index, %heads: index) launch(%layer: index, %layers: index, %capacity: index, %pool: index, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %key: buffer, %value: buffer, %cache: buffer)
+
+kernel.decl @llm.decoder.attention_rows_h128(%rows: index, %heads: index, %key_heads$74: index) launch(%key_heads$75: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.attention_rows_h64(%rows: index, %heads: index, %key_heads$91: index) launch(%key_heads$92: index, %layer: index, %layers: index, %capacity: index, %pool: index, %scale: f32, %cache_base: offset, %control_origin: offset, %map_origin: offset, %epoch: buffer, %map: buffer, %query: buffer, %cache: buffer, %output: buffer)
 
 template.decl @llm.decoder.prepare_qkv(%layer: index, %rows: index, %control_origin: offset, %capacity: index, %qwidth: index, %kv: index, %qh: index, %kh: index, %rope_step: f32, %epsilon: f32, %parameters: buffer, %q: buffer, %k: buffer, %v: buffer, %query: buffer, %key: buffer, %count: buffer, %epoch: buffer)
 
@@ -50,8 +54,16 @@ template.def<@llm.decoder.matrix_attention> @llm_decoder_matrix_attention(%layer
   %attended = buffer.alloca<global> align(256) %attended_bytes : buffer
   template.apply<@llm.projection.matrix_qkv>(%rows, %hidden, %qwidth, %kv, %qt, %kt, %vt, %qb, %kb, %vb, %count, %normalized, %qw, %kw, %vw, %q, %k, %v) : (index, index, index, index, index, index, index, index, index, index, buffer, buffer, view<[%qb]xi8>, view<[%kb]xi8>, view<[%vb]xi8>, buffer, buffer, buffer)
   template.apply<@llm.decoder.prepare_qkv>(%layer, %rows, %control_origin, %capacity, %qwidth, %kv, %qh, %kh, %rope_step, %epsilon, %parameters, %q, %k, %v, %query, %key, %count, %epoch) : (index, index, offset, index, index, index, index, index, f32, f32, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @llm.decoder.publish_kv_h128[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
-  kernel.launch @llm.decoder.attention_rows_h128[%rows, %qh, %kh](%kh, %layer, %layers, %capacity, %pool, %scale, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  %head_size = index.div %qwidth, %qh : index
+  %h64 = index.constant 64 : index
+  %small_head = index.cmp eq, %head_size, %h64 : index
+  scf.if %small_head {
+    kernel.launch @llm.decoder.publish_kv_h64[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @llm.decoder.attention_rows_h64[%rows, %qh, %kh](%kh, %layer, %layers, %capacity, %pool, %scale, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  } else {
+    kernel.launch @llm.decoder.publish_kv_h128[%rows, %kh](%layer, %layers, %capacity, %pool, %cache_base, %control_origin, %map_origin, %epoch, %map, %key, %v, %cache) : [index, index](index, index, index, index, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+    kernel.launch @llm.decoder.attention_rows_h128[%rows, %qh, %kh](%kh, %layer, %layers, %capacity, %pool, %scale, %cache_base, %control_origin, %map_origin, %epoch, %map, %query, %cache, %attended) : [index, index, index](index, index, index, index, index, f32, offset, offset, offset, buffer, buffer, buffer, buffer, buffer)
+  }
   template.apply<@llm.projection.matrix>(%rows, %qwidth, %hidden, %ot, %ob, %count, %attended, %ow, %projected) : (index, index, index, index, index, buffer, buffer, view<[%ob]xi8>, buffer)
   kernel.launch @llm.decoder.residual[%rows, %hidden](%hidden, %count, %projected, %residual) : [index, index](index, buffer, buffer, buffer)
   template.return

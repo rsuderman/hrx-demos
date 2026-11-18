@@ -574,6 +574,126 @@ TEST(TemplateAnalysisTest, ColdReasoningTracksSourceDefaultsAndLiteralDomains) {
   }
 }
 
+TEST(TemplateAnalysisTest, ColdReasoningLiteralNormalizationUsesInputPreimage) {
+  const std::string guard =
+      "{%- if resolved_reasoning_effort not in ('high', 'low') %}";
+  auto original = OriginalSpark();
+  const std::string old_default = "reasoning_effort|default('high')";
+  const auto position = original.find(old_default);
+  ASSERT_NE(position, std::string::npos);
+  original.replace(position, old_default.size(),
+                   "reasoning_effort|default('xhigh')");
+  struct Case {
+    const char *setup;
+    const char *subject;
+    const char *domain;
+    int64_t mask;
+  };
+  for (const auto &test : {
+           Case{"{% if resolved_reasoning_effort == 'high' %}"
+                "{% set resolved_reasoning_effort='xhigh' %}{% endif %}",
+                "resolved_reasoning_effort", "('xhigh','medium','low')", 60},
+           Case{"{% set copied=resolved_reasoning_effort %}"
+                "{% if resolved_reasoning_effort == 'high' %}"
+                "{% set resolved_reasoning_effort='xhigh' %}{% endif %}",
+                "copied", "('xhigh','medium','low')", 44},
+           Case{"{% if resolved_reasoning_effort == 'high' %}"
+                "{% set resolved_reasoning_effort='xhigh' %}{% endif %}"
+                "{% set copied=resolved_reasoning_effort %}",
+                "copied", "('xhigh','medium','low')", 60},
+           Case{"{% if resolved_reasoning_effort == 'high' %}"
+                "{% set resolved_reasoning_effort='none' %}{% endif %}",
+                "resolved_reasoning_effort", "('xhigh','high','medium','low')",
+                44},
+           // A different assignment target does not normalize this binding.
+           Case{"{% if resolved_reasoning_effort == 'high' %}"
+                "{% set other='xhigh' %}{% endif %}",
+                "resolved_reasoning_effort", "('xhigh','medium','low')", 44},
+       }) {
+    SCOPED_TRACE(test.setup);
+    auto source = original;
+    const auto start = source.find(guard);
+    ASSERT_NE(start, std::string::npos);
+    source.replace(start, guard.size(),
+                   std::string(test.setup) + "{% if " + test.subject +
+                       " not in " + test.domain + " %}");
+    for (bool bytecode : {false, true}) {
+      SCOPED_TRACE(bytecode ? "bytecode" : "source");
+      AnalyzedTemplate result;
+      Diagnostic diagnostic;
+      ASSERT_TRUE(CompileAndAnalyze(source, "literal-normalization.jinja", {},
+                                    Options(bytecode), &result, &diagnostic))
+          << diagnostic.message;
+      EXPECT_EQ(result.reasoning.effort_mask, test.mask);
+      EXPECT_EQ(result.reasoning.default_effort, 5);
+      std::unique_ptr<PreparedTemplate> renderer;
+      std::string error;
+      ASSERT_TRUE(PreparedTemplate::Prepare(
+          result.renderer, Options(bytecode).helper_root,
+          Options(bytecode).scratch_parent, bytecode, &renderer, &error))
+          << error;
+      for (const char *effort : {"\"low\"", "\"medium\"", "\"high\"",
+                                 "\"xhigh\"", "\"unknown\"", "null", "false"}) {
+        const std::string context =
+            "\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],"
+            "\"add_generation_prompt\":true,\"reasoning_effort\":" +
+            std::string(effort);
+        const bool valid =
+            std::string_view(effort) == "\"low\"" ||
+            std::string_view(effort) == "\"medium\"" ||
+            std::string_view(effort) == "\"xhigh\"" ||
+            (std::string_view(effort) == "\"high\"" && test.mask == 60);
+        std::string rendered;
+        EXPECT_EQ(renderer->Render("{" + context + "}", &rendered, &error),
+                  valid)
+            << effort << ": " << error;
+        EXPECT_TRUE(renderer->Render(
+            "{\"enable_thinking\":false," + context + "}", &rendered, &error))
+            << error;
+      }
+    }
+  }
+}
+
+TEST(TemplateAnalysisTest, ColdReasoningUnprovedRewritesKillOnlyTheirBinding) {
+  const std::string guard =
+      "{%- if resolved_reasoning_effort not in ('high', 'low') %}";
+  for (
+      const char *setup : {
+          "{% if resolved_reasoning_effort == 'low' %}"
+          "{% set resolved_reasoning_effort=other %}{% endif %}",
+          "{% if resolved_reasoning_effort == 'low' %}"
+          "{% set resolved_reasoning_effort='high' %}{{ 'effect' }}{% endif %}",
+          "{% if resolved_reasoning_effort == 'low' %}"
+          "{% set resolved_reasoning_effort='high' %}{% else %}"
+          "{% set resolved_reasoning_effort='low' %}{% endif %}",
+          "{% if resolved_reasoning_effort == 'low' %}"
+          "{% set resolved_reasoning_effort='high' %}{% endif %}"
+          "{% set resolved_reasoning_effort='high' %}",
+          "{% if resolved_reasoning_effort == 'low' %}"
+          "{% set resolved_reasoning_effort='high' %}{% endif %}"
+          "{% if resolved_reasoning_effort == 'high' %}"
+          "{% set resolved_reasoning_effort='low' %}{% endif %}",
+      }) {
+    SCOPED_TRACE(setup);
+    auto source = OriginalSpark();
+    const auto start = source.find(guard);
+    ASSERT_NE(start, std::string::npos);
+    source.insert(start, setup);
+    for (bool bytecode : {false, true}) {
+      AnalyzedTemplate result;
+      result.renderer.source = "preserved";
+      Diagnostic diagnostic;
+      EXPECT_FALSE(CompileAndAnalyze(source, "unproved-normalization.jinja", {},
+                                     Options(bytecode), &result, &diagnostic));
+      EXPECT_EQ(result.renderer.source, "preserved");
+      EXPECT_NE(diagnostic.message.find("source-qualified finite literal"),
+                std::string::npos)
+          << diagnostic.message;
+    }
+  }
+}
+
 TEST(TemplateAnalysisTest, PlainCurrentSourceUsesExactNativeRecipe) {
   const char *path = "lib/text/plain_chatml/templates/58c1a1f0.jinja";
   std::ifstream stream(Root() / path);

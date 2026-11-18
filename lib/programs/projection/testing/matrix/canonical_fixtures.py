@@ -88,7 +88,7 @@ def emit(destination):
     out.append(
         "template.decl @llm.projection.matrix(%T: index,%K: index,%N: index,%tag: index,%bytes: index,%count: buffer,%input: buffer,%weight: view<[%bytes]xi8>,%output: buffer)\n"
     )
-    for tag in ("q4k", "q5_0", "q5k", "q6k", "q8_0"):
+    for tag in ("q4k", "q5_0", "q5k", "q6k", "q8_0", "q4_0", "q4_1", "iq4_xs"):
         out.append(
             f"config.def @ggml.linear_{tag}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{tag}_q8_1_x4.output_capacity = 262144 : index\n"
         )

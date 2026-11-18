@@ -39,10 +39,18 @@ def weight_parameters(h, tag, role, channel):
     sign = -1 if channel % 2 else 1
     d = h.f16((channel % 4 + role + 1) / 4093)
     code = (3, -5, 7)[role] if tag == 8 else (3, 5, 7)[role]
+    if tag == 2:
+        return sign * d, code, 1, 0.0, 0
+    if tag == 3:
+        return sign * d, code, 1, sign * (role + 1) / 32, 1
     if tag == 8:
         return d, code * sign, 1, 0.0, 0
     if tag == 14:
         return d, (1, -3, 5)[role], 3 * sign, 0.0, 0
+    if tag == 23:
+        # Existing shared codebook values at indices3/9/14; IQ's signed scale
+        # is represented independently of its split low4/high2 wire encoding.
+        return d, (-65, 13, 89)[role], 3 * sign, 0.0, 0
     return sign * d, code + (16 if tag == 13 else 0), 3, (role + 1) / 32, 1
 
 
@@ -50,7 +58,7 @@ def weights(h, tag, role, width, columns):
     wire = bytearray()
     for channel in range(columns):
         d, code, scale, minimum_d, minimum = weight_parameters(h, tag, role, channel)
-        for _ in range(width // (32 if tag == 8 else 256)):
+        for _ in range(width // (32 if tag in (2, 3, 8) else 256)):
             if tag == 8:
                 wire.extend(struct.pack("<e", d))
                 wire.extend(bytes([code & 255] * 32))
@@ -60,6 +68,21 @@ def weights(h, tag, role, width, columns):
                 wire.extend(bytes([((unsigned >> 4) & 3) * 85] * 64))
                 wire.extend(bytes([scale & 255] * 16))
                 wire.extend(struct.pack("<e", d))
+            elif tag == 23:
+                unsigned = scale + 32
+                high = sum((unsigned >> 4) << (2 * group) for group in range(8))
+                wire.extend(struct.pack("<eH", d, high))
+                wire.extend(bytes([(unsigned & 15) * 17] * 4))
+                index = (3, 9, 14)[role]
+                wire.extend(bytes([index * 17] * 128))
+            elif tag in (2, 3):
+                wire.extend(struct.pack("<e", d))
+                if tag == 3:
+                    # The existing independent oracle subtracts minimum_d;
+                    # Q4_1 stores the corresponding additive minimum directly.
+                    wire.extend(struct.pack("<e", -minimum_d))
+                nibble = code + 8 if tag == 2 else code
+                wire.extend(bytes([nibble * 17] * 16))
             else:
                 assert tag in (12, 13)
                 wire.extend(struct.pack("<ee", d, minimum_d))
@@ -158,12 +181,29 @@ def emit(h, mode, destination):
             (0, (12, 14, 8), 64, 63, 64, 32),
             (0, (8, 12, 14), 17, 17, 13, 7),
         ]
-        assert len(cases) == 51 and len(cases) == len(set(cases))
+        # IQ remains canonical policy1 even for Llama's caller profile0. These
+        # direct-helper cases are separate from ordinary matrix_qkv routing.
+        cases += [
+            (profile, (12, 23, 14), rows, active, 64, 64)
+            for profile in (0, 1)
+            for rows in (16, 17)
+            for active in (0, 1, rows)
+        ]
+        cases += [
+            (profile, (2, 3, 8), rows, active, 13, 7)
+            for profile in (0, 1)
+            for rows, active in ((1, 1), (17, 0), (17, 1), (17, 17))
+        ]
+        cases += [
+            (0, (12, 2, 3), 17, 17, 13, 7),
+            (0, (3, 14, 2), 17, 17, 13, 7),
+        ]
+        assert len(cases) == 73 and len(cases) == len(set(cases))
     out = ["// Copyright 2026 AMD ROCm Software\n// SPDX-License-Identifier: MIT\n"]
     out.append(
         "template.decl @llm.projection.policy_qkv(%profile:index,%T:index,%K:index,%Q:index,%KV:index,%qt:index,%kt:index,%vt:index,%qb:index,%kb:index,%vb:index,%count:buffer,%input:buffer,%qw:view<[%qb]xi8>,%kw:view<[%kb]xi8>,%vw:view<[%vb]xi8>,%q:buffer,%k:buffer,%v:buffer)\n"
     )
-    for name in ("q4k", "q5_0", "q5k", "q6k", "q8_0"):
+    for name in ("q4k", "q5_0", "q5k", "q6k", "q8_0", "iq4_xs", "q4_0", "q4_1"):
         out.append(
             f"config.def @ggml.linear_{name}_q8_1_x4.token_capacity = 512 : index\nconfig.def @ggml.linear_{name}_q8_1_x4.output_capacity = 262144 : index\n"
         )
@@ -237,7 +277,15 @@ def emit(h, mode, destination):
                 out.append(
                     f"    %{role}_inactive = check.tensor.view %{role} offset({active*columns*4}) : tensor<{rows*columns}xf32> -> tensor<{(rows-active)*columns}xf32>\n"
                 )
-                compare += f"      check.expect.bitwise actual(%{role}_inactive) expected(%{role}_inactive) : tensor<{(rows-active)*columns}xf32>\n"
+                if profile == 1 and tags == (12, 23, 14) and tag == 14:
+                    # This newly covered canonical Q6 role carries nsz in its
+                    # contraction. Its contract is numerical zero, not a sign
+                    # bit; do not change production math to tighten that policy.
+                    # Zero budgets still reject every nonzero value and NaN.
+                    # All original51 cases, IQ +0 and guards remain bitwise.
+                    compare += f"      check.expect.approximate actual(%{role}_inactive) expected(%{role}_inactive) atol(0.0) rtol(0.0) nan(same) : tensor<{(rows-active)*columns}xf32>,tensor<{(rows-active)*columns}xf32>\n"
+                else:
+                    compare += f"      check.expect.bitwise actual(%{role}_inactive) expected(%{role}_inactive) : tensor<{(rows-active)*columns}xf32>\n"
         init_types = [types[1]] + types[2:]
         types += [f"tensor<{rows*columns}xf32>" for _, _, columns in roles]
         out.append(

@@ -27,6 +27,8 @@ template.def<@llm.projection.canonical_rows> @llm_projection_canonical_rows(%row
 
 kernel.decl @llm.projection.f32_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
+kernel.decl @llm.projection.f16_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+
 template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
 
 template.def<@llm.projection.f32_rows> @llm_projection_f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer) where [range(%rows, 1, 512), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
@@ -51,7 +53,18 @@ template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_f32(
   template.return
 }
 
-template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_quantized(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%tag, 1, 14), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity)] {
+template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_f16(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%tag, 1), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
+  %two = index.constant 2 : index
+  %row_limit = index.constant 512 : index
+  %width_limit = index.constant 32768 : index
+  %elements = index.mul %input_width, %output_width : index
+  %expected = index.mul %elements, %two : index
+  template.apply<@llm.projection.contract>(%weight_bytes, %expected, %capacity, %row_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
+  kernel.launch @llm.projection.f16_rows_kernel[%rows](%input_width, %output_width, %count, %input, %weight, %output) : [index](index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_quantized(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%tag, 2, 23), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity)] {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %origin = index.constant 0 : offset

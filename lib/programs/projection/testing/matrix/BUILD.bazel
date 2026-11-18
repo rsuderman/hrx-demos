@@ -6,8 +6,90 @@ load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
+load("//build_tools:loom_testing.bzl", "loom_provider_checks")
 
 package(default_visibility = ["//visibility:private"])
+
+[genrule(
+    name = name + "_fixtures",
+    testonly = True,
+    srcs = [
+        script,
+        "canonical_fixtures.py",
+    ],
+    outs = [name + "_checks.loom"],
+    cmd = "python3 $(location " + script + ") " + ("$@" if name == "classic" else "$(location canonical_fixtures.py) full $@"),
+) for name, script in [
+    ("classic", "classic_fixtures.py"),
+    ("iq4_xs", "iq4_xs_fixtures.py"),
+]]
+
+[loom_provider_checks(
+    name = name,
+    checks = [":" + name + "_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = name + "_provider",
+    provider_srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+) for name in [
+    "classic",
+    "iq4_xs",
+]]
+
+genrule(
+    name = "classic_tiny_fixtures",
+    testonly = True,
+    srcs = [
+        "classic_fixtures.py",
+        "canonical_fixtures.py",
+    ],
+    outs = ["classic_tiny_checks.loom"],
+    cmd = "python3 $(location classic_fixtures.py) $@ --tiny",
+)
+
+loom_provider_checks(
+    name = "classic_tiny",
+    checks = [":classic_tiny_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "classic_tiny_provider",
+    provider_srcs = [
+        "//lib/kernels/projection:block32_sources",
+        "//lib/kernels/projection:block32_launch.loom",
+        "//lib/kernels/projection:classic_q4.loom",
+        "//lib/kernels/quantization:q8_1_x4.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+    ],
+)
+
+genrule(
+    name = "iq4_xs_tiny_fixtures",
+    testonly = True,
+    srcs = [
+        "iq4_xs_fixtures.py",
+        "canonical_fixtures.py",
+    ],
+    outs = ["iq4_xs_tiny_checks.loom"],
+    cmd = "python3 $(location iq4_xs_fixtures.py) $(location canonical_fixtures.py) tiny $@",
+)
+
+loom_provider_checks(
+    name = "iq4_xs_tiny",
+    checks = [":iq4_xs_tiny_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "iq4_xs_tiny_provider",
+    provider_srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+)
 
 genrule(
     name = "fixtures",

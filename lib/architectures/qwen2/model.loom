@@ -23,6 +23,8 @@ template.decl @llm.embedding.ordinary_f32(%rows: index, %hidden: index, %vocabul
 
 template.decl @llm.output.last_greedy(%capacity: index, %begin: index, %origin: offset, %hidden: index, %vocab: index, %weight_bytes: index, %policy: index, %weight_tag: index, %input: buffer, %control: buffer, %gamma: view<[%hidden]xf32>, %weight: view<[%weight_bytes]xi8>, %token: buffer)
 
+func.decl pure @llm.projection.policy(%profile: index, %tag: index) -> (index)
+
 command.def @loomify.qwen2.model() launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %input_ids: buffer, %selected_ids: buffer) {
   %phase = index.constant 0 : index
   %rows = config.get @runner.qwen2.prefill_token_count : index
@@ -49,8 +51,8 @@ command.def @loomify.qwen2.model() launch(%parameters: buffer, %residual: buffer
   %output_bytes = config.get @qwen2.model.output_weight_bytes : index
   %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
   %weight = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
-  %head_policy = index.constant 0 : index
-  %head_tag = index.constant 14 : index
-  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
+  %head_profile = index.constant 0 : index
+  %head_policy = func.call pure @llm.projection.policy(%head_profile, %embedding_tag) : (index, index) -> (index)
+  template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %embedding_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)
   command.return
 }

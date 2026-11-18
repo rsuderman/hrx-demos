@@ -24,11 +24,13 @@ void RejectHeadNorms(const Loader &l, std::string_view architecture) {
   }
 }
 void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
-                           bool allow_zero_kv) {
-  for (const char *key :
-       {"expert_count", "expert_used_count", "nextn_predict_layers"})
+                           bool allow_zero_kv, bool allow_auxiliary_tail) {
+  for (const char *key : {"expert_count", "expert_used_count"})
     if (l.Int(key, 0, false) != 0)
       l.Fail(std::string("unsupported MoE/MTP feature: ") + l.prefix + key);
+  const auto auxiliary = l.Int("nextn_predict_layers", 0, false);
+  if (auxiliary && !allow_auxiliary_tail)
+    l.Fail("unsupported MoE/MTP feature: " + l.prefix + "nextn_predict_layers");
   for (const char *key : {"attention.logit_softcap", "attention.scale",
                           "embedding_length_out", "pooling_type"})
     l.Unsupported(key);
@@ -40,6 +42,9 @@ void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
   auto layers = l.Int("block_count");
   if (layers > 512)
     l.Fail("block_count exceeds structural layer limit512");
+  if (auxiliary >= layers)
+    l.Fail("nextn_predict_layers must leave at least one ordinary layer");
+  m.stored_layer_count = layers;
   m.embedding_width = l.Int("embedding_length");
   m.training_context = l.Int("context_length");
   auto ff = l.Dimensions("feed_forward_length", layers);
@@ -69,7 +74,7 @@ void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
       l.Fail("missing/invalid tokenizer vocabulary array");
     m.vocabulary_size = tokens->element_count;
   }
-  for (uint32_t i = 0; i < layers; ++i) {
+  for (uint32_t i = 0; i < layers - auxiliary; ++i) {
     if (kv[i] && heads[i] % kv[i])
       l.Fail("query heads must be divisible by KV heads at layer" +
              std::to_string(i));
@@ -199,6 +204,17 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     // Optional tensors with graph effects must not silently become unbound
     // extras.
     for (const auto &t : catalog.tensors) {
+      // Auxiliary Qwen blocks remain catalog facts. Their optional graph
+      // tensors cannot alter the selected ordinary prefix.
+      bool auxiliary = false;
+      if (m.family == "qwen35")
+        for (auto i = m.layers.size(); i < m.stored_layer_count; ++i)
+          if (t.name.rfind("blk." + std::to_string(i) + ".", 0) == 0) {
+            auxiliary = true;
+            break;
+          }
+      if (auxiliary)
+        continue;
       if (t.name.find(".scale") != std::string::npos ||
           t.name.find(".input_scale") != std::string::npos)
         l.Fail("unsupported optional scale tensor: " + t.name);

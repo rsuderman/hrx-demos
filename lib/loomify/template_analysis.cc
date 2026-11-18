@@ -933,12 +933,69 @@ std::vector<Node> EffortSetup(const std::vector<Node> &nodes) {
   return result;
 }
 
-bool EffortAlias(const Expr &expression, const std::set<std::string> &aliases) {
-  if (expression.kind == Expr::Kind::Name)
-    return aliases.count(expression.text);
-  return expression.kind == Expr::Kind::Filter &&
-         (expression.text == "default" || expression.text == "d") &&
-         !expression.args.empty() && EffortAlias(expression.args[0], aliases);
+const std::vector<std::string> &EffortVocabulary() {
+  static const std::vector<std::string> values{
+      "none", "minimal", "low", "medium", "high", "xhigh", "max"};
+  return values;
+}
+
+struct EffortNormalization {
+  // Empty for an unmodified alias. Facts belong to a binding, so copies made
+  // before a rewrite retain their own, potentially different input domain.
+  std::string from, to;
+};
+using EffortAliases = std::map<std::string, EffortNormalization>;
+
+const EffortNormalization *EffortAlias(const Expr &expression,
+                                       const EffortAliases &aliases) {
+  if (expression.kind == Expr::Kind::Name) {
+    const auto found = aliases.find(expression.text);
+    return found == aliases.end() ? nullptr : &found->second;
+  }
+  if (expression.kind == Expr::Kind::Filter &&
+      (expression.text == "default" || expression.text == "d") &&
+      !expression.args.empty())
+    return EffortAlias(expression.args[0], aliases);
+  return nullptr;
+}
+
+bool EffortRewrite(const Node &node, EffortAliases *aliases) {
+  const auto &condition = node.expression;
+  if (condition.kind != Expr::Kind::Binary || condition.text != "==" ||
+      condition.args.size() != 2 ||
+      condition.args[0].kind != Expr::Kind::Name ||
+      condition.args[1].kind != Expr::Kind::String)
+    return false;
+  const auto binding = aliases->find(condition.args[0].text);
+  if (binding == aliases->end() || !binding->second.from.empty())
+    return false;
+  const auto whitespace = [](const Node &part) {
+    return part.kind == Node::Kind::Text &&
+           part.text.find_first_not_of(" \t\r\n") == std::string::npos;
+  };
+  for (const auto &part : node.otherwise)
+    if (!whitespace(part))
+      return false;
+  const Node *assignment = nullptr;
+  for (const auto &part : node.body) {
+    if (whitespace(part))
+      continue;
+    if (assignment || part.kind != Node::Kind::Set ||
+        part.text != binding->first ||
+        part.expression.kind != Expr::Kind::String)
+      return false;
+    assignment = &part;
+  }
+  if (!assignment)
+    return false;
+  const auto &vocabulary = EffortVocabulary();
+  for (const auto &literal :
+       {condition.args[1].text, assignment->expression.text})
+    if (std::find(vocabulary.begin(), vocabulary.end(), literal) ==
+        vocabulary.end())
+      return false;
+  binding->second = {condition.args[1].text, assignment->expression.text};
+  return true;
 }
 
 bool Raises(const std::vector<Node> &body) {
@@ -964,8 +1021,7 @@ struct EffortGuard {
   size_t offset = 0;
 };
 
-void ForgetAssigned(const std::vector<Node> &nodes,
-                    std::set<std::string> *aliases) {
+void ForgetAssigned(const std::vector<Node> &nodes, EffortAliases *aliases) {
   for (const auto &node : nodes) {
     if (node.kind == Node::Kind::Set)
       aliases->erase(node.text);
@@ -980,16 +1036,18 @@ void ForgetAssigned(const std::vector<Node> &nodes,
 // conditions, defaults, scopes and membership execute through the existing
 // compiler below.
 std::vector<EffortGuard> FindEffortGuards(const std::vector<Node> &nodes,
-                                          std::set<std::string> aliases = {
-                                              "reasoning_effort"}) {
+                                          EffortAliases aliases = {
+                                              {"reasoning_effort", {}}}) {
   std::vector<EffortGuard> result;
   std::vector<Node> setup;
   for (const auto &node : nodes) {
     if (node.kind == Node::Kind::Set) {
-      const bool alias = EffortAlias(node.expression, aliases);
+      const auto *alias = EffortAlias(node.expression, aliases);
+      const bool tracked = alias != nullptr;
+      const auto normalization = alias ? *alias : EffortNormalization{};
       aliases.erase(node.text);
-      if (alias)
-        aliases.insert(node.text);
+      if (tracked)
+        aliases[node.text] = normalization;
     } else if (node.kind == Node::Kind::If) {
       const auto &condition = node.expression;
       if (condition.kind == Expr::Kind::Binary && condition.text == "not in" &&
@@ -1006,6 +1064,16 @@ std::vector<EffortGuard> FindEffortGuards(const std::vector<Node> &nodes,
             break;
           }
           guard.domain.insert(literal.text);
+        }
+        const auto &normalization = *EffortAlias(condition.args[0], aliases);
+        if (!normalization.from.empty()) {
+          // The condition still executes its original literal domain. Publish
+          // its preimage under the one proved rewrite, including removed
+          // inputs.
+          const bool admitted = guard.domain.count(normalization.to);
+          guard.domain.erase(normalization.from);
+          if (admitted)
+            guard.domain.insert(normalization.from);
         }
         if (!guard.domain.empty()) {
           guard.selector = setup;
@@ -1035,8 +1103,10 @@ std::vector<EffortGuard> FindEffortGuards(const std::vector<Node> &nodes,
           }
         }
       }
-      ForgetAssigned(node.body, &aliases);
-      ForgetAssigned(node.otherwise, &aliases);
+      if (!EffortRewrite(node, &aliases)) {
+        ForgetAssigned(node.body, &aliases);
+        ForgetAssigned(node.otherwise, &aliases);
+      }
     } else if (node.kind == Node::Kind::For) {
       // A finite discovery guard inside a history loop needs a scope-specific
       // proof; do not turn one iteration's domain into a global capability.
@@ -1079,8 +1149,7 @@ bool QualifyColdReasoning(const SourceTemplate &unit,
   if (!ReadTemplateStringDefault(unit, "reasoning_effort", &fallback,
                                  diagnostic))
     return false;
-  const std::vector<std::string> vocabulary{"none", "minimal", "low", "medium",
-                                            "high", "xhigh",   "max"};
+  const auto &vocabulary = EffortVocabulary();
   for (const auto &value : guard.domain) {
     const auto found = std::find(vocabulary.begin(), vocabulary.end(), value);
     if (found == vocabulary.end())

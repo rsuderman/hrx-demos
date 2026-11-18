@@ -49,17 +49,20 @@ command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index,
   %origin = index.constant 0 : offset
   %has_factors = config.get @llama.model.has_rope_frequencies : index
   %from_tensor = index.cmp ne, %has_factors, %zero : index
-  %factors = scf.if %from_tensor -> (view<64xf32>) {
-    %checkpoint = command.parameter %parameters, "rope_freqs.weight" : view<64xf32>
-    scf.yield %checkpoint : view<64xf32>
+  %two = index.constant 2 : index
+  %factor_count = index.div %head_size, %two : index
+  %factors = scf.if %from_tensor -> (view<[%factor_count]xf32>) {
+    %checkpoint = command.parameter %parameters, "rope_freqs.weight" : view<[%factor_count]xf32>
+    scf.yield %checkpoint : view<[%factor_count]xf32>
   } else {
     // The portable command schedule owns device scratch; global.load is a
     // host-VM operation. Initialize the ordinary-RoPE identity in device memory.
-    %factor_bytes = index.constant 256 : offset
+    %factor_word = index.constant 4 : offset
+    %factor_bytes = index.scale %factor_count, %factor_word : index, offset -> offset
     %unit_buffer = buffer.alloca<global> align(256) %factor_bytes : buffer
     kernel.launch @llama32_unit_rope_factors(%unit_buffer) : (buffer)
-    %units = buffer.view %unit_buffer[%origin] : buffer -> view<64xf32>
-    scf.yield %units : view<64xf32>
+    %units = buffer.view %unit_buffer[%origin] : buffer -> view<[%factor_count]xf32>
+    scf.yield %units : view<[%factor_count]xf32>
   }
   %four = index.constant 4 : offset
   %hidden_elements = index.mul %rows, %hidden : index
@@ -76,8 +79,8 @@ command.def @loomify.llama.attention(%layer: index, %phase: index, %rows: index,
   %projected = buffer.alloca<global> align(256) %hidden_bytes : buffer
   template.apply<@llm.projection.policy_qkv>(%zero, %rows, %hidden, %q_size, %kv, %q_tag, %k_tag, %v_tag, %q_bytes, %k_bytes, %v_bytes, %count, %normalized, %q_weight, %k_weight, %v_weight, %q, %k, %v) : (index, index, index, index, index, index, index, index, index, index, index, buffer, buffer, view<[%q_bytes]xi8>, view<[%k_bytes]xi8>, view<[%v_bytes]xi8>, buffer, buffer, buffer)
   // Position-bearing operations retain the original runtime control packet.
-  kernel.launch @llama32_rotary_query[%rows](%phase, %control_origin, %zero, %control, %factors, %q, %query) : [index](index, offset, index, buffer, view<64xf32>, buffer, buffer)
-  kernel.launch @llama32_publish_kv[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %factors, %k, %v, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<64xf32>, buffer, buffer, buffer)
+  kernel.launch @llama32_rotary_query[%rows](%phase, %control_origin, %zero, %control, %factors, %q, %query) : [index](index, offset, index, buffer, view<[%factor_count]xf32>, buffer, buffer)
+  kernel.launch @llama32_publish_kv[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %factors, %k, %v, %cache) : [index](index, offset, index, offset, index, offset, buffer, buffer, view<[%factor_count]xf32>, buffer, buffer, buffer)
   // Publication precedes causal consumption; the provider clears inactive rows.
   kernel.launch @llama32_attention_rows[%rows](%layer, %cache_base, %phase, %control_origin, %zero, %map_origin, %control, %map, %query, %cache, %attended) : [index](index, offset, index, offset, index, offset, buffer, buffer, buffer, buffer, buffer)
   template.apply<@llm.projection.policy_rows>(%zero, %rows, %q_size, %hidden, %o_tag, %o_bytes, %count, %attended, %o_weight, %projected) : (index, index, index, index, index, index, buffer, buffer, view<[%o_bytes]xi8>, buffer)

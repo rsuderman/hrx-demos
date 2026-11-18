@@ -71,6 +71,9 @@ struct ModelDescriptor {
   uint64_t embedding_width = 0;
   uint64_t vocabulary_size = 0;
   uint64_t training_context = 0;
+  // Physical block_count before removing a trailing next-token predictor.
+  // Zero denotes an unspecified count in programmatically built descriptors.
+  uint64_t stored_layer_count = 0;
   uint64_t key_head_width = 0;
   uint64_t value_head_width = 0;
   double rms_epsilon = 0;
