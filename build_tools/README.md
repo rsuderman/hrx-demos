@@ -162,6 +162,49 @@ mark, not a simultaneous aggregate-memory measurement; measure the complete
 executor separately when comparing job settings. This early batch supplements
 existing final verification; it does not replace local CI or model execution.
 
+### Prebuilt hardware batches
+
+Use the same caller-owned environment to run a reviewed file of concrete hardware
+test labels, one per line. This mode does not require the native batch's three
+GGUF fixture variables; prepare and identify any inputs needed by the selected
+hardware tests separately. Run the required native batch first and stop on failure.
+
+```bash
+TASK_VENV/bin/python build_tools/loomify-validation.py hardware \
+  --bazel /absolute/task-owned/bazel-wrapper \
+  --targets-file /absolute/hardware-targets.txt \
+  --gpu-lock /absolute/workspace/gates/qwen08-gpu.lock \
+  --result-dir /absolute/new/evidence/hardware
+```
+
+The helper accepts only explicit supported `*_execute_amd_gpu_hardware_test`
+leaves. It checks their source-owned resource tags and configured rule membership,
+builds them, then records launcher/runfile identities before acquiring the shared
+GPU lock. Duplicate labels, wildcards, suite aliases and unsupported metadata fail
+preflight. If selecting the matrix `integration_iq_full` suite, the caller must
+first query its complete test expansion with the same source/wrapper and require
+equality with the reviewed twelve-leaf manifest; do not filter away unexpected
+host tests or use the module filegroup as an execution inventory.
+
+Hardware execution remains serial through Bazel's public test launcher, preserving
+its runfiles and resource tags. The lock is blocking, so prepared immutable work
+waits rather than rebuilding after a busy exit. Source, wrapper, explicit config,
+input-record and manifest identities are checked again after waiting. The test
+command is uncached and records a full JSON profile; any product-building action
+inside the lease fails the optimization check. Rebuild outside the lock and repeat
+the affected proof. The helper also requires fresh XML and successful, nonempty
+Loom trial/expectation reports without skips, planning errors or expected failures.
+
+Results keep build, lock-wait and test intervals separate, with complete reports
+and selected launcher/runfile hashes. No other process may mutate this caller's
+Bazel output while a batch runs. Cancellation interrupts and reaps the client,
+then uses the same public wrapper shutdown. If shutdown cannot confirm retirement
+while the hardware lease is held, the foreground helper records unresolved
+cleanup and retains the lock while retrying shutdown; the owner must resolve that
+blocker, rather than treating the lease as released. Cancellation while waiting
+never takes or releases another owner's lock. No GPU concurrency or serving
+lifecycle behavior changes are enabled by this command.
+
 ### Reusing accepted qualification
 
 An integration may retain an accepted execution only when its complete executed
