@@ -94,16 +94,20 @@ kernel.def export("qwen38_attention_kv_prepare_spans") @qwen38_attention_kv_prep
 // A tile belongs to one span and reads only that resident session's cache.
 // Causal masking happens inside the shared attention body before softmax.
 // Whole inactive spans and tiles exit before any state/cache access.
+config.decl @llm.platform.attention.h256.query_tile_rows : %rows: index where [range(%rows, 1, 512)]
+
+config.decl @llm.platform.attention.h256.workgroup_size : %threads: index where [range(%threads, 1, 1024)]
+
 kernel.def target(@llm.platform.attention.h256_spans.wave64) export("qwen38_attention_spans_f16_wmma") @qwen38_attention_spans_f16_wmma(%token_capacity: index, %span_capacity: index) {
   %tokens = index.assume %token_capacity [range(%token_capacity, 1, 512)] : index
   %spans = index.assume %span_capacity [range(%span_capacity, 1, 64)] : index
-  %fifteen = index.constant 15 : index
-  %sixteen = index.constant 16 : index
+  %one = index.constant 1 : index
+  %sixteen = config.get @llm.platform.attention.h256.query_tile_rows : index
+  %fifteen = index.sub %sixteen, %one : index
   %padded_tokens = index.add %tokens, %fifteen : index
   %tiles = index.div %padded_tokens, %sixteen : index
   %heads = config.get @qwen.model.attention_heads : index
-  %threads = index.constant 256 : index
-  %one = index.constant 1 : index
+  %threads = config.get @llm.platform.attention.h256.workgroup_size : index
   kernel.launch.config workgroups(%tiles, %heads, %spans) workgroup_size(%threads, %one, %one) : index
 } launch(%epoch: buffer, %rows: buffer, %layer_origin: offset, %query: buffer, %gate: buffer, %state: buffer, %output: buffer) {
   %epoch_noalias, %rows_noalias, %query_noalias, %gate_noalias, %state_noalias, %output_noalias = buffer.assume.noalias %epoch, %rows, %query, %gate, %state, %output : buffer, buffer, buffer, buffer, buffer, buffer
@@ -115,7 +119,7 @@ kernel.def target(@llm.platform.attention.h256_spans.wave64) export("qwen38_atte
     %count_word = view.load %control[0] : view<1xi32> -> i32
     %count = index.cast %count_word : i32 to index
     %query_tile = kernel.workgroup.id<x> : index
-    %sixteen = index.constant 16 : index
+    %sixteen = config.get @llm.platform.attention.h256.query_tile_rows : index
     %tile_begin = index.mul %query_tile, %sixteen : index
     %tile_active = index.cmp ult, %tile_begin, %count : index
     scf.if %tile_active {

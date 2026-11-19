@@ -4,12 +4,15 @@ template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_
 // SPDX-License-Identifier: MIT
 // Shared operation composition. The selected platform owns matrix schedules.
 // Output allocation is T rows for T<=16, otherwise ceil(T/64)*64 rows.
+config.decl @llm.platform.projection.scaled_f16.row_alignment : %alignment: index where [range(%alignment, 1, 512)]
+
 // Allocation extent for the maintained short-row/scaled-F16 projection routes.
 // This is operation policy; architecture callers supply only their capacity.
 func.def public pure inline @llm.projection.matrix_output_rows(%capacity: index) -> (index) where [range(%capacity, 1, 512)] {
   %cutoff = index.constant 16 : index
-  %bias = index.constant 63 : index
-  %tile = index.constant 64 : index
+  %one = index.constant 1 : index
+  %tile = config.get @llm.platform.projection.scaled_f16.row_alignment : index
+  %bias = index.sub %tile, %one : index
   %small = index.cmp ule, %capacity, %cutoff : index
   %rounded = index.add %capacity, %bias : index
   %tiles = index.div %rounded, %tile : index

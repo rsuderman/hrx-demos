@@ -7,6 +7,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "targets.loom",
     "attention_h256_schedule.loom",
+    "attention_h256_config.loom",
 ])
 
 loom_merge(
@@ -16,10 +17,16 @@ loom_merge(
 
 filegroup(
     name = "attention_h256_schedule",
-    srcs = ["attention_h256_schedule.loom"],
+    srcs = [
+        "attention_h256_config.loom",
+        "attention_h256_schedule.loom",
+    ],
 )
 
 loom_merge(
     name = "attention_h256_implementation",
-    srcs = ["attention_h256_schedule.loom"],
+    srcs = [
+        "attention_h256_config.loom",
+        "attention_h256_schedule.loom",
+    ],
 )

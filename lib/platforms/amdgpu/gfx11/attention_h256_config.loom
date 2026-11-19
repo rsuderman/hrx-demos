@@ -1,0 +1,6 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Launch requirements of the selected four-wave H256 attention schedule.
+config.def @llm.platform.attention.h256.query_tile_rows = 16 : %rows: index where [eq(%rows, 16)]
+
+config.def @llm.platform.attention.h256.workgroup_size = 256 : %threads: index where [eq(%threads, 256)]

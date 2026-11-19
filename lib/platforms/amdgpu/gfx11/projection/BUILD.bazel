@@ -5,6 +5,7 @@ load("//build_tools:loom_merge.bzl", "loom_merge")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "config.loom",
     "q4k.loom",
     "q6k.loom",
     "gated_q4k.loom",
@@ -13,6 +14,7 @@ exports_files([
 filegroup(
     name = "sources",
     srcs = [
+        "config.loom",
         "q4k.loom",
         "q6k.loom",
         "gated_q4k.loom",

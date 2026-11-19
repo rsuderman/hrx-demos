@@ -1,0 +1,4 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Required output-row alignment of the selected scaled-F16 matrix schedule.
+config.def @llm.platform.projection.scaled_f16.row_alignment = 64 : %alignment: index where [range(%alignment, 1, 512)]

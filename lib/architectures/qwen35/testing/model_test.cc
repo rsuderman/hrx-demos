@@ -1095,7 +1095,8 @@ TEST_F(QwenModelTest, ExcludingPlatformSchedulePredicateFailsMaterialization) {
   EXPECT_FALSE(LinkConfiguredProducts(
       context, workspace, configuration.source,
       {root + "/lib/architectures/qwen35/implementation.loombc",
-       root + "/lib/platforms/amdgpu/gfx11/targets.loombc", path},
+       root + "/lib/platforms/amdgpu/gfx11/targets.loombc",
+       root + "/lib/platforms/amdgpu/gfx11/attention_h256_config.loom", path},
       {"generated.qwen_epoch"}, true, &raw, &error));
   Module module(raw, loomc_module_release);
   EXPECT_FALSE(module);
@@ -1112,7 +1113,8 @@ TEST_F(QwenModelTest, MissingPlatformScheduleFailsFinalMaterialization) {
   EXPECT_FALSE(LinkConfiguredProducts(
       context, workspace, configuration.source,
       {root + "/lib/architectures/qwen35/implementation.loombc",
-       root + "/lib/platforms/amdgpu/gfx11/targets.loombc"},
+       root + "/lib/platforms/amdgpu/gfx11/targets.loombc",
+       root + "/lib/platforms/amdgpu/gfx11/attention_h256_config.loom"},
       {"generated.qwen_epoch"}, true, &raw, &error));
   Module module(raw, loomc_module_release);
   EXPECT_FALSE(module);

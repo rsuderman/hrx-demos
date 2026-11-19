@@ -26,6 +26,10 @@ config.decl @qwen.model.attention_scale : f32
 
 config.decl @qwen.model.attention_width : index
 
+config.decl @llm.platform.attention.h256.query_tile_rows : %rows: index where [range(%rows, 1, 512)]
+
+config.decl @llm.platform.attention.h256.workgroup_size : %threads: index where [range(%threads, 1, 1024)]
+
 target.decl @llm.platform.attention.h256_prefill.wave64
 
 config.decl @qwen38.attention.cache_capacity : %value: index where [range(%value, 1, 262144)]
@@ -53,13 +57,13 @@ template.def<@qwen38.attention.wmma> device @qwen38_attention_wmma(%logical_capa
 kernel.def target(@llm.platform.attention.h256_prefill.wave64) export("qwen38_attention_prefill_f16_wmma") @qwen38_attention_prefill_f16_wmma(%token_count0: index) {
   %token_count = index.assume %token_count0 [range(%token_count0, 1, 512)] : index
   %c1 = index.constant 1 : index
-  %c15 = index.constant 15 : index
-  %c16 = index.constant 16 : index
+  %c16 = config.get @llm.platform.attention.h256.query_tile_rows : index
+  %c15 = index.sub %c16, %c1 : index
   %c24 = config.get @qwen.model.attention_heads : index
-  %c256 = config.get @qwen.model.head_size : index
+  %threads = config.get @llm.platform.attention.h256.workgroup_size : index
   %padded_token_count = index.add %token_count, %c15 : index
   %query_tile_count = index.div %padded_token_count, %c16 : index
-  kernel.launch.config workgroups(%query_tile_count, %c24, %c1) workgroup_size(%c256, %c1, %c1) : index
+  kernel.launch.config workgroups(%query_tile_count, %c24, %c1) workgroup_size(%threads, %c1, %c1) : index
 } launch(%control: buffer, %query: buffer, %gate: buffer, %key_cache: buffer, %value_cache: buffer, %output: buffer) {
   %query_tile = kernel.workgroup.id<x> : index
   %query_head0 = kernel.workgroup.id<y> : index
