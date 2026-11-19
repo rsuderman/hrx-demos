@@ -120,15 +120,32 @@ std::vector<Input> Inputs() {
       }
     }
   }
+  // Q6 down projections now admit reductions through 27648. Keep the former
+  // rejection as a positive witness and reject the next aligned width instead.
+  for (int profile : {0, 1}) {
+    for (int rows : {1, 3}) {
+      for (const auto &[ffn, expected] :
+           {std::tuple{17664, true}, std::tuple{27648, true},
+            std::tuple{27904, false}}) {
+        Input v;
+        v.name = "q6_input_capability_" + std::to_string(profile) + "_" +
+                 std::to_string(rows) + "_" + std::to_string(ffn);
+        v.profile = profile;
+        v.ffn = ffn;
+        v.down_tag = 14;
+        v.rows = rows;
+        v.phase = rows == 1 ? 1 : 0;
+        v.expected = expected;
+        result.push_back(v);
+      }
+    }
+  }
   bad("unknown_down_tag").down_tag = 99;
   bad("wrong_gate_bytes").bad_gate_bytes = true;
   bad("wrong_up_bytes").bad_up_bytes = true;
   bad("wrong_down_bytes").bad_down_bytes = true;
   bad("hidden_row_alignment").hidden = 1408;
   bad("ffn_block_alignment").ffn = 640;
-  auto &q6_limit = bad("q6_input_capability");
-  q6_limit.ffn = 17664;
-  q6_limit.down_tag = 14;
   bad("decode_more_than_one_row").rows = 3;
   bad("unknown_profile").profile = 2;
   bad("unknown_up_tag").up_tag = 99;
