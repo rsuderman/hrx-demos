@@ -608,6 +608,11 @@ The compiler has no template-revision lookup or model-family dependency.
 `ReadTemplateStringDefault` reuses the same parser for a bounded, unshadowed
 external option's consistent literal default/d declaration. It preserves rendering
 semantics and reports unsupported or ambiguous facts without inventing a value.
+The shared `default`/`d` implementation binds `default_value` and `boolean`
+positionally or by keyword, with ordinary value truthiness for the selector.
+Arguments remain eager; only the Undefined/falsy selection short-circuits.
+Literal-default discovery describes the missing-value fallback independently
+of defined-falsy input admission, which source qualification still checks.
 Effort-aware package composition can use this source fact for native discovery;
 it does not inject missing prompt options or interpret a template at runtime.
 Supported operations include checked signed integer addition/remainder, dynamic

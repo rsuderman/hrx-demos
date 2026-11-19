@@ -11,6 +11,7 @@
 namespace hrx::loomify_gguf::jinja {
 
 struct Template;
+struct Expr;
 
 enum class TemplateSelectorKind { Format, Adaptation };
 
@@ -86,10 +87,11 @@ bool CombineGeneratedTemplates(const std::vector<GeneratedInputRenderer> &parts,
                                Diagnostic *diagnostic);
 
 // Reads a declared string fallback for an unshadowed external name from the
-// existing source AST. Accepts default/d with one literal fallback, positional
-// or default_value=, and consistent repeated declarations. This does not
-// execute or change template rendering. Failure preserves *out and reports its
-// location.
+// existing source AST. Accepts default/d with an explicit literal fallback,
+// positional or default_value=, an optional boolean expression and consistent
+// repeated declarations. This describes Undefined fallback, not defined-falsy
+// admission or successful eager argument evaluation; it never executes or
+// changes rendering. Failure preserves *out and reports its location.
 bool ReadTemplateStringDefault(std::string_view source,
                                std::string_view source_name,
                                std::string_view variable_name, std::string *out,
@@ -97,6 +99,14 @@ bool ReadTemplateStringDefault(std::string_view source,
 
 namespace internal {
 class SourceTemplate;
+// Finite default/d binding only. Null slots denote omitted arguments. Binding
+// performs no evaluation; consumers retain the original child evaluation order.
+struct DefaultFilterArguments {
+  const Expr *fallback = nullptr;
+  const Expr *boolean = nullptr;
+};
+bool BindDefaultFilter(const Expr &expression, DefaultFilterArguments *out,
+                       Diagnostic *diagnostic);
 // Original-source consumers share ownership and parsing on the package path.
 // Every lowering still validates its actual product AST independently.
 bool CompileChatTemplate(const SourceTemplate &source,

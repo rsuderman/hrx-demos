@@ -1740,7 +1740,7 @@ private:
           References(*node.predicate, roots);
         roots->insert(controls.begin(), controls.end());
       }
-      if (node.kind == Node::Kind::Output) {
+      if (node.kind == Node::Kind::Output || node.kind == Node::Kind::If) {
         const auto &e = node.expression;
         bool retain = false;
         for (const auto &field : needed) {
@@ -3236,6 +3236,139 @@ private:
       arg = ExpandLastAliases(std::move(arg), path);
     return expr;
   }
+  Value ResolveDefault(const Expr &expr, Value subject, Path &path,
+                       const Context &context) {
+    internal::DefaultFilterArguments arguments;
+    Diagnostic diagnostic;
+    if (!internal::BindDefaultFilter(expr, &arguments, &diagnostic)) {
+      Fail(diagnostic.offset, diagnostic.message);
+      return {Origin::Unknown, expr};
+    }
+    Value fallback = Constant(std::string(), expr);
+    Value boolean = Constant(false, expr);
+    Expr rebuilt = expr;
+    rebuilt.args[0] = subject.expression;
+    for (size_t i = 1; i < expr.args.size(); ++i) {
+      auto argument = Resolve(expr.args[i], path, context);
+      rebuilt.args[i] = argument.expression;
+      if (&expr.args[i] == arguments.fallback)
+        fallback = std::move(argument);
+      else
+        boolean = std::move(argument);
+    }
+    const auto truth = [](const Value &value) -> std::optional<bool> {
+      if (auto known = Truth(value))
+        return known;
+      if (value.expression.kind == Expr::Kind::None ||
+          value.expression.kind == Expr::Kind::Undefined)
+        return false;
+      if (value.expression.kind == Expr::Kind::List ||
+          value.expression.kind == Expr::Kind::Tuple ||
+          value.expression.kind == Expr::Kind::Dict)
+        return !value.expression.args.empty();
+      return std::nullopt;
+    };
+    const auto enabled = truth(boolean), subject_truth = truth(subject);
+    std::optional<bool> use_fallback;
+    if (subject.defined && !*subject.defined)
+      use_fallback = true;
+    else if (subject_truth && *subject_truth)
+      use_fallback = false;
+    else if (enabled && !*enabled) {
+      if (subject.defined && *subject.defined)
+        use_fallback = false;
+    } else if (enabled && *enabled && subject_truth && !*subject_truth)
+      use_fallback = true;
+
+    const bool forward = projection_mode_ || context.continued_user;
+    // Only the canonical generated reasoning domain proves that every defined
+    // value is nonempty. STRING alone does not prove that for nullable content.
+    const bool absence_only =
+        (enabled && !*enabled) ||
+        (subject.origin == Origin::Reasoning && DirectSemantic(subject));
+    if (!forward && IsFuture(subject.origin) && !absence_only &&
+        !use_fallback.has_value()) {
+      Fail(expr.offset,
+           "default may replace a defined falsy future payload; its output "
+           "requires an unsupported inverse");
+      return {Origin::Unknown, std::move(rebuilt)};
+    }
+    if (forward && subject.origin == Origin::Content && !absence_only) {
+      ObserveProjection(2, path);
+      return TransformedPayload(std::move(subject), std::move(rebuilt), expr);
+    }
+
+    Value result;
+    if (use_fallback)
+      result = *use_fallback ? fallback : subject;
+    else if (IsFuture(subject.origin) && absence_only) {
+      result = subject;
+      result.string.reset();
+      result.boolean.reset();
+      result.truth.reset();
+      if (fallback.defined && *fallback.defined)
+        result.defined = true;
+    } else {
+      result.origin = Origin::Request;
+      if (fallback.defined && *fallback.defined)
+        result.defined = true;
+      else if (subject.defined && fallback.defined &&
+               *subject.defined == *fallback.defined)
+        result.defined = subject.defined;
+      if (subject.string == fallback.string)
+        result.string = subject.string;
+      if (subject.boolean == fallback.boolean)
+        result.boolean = subject.boolean;
+      if (subject_truth == truth(fallback))
+        result.truth = subject_truth;
+      result.string_result = subject.string_result && fallback.string_result;
+    }
+    if (use_fallback) {
+      result.truth = truth(result);
+      if (result.expression.kind == Expr::Kind::List ||
+          result.expression.kind == Expr::Kind::Tuple ||
+          result.expression.kind == Expr::Kind::Dict)
+        result.defined = true;
+    }
+    // Facts may fold surrounding control flow only when evaluating all eager
+    // inputs is inert. A selected literal must not erase an unselected call or
+    // a failing attribute lookup. Source aliases have already been resolved.
+    const auto inert = [&](const auto &self, const Expr &value) -> bool {
+      if (value.kind == Expr::Kind::Name || value.kind == Expr::Kind::String ||
+          value.kind == Expr::Kind::Integer ||
+          value.kind == Expr::Kind::Boolean || value.kind == Expr::Kind::None ||
+          value.kind == Expr::Kind::Undefined)
+        return true;
+      if (value.kind != Expr::Kind::List && value.kind != Expr::Kind::Tuple &&
+          value.kind != Expr::Kind::Dict)
+        return false;
+      return std::all_of(value.args.begin(), value.args.end(),
+                         [&](const Expr &arg) { return self(self, arg); });
+    };
+    if (!std::all_of(rebuilt.args.begin(), rebuilt.args.end(),
+                     [&](const Expr &arg) { return inert(inert, arg); })) {
+      result.string.reset();
+      result.boolean.reset();
+      result.truth.reset();
+      result.defined.reset();
+      result.string_result = false;
+    }
+    result.expression = std::move(rebuilt);
+    if (!result.expansion.empty()) {
+      if (!PatternExpression(result.expansion)) {
+        Fail(expr.offset,
+             "default over repetition requires a supported value codec");
+        return result;
+      }
+      TextFormatPart transformed;
+      transformed.capture = TextCapture::Expression;
+      transformed.source = Range(expr);
+      transformed.value_expression = result.expression;
+      transformed.body = std::move(result.expansion);
+      result.expansion = {std::move(transformed)};
+    }
+    return result;
+  }
   Value ResolveOrdinary(const Expr &expr, Path &path, const Context &context) {
     if (expr.kind == Expr::Kind::Name) {
       if (const auto found = path.bindings.find(expr.text);
@@ -3512,15 +3645,8 @@ private:
         count.defined = true;
         return count;
       }
-      if (expr.text == "default" || expr.text == "d") {
-        const Value fallback = expr.args.size() > 1
-                                   ? Resolve(expr.args[1], path, context)
-                                   : Constant(std::string(), expr);
-        if (subject.defined && !*subject.defined)
-          return fallback;
-        if (fallback.defined && *fallback.defined)
-          subject.defined = true;
-      }
+      if (expr.text == "default" || expr.text == "d")
+        return ResolveDefault(expr, std::move(subject), path, context);
       if (expr.text == "items" && subject.origin == Origin::Arguments) {
         ObserveProjection(0, path);
         return Semantic(Origin::ArgumentItems, expr);
@@ -5383,6 +5509,7 @@ private:
           !Relevant(node.text, selector_needed_))
         continue;
       Node copy = node;
+      bool condition_snapshotted = false;
       if (const auto snapshot = branch_snapshots_.find(node.offset);
           node.kind == Node::Kind::If && snapshot != branch_snapshots_.end() &&
           Relevant(snapshot->second, selector_needed_)) {
@@ -5394,6 +5521,7 @@ private:
         retain.end = node.end;
         out->push_back(std::move(retain));
         copy.expression = Name(snapshot->second, {node.offset, node.end});
+        condition_snapshotted = true;
       }
       if (const auto target = branch_target_snapshots_.find(node.offset);
           node.kind == Node::Kind::If &&
@@ -5404,6 +5532,7 @@ private:
         set.text = target->second.first;
         set.expression = target->second.second;
         out->push_back(std::move(set));
+        condition_snapshotted = true;
       }
       // Captures execute once and retain their full buffered source and
       // effects, including when their string result is not used by the
@@ -5430,8 +5559,20 @@ private:
       }
       if ((node.kind == Node::Kind::If || node.kind == Node::Kind::For ||
            node.kind == Node::Kind::Generation) &&
-          copy.body.empty() && copy.otherwise.empty())
+          copy.body.empty() && copy.otherwise.empty()) {
+        // An eager default argument may write a needed namespace from an If
+        // condition even when all of its output was sliced away. Evaluate the
+        // retained condition once, just like a discarded output expression.
+        // Existing source/target snapshots already own their evaluations.
+        if (node.kind == Node::Kind::If &&
+            selector_effect_outputs_.count(node.offset) &&
+            !condition_snapshotted) {
+          copy.kind = Node::Kind::Set;
+          copy.text = FreshCountName("__text_discarded_condition");
+          out->push_back(std::move(copy));
+        }
         continue;
+      }
       out->push_back(std::move(copy));
       EmitCountDefinitions(node.offset, true, false, out);
     }

@@ -1211,12 +1211,28 @@ func.def public @jinja.tojson(%value: buffer, %kind: i64, %indent: i64) -> (buff
   func.return %output : buffer
 }
 
-// Template defaults are based on definition, not truthiness.
-func.def public @jinja.default(%value: buffer, %kind: i64, %fallback: buffer, %fallback_kind: i64) -> (buffer, i64) {
+// Arguments are already evaluated. Only the selection predicate short-circuits.
+func.def public @jinja.default(%value: buffer, %kind: i64, %fallback: buffer, %fallback_kind: i64, %boolean: buffer, %boolean_kind: i64) -> (buffer, i64) {
   %seven = scalar.constant 7 : i64
   %undefined = scalar.cmpi eq, %kind, %seven : i64
-  %result = scf.select %undefined, %fallback, %value : buffer
-  %result_kind = scf.select %undefined, %fallback_kind, %kind : i64
+  %use_fallback = scf.if %undefined -> (i1) {
+    %yes = scalar.constant true : i1
+    scf.yield %yes : i1
+  } else {
+    %enabled = func.call @jinja.truth(%boolean, %boolean_kind) : (buffer, i64) -> (i1)
+    %falsy = scf.if %enabled -> (i1) {
+      %truth = func.call @jinja.truth(%value, %kind) : (buffer, i64) -> (i1)
+      %no = scalar.constant false : i1
+      %empty = scalar.cmpi eq, %truth, %no : i1
+      scf.yield %empty : i1
+    } else {
+      %no = scalar.constant false : i1
+      scf.yield %no : i1
+    }
+    scf.yield %falsy : i1
+  }
+  %result = scf.select %use_fallback, %fallback, %value : buffer
+  %result_kind = scf.select %use_fallback, %fallback_kind, %kind : i64
   func.return %result, %result_kind : buffer, i64
 }
 

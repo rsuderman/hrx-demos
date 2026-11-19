@@ -2984,6 +2984,161 @@ std::string ForwardReplaceSource() {
          "{% endif %}{% endfor %}{% if add_generation_prompt %}<A>{% endif %}";
 }
 
+TEST(TextFormatAnalysisTest, DefaultPreservesForwardProjectionAndUserFacts) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+      "{% else %}<U>{% set value=m.content|d(boolean=true,default_value='EMPTY') %}"
+      "{% if value %}{{ value }}{% else %}FALSE{% endif %}</U>{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}<A>{% endif %}";
+  TextFormatAnalysis analysis;
+  TextUserContinuation continuation;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "forward-default.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_TRUE(AnalyzeUserContinuation(source, "forward-default.jinja", {},
+                                      analysis, &continuation, &diagnostic))
+      << diagnostic.message;
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildContinuation(continuation, &recipe, &error))
+      << error;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "forward-default.jinja", recipe,
+                                      &product, &diagnostic))
+      << diagnostic.message;
+  for (const bool bytecode : {false, true}) {
+    auto renderer = PrepareProduct(product, bytecode);
+    auto adaptation =
+        PrepareSelection(source, analysis.adaptation_selector_template,
+                         bytecode, TemplateSelectorKind::Adaptation);
+    ASSERT_NE(renderer, nullptr);
+    ASSERT_NE(adaptation, nullptr);
+    for (const auto *text : {"", "kept"}) {
+      std::string actual;
+      ASSERT_TRUE(renderer->Render("{" + Quote(continuation.text_binding) +
+                                       ":" + Quote(text) + "}",
+                                   &actual, &error))
+          << error;
+      EXPECT_EQ(actual,
+                std::string("<U>") + (*text ? text : "EMPTY") + "</U><A>");
+    }
+    for (const auto *role : {"user", "assistant"}) {
+      const auto message = "{\"role\":" + Quote(role) + ",\"content\":null}";
+      const auto environment = "{\"messages\":[" + message + "]}";
+      int64_t bits = -1, mode = -1;
+      ASSERT_TRUE(Select(
+          *adaptation,
+          WorkerEnvironment(analysis, environment, message, 0, "null", 0),
+          &bits, &mode));
+      TextAdaptation facts;
+      ASSERT_TRUE(DecodeTextAdaptation(bits, &facts));
+      EXPECT_EQ(facts.content_observes_representation,
+                std::string_view(role) == "user");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, DefaultDoesNotInventFutureInverseOrNullError) {
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(
+      AnalyzeTextFormat(Frame("{{ m.content|default('unused',false) }}"),
+                        "identity-default.jinja", {}, &analysis, &diagnostic))
+      << diagnostic.message;
+  EXPECT_FALSE(AnalyzeTextFormat(Frame("{{ m.content|default('X',true) }}"),
+                                 "ambiguous-default.jinja", {}, &analysis,
+                                 &diagnostic));
+  EXPECT_NE(diagnostic.message.find("unsupported inverse"), std::string::npos);
+  ASSERT_TRUE(
+      AnalyzeTextFormat(Frame("{% set value=m.content %}{% if value %}"
+                              "{{ value|default('X',true) }}{% endif %}"),
+                        "guarded-default.jinja", {}, &analysis, &diagnostic))
+      << diagnostic.message;
+  // Request-owned NULL becomes an empty array, so iteration succeeds and its
+  // known-false truth must not invent a WRONG branch in the assistant grammar.
+  const std::string source =
+      "{% set unused %}{% for piece in none|default([],true) %}"
+      "{{ raise_exception('not an empty array') }}{% endfor %}{% endset %}" +
+      Frame("{% if none|default([],true) %}WRONG{% else %}"
+            "{{ m.content }}{% endif %}");
+  ASSERT_TRUE(AnalyzeTextFormat(source, "default-array.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  const auto &format = analysis.alternatives.front();
+  EXPECT_FALSE(HasLiteral(format.assistant_pattern, "WRONG"));
+  EXPECT_FALSE(HasCapture(format.assistant_pattern, TextCapture::Choice));
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.Build(format, &recipe, &error)) << error;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "default-array.jinja", recipe,
+                                      &product, &diagnostic))
+      << diagnostic.message;
+  for (const bool bytecode : {false, true}) {
+    auto renderer = PrepareProduct(product, bytecode);
+    ASSERT_NE(renderer, nullptr);
+    const std::string assistant = R"({"role":"assistant","content":"PAYLOAD"})";
+    const auto environment =
+        "{\"messages\":[" + assistant + "],\"add_generation_prompt\":false," +
+        Quote(builder.assistant_binding()) + ":" + assistant + "}";
+    std::string actual;
+    ASSERT_TRUE(renderer->Render(environment, &actual, &error)) << error;
+    EXPECT_EQ(actual, "<turn>assistant:PAYLOAD</turn>");
+  }
+}
+
+TEST(TextFormatAnalysisTest, DefaultFactsCannotEraseEagerEffects) {
+  const std::string prelude =
+      "{% set ns=namespace(n=0) %}"
+      "{% macro fallback() %}{% set ns.n=ns.n+1 %}unused{% endmacro %}";
+  const std::string turns =
+      "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+      "{% else %}<U>{{ m.content }}</U>{% endif %}{% endfor %}";
+  for (const bool snapshot : {false, true}) {
+    SCOPED_TRACE(snapshot ? "target snapshot" : "discarded condition");
+    const auto source =
+        prelude +
+        (snapshot
+             ? "{% if (messages|length>0) and none|default(fallback(),false) %}" +
+                   turns + "{% else %}" + turns + "{% endif %}"
+             : std::string(
+                   "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+                   "{% else %}<U>{% if none|default(fallback(),false) %}WRONG"
+                   "{% else %}{{ m.content }}{% endif %}</U>{% endif %}{% endfor %}")) +
+        "{% if add_generation_prompt and ns.n == want %}<A>{% endif %}";
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(AnalyzeTextFormat(source, "default-eager.jinja", {}, &analysis,
+                                  &diagnostic))
+        << diagnostic.message;
+    GeneratedInputRenderer product;
+    ASSERT_TRUE(CompileChatTemplate(source, "default-eager.jinja", &product,
+                                    &diagnostic))
+        << diagnostic.message;
+    for (const bool bytecode : {false, true}) {
+      auto renderer = PrepareProduct(product, bytecode);
+      auto selector =
+          PrepareSelection(source, analysis.selector_template, bytecode);
+      ASSERT_NE(renderer, nullptr);
+      ASSERT_NE(selector, nullptr);
+      const std::string environment =
+          R"({"messages":[{"role":"user","content":"kept"}],"add_generation_prompt":true,"want":1})";
+      int64_t id = -1, mode = -1;
+      ASSERT_TRUE(Select(*selector, environment, &id, &mode));
+      ASSERT_GE(id, 0);
+      ASSERT_LT(static_cast<size_t>(id), analysis.alternatives.size());
+      EXPECT_EQ(analysis.alternatives[id].generation_prefix, "<A>");
+      std::string actual, error;
+      ASSERT_TRUE(renderer->Render(environment, &actual, &error)) << error;
+      EXPECT_EQ(actual, "<U>kept</U><A>");
+    }
+  }
+}
+
 TEST(TextFormatAnalysisTest, HistoricalReplaceKeepsProjectionAndAssistantRaw) {
   const auto source = ForwardReplaceSource();
   TextFormatAnalysis analysis;
@@ -3645,8 +3800,6 @@ TEST(TextFormatAnalysisTest,
         "{{ risky_request_value }}" + loop,
         "{% set unused %}" + loop + "{% endset %}",
         std::string("{{ collect(m.content) }}"),
-        std::string("{% for piece in m.content|default([],true) %}"
-                    "{{ piece }}{% endfor %}"),
         std::string("{% for c in m.tool_calls %}") +
             "{% if m.content is string %}{{ m.content }}{% else %}" + loop +
             "{% endif %}{% endfor %}"}) {

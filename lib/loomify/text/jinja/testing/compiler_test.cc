@@ -770,7 +770,6 @@ TEST(JinjaCompilerTest, RejectsUnsupportedSyntaxAndPreservesOutput) {
        "{{ values|first(1) }}",
        "{{ missing|default('x', true, 'extra') }}",
        "{{ missing|default(unknown='x') }}",
-       "{{ missing|default(boolean=true) }}",
        "{{ value.get('x', 'fallback', 'extra') }}",
        "{% set state = namespace('positional') %}",
        "{% set state = namespace(value=1, value=2) %}",
@@ -827,6 +826,24 @@ TEST(JinjaCompilerTest, RejectIteratorValuesRemainUnsupported) {
         diagnostic.message,
         "reject iterator requires an immediate join or explicit list consumer");
     EXPECT_EQ(diagnostic.source_name, "reject.jinja");
+    EXPECT_GT(diagnostic.offset, 0u);
+  }
+}
+TEST(JinjaCompilerTest, DefaultRejectsAmbiguousBindings) {
+  for (const auto *source : {"{{ value|default('a',true,'excess') }}",
+                             "{{ value|d('a',default_value='b') }}",
+                             "{{ value|default('a',true,boolean=false) }}",
+                             "{{ value|default(unknown='a') }}",
+                             "{{ value|default(boolean=true,boolean=false) }}",
+                             "{{ value|default(boolean=true,'a') }}"}) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output{"sentinel", "entry", {"helper"}};
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "default-binding.jinja", &output,
+                                     &diagnostic));
+    EXPECT_EQ(output.source, "sentinel");
+    EXPECT_EQ(diagnostic.source_name, "default-binding.jinja");
+    EXPECT_FALSE(diagnostic.message.empty());
     EXPECT_GT(diagnostic.offset, 0u);
   }
 }
@@ -976,6 +993,11 @@ TEST(JinjaTemplateDefaultTest, ReadsLiteralFormsAndIgnoresDestinationName) {
           {"{# comment #}{{ reasoning_effort | d(default_value=\"high\") }}",
            "high"},
           {"{{ reasoning_effort|default('caf\\u00e9') }}", u8"café"},
+          {"{{ reasoning_effort|default('low',true) }}", "low"},
+          {"{{ reasoning_effort|d(boolean=false,default_value='high') }}",
+           "high"},
+          {"{{ reasoning_effort|default(default_value='low',boolean=selector()) }}",
+           "low"},
           {"{{ reasoning_effort|default('low') }}{{ reasoning_effort|d('low') }}",
            "low"}}) {
     SCOPED_TRACE(source);
@@ -998,8 +1020,9 @@ TEST(JinjaTemplateDefaultTest, RejectsUnavailableFactsAndPreservesOutput) {
        "{% for reasoning_effort in values %}{{ reasoning_effort|default('low') }}{% endfor %}",
        "{% macro show(reasoning_effort) %}{{ reasoning_effort|default('low') }}{% endmacro %}",
        "{% macro reasoning_effort() %}x{% endmacro %}{{ reasoning_effort|default('low') }}",
-       "{{ reasoning_effort|default('low', true) }}",
-       "{{ reasoning_effort|default(default_value='low', boolean=true) }}",
+       "{{ reasoning_effort|default(boolean=true) }}",
+       "{{ reasoning_effort|default('low',default_value='low') }}",
+       "{{ reasoning_effort|default('low',true,false) }}",
        "{{ reasoning_effort|default(unknown='low') }}",
        "{{ reasoning_effort|default(['low']) }}",
        "{{ reasoning_effort|default('unterminated) }}"}) {

@@ -435,8 +435,12 @@ struct SourceControls {
         add_values(expression.args[1], expression.args[0]);
       } else if (expression.kind == Expr::Kind::Filter &&
                  (expression.text == "default" || expression.text == "d") &&
-                 expression.args.size() >= 2) {
-        add_values(expression.args[0], expression.args[1]);
+                 !expression.args.empty()) {
+        DefaultFilterArguments arguments;
+        Diagnostic ignored;
+        if (BindDefaultFilter(expression, &arguments, &ignored) &&
+            arguments.fallback)
+          add_values(expression.args[0], *arguments.fallback);
       }
     }
     // Deduplicate before finite-domain refinement: repeated AST tests often
@@ -1656,8 +1660,9 @@ bool TurnCallsPresence(const Expr &e, const TextFormatAnalysis &analysis,
            (e.text == "defined" || e.text == "undefined" || e.text == "none" ||
             e.text == "iterable" || e.text == "sequence" ||
             e.text == "mapping");
-  // A fallback changes only the absent value. Present call collections and
-  // nonempty native fragments have identical truth in this context.
+  // The optional truthy boolean selector can also replace an empty collection.
+  // Both the source collection and its native fragment are then false; visit
+  // fallback and selector too, since their eager evaluation is observable.
   if (truth_context && e.kind == Expr::Kind::Filter &&
       (e.text == "default" || e.text == "d") && !e.args.empty()) {
     for (const auto &arg : e.args)

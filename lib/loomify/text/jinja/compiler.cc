@@ -1579,17 +1579,29 @@ private:
                               {"buffer", "i64", "i1"}),
                          value);
     }
-    if ((expr.text == "default" || expr.text == "d") && expr.args.size() <= 2) {
-      if (expr.keywords.size() > 1 && !expr.keywords[1].empty() &&
-          expr.keywords[1] != "default_value") {
-        Fail(expr.offset, "default supports only the default_value argument");
+    if (expr.text == "default" || expr.text == "d") {
+      internal::DefaultFilterArguments arguments;
+      Diagnostic diagnostic;
+      if (!internal::BindDefaultFilter(expr, &arguments, &diagnostic)) {
+        Fail(diagnostic.offset, diagnostic.message);
         return Undefined();
       }
-      const auto fallback =
-          expr.args.size() == 2 ? Expression(expr.args[1], state) : String("");
+      Value fallback, boolean;
+      for (size_t i = 1; i < expr.args.size(); ++i) {
+        auto argument = Expression(expr.args[i], state);
+        if (&expr.args[i] == arguments.fallback)
+          fallback = std::move(argument);
+        else
+          boolean = std::move(argument);
+      }
+      if (!arguments.fallback)
+        fallback = String("");
+      if (!arguments.boolean)
+        boolean = Boolean(Bool(false));
       auto result = Pair("jinja.default",
-                         {value.data, value.kind, fallback.data, fallback.kind},
-                         {"buffer", "i64", "buffer", "i64"});
+                         {value.data, value.kind, fallback.data, fallback.kind,
+                          boolean.data, boolean.kind},
+                         {"buffer", "i64", "buffer", "i64", "buffer", "i64"});
       result.tuple_data = value.tuple_data || fallback.tuple_data;
       return result;
     }
@@ -2519,21 +2531,22 @@ private:
         expr.args[0].text == variable_) {
       const auto prefix = "default declaration for external name '" +
                           std::string(variable_) + "' ";
-      if (expr.args.size() != 2) {
+      internal::DefaultFilterArguments arguments;
+      Diagnostic binding;
+      if (!internal::BindDefaultFilter(expr, &arguments, &binding)) {
+        Fail(binding.offset, binding.message);
+      } else if (!arguments.fallback) {
         Fail(expr.offset,
              prefix + "must have exactly one explicit fallback argument");
-      } else if (expr.keywords.size() > 1 && !expr.keywords[1].empty() &&
-                 expr.keywords[1] != "default_value") {
-        Fail(expr.offset, prefix + "supports only the default_value keyword");
-      } else if (expr.args[1].kind != Expr::Kind::String) {
-        Fail(expr.args[1].offset,
+      } else if (arguments.fallback->kind != Expr::Kind::String) {
+        Fail(arguments.fallback->offset,
              prefix + "requires a STRING literal fallback");
-      } else if (found_ && value_ != expr.args[1].text) {
+      } else if (found_ && value_ != arguments.fallback->text) {
         Fail(expr.offset, "conflicting literal defaults for external name '" +
                               std::string(variable_) + "'");
       } else {
         found_ = true;
-        value_ = expr.args[1].text;
+        value_ = arguments.fallback->text;
       }
     }
     for (const auto &arg : expr.args)
@@ -2667,6 +2680,48 @@ private:
 };
 
 } // namespace
+
+bool internal::BindDefaultFilter(const Expr &expression,
+                                 DefaultFilterArguments *out,
+                                 Diagnostic *diagnostic) {
+  DefaultFilterArguments result;
+  size_t positional = 0;
+  bool keyword_seen = false;
+  for (size_t i = 1; i < expression.args.size(); ++i) {
+    const auto &argument = expression.args[i];
+    const auto keyword = i < expression.keywords.size()
+                             ? std::string_view(expression.keywords[i])
+                             : std::string_view();
+    const Expr **slot = nullptr;
+    std::string error;
+    if (keyword.empty()) {
+      if (keyword_seen)
+        error = "default positional argument follows a keyword";
+      else if (positional >= 2)
+        error = "default accepts at most two arguments";
+      else
+        slot = positional++ == 0 ? &result.fallback : &result.boolean;
+    } else {
+      keyword_seen = true;
+      if (keyword == "default_value")
+        slot = &result.fallback;
+      else if (keyword == "boolean")
+        slot = &result.boolean;
+      else
+        error = "default supports only default_value and boolean arguments";
+    }
+    if (slot && *slot)
+      error = "default received multiple values for an argument";
+    if (!error.empty()) {
+      diagnostic->offset = argument.offset;
+      diagnostic->message = std::move(error);
+      return false;
+    }
+    *slot = &argument;
+  }
+  *out = result;
+  return true;
+}
 
 void LocateDiagnostic(std::string_view source, std::string_view name,
                       Diagnostic *diagnostic) {
