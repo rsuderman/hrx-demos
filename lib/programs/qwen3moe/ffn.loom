@@ -1,0 +1,23 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Selected FFN provider for the shared Qwen3 backbone, E2048/F768/128/top8.
+config.decl @qwen3.model.hidden_size : index
+
+config.decl @qwen3.model.rms_epsilon : f32
+
+func.decl pure @loomify.config.layer_experts(%layer: index) -> (index, index, index, index, index, index)
+
+template.decl @llm.ffn.rms_routed(%rows: index, %hidden: index, %epsilon: f32, %gt: index, %ut: index, %dt: index, %gb: index, %ub: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %router: view<128x2048xf32>, %gate: view<[%gb]xi8>, %up: view<[%ub]xi8>, %down: view<[%db]xi8>)
+
+command.def @loomify.qwen3.ffn(%layer: index, %phase: index, %rows: index) launch(%parameters: buffer, %residual: buffer, %count: buffer) where [range(%rows, 1, 512), range(%phase, 0, 1)] {
+  %hidden = config.get @qwen3.model.hidden_size : index
+  %epsilon = config.get @qwen3.model.rms_epsilon : f32
+  %gt, %ut, %dt, %gb, %ub, %db = func.call pure @loomify.config.layer_experts(%layer) : (index) -> (index, index, index, index, index, index)
+  %gamma = command.parameter %parameters, "blk.{}.ffn_norm.weight"[%layer] : view<[%hidden]xf32>
+  %router = command.parameter %parameters, "blk.{}.ffn_gate_inp.weight"[%layer] : view<128x2048xf32>
+  %gate = command.parameter %parameters, "blk.{}.ffn_gate_exps.weight"[%layer] : view<[%gb]xi8>
+  %up = command.parameter %parameters, "blk.{}.ffn_up_exps.weight"[%layer] : view<[%ub]xi8>
+  %down = command.parameter %parameters, "blk.{}.ffn_down_exps.weight"[%layer] : view<[%db]xi8>
+  template.apply<@llm.ffn.rms_routed>(%rows, %hidden, %epsilon, %gt, %ut, %dt, %gb, %ub, %db, %residual, %count, %gamma, %router, %gate, %up, %down) : (index, index, f32, index, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<128x2048xf32>, view<[%gb]xi8>, view<[%ub]xi8>, view<[%db]xi8>)
+  command.return
+}

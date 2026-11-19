@@ -115,12 +115,22 @@ struct Loader {
     if (Field(key))
       Fail("unsupported architecture feature: " + prefix + key);
   }
+  void BindExpert(const ModelDescriptor &model, std::vector<TensorBinding> &out,
+                  const std::string &role, uint64_t input, uint64_t output,
+                  uint64_t experts, uint32_t layer) const {
+    Bind(model, out, role, {input, output, experts}, layer);
+    if (out.back().tensor.rank != 3)
+      Fail("expert tensor requires rank3: " + out.back().tensor.name);
+  }
 };
 
 uint64_t Product(uint64_t a, uint64_t b);
 void ReadDecoderDimensions(const Loader &, ModelDescriptor &,
                            bool allow_zero_kv = false,
                            bool allow_auxiliary_tail = false);
+void ReadDecoderGeometry(const Loader &, ModelDescriptor &,
+                         bool allow_zero_kv = false,
+                         bool allow_auxiliary_tail = false);
 void ReadRope(const Loader &, ModelDescriptor &, double base);
 void BindGlobals(const Loader &, ModelDescriptor &);
 void BindFeedForward(const Loader &, const ModelDescriptor &,
@@ -130,5 +140,7 @@ void BindAttention(const Loader &, const ModelDescriptor &, LayerDescriptor &,
 void BindHeadNorms(const Loader &, const ModelDescriptor &, LayerDescriptor &);
 void RejectHeadNorms(const Loader &, std::string_view architecture);
 const char *HeadNormTensorSuffix(std::string_view role);
+const char *Qwen3TensorSuffix(std::string_view role, bool is_layer);
+void BindQwen3AttentionLayers(const Loader &, ModelDescriptor &);
 } // namespace hrx::model::internal
 #endif

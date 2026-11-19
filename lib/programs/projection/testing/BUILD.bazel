@@ -62,6 +62,7 @@ loom_provider_checks(
 )
 
 exports_files([
+    "fixture_config.loom",
     "fixtures.py",
 ])
 

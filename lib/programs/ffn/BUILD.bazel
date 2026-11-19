@@ -51,7 +51,10 @@ filegroup(
     "text",
 ]]
 
-exports_files(["direct_routed.loom"])
+exports_files([
+    "direct_routed.loom",
+    "rms_routed.loom",
+])
 
 filegroup(
     name = "direct_routed_sources",
@@ -59,6 +62,14 @@ filegroup(
         "direct_routed.loom",
         "//lib/kernels/experts:all_sources",
         "//lib/kernels/routing:all_sources",
+    ],
+)
+
+filegroup(
+    name = "rms_routed_sources",
+    srcs = [
+        "rms_routed.loom",
+        ":direct_routed_sources",
     ],
 )
 

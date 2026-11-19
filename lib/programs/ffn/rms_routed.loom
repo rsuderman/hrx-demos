@@ -1,0 +1,22 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Shared active-row normalization, routed experts and residual composition.
+kernel.decl @llm.decoder.rmsnorm_active(%rows: index, %width: index) launch(%rows_arg: index, %width_arg: index, %epsilon: f32, %count: buffer, %input: buffer, %gamma: buffer, %output: buffer)
+
+kernel.decl @llm.decoder.residual(%rows: index, %width: index) launch(%width_arg: index, %count: buffer, %source: buffer, %residual: buffer)
+
+template.decl @llm.ffn.direct_routed(%rows: index, %gate_tag: index, %up_tag: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer)
+
+template.decl @llm.ffn.rms_routed(%rows: index, %hidden: index, %epsilon: f32, %gt: index, %ut: index, %dt: index, %gb: index, %ub: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %router: view<128x2048xf32>, %gate: view<[%gb]xi8>, %up: view<[%ub]xi8>, %down: view<[%db]xi8>)
+
+template.def<@llm.ffn.rms_routed> @llm_ffn_rms_routed(%rows: index, %hidden: index, %epsilon: f32, %gt: index, %ut: index, %dt: index, %gb: index, %ub: index, %db: index, %residual: buffer, %count: buffer, %gamma: view<[%hidden]xf32>, %router: view<128x2048xf32>, %gate: view<[%gb]xi8>, %up: view<[%ub]xi8>, %down: view<[%db]xi8>) where [range(%rows, 1, 512), eq(%hidden, 2048)] {
+  %word = index.constant 4 : offset
+  %elements = index.mul %rows, %hidden : index
+  %bytes = index.scale %elements, %word : index, offset -> offset
+  %normalized = buffer.alloca<global> align(256) %bytes : buffer
+  %routed = buffer.alloca<global> align(256) %bytes : buffer
+  kernel.launch @llm.decoder.rmsnorm_active[%rows, %hidden](%rows, %hidden, %epsilon, %count, %residual, %gamma, %normalized) : [index, index](index, index, f32, buffer, buffer, view<[%hidden]xf32>, buffer)
+  template.apply<@llm.ffn.direct_routed>(%rows, %gt, %ut, %dt, %gb, %ub, %db, %count, %normalized, %router, %gate, %up, %down, %routed) : (index, index, index, index, index, index, index, buffer, buffer, view<128x2048xf32>, view<[%gb]xi8>, view<[%ub]xi8>, view<[%db]xi8>, buffer)
+  kernel.launch @llm.decoder.residual[%rows, %hidden](%hidden, %count, %routed, %residual) : [index, index](index, buffer, buffer, buffer)
+  template.return
+}

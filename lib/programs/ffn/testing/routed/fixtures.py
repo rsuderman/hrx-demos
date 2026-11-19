@@ -32,13 +32,18 @@ def weight_bytes(tag):
     return 128 * 2048 * 768 // values * size
 
 
-def quantize(values):
+def quantize(values, enforce_fixture_domain=True):
     codes, meta = [], []
     for start in range(0, len(values), 32):
         xs = values[start : start + 32]
         maximum = max(map(abs, xs))
-        assert maximum == 0 or 2**-6 <= maximum <= 8, maximum
+        if enforce_fixture_domain:
+            assert maximum == 0 or 2**-6 <= maximum <= 8, maximum
+        else:
+            assert all(math.isfinite(value) for value in xs), xs
         d = F(maximum / 127)
+        if not enforce_fixture_domain and maximum:
+            assert math.isfinite(d) and d > 0 and math.isfinite(H(d)) and H(d) > 0, d
         qs = []
         for x in xs:
             q = F(x / d) if maximum else 0

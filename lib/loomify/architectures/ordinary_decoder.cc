@@ -4,15 +4,14 @@
 #include "lib/loomify/architectures/ffn_binding.h"
 
 namespace hrx::loomify_gguf::internal {
-bool BindOrdinaryDecoderMatrices(Producer &p, const model::LayerDescriptor &l,
-                                 uint64_t E, uint64_t Q, uint64_t KV,
-                                 ConfigRows &attention, ConfigRows &ffn) {
+bool BindOrdinaryAttentionMatrices(Producer &p, const model::LayerDescriptor &l,
+                                   uint64_t E, uint64_t Q, uint64_t KV,
+                                   ConfigRows &attention) {
   if (!p.Tensor(l.tensors, "query", E, Q, {2, 3, 6, 8, 12, 14}, l.index) ||
       !p.Tensor(l.tensors, "key", E, KV, {2, 3, 6, 8, 12, 14}, l.index) ||
       !p.Tensor(l.tensors, "value", E, KV, {2, 3, 6, 8, 12, 14}, l.index) ||
       !p.Tensor(l.tensors, "attention_output", Q, E, {2, 3, 6, 8, 12, 14},
-                l.index) ||
-      !BindFfnProjections(p, l, E, {2, 3, 12, 14}, ffn))
+                l.index))
     return false;
   const auto &q = *Role(l.tensors, "query"), &k = *Role(l.tensors, "key"),
              &v = *Role(l.tensors, "value"),
@@ -35,13 +34,18 @@ bool BindOrdinaryDecoderMatrices(Producer &p, const model::LayerDescriptor &l,
   p.Projection(o, Q, E);
   return true;
 }
-void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &m,
-                              const ConfigurationSettings &s,
-                              std::string_view family_prefix, uint64_t Q,
-                              uint64_t KV,
-                              const OrdinaryEmbeddingFacts &embedding,
-                              const ConfigRows &attention,
-                              const ConfigRows &ffn) {
+bool BindOrdinaryDecoderMatrices(Producer &p, const model::LayerDescriptor &l,
+                                 uint64_t E, uint64_t Q, uint64_t KV,
+                                 ConfigRows &attention, ConfigRows &ffn) {
+  return BindOrdinaryAttentionMatrices(p, l, E, Q, KV, attention) &&
+         BindFfnProjections(p, l, E, {2, 3, 12, 14}, ffn);
+}
+void EmitOrdinaryDecoderBaseFacts(Producer &p, const model::ModelDescriptor &m,
+                                  const ConfigurationSettings &s,
+                                  std::string_view family_prefix, uint64_t Q,
+                                  uint64_t KV,
+                                  const OrdinaryEmbeddingFacts &embedding,
+                                  const ConfigRows &attention) {
   const auto E = m.embedding_width, V = m.vocabulary_size, H = m.key_head_width;
   const auto QH = m.layers.front().query_heads, KH = m.layers.front().kv_heads;
   const auto prefix = std::string(family_prefix) + ".";
@@ -75,6 +79,16 @@ void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &m,
                         768 + 4 * history, 2048);
   p.ProjectionCapacities();
   p.Lookup("loomify.config.layer_attention", attention);
+}
+void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &m,
+                              const ConfigurationSettings &s,
+                              std::string_view family_prefix, uint64_t Q,
+                              uint64_t KV,
+                              const OrdinaryEmbeddingFacts &embedding,
+                              const ConfigRows &attention,
+                              const ConfigRows &ffn) {
+  EmitOrdinaryDecoderBaseFacts(p, m, s, family_prefix, Q, KV, embedding,
+                               attention);
   p.Lookup("loomify.config.layer_ffn", ffn);
 }
 } // namespace hrx::loomify_gguf::internal

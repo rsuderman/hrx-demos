@@ -3,7 +3,6 @@
 #include "tools/model/model_descriptor_internal.h"
 #include "tools/model/assembly_registry.h"
 namespace hrx::model::internal {
-namespace {
 const char *Qwen3TensorSuffix(std::string_view role, bool is_layer) {
   if (!is_layer)
     return nullptr;
@@ -12,6 +11,16 @@ const char *Qwen3TensorSuffix(std::string_view role, bool is_layer) {
     return "ffn_norm.weight";
   return HeadNormTensorSuffix(role);
 }
+void BindQwen3AttentionLayers(const Loader &l, ModelDescriptor &m) {
+  for (auto &d : m.layers) {
+    d.attention_ordinal = d.index;
+    l.Bind(m, d.tensors, "input_norm", {m.embedding_width}, d.index);
+    l.Bind(m, d.tensors, "post_norm", {m.embedding_width}, d.index);
+    BindAttention(l, m, d, Product(m.key_head_width, d.query_heads));
+    BindHeadNorms(l, m, d);
+  }
+}
+namespace {
 void LoadQwen3(const Loader &l, ModelDescriptor &m) {
   l.Unsupported("attention.sliding_window");
   ReadDecoderDimensions(l, m);
@@ -19,14 +28,9 @@ void LoadQwen3(const Loader &l, ModelDescriptor &m) {
     l.Fail("invalid RoPE width");
   ReadRope(l, m, l.Real("rope.freq_base", 10000));
   BindGlobals(l, m);
-  for (auto &d : m.layers) {
-    d.attention_ordinal = d.index;
-    l.Bind(m, d.tensors, "input_norm", {m.embedding_width}, d.index);
-    l.Bind(m, d.tensors, "post_norm", {m.embedding_width}, d.index);
+  BindQwen3AttentionLayers(l, m);
+  for (auto &d : m.layers)
     BindFeedForward(l, m, d);
-    BindAttention(l, m, d, Product(m.key_head_width, d.query_heads));
-    BindHeadNorms(l, m, d);
-  }
 }
 } // namespace
 const ModelArchitecture kQwen3Architecture{"qwen3", LoadQwen3,

@@ -1,0 +1,38 @@
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("//build_tools:model_assembly.bzl", "ordinary_products")
+load("//lib/architectures:assemblies.bzl", "assembly")
+
+package(default_visibility = ["//visibility:public"])
+
+ordinary_products(assembly("qwen3moe"))
+
+exports_files(["model.loom"])
+
+cc_test(
+    name = "materialization_test",
+    size = "small",
+    srcs = ["testing/materialization_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        ":implementation",
+        ":implementation_text",
+        "//lib/platforms/amdgpu/gfx11:targets",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:implementation",
+        "//lib/platforms/amdgpu/gfx11/projection:implementation_text",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:configuration",
+        "//lib/loomify:native_linking",
+        "//lib/loomify/testing:qwen3moe_fixture",
+        "//tools/model:model_descriptor",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)

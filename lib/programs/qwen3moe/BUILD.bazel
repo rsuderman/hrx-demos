@@ -1,0 +1,17 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "ffn.loom",
+    "publication.loom",
+])
+
+filegroup(
+    name = "implementation_sources",
+    srcs = [
+        "ffn.loom",
+        "publication.loom",
+        "//lib/kernels/publication:epoch_two_stops.loom",
+    ],
+)

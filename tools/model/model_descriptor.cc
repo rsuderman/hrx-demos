@@ -3,6 +3,7 @@
 #include "tools/model/model_descriptor_internal.h"
 #include "tools/model/architectures.h"
 #include <algorithm>
+#include <unordered_set>
 namespace hrx::model::internal {
 uint64_t Product(uint64_t a, uint64_t b) {
   if (b && a > uint64_t(INT64_MAX) / b)
@@ -23,11 +24,8 @@ void RejectHeadNorms(const Loader &l, std::string_view architecture) {
              " Q/K normalization tensor: " + name);
   }
 }
-void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
-                           bool allow_zero_kv, bool allow_auxiliary_tail) {
-  for (const char *key : {"expert_count", "expert_used_count"})
-    if (l.Int(key, 0, false) != 0)
-      l.Fail(std::string("unsupported MoE/MTP feature: ") + l.prefix + key);
+void ReadDecoderGeometry(const Loader &l, ModelDescriptor &m,
+                         bool allow_zero_kv, bool allow_auxiliary_tail) {
   const auto auxiliary = l.Int("nextn_predict_layers", 0, false);
   if (auxiliary && !allow_auxiliary_tail)
     l.Fail("unsupported MoE/MTP feature: " + l.prefix + "nextn_predict_layers");
@@ -85,6 +83,13 @@ void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
     d.kv_heads = kv[i];
     m.layers.push_back(std::move(d));
   }
+}
+void ReadDecoderDimensions(const Loader &l, ModelDescriptor &m,
+                           bool allow_zero_kv, bool allow_auxiliary_tail) {
+  for (const char *key : {"expert_count", "expert_used_count"})
+    if (l.Int(key, 0, false) != 0)
+      l.Fail(std::string("unsupported MoE/MTP feature: ") + l.prefix + key);
+  ReadDecoderGeometry(l, m, allow_zero_kv, allow_auxiliary_tail);
 }
 void ReadRope(const Loader &l, ModelDescriptor &m, double base) {
   m.rope.base = base;
@@ -194,6 +199,10 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     return false;
   try {
     internal::Loader l{catalog, catalog.architecture + "."};
+    std::unordered_set<std::string> names;
+    for (const auto &tensor : catalog.tensors)
+      if (tensor.name.empty() || !names.insert(tensor.name).second)
+        l.Fail("empty or duplicate tensor name: " + tensor.name);
     ModelDescriptor m;
     m.family = catalog.architecture;
     m.name = catalog.name;
@@ -204,6 +213,17 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
     // Optional tensors with graph effects must not silently become unbound
     // extras.
     for (const auto &t : catalog.tensors) {
+      const auto bound = [&](const auto &bindings) {
+        return std::any_of(
+            bindings.begin(), bindings.end(),
+            [&](const auto &b) { return b.tensor.name == t.name; });
+      };
+      const auto is_bound = [&] {
+        return bound(m.globals) || std::any_of(m.layers.begin(), m.layers.end(),
+                                               [&](const auto &layer) {
+                                                 return bound(layer.tensors);
+                                               });
+      };
       // Auxiliary Qwen blocks remain catalog facts. Their optional graph
       // tensors cannot alter the selected ordinary prefix.
       bool auxiliary = false;
@@ -222,15 +242,7 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
           t.name.find(".ssm_dt.bias") == std::string::npos) {
         // Biases are admitted only when the selected architecture explicitly
         // binds them. Unknown extras must not silently change the model graph.
-        const auto bound = [&](const auto &bindings) {
-          return std::any_of(
-              bindings.begin(), bindings.end(),
-              [&](const auto &b) { return b.tensor.name == t.name; });
-        };
-        if (!bound(m.globals) && !std::any_of(m.layers.begin(), m.layers.end(),
-                                              [&](const auto &layer) {
-                                                return bound(layer.tensors);
-                                              }))
+        if (!is_bound())
           l.Fail("unsupported optional bias tensor: " + t.name);
       }
       if (t.name.find("rope_") != std::string::npos) {
@@ -241,7 +253,7 @@ bool LoadModelDescriptor(const GgufCatalog &catalog, ModelDescriptor *output,
         if (bound == m.globals.end())
           l.Fail("unsupported optional RoPE tensor: " + t.name);
       }
-      if (t.name.find("_exps.") != std::string::npos ||
+      if ((t.name.find("_exps.") != std::string::npos && !is_bound()) ||
           t.name.rfind("mtp.", 0) == 0)
         l.Fail("unsupported MoE/MTP tensor: " + t.name);
     }

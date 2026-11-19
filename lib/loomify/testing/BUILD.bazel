@@ -54,6 +54,7 @@ cc_binary(
 exports_files(
     [
         "completion_test.cc",
+        "emit_tensor_facts.cc",
         "input_environment_test.cc",
         "output_emitter_test.cc",
         "template_analysis_test.cc",
@@ -67,6 +68,8 @@ exports_files(
         "alternating_qwen_fixture.h",
         "qwen3_configuration_test.cc",
         "qwen3_fixture.h",
+        "qwen3moe_configuration_test.cc",
+        "qwen3moe_fixture.h",
         "gemma3_fixture.h",
         "qwen2_fixture.h",
         "qwen2_configuration_test.cc",
@@ -76,6 +79,18 @@ exports_files(
         "component_configuration_test.cc",
     ],
     visibility = ["//lib/loomify:__pkg__"],
+)
+
+iree_cc_library(
+    name = "qwen3moe_fixture",
+    testonly = True,
+    hdrs = ["qwen3moe_fixture.h"],
+    cxxopts = _CXXOPTS,
+    visibility = [
+        "//lib/loomify:__pkg__",
+        "//lib/architectures/qwen3moe:__pkg__",
+    ],
+    deps = ["//tools/model:model_descriptor"],
 )
 
 iree_cc_library(

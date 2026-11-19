@@ -1,4 +1,4 @@
-load("@hrx_system//build_tools/bazel:cc.bzl", "iree_cc_library")
+load("@hrx_system//build_tools/bazel:cc.bzl", "cc_binary", "iree_cc_library")
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load("//build_tools:model_assembly.bzl", "native_registry", "native_sources")
@@ -228,6 +228,14 @@ _CXXOPTS = select({
     "//conditions:default": ["-std=c++17"],
 })
 
+cc_binary(
+    name = "emit_tensor_facts",
+    testonly = True,
+    srcs = ["//lib/loomify/testing:emit_tensor_facts.cc"],
+    cxxopts = _CXXOPTS,
+    deps = ["//tools/model:gguf_catalog"],
+)
+
 # Data declarations shared by selection and generic native linking.
 iree_cc_library(
     name = "architecture_types",
@@ -285,6 +293,7 @@ iree_cc_library(
         "//lib/architectures/llama:__pkg__",
         "//lib/architectures/qwen2:__pkg__",
         "//lib/architectures/qwen3:__pkg__",
+        "//lib/architectures/qwen3moe:__pkg__",
         "//lib/architectures/qwen35:__pkg__",
         "//lib/architectures/qwen35/testing:__pkg__",
         "//lib/architectures/spark2_5:__pkg__",
@@ -689,6 +698,38 @@ cc_test(
     deps = [
         ":configuration",
         "//lib/loomify/testing:qwen2_fixture",
+        "//tools/model:model_descriptor",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "qwen3moe_configuration_test",
+    size = "small",
+    srcs = ["//lib/loomify/testing:qwen3moe_configuration_test.cc"],
+    copts = _CXXOPTS,
+    deps = [
+        ":configuration",
+        "//lib/loomify/testing:qwen3moe_fixture",
+        "//tools/model:gguf_catalog",
+        "//tools/model:model_descriptor",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "qwen3moe_configuration_real_assets_test",
+    size = "small",
+    srcs = ["//lib/loomify/testing:qwen3moe_configuration_test.cc"],
+    copts = _CXXOPTS,
+    defines = ["LOOMIFY_QWEN3MOE_REAL_ASSETS=1"],
+    tags = ["manual"],
+    deps = [
+        ":configuration",
+        "//lib/loomify/testing:qwen3moe_fixture",
+        "//tools/model:gguf_catalog",
         "//tools/model:model_descriptor",
         "@googletest//:gtest",
         "@googletest//:gtest_main",

@@ -2,9 +2,78 @@
 # SPDX-License-Identifier: MIT
 load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load("//build_tools:loom_merge.bzl", "loom_merge")
 load("//build_tools:loom_testing.bzl", "loom_checks", "loom_provider_checks")
 
 package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "real_weight_generator",
+    testonly = True,
+    srcs = [
+        "fixtures.py",
+        "real_weight_fixtures.py",
+    ],
+)
+
+# Actual immutable inputs are supplied externally; these are the same public
+# production/observer providers used by the bounded maintained checks below.
+[loom_merge(
+    name = "real_weight_provider_" + format,
+    testonly = True,
+    srcs = [
+        ":observed_stages",
+        "//lib/kernels/decoder:implementation_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/ffn:rms_routed_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+        "//lib/programs/projection/testing:fixture_config.loom",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+# The family adapter and these checks call the same production composition.
+[genrule(
+    name = "rms_routed_c" + str(capacity) + "_q" + str(tag) + "_fixtures",
+    testonly = True,
+    srcs = [
+        "fixtures.py",
+        "rms_routed_fixtures.py",
+    ],
+    outs = ["rms_routed_c" + str(capacity) + "_q" + str(tag) + "_checks.loom"],
+    cmd = "python3 $(location rms_routed_fixtures.py) $(location fixtures.py) $@ " + str(capacity) + " " + str(tag),
+) for capacity in [
+    1,
+    8,
+    17,
+] for tag in [
+    12,
+    14,
+]]
+
+[loom_provider_checks(
+    name = "rms_routed_c" + str(capacity) + "_q" + str(tag),
+    checks = [":rms_routed_c" + str(capacity) + "_q" + str(tag) + "_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "rms_routed_c" + str(capacity) + "_q" + str(tag) + "_provider",
+    provider_srcs = [
+        "//lib/kernels/decoder:implementation_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/ffn:rms_routed_sources",
+    ],
+) for capacity in [
+    1,
+    8,
+    17,
+] for tag in [
+    12,
+    14,
+]]
 
 genrule(
     name = "observed_stages",

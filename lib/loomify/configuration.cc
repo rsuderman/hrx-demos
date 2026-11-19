@@ -16,6 +16,8 @@ bool DeriveConfiguration(const model::ModelDescriptor &m,
   if (!out || asset.empty())
     return Fail(error,
                 "configuration requires output and source asset identity");
+  if (m.routed_experts && m.family != "qwen3moe")
+    return Fail(error, "unsupported routed experts for model family");
   const auto *architecture = SelectArchitecture(m.family);
   if (!architecture)
     return Fail(error, "unsupported model family");

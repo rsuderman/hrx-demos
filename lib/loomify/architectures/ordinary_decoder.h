@@ -7,10 +7,21 @@
 
 namespace hrx::loomify_gguf::internal {
 using ConfigRows = std::vector<std::vector<uint64_t>>;
+bool BindOrdinaryAttentionMatrices(Producer &p,
+                                   const model::LayerDescriptor &layer,
+                                   uint64_t hidden, uint64_t query, uint64_t kv,
+                                   ConfigRows &attention);
 bool BindOrdinaryDecoderMatrices(Producer &p,
                                  const model::LayerDescriptor &layer,
                                  uint64_t hidden, uint64_t query, uint64_t kv,
                                  ConfigRows &attention, ConfigRows &ffn);
+void EmitOrdinaryDecoderBaseFacts(Producer &p,
+                                  const model::ModelDescriptor &model,
+                                  const ConfigurationSettings &settings,
+                                  std::string_view family_prefix,
+                                  uint64_t query, uint64_t kv,
+                                  const OrdinaryEmbeddingFacts &embedding,
+                                  const ConfigRows &attention);
 void EmitOrdinaryDecoderFacts(Producer &p, const model::ModelDescriptor &model,
                               const ConfigurationSettings &settings,
                               std::string_view family_prefix, uint64_t query,

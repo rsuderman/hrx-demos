@@ -13,12 +13,24 @@ _SOURCES = [
 exports_files(_SOURCES)
 
 filegroup(
-    name = "implementation_sources",
-    srcs = _SOURCES + [
+    name = "backbone_sources",
+    srcs = [
+        "attention.loom",
+        "layer.loom",
+        "output.loom",
         "//lib/kernels/embedding:ordinary_f32_sources",
-        "//lib/kernels/publication:epoch_two_stops.loom",
         "//lib/programs/decoder:implementation_sources",
-        "//lib/programs/ffn:matrix_swiglu.loom",
         "//lib/programs/output:last_greedy.loom",
+    ],
+)
+
+filegroup(
+    name = "implementation_sources",
+    srcs = [
+        ":backbone_sources",
+        "ffn.loom",
+        "publication.loom",
+        "//lib/kernels/publication:epoch_two_stops.loom",
+        "//lib/programs/ffn:matrix_swiglu.loom",
     ],
 )

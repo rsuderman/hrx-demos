@@ -64,6 +64,13 @@ struct ShortConvolutionDescriptor {
   uint64_t history_rows = 0;
 };
 
+struct RoutedExpertsDescriptor {
+  uint64_t expert_count = 0;
+  uint64_t experts_per_token = 0;
+  // Expert width is independent of the checkpoint's dense FFN metadata.
+  uint64_t feed_forward_width = 0;
+};
+
 struct ModelDescriptor {
   std::string family;
   std::string name;
@@ -81,6 +88,7 @@ struct ModelDescriptor {
   RopeDescriptor rope;
   std::optional<SsmDescriptor> ssm;
   std::optional<ShortConvolutionDescriptor> short_convolution;
+  std::optional<RoutedExpertsDescriptor> routed_experts;
   bool output_tied_to_embedding = false;
   std::vector<TensorBinding> globals;
   std::vector<LayerDescriptor> layers;

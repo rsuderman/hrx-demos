@@ -51,6 +51,7 @@ bool EmitQwen3(const model::ModelDescriptor &m, const std::string &asset,
       return false;
   }
   EmitOrdinaryDecoderFacts(p, m, s, "qwen3", Q, KV, embedding, attention, ffn);
+  p.Index("qwen3.model.output_tag", Role(m.globals, "output")->storage_type);
   p.Index("qwen3.model.tie_word_embeddings", m.output_tied_to_embedding);
   p.facts.source = p.text.str();
   *out = std::move(p.facts);

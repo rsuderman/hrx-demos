@@ -198,26 +198,36 @@ struct Producer {
          << std::setprecision(std::numeric_limits<float>::max_digits10) << value
          << " : f32\n";
   }
-  bool Tensor(const std::vector<model::TensorBinding> &bindings,
-              const std::string &role, uint64_t in, uint64_t out,
-              std::initializer_list<uint32_t> tags,
-              std::optional<uint32_t> layer = std::nullopt,
-              uint32_t expected_rank = 0) {
+  bool TensorShape(const std::vector<model::TensorBinding> &bindings,
+                   const std::string &role,
+                   std::initializer_list<uint64_t> dimensions,
+                   std::initializer_list<uint32_t> tags,
+                   std::optional<uint32_t> layer = std::nullopt) {
     std::string key;
     if (!model || !model::ExpectedTensorName(*model, role, layer, &key))
       return Fail(error, "unsupported tensor role/scope: " + role);
     const auto *t = Role(bindings, role);
     if (!t)
       return Fail(error, "requires exactly one tensor role: " + role);
-    if (t->name != key ||
-        t->rank != (expected_rank ? expected_rank : (out == 1 ? 1u : 2u)) ||
-        t->normalized_extents !=
-            std::array<int64_t, 4>{int64_t(in), int64_t(out), 1, 1} ||
+    if (dimensions.size() == 0 || dimensions.size() > 3)
+      return Fail(error, "unsupported tensor rank: " + key);
+    std::array<int64_t, 4> expected{1, 1, 1, 1};
+    uint64_t rows = 1;
+    size_t dimension = 0;
+    for (uint64_t extent : dimensions) {
+      if (!extent || extent > uint64_t(INT64_MAX) ||
+          (dimension && !Product(rows, extent, &rows)))
+        return Fail(error, "overflowing tensor geometry: " + key);
+      expected[dimension++] = int64_t(extent);
+    }
+    if (t->name != key || t->rank != dimensions.size() ||
+        t->normalized_extents != expected ||
         (tags.size() &&
          std::find(tags.begin(), tags.end(), t->storage_type) == tags.end()))
       return Fail(error, "unsupported tensor name, shape or encoding: " + key);
     uint64_t bytes;
-    if (!model::EncodedTensorByteSize(t->storage_type, in, out, &bytes) ||
+    if (!model::EncodedTensorByteSize(t->storage_type, *dimensions.begin(),
+                                      rows, &bytes) ||
         bytes > uint64_t(INT64_MAX))
       return Fail(error,
                   "unsupported or overflowing encoded tensor extent: " + key);
@@ -229,6 +239,18 @@ struct Producer {
       return Fail(error, "inconsistent aliases for tensor: " + key);
     facts.parameters.push_back({role, layer, asset, *t});
     return true;
+  }
+  bool Tensor(const std::vector<model::TensorBinding> &bindings,
+              const std::string &role, uint64_t in, uint64_t out,
+              std::initializer_list<uint32_t> tags,
+              std::optional<uint32_t> layer = std::nullopt,
+              uint32_t expected_rank = 0) {
+    const auto rank = expected_rank ? expected_rank : (out == 1 ? 1u : 2u);
+    if (rank == 1 && out == 1)
+      return TensorShape(bindings, role, {in}, tags, layer);
+    if (rank == 2)
+      return TensorShape(bindings, role, {in, out}, tags, layer);
+    return Fail(error, "unsupported rank for tensor role: " + role);
   }
   bool CanonicalProjection(const std::vector<model::TensorBinding> &bindings,
                            const std::string &role, uint64_t input,
