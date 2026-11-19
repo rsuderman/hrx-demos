@@ -72,7 +72,10 @@ The script checks both formats, valid generation/accounting, matching greedy
 responses and shutdown, without a fixed expected answer or token count. It reports
 whether dependent decode was exercised. `--prompt`, `--max-tokens` and `--timeout`
 are configurable. Temporary packages/state are deleted; use `--report result.json`
-to keep the JSON summary. It uses the caller's existing runtime/library setup.
+to keep the JSON summary. `--platform` selects the converter's generation recipe
+independently of the server's runtime `--device`; both requested values are
+recorded in the summary. It uses the caller's existing runtime/library setup.
+See [GPU implementation contracts](hardware-support.md) for device bring-up.
 
 The bounded Llama serving profile is ordinary greedy text with one active request,
 no draft/checkpoint/session/prefix cache, maximum prefill chunk T in1..512 and

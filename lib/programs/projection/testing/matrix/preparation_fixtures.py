@@ -12,18 +12,25 @@ def emit():
     text.append(
         "kernel.decl @llm.projection.prepare_scaled_f16(%T:index,%Tp:index,%K:index) launch(%T:index,%Tp:index,%K:index,%origin:offset,%count:buffer,%input:buffer,%scales:buffer,%output:buffer)\n"
     )
-    for t, active in [
-        (17, 1),
-        (17, 17),
-        (64, 63),
-        (128, 65),
-        (128, 1),
-        (256, 129),
-        (512, 257),
-        (512, 511),
+    for t, active, padding in [
+        (17, 1, 64),
+        (17, 17, 64),
+        (64, 63, 64),
+        (128, 65, 64),
+        (128, 1, 64),
+        (256, 129, 64),
+        (512, 257, 64),
+        (512, 511, 64),
+        (1, 0, 1),
+        (1, 1, 1),
+        (17, 1, 1),
+        (17, 17, 1),
+        (17, 0, 32),
+        (17, 16, 32),
+        (17, 17, 32),
     ]:
-        tp = (t + 63) // 64 * 64
-        name = f"prepare_t{t}_n{active}"
+        tp = (t + padding - 1) // padding * padding
+        name = f"prepare_t{t}_n{active}" + (f"_p{tp}" if padding != 64 else "")
         text.append(f"""func.def @{name}.init(%input:buffer,%count:buffer) {{
   %origin = index.constant 0 : offset
   %zero = index.constant 0 : index

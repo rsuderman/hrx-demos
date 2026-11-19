@@ -135,7 +135,8 @@ protected:
     return path.string();
   }
   Module Link(const std::string &source,
-              const std::vector<std::string> &products, bool expected = true) {
+              const std::vector<std::string> &products, bool expected = true,
+              const char *expected_error = nullptr) {
     loomc_module_t *module = nullptr;
     std::string error;
     const bool success =
@@ -145,6 +146,8 @@ protected:
     if (!expected) {
       EXPECT_EQ(module, nullptr);
       EXPECT_FALSE(error.empty());
+      if (expected_error)
+        EXPECT_NE(error.find(expected_error), std::string::npos) << error;
     }
     return Module(module, loomc_module_release);
   }
@@ -276,7 +279,7 @@ protected:
     ADD_FAILURE() << "Missing actual root allocation";
     return -1;
   }
-  std::string MatrixRoot(int rows) {
+  std::string MatrixRoot(int rows, int columns = 256) {
     std::ostringstream s;
     for (const auto *format : {"q4k", "q5k", "q6k", "q8_0", "q5_0", "q4_0",
                                "q4_1", "iq4_xs", "iq4_nl", "iq3_s", "q3k"})
@@ -289,8 +292,9 @@ protected:
       << "template.decl @llm.projection.matrix(%T:index,%K:index,%N:index,%tag:index,%B:index,%count:buffer,%input:buffer,%weight:view<[%B]xi8>,%output:buffer)\n"
       << "command.def public @proof.root() launch(%count:buffer,%input:buffer,%weight:buffer) {\n"
       << "%T = index.constant " << rows << " : index\n"
-      << "%K = index.constant 256 : index\n%N = index.constant 256 : index\n"
-      << "%tag = index.constant 12 : index\n%B = index.constant 36864 : index\n"
+      << "%K = index.constant 256 : index\n%N = index.constant " << columns
+      << " : index\n%tag = index.constant 12 : index\n%B = index.constant "
+      << columns * 144 << " : index\n"
       << "%origin = index.constant 0 : offset\n%word = index.constant 4 : offset\n"
       << "%P = func.call pure @llm.projection.matrix_output_rows(%T):(index)->(index)\n"
       << "%elements = index.mul %P, %N : index\n"
@@ -326,6 +330,45 @@ protected:
     const auto end = text.find('\n', begin);
     text.replace(begin, end - begin, config);
     return SaveVariant(text, "matrix-variant");
+  }
+  std::string MatrixContractVariant(const std::string &definition) {
+    auto text =
+        Read(root /
+             "lib/platforms/amdgpu/gfx11/projection/implementation_text.loom");
+    const auto begin = text.find(
+        "template.def<@llm.platform.projection.scaled_f16.output_contract>");
+    EXPECT_NE(begin, std::string::npos);
+    if (begin == std::string::npos)
+      return {};
+    const auto end = text.find('}', begin);
+    EXPECT_NE(end, std::string::npos);
+    if (end == std::string::npos)
+      return {};
+    text.replace(begin, end + 1 - begin, definition);
+    return SaveVariant(text, "matrix-contract-variant");
+  }
+  std::string MatrixCompositionRoot(int rows, bool gated) {
+    auto source = MatrixRoot(rows);
+    source.resize(
+        source.find("func.decl pure @llm.projection.matrix_output_rows"));
+    std::ostringstream s;
+    s << source;
+    if (gated)
+      s << "template.decl @llm.projection.gated_matrix(%T:index,%K:index,%N:index,%gt:index,%ut:index,%GB:index,%UB:index,%count:buffer,%input:buffer,%gate:view<[%GB]xi8>,%up:view<[%UB]xi8>,%output:buffer)\n";
+    else
+      s << "template.decl @llm.projection.matrix_qkv(%T:index,%K:index,%Q:index,%KV:index,%qt:index,%kt:index,%vt:index,%QB:index,%KB:index,%VB:index,%count:buffer,%input:buffer,%qw:view<[%QB]xi8>,%kw:view<[%KB]xi8>,%vw:view<[%VB]xi8>,%q:buffer,%k:buffer,%v:buffer)\n";
+    s << "command.def public @proof.root() launch(%count:buffer,%input:buffer,%weight:buffer,%q:buffer,%k:buffer,%v:buffer) {\n"
+      << "%T = index.constant " << rows << " : index\n"
+      << "%K = index.constant 256 : index\n%N = index.constant 256 : index\n"
+      << "%tag = index.constant 12 : index\n%B = index.constant 36864 : index\n"
+      << "%origin = index.constant 0 : offset\n"
+      << "%w = buffer.view %weight[%origin] : buffer -> view<[%B]xi8>\n";
+    if (gated)
+      s << "template.apply<@llm.projection.gated_matrix>(%T,%K,%N,%tag,%tag,%B,%B,%count,%input,%w,%w,%q):(index,index,index,index,index,index,index,buffer,buffer,view<[%B]xi8>,view<[%B]xi8>,buffer)\n";
+    else
+      s << "template.apply<@llm.projection.matrix_qkv>(%T,%K,%N,%N,%tag,%tag,%tag,%B,%B,%B,%count,%input,%w,%w,%w,%q,%k,%v):(index,index,index,index,index,index,index,index,index,index,buffer,buffer,view<[%B]xi8>,view<[%B]xi8>,view<[%B]xi8>,buffer,buffer,buffer)\n";
+    s << "command.return\n}\n";
+    return s.str();
   }
   std::string AttentionRoot(int rows, bool spans) {
     ConfigurationFacts facts;
@@ -577,7 +620,7 @@ protected:
   }
 };
 TEST_P(LinkedConfigTest, MatrixAllocationsAndActualRequests) {
-  for (int rows : {1, 16, 17, 65, 128, 129, 257, 512}) {
+  for (int rows : {1, 16, 17, 64, 65, 128, 129, 257, 512}) {
     SCOPED_TRACE(rows);
     auto module = Link(MatrixRoot(rows), MatrixProducts());
     ASSERT_NE(module, nullptr);
@@ -654,6 +697,75 @@ TEST_P(LinkedConfigTest, MissingAndInvalidMatrixDefinitionsFail) {
           << parse_error;
     }
   }
+}
+TEST_P(LinkedConfigTest, SelectedMatrixOutputContractIsRequired) {
+  constexpr auto *contract =
+      "llm.platform.projection.scaled_f16.output_contract";
+  // Actual selected leaves still provide a working control after relocation.
+  ASSERT_NE(Link(MatrixRoot(17), MatrixProducts()), nullptr);
+  for (const auto &definition :
+       {std::string(),
+        std::string(
+            "template.def<@llm.platform.projection.scaled_f16.output_contract> "
+            "@llm_gfx11_scaled_f16_output_contract(%rows:index,%columns:index) "
+            "where [eq(%rows, 0)] { template.return }\n")}) {
+    SCOPED_TRACE(definition);
+    const auto variant = MatrixContractVariant(definition);
+    ASSERT_FALSE(variant.empty()) << parse_error;
+    Link(MatrixRoot(17), MatrixProducts(variant), false, contract);
+  }
+}
+TEST_P(LinkedConfigTest, SelectedMatrixTileLegalityRemainsStrict) {
+  // Encoded extents are independently correct for each width. Generic
+  // preparation accepting 32 rows does not make the selected leaf legal.
+  for (const int columns : {64, 256}) {
+    auto module = Link(MatrixRoot(17, columns), MatrixProducts());
+    ASSERT_NE(module, nullptr);
+    EXPECT_EQ(FirstAllocation(module.get()), 64 * columns * 4);
+    Observe(module.get(), "matrix-t17-n" + std::to_string(columns), false,
+            {uint32_t(columns / 64), 1u, 1u});
+  }
+  const auto row_variant = MatrixVariant(std::string("config.def @") +
+                                         kAlignment + " = 32 : index\n");
+  ASSERT_FALSE(row_variant.empty()) << parse_error;
+  Link(MatrixRoot(17), MatrixProducts(row_variant), false);
+  Link(MatrixRoot(17, 32), MatrixProducts(), false);
+}
+TEST_P(LinkedConfigTest, SharedMatrixRouteBoundaryPreservesPreparationReuse) {
+  for (const bool gated : {false, true})
+    for (const int rows : {16, 17}) {
+      SCOPED_TRACE(gated);
+      SCOPED_TRACE(rows);
+      auto products = MatrixProducts();
+      if (gated) {
+        products.push_back(Fragment("lib/programs/ffn", "gate_up"));
+        products.push_back(Fragment("lib/programs/ffn", "matrix_gate_up"));
+      }
+      auto module = Link(MatrixCompositionRoot(rows, gated), products);
+      ASSERT_NE(module, nullptr);
+      const auto text = Text(module.get());
+      const auto count = [&](const std::string &needle) {
+        size_t result = 0;
+        for (size_t pos = 0;
+             (pos = text.find(needle, pos)) != std::string::npos;
+             pos += needle.size())
+          ++result;
+        return result;
+      };
+      EXPECT_EQ(count("kernel.launch @llm.projection.prepare_scaled_f16["),
+                rows == 17 ? 1u : 0u);
+      EXPECT_EQ(count("kernel.launch @ggml_quantize_q8_1_x4_f32["),
+                rows == 16 ? 1u : 0u);
+      EXPECT_EQ(count("kernel.launch @llm.projection.prepare_f32_prefix["),
+                rows == 16 ? 1u : 0u);
+      EXPECT_EQ(count("kernel.launch @llm.platform.q4k_scaled_f16_store["),
+                rows == 17 && !gated ? 3u : 0u);
+      EXPECT_EQ(count("kernel.launch @llm.platform.q4k_scaled_f16_swiglu["),
+                rows == 17 && gated ? 1u : 0u);
+      Observe(module.get(),
+              std::string(gated ? "gated-t" : "qkv-t") + std::to_string(rows),
+              false);
+    }
 }
 TEST_P(LinkedConfigTest, MissingAndInconsistentAttentionDefinitionsFail) {
   const auto current =

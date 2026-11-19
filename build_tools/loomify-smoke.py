@@ -85,6 +85,8 @@ def smoke(args, paths, converter, serve):
         "inputs": {k: str(v) for k, v in paths.items()},
         "converter": converter,
         "serve": serve,
+        "platform": args.platform,
+        "device": args.device,
         "cases": [],
     }
     env = dict(os.environ, PYTHONNOUSERSITE="1")
@@ -134,6 +136,7 @@ def smoke(args, paths, converter, serve):
                         f"--tokenizer={paths['tokenizer']}",
                         f"--output-dir={package}",
                         f"--format={fmt}",
+                        f"--platform={args.platform}",
                         f"--prefill-capacity={args.prefill_capacity}",
                         f"--context-capacity={args.context_capacity}",
                     ],
@@ -297,6 +300,11 @@ def main():
     )
     parser.add_argument(
         "--serve", help="existing loom-serve executable (otherwise PATH)"
+    )
+    parser.add_argument(
+        "--platform",
+        default="amdgpu:gfx11-generic",
+        help="maintained generation recipe, independent of the runtime device",
     )
     parser.add_argument("--device", default="amdgpu")
     parser.add_argument("--prompt", default="Write a short greeting.")

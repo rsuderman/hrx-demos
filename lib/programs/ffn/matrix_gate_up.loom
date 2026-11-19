@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 func.decl pure @llm.projection.matrix_output_rows(%capacity: index) -> (index)
 
+func.decl pure @llm.projection.matrix_is_small(%capacity: index) -> (i1)
+
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
 
 template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
@@ -42,8 +44,7 @@ template.def<@llm.projection.gated_matrix> @llm_projection_gated_matrix(%capacit
   %up_q4 = index.cmp eq, %up_tag, %q4 : index
   %fused = scalar.andi %gate_q4, %up_q4 : i1
   scf.if %fused {
-    %sixteen = index.constant 16 : index
-    %small = index.cmp ule, %capacity, %sixteen : index
+    %small = func.call pure @llm.projection.matrix_is_small(%capacity) : (index) -> (i1)
     scf.if %small {
       %word = index.constant 4 : offset
       %elements = index.mul %capacity, %output_width : index

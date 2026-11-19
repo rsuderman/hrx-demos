@@ -20,6 +20,10 @@ Keep the architecture's layer loop and operation order in maintained Loom.
 
 ## Platform ownership
 
+See [GPU implementation contracts](hardware-support.md) for the distinction
+between linked schedule requirements, reusable algorithms and format facts,
+and the existing-tool qualification path for another physical device.
+
 The maintained generation recipe is `amdgpu:gfx11-generic`. Its concrete target
 requirements live in `lib/platforms/amdgpu/gfx11/targets.loom`; shared kernels
 reference abstract schedule targets and need the selected provider when linked.

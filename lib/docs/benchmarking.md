@@ -5,6 +5,9 @@ semantic boundary and oracle, then use upstream Loom tools to check, measure, an
 inspect that workload. Ordinary GGUF/module/package generation remains with
 [the model builder](gguf-export.md).
 
+See [GPU implementation contracts](hardware-support.md) for the separation of
+generation requirements, physical-device qualification and runtime smoke checks.
+
 ## 1. Match tools and choose the boundary
 
 Use the HRX revision pinned in `MODULE.bazel` for fixture generation, execution,

@@ -3,17 +3,22 @@ template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
 // Shared operation composition. The selected platform owns matrix schedules.
-// Output allocation is T rows for T<=16, otherwise ceil(T/64)*64 rows.
+// The short-row route is shared policy, distinct from backend row alignment.
 config.decl @llm.platform.projection.scaled_f16.row_alignment : %alignment: index where [range(%alignment, 1, 512)]
+
+func.def public pure inline @llm.projection.matrix_is_small(%capacity: index) -> (i1) where [range(%capacity, 1, 512)] {
+  %cutoff = index.constant 16 : index
+  %small = index.cmp ule, %capacity, %cutoff : index
+  func.return %small : i1
+}
 
 // Allocation extent for the maintained short-row/scaled-F16 projection routes.
 // This is operation policy; architecture callers supply only their capacity.
 func.def public pure inline @llm.projection.matrix_output_rows(%capacity: index) -> (index) where [range(%capacity, 1, 512)] {
-  %cutoff = index.constant 16 : index
   %one = index.constant 1 : index
   %tile = config.get @llm.platform.projection.scaled_f16.row_alignment : index
   %bias = index.sub %tile, %one : index
-  %small = index.cmp ule, %capacity, %cutoff : index
+  %small = func.call pure @llm.projection.matrix_is_small(%capacity) : (index) -> (i1)
   %rounded = index.add %capacity, %bias : index
   %tiles = index.div %rounded, %tile : index
   %padded = index.mul %tiles, %tile : index
@@ -33,7 +38,10 @@ kernel.decl @llm.platform.q6k_scaled_f16_store(%rows$73: index, %input_width$74:
 
 template.decl @llm.projection.scaled_contract(%rows: index, %input_width: index, %output_width: index, %bytes: index, %expected: index)
 
-template.def<@llm.projection.scaled_contract> @llm_projection_scaled_contract(%rows: index, %input_width: index, %output_width: index, %bytes: index, %expected: index) where [range(%rows, 64, 512), multiple_of(%rows, 64), range(%input_width, 256, 32768), multiple_of(%input_width, 256), range(%output_width, 64, 32768), multiple_of(%output_width, 64), eq(%bytes, %expected)] {
+template.decl @llm.platform.projection.scaled_f16.output_contract(%rows: index, %columns: index)
+
+template.def<@llm.projection.scaled_contract> @llm_projection_scaled_contract(%rows: index, %input_width: index, %output_width: index, %bytes: index, %expected: index) where [range(%rows, 1, 512), range(%input_width, 256, 32768), multiple_of(%input_width, 256), range(%output_width, 1, 32768), eq(%bytes, %expected)] {
+  template.apply<@llm.platform.projection.scaled_f16.output_contract>(%rows, %output_width) : (index, index)
   template.return
 }
 
@@ -68,7 +76,6 @@ template.decl @llm.projection.matrix(%capacity: index, %input_width: index, %out
 template.def<@llm.projection.matrix> @llm_projection_matrix(%capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%capacity, 1, 512)] {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  %sixteen = index.constant 16 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
   %six = index.constant 6 : index
@@ -100,7 +107,7 @@ template.def<@llm.projection.matrix> @llm_projection_matrix(%capacity: index, %i
   scf.if %canonical_only {
     template.apply<@llm.projection.policy_rows>(%one, %capacity, %input_width, %output_width, %tag, %weight_bytes, %count, %input, %weight, %output) : (index, index, index, index, index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   } else {
-    %small = index.cmp ule, %capacity, %sixteen : index
+    %small = func.call pure @llm.projection.matrix_is_small(%capacity) : (index) -> (i1)
     scf.if %small {
       %elements = index.mul %capacity, %input_width : index
       %block = index.constant 128 : index
@@ -133,7 +140,6 @@ template.decl @llm.projection.matrix_qkv(%capacity: index, %input_width: index, 
 template.def<@llm.projection.matrix_qkv> @llm_projection_matrix_qkv(%capacity: index, %input_width: index, %query_width: index, %kv_width: index, %query_tag: index, %key_tag: index, %value_tag: index, %query_bytes: index, %key_bytes: index, %value_bytes: index, %count: buffer, %input: buffer, %query_weight: view<[%query_bytes]xi8>, %key_weight: view<[%key_bytes]xi8>, %value_weight: view<[%value_bytes]xi8>, %query: buffer, %key: buffer, %value: buffer) where [range(%capacity, 1, 512)] {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
-  %sixteen = index.constant 16 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
   %q4 = index.constant 12 : index
@@ -150,7 +156,7 @@ template.def<@llm.projection.matrix_qkv> @llm_projection_matrix_qkv(%capacity: i
   %qk_scaled = scalar.andi %query_scaled, %key_scaled : i1
   %all_scaled = scalar.andi %qk_scaled, %value_scaled : i1
   scf.if %all_scaled {
-    %small = index.cmp ule, %capacity, %sixteen : index
+    %small = func.call pure @llm.projection.matrix_is_small(%capacity) : (index) -> (i1)
     scf.if %small {
       %elements = index.mul %capacity, %input_width : index
       %block = index.constant 128 : index

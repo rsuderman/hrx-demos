@@ -8,7 +8,7 @@ kernel.def @llm.projection.prepare_scaled_f16(%capacity: index, %padded_capacity
   kernel.launch.config workgroups(%padded_capacity, %one, %one) workgroup_size(%threads, %one, %one) : index
 } launch(%capacity_arg: index, %padded_arg: index, %width_arg: index, %count_origin: offset, %count: buffer, %input: buffer, %scales: buffer, %output: buffer) {
   %capacity = index.assume %capacity_arg [range(%capacity_arg, 1, 512)] : index
-  %padded = index.assume %padded_arg [range(%padded_arg, 64, 512), multiple_of(%padded_arg, 64), le(%capacity, %padded_arg)] : index
+  %padded = index.assume %padded_arg [range(%padded_arg, 1, 512), le(%capacity, %padded_arg)] : index
   %width = index.assume %width_arg [range(%width_arg, 256, 32768), multiple_of(%width_arg, 256)] : index
   %row_id = kernel.workgroup.id<x> : index
   %row = index.assume %row_id [lt(%row_id, %padded)] : index

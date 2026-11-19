@@ -2,3 +2,10 @@
 // SPDX-License-Identifier: MIT
 // Required output-row alignment of the selected scaled-F16 matrix schedule.
 config.def @llm.platform.projection.scaled_f16.row_alignment = 64 : %alignment: index where [range(%alignment, 1, 512)]
+
+// Output-tile legality belongs to the selected leaves, not their shared callers.
+template.decl @llm.platform.projection.scaled_f16.output_contract(%rows: index, %columns: index)
+
+template.def<@llm.platform.projection.scaled_f16.output_contract> @llm_gfx11_scaled_f16_output_contract(%rows: index, %columns: index) where [multiple_of(%rows, 64), multiple_of(%columns, 64)] {
+  template.return
+}

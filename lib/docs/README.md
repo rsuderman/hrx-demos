@@ -6,6 +6,7 @@ owns model sequencing, temporary storage and preparation records.
 
 - [GGUF export](gguf-export.md): the public module/package builder, CLI and supported profiles.
 - [Benchmarking](benchmarking.md): the agent workflow for authored workloads, independent oracles, measurement and upstream profiling/compile reports.
+- [GPU implementation contracts](hardware-support.md): shared code, linked backend requirements, and the existing-tool path for qualifying another device.
 - [Component coverage](coverage.md): available numerical programs, kernels, text/token policies and generation pieces, their limits and test entrypoints. Start here for model onboarding; update affected entries with coverage changes in the same source change.
 - [Examples](examples.md): actual Loomcxx imports and the independent F32 embedding example.
 
