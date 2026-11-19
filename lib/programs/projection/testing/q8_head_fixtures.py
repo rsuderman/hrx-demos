@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
-"""Actual shared Q8 head: last active row, independent tables and high vocabulary."""
+"""Shared output motif: Q8/raw-half, last row, independent tables and tails."""
 
 from pathlib import Path
 import sys
@@ -31,7 +31,7 @@ config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 1 : index
 config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 1 : index
 config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 128256 : index
 config.def @ggml.quantize_q8_1_x4.group_capacity = 2 : index
-config.def @qwen38.greedy_argmax.output_capacity = 128256 : index
+config.def @qwen38.greedy_argmax.output_capacity = 262208 : index
 kernel.decl @llm.decoder.output_norm_last(%T:index,%E:index) launch(%T:index,%E:index,%begin:index,%origin:offset,%epsilon:f32,%count:buffer,%input:buffer,%gamma:buffer,%output:buffer)
 template.decl @llm.output.norm_last(%T:index,%begin:index,%origin:offset,%E:index,%count:buffer,%input:buffer,%gamma:view<[%E]xf32>,%output:buffer)
 template.def<@llm.output.norm_last> @q8_head.norm_last(%T:index,%begin:index,%origin:offset,%E:index,%count:buffer,%input:buffer,%gamma:view<[%E]xf32>,%output:buffer) {
@@ -68,12 +68,35 @@ func.def @q8_head.set_row(%token:index,%code:i8,%weight:buffer) {
   }
   func.return
 }
+func.def @raw_head.set_row(%token:index,%code:i8,%weight:buffer) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %width = index.constant 256 : index
+  %rowbytes = index.constant 512 : offset
+  %origin = index.scale %token,%rowbytes : index,offset -> offset
+  %w = buffer.view %weight[%origin] : buffer -> view<256xf16>
+  %value = scalar.sitofp %code : i8 to f32
+  %half = scalar.fptrunc %value : f32 to f16
+  scf.for %column = [%zero to %width step %one] { view.store %half,%w[%column] : f16,view<256xf16> }
+  func.return
+}
 """]
 args = "%input:buffer,%count:buffer,%gamma:buffer,%table_a:buffer,%table_b:buffer,%normalized:buffer,%token_a:buffer,%token_b:buffer"
-for vocab, active in ((256, 1), (256, 2), (128256, 1), (128256, 16)):
-    name = f"q8_head_v{vocab}_a{active}"
-    size, elements = vocab * 272, 17 * 256
-    sign = 1 if active % 2 else -1
+cases = [(8, v, a, 0, 0) for v, a in ((256, 1), (256, 2), (128256, 1), (128256, 16))]
+cases += [
+    (1, v, a, 0, 0)
+    for v, a in ((257, 1), (257, 16), (128256, 1), (128256, 16), (262208, 1))
+]
+cases += [(1, 257, 2, 3, 16)]
+for tag, vocab, active, begin, count_origin in cases:
+    name = f"head_tag{tag}_v{vocab}_a{active}"
+    if begin or count_origin:
+        name += f"_b{begin}_o{count_origin}"
+    count_words = count_origin // 4 + 3
+    size, elements = vocab * (512 if tag == 1 else 272), 17 * 256
+    setter = "raw_head" if tag == 1 else "q8_head"
+    policy = 2 if tag == 1 else 1
+    sign = 1 if (begin + active) % 2 else -1
     winner_a, winner_b = (vocab - 2, vocab - 4) if sign > 0 else (41, 53)
     text.append(
         f"func.def @{name}.init(%input:buffer,%table_a:buffer,%table_b:buffer) {{\n"
@@ -84,7 +107,7 @@ for vocab, active in ((256, 1), (256, 2), (128256, 1), (128256, 16)):
     ):
         for i, (token, code) in enumerate(zip(ids, codes)):
             text.append(
-                f"  %{table}_id{i} = index.constant {token} : index\n  %{table}_code{i} = scalar.constant {code} : i8\n  func.call @q8_head.set_row(%{table}_id{i},%{table}_code{i},%{table}) : (index,i8,buffer) -> ()\n"
+                f"  %{table}_id{i} = index.constant {token} : index\n  %{table}_code{i} = scalar.constant {code} : i8\n  func.call @{setter}.set_row(%{table}_id{i},%{table}_code{i},%{table}) : (index,i8,buffer) -> ()\n"
             )
     text.append(
         f"  %origin = index.constant 0 : offset\n  %zero = index.constant 0 : index\n  %one = index.constant 1 : index\n  %E = index.constant 256 : index\n  %x = buffer.view %input[%origin] : buffer -> view<17x256xf32>\n  %nanbits = scalar.constant 2143289344 : i32\n  %nan = scalar.bitcast %nanbits : i32 to f32\n"
@@ -94,21 +117,34 @@ for vocab, active in ((256, 1), (256, 2), (128256, 1), (128256, 16)):
             f"  %v{row} = scalar.constant {float((1 if row%2==0 else -1)*(row+1))} : f32\n  scf.for %c = [%zero to %E step %one] {{ view.store {'%v'+str(row) if row<16 else '%nan'},%x[{row},%c] : f32,view<17x256xf32> }}\n"
         )
     text.append("  func.return\n}\n")
+    count_setup = ""
+    if count_origin:
+        text.append(f"""func.def @{name}.count_init(%count:buffer) {{
+  %origin = index.constant {count_origin} : offset
+  %value = scalar.constant {active} : i32
+  %words = buffer.view %count[%origin] : buffer -> view<3xi32>
+  view.store %value,%words[0] : i32,view<3xi32>
+  func.return
+}}
+""")
+        count_setup = f"check.generate<@{name}.count_init>(%count) : (tensor<{count_words}xi32>) -> ()"
     text.append(f"""command.def @{name}.actual() launch({args}) {{
   %T = index.constant 17 : index
   %E = index.constant 256 : index
   %V = index.constant {vocab} : index
   %B = index.constant {size} : index
   %zero = index.constant 0 : index
+  %begin = index.constant {begin} : index
   %origin = index.constant 0 : offset
-  %policy = index.constant 1 : index
-  %tag = index.constant 8 : index
+  %count_origin = index.constant {count_origin} : offset
+  %policy = index.constant {policy} : index
+  %tag = index.constant {tag} : index
   %g = buffer.view %gamma[%origin] : buffer -> view<[%E]xf32>
   %a = buffer.view %table_a[%origin] : buffer -> view<[%B]xi8>
   %b = buffer.view %table_b[%origin] : buffer -> view<[%B]xi8>
-  template.apply<@llm.output.norm_last>(%T,%zero,%origin,%E,%count,%input,%g,%normalized) : (index,index,offset,index,buffer,buffer,view<[%E]xf32>,buffer)
-  template.apply<@llm.output.last_greedy>(%T,%zero,%origin,%E,%V,%B,%policy,%tag,%input,%count,%g,%a,%token_a) : (index,index,offset,index,index,index,index,index,buffer,buffer,view<[%E]xf32>,view<[%B]xi8>,buffer)
-  template.apply<@llm.output.last_greedy>(%T,%zero,%origin,%E,%V,%B,%policy,%tag,%input,%count,%g,%b,%token_b) : (index,index,offset,index,index,index,index,index,buffer,buffer,view<[%E]xf32>,view<[%B]xi8>,buffer)
+  template.apply<@llm.output.norm_last>(%T,%begin,%count_origin,%E,%count,%input,%g,%normalized) : (index,index,offset,index,buffer,buffer,view<[%E]xf32>,buffer)
+  template.apply<@llm.output.last_greedy>(%T,%begin,%count_origin,%E,%V,%B,%policy,%tag,%input,%count,%g,%a,%token_a) : (index,index,offset,index,index,index,index,index,buffer,buffer,view<[%E]xf32>,view<[%B]xi8>,buffer)
+  template.apply<@llm.output.last_greedy>(%T,%begin,%count_origin,%E,%V,%B,%policy,%tag,%input,%count,%g,%b,%token_b) : (index,index,offset,index,index,index,index,index,buffer,buffer,view<[%E]xf32>,view<[%B]xi8>,buffer)
   command.return
 }}
 func.def @{name}.expected({args}) {{
@@ -136,7 +172,8 @@ check.scenario @{name}.witness {{
     %b_owner = check.generate.fill value(0) : tensor<{size+512}xi8>
     %table_b = check.tensor.view %b_owner offset(256) : tensor<{size+512}xi8> -> tensor<{size}xi8>
     check.generate<@{name}.init>(%input,%table_a,%table_b) : (tensor<{elements}xf32>,tensor<{size}xi8>,tensor<{size}xi8>) -> ()
-    %count = check.generate.fill value({active}) : tensor<3xi32>
+    %count = check.generate.fill value({-999 if count_origin else active}) : tensor<{count_words}xi32>
+    {count_setup}
     %gamma = check.generate.fill value(1.0) : tensor<256xf32>
     %normal_owner = check.generate.fill value(-99.0) : tensor<264xf32>
     %normalized = check.tensor.view %normal_owner offset(16) : tensor<264xf32> -> tensor<256xf32>
@@ -145,7 +182,7 @@ check.scenario @{name}.witness {{
     %token_owner = check.generate.fill value(-77) : tensor<10xi32>
     %token_a = check.tensor.view %token_owner offset(16) : tensor<10xi32> -> tensor<1xi32>
     %token_b = check.tensor.view %token_owner offset(20) : tensor<10xi32> -> tensor<1xi32>
-    check.compare<@{name}.actual,@{name}.expected>(%input,%count,%gamma,%table_a,%table_b,%normalized,%token_a,%token_b) : (tensor<{elements}xf32>,tensor<3xi32>,tensor<256xf32>,tensor<{size}xi8>,tensor<{size}xi8>,tensor<256xf32>,tensor<1xi32>,tensor<1xi32>) -> () {{
+    check.compare<@{name}.actual,@{name}.expected>(%input,%count,%gamma,%table_a,%table_b,%normalized,%token_a,%token_b) : (tensor<{elements}xf32>,tensor<{count_words}xi32>,tensor<256xf32>,tensor<{size}xi8>,tensor<{size}xi8>,tensor<256xf32>,tensor<1xi32>,tensor<1xi32>) -> () {{
       check.expect.bitwise actual(%token_owner) expected(%token_owner) : tensor<10xi32>
       check.expect.approximate actual(%normal_owner) expected(%normal_owner) atol(0.00001) rtol(0.00001) nan(same) : tensor<264xf32>,tensor<264xf32>
       check.expect.bitwise actual(%normal_prefix) expected(%normal_prefix) : tensor<4xf32>
@@ -153,7 +190,7 @@ check.scenario @{name}.witness {{
       check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<{elements+8}xf32>
       check.expect.bitwise actual(%a_owner) expected(%a_owner) : tensor<{size+512}xi8>
       check.expect.bitwise actual(%b_owner) expected(%b_owner) : tensor<{size+512}xi8>
-      check.expect.bitwise actual(%count) expected(%count) : tensor<3xi32>
+      check.expect.bitwise actual(%count) expected(%count) : tensor<{count_words}xi32>
       check.expect.bitwise actual(%gamma) expected(%gamma) : tensor<256xf32>
     }}
   }}

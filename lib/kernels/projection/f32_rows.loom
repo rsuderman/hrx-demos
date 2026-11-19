@@ -4,16 +4,16 @@
 // Each workitem owns output columns; inactive inputs are never read.
 // F16 weights extend at their load; both paths retain original F32 activations
 // and the same ascending-K multiply followed by add.
-template.decl @llm.projection.unquantized_rows(%half_weights: i1, %input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+template.decl @llm.projection.unquantized_rows(%half_weights: i1, %input_width0: index, %output_width0: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
 kernel.def @llm.projection.f32_rows_kernel(%rows0: index) {
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
   kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
-} launch(%input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+} launch(%input_width0: index, %output_width0: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
   %half = scalar.constant false : i1
-  template.apply<@llm.projection.unquantized_rows>(%half, %input_width0, %output_width0, %count, %input, %weight, %output) : (i1, index, index, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.unquantized_rows>(%half, %input_width0, %output_width0, %fixed_count, %count_origin, %count, %input, %weight, %output) : (i1, index, index, i32, offset, buffer, buffer, buffer, buffer)
   kernel.return
 }
 
@@ -22,15 +22,15 @@ kernel.def @llm.projection.f16_rows_kernel(%rows0: index) {
   %one = index.constant 1 : index
   %threads = index.constant 256 : index
   kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
-} launch(%input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+} launch(%input_width0: index, %output_width0: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
   %half = scalar.constant true : i1
-  template.apply<@llm.projection.unquantized_rows>(%half, %input_width0, %output_width0, %count, %input, %weight, %output) : (i1, index, index, buffer, buffer, buffer, buffer)
+  template.apply<@llm.projection.unquantized_rows>(%half, %input_width0, %output_width0, %fixed_count, %count_origin, %count, %input, %weight, %output) : (i1, index, index, i32, offset, buffer, buffer, buffer, buffer)
   kernel.return
 }
 
-template.def<@llm.projection.unquantized_rows> device @llm_projection_unquantized_rows(%half_weights: i1, %input_width0: index, %output_width0: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+template.def<@llm.projection.unquantized_rows> device @llm_projection_unquantized_rows(%half_weights: i1, %input_width0: index, %output_width0: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
   %input_width = index.assume %input_width0 [range(%input_width0, 1, 32768)] : index
-  %output_width = index.assume %output_width0 [range(%output_width0, 1, 32768)] : index
+  %output_width = index.assume %output_width0 [range(%output_width0, 1, 262208)] : index
   %rows0 = kernel.workgroup.count<x> : index
   %rows = index.assume %rows0 [range(%rows0, 1, 512)] : index
   %row0 = kernel.workgroup.id<x> : index
@@ -42,8 +42,14 @@ template.def<@llm.projection.unquantized_rows> device @llm_projection_unquantize
   %origin = index.constant 0 : offset
   %zero32 = scalar.constant 0 : i32
   %zero_f = scalar.constant 0.0 : f32
-  %words = buffer.view %count[%origin] : buffer -> view<3xi32>
-  %n32 = view.load %words[0] : view<3xi32> -> i32
+  %fixed = scalar.cmpi sge, %fixed_count, %zero32 : i32
+  %n32 = scf.if %fixed -> (i32) {
+    scf.yield %fixed_count : i32
+  } else {
+    %words = buffer.view %count[%count_origin] : buffer -> view<1xi32>
+    %loaded = view.load %words[0] : view<1xi32> -> i32
+    scf.yield %loaded : i32
+  }
   %n = index.cast %n32 : i32 to index
   %positive = scalar.cmpi sgt, %n32, %zero32 : i32
   %fits = index.cmp ule, %n, %rows : index
@@ -54,7 +60,7 @@ template.def<@llm.projection.unquantized_rows> device @llm_projection_unquantize
   %x = buffer.view %input_noalias[%origin] : buffer -> view<[%rows]x[%input_width]xf32>
   %y = buffer.view %output_noalias[%origin] : buffer -> view<[%rows]x[%output_width]xf32>
   scf.for %column0 = [%thread to %output_width step %step] {
-    %column = index.assume %column0 [range(%column0, 0, 32767), lt(%column0, %output_width)] : index
+    %column = index.assume %column0 [range(%column0, 0, 262207), lt(%column0, %output_width)] : index
     %value = scf.if %active -> (f32) {
       %sum = scf.for %k = [%zero to %input_width step %one](%acc = %zero_f : f32) -> (f32) {
         %a = view.load %x[%row, %k] : view<[%rows]x[%input_width]xf32> -> f32

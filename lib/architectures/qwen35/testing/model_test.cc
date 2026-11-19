@@ -683,11 +683,16 @@ protected:
       } else if (kernel == "qwen38_gdn_recurrent_spans") {
         recurrences.push_back(op);
       }
-      if (args.count != 6 || (kernel != "llm.projection.f32_rows_kernel" &&
-                              kernel.find("ggml_linear_") != 0))
+      const bool raw = kernel == "llm.projection.f32_rows_kernel";
+      if (args.count != (raw ? 8u : 6u) ||
+          (!raw && kernel.find("ggml_linear_") != 0))
         return;
-      const auto *weight =
-          loom_value_def_op(loom_module_value(view.module, args.values[4]));
+      const size_t count_index = raw ? 4u : 2u;
+      const size_t input_index = raw ? 5u : 3u;
+      const size_t weight_index = raw ? 6u : 4u;
+      const size_t output_index = raw ? 7u : 5u;
+      const auto *weight = loom_value_def_op(
+          loom_module_value(view.module, args.values[weight_index]));
       ASSERT_TRUE(weight && loom_command_parameter_isa(weight));
       auto name = Text(view.module, loom_command_parameter_pattern(weight));
       const auto substitutions = loom_command_parameter_substitutions(weight);
@@ -700,7 +705,7 @@ protected:
       }
       // Recover the original activation producer through the actual packer
       // operand. F32 projections must bypass this map entirely.
-      auto normalized = args.values[3];
+      auto normalized = args.values[input_index];
       if (kernel != "llm.projection.f32_rows_kernel") {
         auto packed = packed_inputs.find(normalized);
         ASSERT_NE(packed, packed_inputs.end()) << name << kernel;
@@ -709,8 +714,9 @@ protected:
         EXPECT_EQ(packed_inputs.count(normalized), 0u) << name;
         EXPECT_EQ(normalized_outputs.count(normalized), 1u) << name;
       }
-      projections.emplace(
-          name, Projection{kernel, normalized, args.values[2], args.values[5]});
+      projections.emplace(name, Projection{kernel, normalized,
+                                           args.values[count_index],
+                                           args.values[output_index]});
     });
     size_t ordinal = 0;
     for (const auto &layer : facts.layers) {

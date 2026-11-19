@@ -13,7 +13,9 @@
 #include "loomc/target/amdgpu.h"
 #include "loomc/target/cmd/program.h"
 #include "lib/loomify/configuration.h"
+#include "lib/loomify/linking.h"
 #include "lib/loomify/testing/configuration_fixture.h"
+#include "lib/loomify/testing/llama_f16_fixture.h"
 #include "tools/model/model_descriptor.h"
 #include "gtest/gtest.h"
 #include <algorithm>
@@ -22,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <sstream>
 namespace hrx::loomify_gguf {
 namespace {
 ::testing::AssertionResult Ok(loomc_status_t status) {
@@ -283,30 +286,59 @@ protected:
     EXPECT_EQ(layer, layers);
     // Inspect native inlining of that prepared call sequence, not maintained
     // source text: concrete parameter identities must follow each layer's ABI.
+    const bool raw_model =
+        std::any_of(descriptor.globals.begin(), descriptor.globals.end(),
+                    [](const auto &binding) {
+                      return binding.role == "token_embedding" &&
+                             binding.tensor.storage_type == 1;
+                    });
     loomc_module_t *raw = nullptr;
     ASSERT_TRUE(Ok(
         loomc_module_clone(module, workspace, loomc_allocator_system(), &raw)));
     std::unique_ptr<loomc_module_t, decltype(&loomc_module_release)> expanded(
         raw, loomc_module_release);
-    loomc_pass_program_t *passes = nullptr;
-    result = nullptr;
-    ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(
-        context,
-        loomc_make_cstring_view(
-            "inline-callables,canonicalize,select-templates{rewrite=inline},canonicalize"),
-        nullptr, loomc_allocator_system(), &passes, &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result))
-        << Diagnostics(result);
-    loomc_result_release(result);
-    std::unique_ptr<loomc_pass_program_t, decltype(&loomc_pass_program_release)>
-        owned_passes(passes, loomc_pass_program_release);
-    result = nullptr;
-    ASSERT_TRUE(
-        Ok(loomc_pass_program_run(passes, workspace, expanded.get(), nullptr,
-                                  loomc_allocator_system(), &result)));
-    ASSERT_TRUE(result && loomc_result_succeeded(result))
-        << Diagnostics(result);
-    loomc_result_release(result);
+    if (!raw_model) {
+      loomc_pass_program_t *passes = nullptr;
+      result = nullptr;
+      ASSERT_TRUE(Ok(loomc_pass_program_create_from_pipeline_text(
+          context,
+          loomc_make_cstring_view(
+              "inline-callables,canonicalize,select-templates{rewrite=inline},canonicalize"),
+          nullptr, loomc_allocator_system(), &passes, &result)));
+      ASSERT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
+      loomc_result_release(result);
+      std::unique_ptr<loomc_pass_program_t,
+                      decltype(&loomc_pass_program_release)>
+          owned_passes(passes, loomc_pass_program_release);
+      result = nullptr;
+      ASSERT_TRUE(
+          Ok(loomc_pass_program_run(passes, workspace, expanded.get(), nullptr,
+                                    loomc_allocator_system(), &result)));
+      ASSERT_TRUE(result && loomc_result_succeeded(result))
+          << Diagnostics(result);
+      loomc_result_release(result);
+    }
+    if (raw_model) {
+      // Normalize original linked source, before the legacy inspector rewrites
+      // device templates in a different preparation context. Use the same
+      // fixed-point materialization as real exports, without guessing passes.
+      loomc_source_t *raw_source = nullptr;
+      ASSERT_TRUE(Ok(loomc_module_serialize_text_to_source(
+          module, nullptr, loomc_allocator_system(), &raw_source)));
+      std::unique_ptr<loomc_source_t, decltype(&loomc_source_release)> source(
+          raw_source, loomc_source_release);
+      const auto contents = loomc_source_contents(source.get());
+      const std::string text(reinterpret_cast<const char *>(contents.data),
+                             contents.data_length);
+      loomc_module_t *normalized = nullptr;
+      std::string error;
+      ASSERT_TRUE(LinkConfiguredProducts(context, workspace, text, {},
+                                         {"generated.llama_epoch"}, true,
+                                         &normalized, &error))
+          << error;
+      expanded.reset(normalized);
+    }
     result = nullptr;
     ASSERT_TRUE(Ok(loomc_module_get_interop_view(
         expanded.get(), loomc_allocator_system(), &view, &result)));
@@ -319,55 +351,80 @@ protected:
     std::set<std::string> global_keys;
     std::set<std::string> embedding_kernels;
     size_t embedding_count = 0;
+    size_t raw_projections = 0, fixed_raw_heads = 0, activation_packs = 0;
+    size_t pending_projections = 0;
+    std::multiset<std::string> observed_launches;
     uint32_t embedding_tag = 0;
     for (const auto &binding : descriptor.globals)
       if (binding.role == "token_embedding")
         embedding_tag = binding.tensor.storage_type;
-    std::function<void(const loom_region_t *)> collect =
-        [&](const loom_region_t *region) {
-          for (size_t b = 0; b < region->block_count; ++b)
-            for (const auto *op = region->blocks[b]->first_op; op;
-                 op = op->next_op) {
-              if (loom_command_parameter_isa(op)) {
-                auto key =
-                    Text(view.module, loom_command_parameter_pattern(op));
-                auto substitutions = loom_command_parameter_substitutions(op);
-                for (size_t i = 0; i < substitutions.count; ++i) {
-                  auto position = key.find("{}");
-                  EXPECT_NE(position, std::string::npos);
-                  if (position != std::string::npos)
-                    key.replace(position, 2,
-                                std::to_string(Constant(
-                                    view.module, substitutions.values[i])));
-                }
-                if (key.rfind("blk.", 0) == 0)
-                  keys.push_back(std::move(key));
-                else
-                  global_keys.insert(std::move(key));
-              }
-              if (loom_kernel_launch_isa(op)) {
-                const auto callee = loom_kernel_launch_callee(op);
-                const auto name = Text(
-                    view.module,
-                    view.module->symbols.entries[callee.symbol_id].name_id);
-                if (name == "llm.token_embedding_epoch_f32") {
-                  ++embedding_count;
-                  embedding_kernels.insert(name);
-                  const auto workloads = loom_kernel_launch_workloads(op);
-                  ASSERT_EQ(workloads.count, 1u);
-                  EXPECT_EQ(Constant(view.module, workloads.values[0]), rows);
-                  const auto args = loom_kernel_launch_arguments(op);
-                  ASSERT_EQ(args.count, 8u);
-                  EXPECT_EQ(Constant(view.module, args.values[0]), hidden);
-                  EXPECT_EQ(Constant(view.module, args.values[1]), vocabulary);
-                  EXPECT_EQ(Constant(view.module, args.values[2]),
-                            embedding_tag);
-                }
-              }
-              for (size_t i = 0; i < op->region_count; ++i)
-                collect(loom_op_regions(op)[i]);
+    std::function<void(const loom_region_t *)> collect = [&](const loom_region_t
+                                                                 *region) {
+      for (size_t b = 0; b < region->block_count; ++b)
+        for (const auto *op = region->blocks[b]->first_op; op;
+             op = op->next_op) {
+          const auto spelling =
+              loom_op_vtable_name(loom_op_vtable(view.module, op));
+          if (std::string(spelling.data, spelling.size) == "template.apply")
+            ++pending_projections;
+          if (loom_command_parameter_isa(op)) {
+            auto key = Text(view.module, loom_command_parameter_pattern(op));
+            auto substitutions = loom_command_parameter_substitutions(op);
+            for (size_t i = 0; i < substitutions.count; ++i) {
+              auto position = key.find("{}");
+              EXPECT_NE(position, std::string::npos);
+              if (position != std::string::npos)
+                key.replace(position, 2,
+                            std::to_string(Constant(view.module,
+                                                    substitutions.values[i])));
             }
-        };
+            if (key.rfind("blk.", 0) == 0)
+              keys.push_back(std::move(key));
+            else
+              global_keys.insert(std::move(key));
+          }
+          if (loom_kernel_launch_isa(op)) {
+            const auto callee = loom_kernel_launch_callee(op);
+            const auto name =
+                Text(view.module,
+                     view.module->symbols.entries[callee.symbol_id].name_id);
+            observed_launches.insert(name);
+            if (name == "llm.projection.f16_rows_kernel") {
+              ++raw_projections;
+              const auto args = loom_kernel_launch_arguments(op);
+              ASSERT_EQ(args.count, 8u);
+              const auto *fixed_op = loom_value_def_op(
+                  loom_module_value(view.module, args.values[2]));
+              ASSERT_TRUE(fixed_op && loom_scalar_constant_isa(fixed_op));
+              const auto fixed_attr = loom_scalar_constant_value(fixed_op);
+              ASSERT_EQ(fixed_attr.kind, LOOM_ATTR_I64);
+              const auto fixed = fixed_attr.i64;
+              if (fixed == 1) {
+                ++fixed_raw_heads;
+                EXPECT_EQ(Constant(view.module, args.values[1]), vocabulary);
+              } else {
+                EXPECT_EQ(fixed, -1);
+              }
+            }
+            if (name.rfind("ggml_quantize_q8_1_x4", 0) == 0)
+              ++activation_packs;
+            if (name == "llm.token_embedding_epoch_f32") {
+              ++embedding_count;
+              embedding_kernels.insert(name);
+              const auto workloads = loom_kernel_launch_workloads(op);
+              ASSERT_EQ(workloads.count, 1u);
+              EXPECT_EQ(Constant(view.module, workloads.values[0]), rows);
+              const auto args = loom_kernel_launch_arguments(op);
+              ASSERT_EQ(args.count, 8u);
+              EXPECT_EQ(Constant(view.module, args.values[0]), hidden);
+              EXPECT_EQ(Constant(view.module, args.values[1]), vocabulary);
+              EXPECT_EQ(Constant(view.module, args.values[2]), embedding_tag);
+            }
+          }
+          for (size_t i = 0; i < op->region_count; ++i)
+            collect(loom_op_regions(op)[i]);
+        }
+    };
     collect(loom_command_def_body(root));
     std::vector<std::string> expected;
     for (size_t i = 0; i < layers; ++i)
@@ -383,6 +440,16 @@ protected:
     }
     EXPECT_EQ(global_keys, expected_globals);
     EXPECT_EQ(embedding_count, 1u);
+    if (embedding_tag == 1) {
+      EXPECT_EQ(pending_projections, 0u);
+      std::ostringstream launches;
+      if (raw_projections != layers * 7 + 1)
+        for (const auto &name : observed_launches)
+          launches << name << '\n';
+      EXPECT_EQ(raw_projections, layers * 7 + 1) << launches.str();
+      EXPECT_EQ(fixed_raw_heads, 1u);
+      EXPECT_EQ(activation_packs, 0u);
+    }
     EXPECT_EQ(embedding_kernels,
               std::set<std::string>{"llm.token_embedding_epoch_f32"});
   }
@@ -638,6 +705,50 @@ TEST_F(ConfiguredLlamaModelTest, Q8TiedAndIndependentHeadProducts) {
     for (uint64_t rows : {8, 17})
       for (bool text : {false, true})
         Build(testing::LlamaQ8ModelFacts(independent), rows, false, text);
+}
+TEST_F(ConfiguredLlamaModelTest, RawHalfUsesExistingCompleteModelPrograms) {
+  for (uint64_t rows : {1, 8, 17, 64})
+    for (bool text : {false, true}) {
+      Build(testing::LlamaF16ModelFacts(), rows, false, text);
+      Build(testing::LlamaF16ModelFacts(), rows, true, text);
+    }
+}
+TEST_F(ConfiguredLlamaModelTest, RealRawHalfDescriptorReachesBothProductForms) {
+  const char *path = std::getenv("LOOMIFY_TEST_LLAMA_F16_GGUF");
+  if (!path)
+    GTEST_SKIP() << "requires explicit immutable raw F16 Llama GGUF";
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "rb"),
+                                                     &std::fclose);
+  ASSERT_TRUE(file);
+  model::GgufCatalog catalog;
+  model::ModelDescriptor descriptor;
+  std::string error;
+  ASSERT_TRUE(model::ReadGgufCatalog(file.get(), &catalog, &error)) << error;
+  ASSERT_TRUE(model::LoadModelDescriptor(catalog, &descriptor, &error))
+      << error;
+  ASSERT_EQ(descriptor.layers.size(), 28u);
+  ASSERT_EQ(descriptor.vocabulary_size, 128256u);
+  ASSERT_TRUE(descriptor.output_tied_to_embedding);
+  std::vector<const model::TensorRecord *> tensors;
+  for (const auto &binding : descriptor.globals)
+    tensors.push_back(&binding.tensor);
+  for (const auto &layer : descriptor.layers)
+    for (const auto &binding : layer.tensors)
+      tensors.push_back(&binding.tensor);
+  std::set<std::string> half_matrices, full_vectors;
+  for (const auto *tensor : tensors) {
+    const bool matrix = tensor->rank == 2;
+    ASSERT_EQ(tensor->storage_type, matrix ? 1u : 0u) << tensor->name;
+    (matrix ? half_matrices : full_vectors).insert(tensor->name);
+  }
+  // Physical identities deduplicate the tied output alias. A Q8 checkpoint of
+  // the same geometry must fail before Build's conditional raw-path checks.
+  ASSERT_EQ(half_matrices.size(), 197u);
+  ASSERT_EQ(full_vectors.size(), 58u);
+  for (bool text : {false, true}) {
+    Build(descriptor, 8, false, text);
+    Build(descriptor, 17, true, text);
+  }
 }
 
 TEST_F(ConfiguredLlamaModelTest, FullDescriptorFixtureUsesMaintainedProducts) {

@@ -77,6 +77,10 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
                                      std::string *error) {
   uint64_t block = 0, maximum = 0;
   switch (tensor.storage_type) {
+  case 1:
+    block = 1;
+    maximum = 32768;
+    break;
   case 11:
   case 12:
   case 13:
@@ -101,8 +105,11 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
     return Fail(error,
                 "unsupported canonical projection encoding: " + tensor.name);
   }
-  const uint64_t output_limit =
-      tensor.storage_type == 8 || tensor.storage_type == 14 ? 262208 : 262144;
+  const uint64_t output_limit = tensor.storage_type == 1 ||
+                                        tensor.storage_type == 8 ||
+                                        tensor.storage_type == 14
+                                    ? 262208
+                                    : 262144;
   if (!facts || input < block || input > maximum || input % block || !output ||
       output > output_limit)
     return Fail(error,

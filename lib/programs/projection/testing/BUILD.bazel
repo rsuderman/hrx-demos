@@ -98,9 +98,9 @@ loom_provider_checks(
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
     provider_name = "f16_rows_provider",
     provider_srcs = [
-        "//lib/kernels/projection:f32_rows.loom",
-        "//lib/programs/projection:contract.loom",
-        "//lib/programs/projection:rows.loom",
+        ":fixture_config.loom",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
     ],
 )
 

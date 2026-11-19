@@ -33,8 +33,8 @@ bool EmitLlama(const model::ModelDescriptor &m, const std::string &asset,
   p.model = &m;
   p.asset = asset;
   p.error = error;
-  if (!p.Tensor(m.globals, "token_embedding", E, V, {8, 12, 14}) ||
-      !p.Tensor(m.globals, "output", E, V, {8, 14}) ||
+  if (!p.Tensor(m.globals, "token_embedding", E, V, {1, 8, 12, 14}) ||
+      !p.Tensor(m.globals, "output", E, V, {1, 8, 14}) ||
       !p.Tensor(m.globals, "output_norm", E, 1, {0}))
     return false;
   const auto factors = std::count_if(

@@ -8,6 +8,7 @@
 #include "lib/serving/library_resources.h"
 #include "lib/loomify/testing/qwen2_fixture.h"
 #include "lib/loomify/testing/configuration_fixture.h"
+#include "lib/loomify/testing/llama_f16_fixture.h"
 #include "lib/loomify/testing/gemma3_fixture.h"
 #include "lib/loomify/testing/qwen3_fixture.h"
 #include "lib/loomify/testing/alternating_qwen_fixture.h"
@@ -1261,6 +1262,45 @@ TEST(ConfigurationFactsTest, QwenFfnOperandsKeepIndependentFormatsAndExtents) {
     facts.source = "sentinel";
     EXPECT_FALSE(DeriveConfiguration(bad, "bad", {}, &facts, &error));
     EXPECT_EQ(facts.source, "sentinel");
+  }
+}
+TEST(ConfigurationFactsTest, RawLlamaKeepsHalfMatricesAndTiedPhysicalHead) {
+  const auto descriptor = testing::LlamaF16ModelFacts();
+  for (uint64_t rows : {1, 8, 17, 64}) {
+    ConfigurationFacts facts;
+    std::string error;
+    ASSERT_TRUE(
+        DeriveConfiguration(descriptor, "raw-f16", {rows, 256}, &facts, &error))
+        << error;
+    const auto scalars = Scalars(facts.source);
+    EXPECT_EQ(scalars.at("llama.model.embedding_storage_type").first, "1");
+    EXPECT_EQ(scalars.at("llama.model.output_storage_type").first, "1");
+    EXPECT_EQ(scalars.at("llama.model.vocabulary_size").first, "128256");
+    EXPECT_EQ(facts.parameters.size(), 256u);
+    const model::TensorRecord *embedding = nullptr, *head = nullptr;
+    for (const auto &parameter : facts.parameters) {
+      const auto &tensor = parameter.tensor;
+      EXPECT_EQ(tensor.storage_type, tensor.rank == 2 ? 1u : 0u);
+      if (parameter.role == "token_embedding")
+        embedding = &tensor;
+      if (parameter.role == "output")
+        head = &tensor;
+    }
+    ASSERT_TRUE(embedding && head);
+    EXPECT_EQ(head->absolute_offset, embedding->absolute_offset);
+    EXPECT_EQ(head->byte_size, 2u * 3072u * 128256u);
+    EXPECT_EQ(head->name, embedding->name);
+  }
+  for (const std::string role : {"ffn_up", "ffn_down", "query"}) {
+    auto bad = descriptor;
+    auto &tensor =
+        std::find_if(bad.layers[0].tensors.begin(), bad.layers[0].tensors.end(),
+                     [&](const auto &b) { return b.role == role; })
+            ->tensor;
+    ++tensor.byte_size;
+    ConfigurationFacts facts;
+    std::string error;
+    EXPECT_FALSE(DeriveConfiguration(bad, "bad-raw", {}, &facts, &error));
   }
 }
 TEST(ConfigurationFactsTest, LlamaQ8FactsKeepActualRootBindingAndCapacities) {

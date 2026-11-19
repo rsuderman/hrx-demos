@@ -122,6 +122,7 @@ cc_test(
         "@hrx_system//loom/src/loom/ops/kernel",
         "//lib/loomify:configuration",
         "//lib/loomify:configuration_fixture",
+        "//lib/loomify:native_linking",
         "//tools/model:model_descriptor",
         "@hrx_system//loom/binding/c/target/amdgpu",
         "@hrx_system//loom/binding/c/target/cmd",

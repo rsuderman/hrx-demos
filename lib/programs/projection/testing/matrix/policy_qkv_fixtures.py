@@ -24,6 +24,8 @@ def load_helpers(path):
 
 
 def selected_policy(profile, tag):
+    if tag == 1:
+        return 2
     return 0 if profile == 0 and tag in (12, 14) else 1
 
 
@@ -39,6 +41,8 @@ def weight_parameters(h, tag, role, channel):
     sign = -1 if channel % 2 else 1
     d = h.f16((channel % 4 + role + 1) / 4093)
     code = (3, -5, 7)[role] if tag == 8 else (3, 5, 7)[role]
+    if tag == 1:
+        return sign * d, code, 1, 0.0, 0
     if tag == 2:
         return sign * d, code, 1, 0.0, 0
     if tag == 3:
@@ -58,6 +62,9 @@ def weights(h, tag, role, width, columns):
     wire = bytearray()
     for channel in range(columns):
         d, code, scale, minimum_d, minimum = weight_parameters(h, tag, role, channel)
+        if tag == 1:
+            wire.extend(struct.pack("<e", h.f16(d * code)) * width)
+            continue
         for _ in range(width // (32 if tag in (2, 3, 8) else 256)):
             if tag == 8:
                 wire.extend(struct.pack("<e", d))
@@ -96,6 +103,13 @@ def weights(h, tag, role, width, columns):
 
 
 def dot(h, tag, role, channel, row, width, consumer_policy, active, packet_policy=None):
+    if tag == 1:
+        d, code, _, _, _ = weight_parameters(h, tag, role, channel)
+        coefficient = h.f16(d * code)
+        total = 0.0
+        for value in input_row(row, width):
+            total = h.f32(total + h.f32(value * coefficient))
+        return total
     packet_policy = consumer_policy if packet_policy is None else packet_policy
     values = input_row(row, 32)
     maximum = max(map(abs, values))
@@ -199,6 +213,12 @@ def emit(h, mode, destination):
             (0, (3, 14, 2), 17, 17, 13, 7),
         ]
         assert len(cases) == 73 and len(cases) == len(set(cases))
+        cases += [
+            (0, tags, rows, active, 13, 7)
+            for tags in ((1, 1, 1), (1, 12, 8), (12, 1, 8), (8, 12, 1))
+            for rows, active in ((1, 1), (8, 1), (17, 0), (17, 17), (64, 63))
+        ]
+        assert len(cases) == len(set(cases))
     out = ["// Copyright 2026 AMD ROCm Software\n// SPDX-License-Identifier: MIT\n"]
     out.append(
         "template.decl @llm.projection.policy_qkv(%profile:index,%T:index,%K:index,%Q:index,%KV:index,%qt:index,%kt:index,%vt:index,%qb:index,%kb:index,%vb:index,%count:buffer,%input:buffer,%qw:view<[%qb]xi8>,%kw:view<[%kb]xi8>,%vw:view<[%vb]xi8>,%q:buffer,%k:buffer,%v:buffer)\n"
@@ -246,7 +266,7 @@ def emit(h, mode, destination):
                 (
                     dot(h, tag, ordinal, channel, row, width, policy, active)
                     if row < active
-                    else (0.0 if policy == 1 else -991.0)
+                    else (0.0 if policy in (1, 2) else -991.0)
                 )
                 for row in range(rows)
                 for channel in range(columns)

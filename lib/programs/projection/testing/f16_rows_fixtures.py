@@ -17,23 +17,33 @@ def f32(value):
     return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
+def half_dot(activations, wire):
+    """Independent IEEE-half decode and ascending-K F32 multiply then add."""
+    if len(wire) != len(activations) * 2:
+        raise ValueError("one complete raw-half row is required")
+    total = 0.0
+    for activation, (weight,) in zip(activations, struct.iter_unpack("<e", wire)):
+        total = f32(total + f32(f32(activation) * weight))
+    return total
+
+
 HALF_BITS = (0x3C00, 0xBC00, 0x3800, 0x0001, 0x8000, 0xC100)
 ACTIVATIONS = (1 + 1 / 4096, 1.0, -3 / 8, 1024.0, -0.25, 0.125)
 
 
 def expected(row, column):
-    total = 0.0
-    for slot, value in enumerate(ACTIVATIONS):
-        bits = HALF_BITS[(slot + column) % len(HALF_BITS)]
-        weight = struct.unpack("<e", struct.pack("<H", bits))[0]
-        activation = f32((row + 1) * value)
-        total = f32(total + f32(activation * weight))
-    return total
+    wire = b"".join(
+        struct.pack("<H", HALF_BITS[(slot + column) % len(HALF_BITS)])
+        for slot in range(len(ACTIVATIONS))
+    )
+    return half_dot([f32((row + 1) * value) for value in ACTIVATIONS], wire)
 
 
-def fixture(rows, width, columns, active, capacity=None):
+def fixture(rows, width, columns, active, capacity=None, route="adapter"):
     capacity = capacity or rows
-    key = f"f16_r{rows}_k{width}_n{columns}_c{active}_p{capacity}".replace("-", "m")
+    key = f"f16_{route}_r{rows}_k{width}_n{columns}_c{active}_p{capacity}".replace(
+        "-", "m"
+    )
     size = 2 * width * columns
     live = active if 0 < active <= rows else 0
     indexes = (0, 1, 2, 3, 4, width - 1)
@@ -74,6 +84,19 @@ def fixture(rows, width, columns, active, capacity=None):
                 f"  view.store %h{(slot + column) % 6},%w[{column},{index}] : f16,view<{columns}x{width}xf16>\n"
             )
     out.append("  func.return\n}\n")
+    count_setup = ""
+    if route == "offset":
+        out.append(f"""func.def @{key}.count_init(%count:buffer) {{
+  %origin = index.constant 4 : offset
+  %value = scalar.constant {active} : i32
+  %word = buffer.view %count[%origin] : buffer -> view<1xi32>
+  view.store %value,%word[0] : i32,view<1xi32>
+  func.return
+}}
+""")
+        count_setup = (
+            f"check.generate<@{key}.count_init>(%count) : (tensor<3xi32>) -> ()"
+        )
     args = "%input:buffer,%weight:buffer,%count:buffer,%packed:buffer,%output:buffer"
     out.append(f"""command.def @{key}.actual() launch({args}) {{
   %R = index.constant {rows} : index
@@ -84,8 +107,24 @@ def fixture(rows, width, columns, active, capacity=None):
   %tag = index.constant 1 : index
   %origin = index.constant 0 : offset
   %w = buffer.view %weight[%origin] : buffer -> view<[%B]xi8>
-  template.apply<@llm.projection.canonical_rows_prepacked>(%R,%C,%K,%N,%tag,%B,%count,%input,%packed,%w,%output) : (index,index,index,index,index,index,buffer,buffer,buffer,view<[%B]xi8>,buffer)
-  command.return
+""")
+    if route == "rows":
+        out.append("  %profile = index.constant 0 : index\n")
+        out.append(
+            "  template.apply<@llm.projection.policy_rows>(%profile,%R,%K,%N,%tag,%B,%count,%input,%w,%output) : (index,index,index,index,index,index,buffer,buffer,view<[%B]xi8>,buffer)\n"
+        )
+    elif route in ("fixed", "offset"):
+        out.append(
+            f"  %policy = index.constant 2 : index\n  %fixed = scalar.constant {-1 if route == 'offset' else 1} : i32\n  %count_origin = index.constant {4 if route == 'offset' else 0} : offset\n"
+        )
+        out.append(
+            "  template.apply<@llm.projection.project_prepared>(%policy,%R,%C,%K,%N,%tag,%B,%fixed,%count_origin,%count,%input,%packed,%w,%output) : (index,index,index,index,index,index,index,i32,offset,buffer,buffer,buffer,view<[%B]xi8>,buffer)\n"
+        )
+    else:
+        out.append(
+            "  template.apply<@llm.projection.canonical_rows_prepacked>(%R,%C,%K,%N,%tag,%B,%count,%input,%packed,%w,%output) : (index,index,index,index,index,index,buffer,buffer,buffer,view<[%B]xi8>,buffer)\n"
+        )
+    out.append(f"""  command.return
 }}
 func.def @{key}.expected({args}) {{
   %origin = index.constant 0 : offset
@@ -105,7 +144,8 @@ check.scenario @{key}.witness {{
     %input = check.tensor.view %input_owner offset(16) : tensor<{capacity * width + 8}xf32> -> tensor<{capacity * width}xf32>
     %weight_owner = check.generate.fill value(-555.0) : tensor<{width * columns + 16}xf16>
     %weight = check.tensor.view %weight_owner offset(16) : tensor<{width * columns + 16}xf16> -> tensor<{width * columns}xf16>
-    %count = check.generate.fill value({active}) : tensor<3xi32>
+    %count = check.generate.fill value({-999 if route in ('fixed', 'offset') else active}) : tensor<3xi32>
+    {count_setup}
     %packed = check.generate.fill value(-99) : tensor<16xi8>
     %output_owner = check.generate.fill value(-888.0) : tensor<{capacity * columns + 8}xf32>
     %output = check.tensor.view %output_owner offset(16) : tensor<{capacity * columns + 8}xf32> -> tensor<{capacity * columns}xf32>
@@ -124,13 +164,25 @@ check.scenario @{key}.witness {{
     return "".join(out)
 
 
-declaration = "template.decl @llm.projection.canonical_rows_prepacked(%rows:index,%capacity:index,%width:index,%columns:index,%tag:index,%bytes:index,%count:buffer,%input:buffer,%packed:buffer,%weight:view<[%bytes]xi8>,%output:buffer)\n"
-cases = [
-    (r, 1024, 16, n)
-    for r in (1, 8, 16, 17)
-    for n in sorted({-1, 0, 1, r // 2, r, r + 1})
-]
-text = declaration + "".join(fixture(*case) for case in cases)
-text += fixture(1, 7, 257, 1)
-text += fixture(8, 7, 3, 1, capacity=17)
-Path(sys.argv[1]).write_text(text)
+def main(destination):
+    declaration = "template.decl @llm.projection.canonical_rows_prepacked(%rows:index,%capacity:index,%width:index,%columns:index,%tag:index,%bytes:index,%count:buffer,%input:buffer,%packed:buffer,%weight:view<[%bytes]xi8>,%output:buffer)\n"
+    declaration += "template.decl @llm.projection.policy_rows(%profile:index,%rows:index,%width:index,%columns:index,%tag:index,%bytes:index,%count:buffer,%input:buffer,%weight:view<[%bytes]xi8>,%output:buffer)\n"
+    declaration += "template.decl @llm.projection.project_prepared(%policy:index,%rows:index,%capacity:index,%width:index,%columns:index,%tag:index,%bytes:index,%fixed:i32,%origin:offset,%count:buffer,%input:buffer,%packed:buffer,%weight:view<[%bytes]xi8>,%output:buffer)\n"
+    cases = [
+        (r, 1024, 16, n)
+        for r in (1, 8, 16, 17)
+        for n in sorted({-1, 0, 1, r // 2, r, r + 1})
+    ]
+    text = declaration + "".join(fixture(*case) for case in cases)
+    text += fixture(1, 7, 257, 1)
+    text += fixture(8, 7, 3, 1, capacity=17)
+    for rows in (1, 8, 17, 64):
+        for active in sorted({0, 1, rows // 2, rows, rows + 1}):
+            text += fixture(rows, 128, 7, active, route="rows")
+    text += fixture(1, 7, 7, 1, route="fixed")
+    text += fixture(8, 128, 7, 3, route="offset")
+    Path(destination).write_text(text)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

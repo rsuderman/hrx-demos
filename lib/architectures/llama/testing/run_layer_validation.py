@@ -48,7 +48,7 @@ def sha(data):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for flag in ("emitted", "gguf", "reflector", "runner", "output", "gpu-lock"):
+    for flag in ("emitted", "gguf", "reflector", "observer", "output", "gpu-lock"):
         parser.add_argument("--" + flag, required=True, type=Path)
     parser.add_argument(
         "--fixture", choices=("llama3b", "minicpm1b"), default="llama3b"
@@ -65,7 +65,10 @@ def main():
         {"llama3b": (3072, 1024), "minicpm1b": (1536, 256)}[args.fixture]
     )
     env = dict(os.environ, PYTHONNOUSERSITE="1", PARAMETER_GGUF=str(args.gguf))
-    modules = {"configured": args.emitted / "configured_layer.loombc"}
+    modules = {
+        "source": args.emitted / "configured_layer.loom",
+        "bytecode": args.emitted / "configured_layer.loombc",
+    }
     record = {
         "modules": {
             name: {"path": str(path), "sha256": sha(path.read_bytes())}
@@ -197,13 +200,15 @@ check.scenario @layer_validation {{
             )
             capture = work / "capture"
             capture.mkdir(exist_ok=True)
-            runenv = dict(env, LOOM_FFN_CAPTURE_DIR=str(capture))
             command = [
-                str(args.runner),
+                str(args.observer),
                 str(fixture),
                 "--library=" + str(modules[kind]),
                 "--case=@layer_validation",
                 "--device=amdgpu",
+                "--capture-output-root=" + str(capture.resolve()),
+                "--capture-argument=1",
+                "--capture-argument=4",
             ]
             start = time.monotonic()
             with (
@@ -213,7 +218,7 @@ check.scenario @layer_validation {{
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 result = subprocess.run(
                     command,
-                    env=runenv,
+                    env=env,
                     stdout=log,
                     stderr=subprocess.STDOUT,
                     pass_fds=(fd,),
@@ -276,10 +281,17 @@ check.scenario @layer_validation {{
                 path.unlink()
             for name in ("residual", "control", "map", "cache"):
                 (work / (name + ".npy")).unlink()
+        assert outputs["source"] == outputs["bytecode"], (label, "SOURCE/BC parity")
         if label == "page-prefill":
-            first_result = tuple(sha(value) for value in outputs["configured"])
+            first_result = {
+                kind: tuple(sha(value) for value in output)
+                for kind, output in outputs.items()
+            }
         if label == "reset":
-            assert first_result == tuple(sha(value) for value in outputs["configured"])
+            assert first_result == {
+                kind: tuple(sha(value) for value in output)
+                for kind, output in outputs.items()
+            }
         record["comparisons"].append(
             {
                 "case": label,
@@ -290,8 +302,9 @@ check.scenario @layer_validation {{
                 "coverage": "state/ABI; independent arithmetic remains in operation suites",
                 "inactive_residual_other_planes_prefix_suffix_preserved": True,
                 "finite_nontrivial_output": True,
-                "residual_sha256": sha(outputs["configured"][0]),
-                "cache_sha256": sha(outputs["configured"][1]),
+                "source_bytecode_bitwise_parity": True,
+                "residual_sha256": sha(outputs["source"][0]),
+                "cache_sha256": sha(outputs["source"][1]),
             }
         )
         publish()

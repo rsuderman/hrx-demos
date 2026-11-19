@@ -25,14 +25,16 @@ template.def<@llm.projection.canonical_rows> @llm_projection_canonical_rows(%row
   template.return
 }
 
-kernel.decl @llm.projection.f32_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llm.projection.f32_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
-kernel.decl @llm.projection.f16_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
+kernel.decl @llm.projection.f16_rows_kernel(%rows: index) launch(%input_width: index, %output_width: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %weight: buffer, %output: buffer)
 
 template.decl @llm.projection.f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer)
 
 template.def<@llm.projection.f32_rows> @llm_projection_f32_rows(%rows: index, %input_width: index, %output_width: index, %count: buffer, %input: buffer, %weight: view<[%output_width]x[%input_width]xf32>, %output: buffer) where [range(%rows, 1, 512), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
-  kernel.launch @llm.projection.f32_rows_kernel[%rows](%input_width, %output_width, %count, %input, %weight, %output) : [index](index, index, buffer, buffer, view<[%output_width]x[%input_width]xf32>, buffer)
+  %dynamic = scalar.constant -1 : i32
+  %origin = index.constant 0 : offset
+  kernel.launch @llm.projection.f32_rows_kernel[%rows](%input_width, %output_width, %dynamic, %origin, %count, %input, %weight, %output) : [index](index, index, i32, offset, buffer, buffer, view<[%output_width]x[%input_width]xf32>, buffer)
   template.return
 }
 
@@ -42,33 +44,43 @@ template.decl @llm.projection.contract(%bytes: index, %expected: index, %rows: i
 
 template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
-template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_f32(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%tag, 0), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
+// One boundary for compact original F32 rows and an optional prepared pack.
+// Raw operands never inspect packed; packed operands never inspect input.
+template.decl @llm.projection.project_prepared(%policy: index, %rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+template.def<@llm.projection.project_prepared> @llm_projection_rows_f32(%policy: index, %rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%policy, 1, 2), eq(%tag, 0), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
   %four = index.constant 4 : index
   %row_limit = index.constant 512 : index
   %width_limit = index.constant 32768 : index
   %elements = index.mul %input_width, %output_width : index
   %expected = index.mul %elements, %four : index
   template.apply<@llm.projection.contract>(%weight_bytes, %expected, %capacity, %row_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
-  kernel.launch @llm.projection.f32_rows_kernel[%rows](%input_width, %output_width, %count, %input, %weight, %output) : [index](index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @llm.projection.f32_rows_kernel[%rows](%input_width, %output_width, %fixed_count, %count_origin, %count, %input, %weight, %output) : [index](index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   template.return
 }
 
-template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_f16(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [eq(%tag, 1), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity), range(%input_width, 1, 32768), range(%output_width, 1, 32768)] {
+template.def<@llm.projection.project_prepared> @llm_projection_rows_f16(%policy: index, %rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%policy, 1, 2), eq(%tag, 1), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity), range(%input_width, 1, 32768), range(%output_width, 1, 262208)] {
   %two = index.constant 2 : index
   %row_limit = index.constant 512 : index
-  %width_limit = index.constant 32768 : index
+  %width_limit = index.constant 262208 : index
   %elements = index.mul %input_width, %output_width : index
   %expected = index.mul %elements, %two : index
   template.apply<@llm.projection.contract>(%weight_bytes, %expected, %capacity, %row_limit, %output_width, %width_limit) : (index, index, index, index, index, index)
-  kernel.launch @llm.projection.f16_rows_kernel[%rows](%input_width, %output_width, %count, %input, %weight, %output) : [index](index, index, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  kernel.launch @llm.projection.f16_rows_kernel[%rows](%input_width, %output_width, %fixed_count, %count_origin, %count, %input, %weight, %output) : [index](index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   template.return
 }
 
-template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_rows_quantized(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%tag, 2, 23), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity)] {
+template.def<@llm.projection.project_prepared> @llm_projection_rows_quantized(%policy: index, %rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%policy, 0, 1), range(%tag, 2, 23), range(%rows, 1, 512), range(%capacity, 1, 512), le(%rows, %capacity)] {
   %zero = index.constant 0 : index
-  %one = index.constant 1 : index
-  %origin = index.constant 0 : offset
+  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %capacity, %input_width, %output_width, %weight_bytes, %zero, %fixed_count, %count_origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+// Preserve the established canonical caller ABI without a second raw registry.
+template.def<@llm.projection.canonical_rows_prepacked> @llm_projection_canonical_prepared(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) {
+  %canonical = index.constant 1 : index
   %dynamic = scalar.constant -1 : i32
-  template.apply<@llm.projection.project_packed>(%one, %tag, %rows, %capacity, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  %origin = index.constant 0 : offset
+  template.apply<@llm.projection.project_prepared>(%canonical, %rows, %capacity, %input_width, %output_width, %tag, %weight_bytes, %dynamic, %origin, %count, %input, %packed, %weight, %output) : (index, index, index, index, index, index, index, i32, offset, buffer, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   template.return
 }

@@ -1,56 +1,69 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
+// Policy0/1 retain compatible/canonical packing. Policy2 consumes original F32.
 template.decl @llm.projection.pack_input(%policy: index, %launch_rows: index, %row_capacity: index, %input_width: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer)
 
-template.decl @llm.projection.project_packed(%policy: index, %weight_tag: index, %launch_rows: index, %row_capacity: index, %input_width: index, %output_width: index, %weight_bytes: index, %row_origin: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+template.decl @llm.projection.project_prepared(%policy: index, %rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %fixed_count: i32, %count_origin: offset, %count: buffer, %input: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
-// Policy is selected independently for each encoded operand.
 func.def public pure inline @llm.projection.policy(%profile: index, %tag: index) -> (index) {
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
+  %raw_policy = index.constant 2 : index
   %q4 = index.constant 12 : index
   %q6 = index.constant 14 : index
+  %is_f32 = index.cmp eq, %tag, %zero : index
+  %is_f16 = index.cmp eq, %tag, %one : index
+  %raw = scalar.ori %is_f32, %is_f16 : i1
   %classic = index.cmp eq, %profile, %zero : index
   %is_q4 = index.cmp eq, %tag, %q4 : index
   %is_q6 = index.cmp eq, %tag, %q6 : index
   %compatible_tag = scalar.ori %is_q4, %is_q6 : i1
   %compatible = scalar.andi %classic, %compatible_tag : i1
-  %policy = scf.select %compatible, %zero, %one : index
+  %packed_policy = scf.select %compatible, %zero, %one : index
+  %policy = scf.select %raw, %raw_policy, %packed_policy : index
   func.return %policy : index
 }
 
-kernel.decl @llm.projection.prepare_f32_prefix(%rows$401: index, %input_width$402: index) launch(%rows$403: index, %input_width$404: index, %count: buffer, %input: buffer, %output: buffer)
+kernel.decl @llm.projection.prepare_f32_prefix(%rows: index, %input_width: index) launch(%rows_arg: index, %width_arg: index, %count: buffer, %input: buffer, %output: buffer)
 
-// Exact logical-row output; canonical scratch is defined without reading inactive input.
 template.decl @llm.projection.policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
 
 template.def<@llm.projection.policy_rows> @llm_projection_policy_rows(%profile: index, %rows: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %input: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) where [range(%profile, 0, 1), range(%rows, 1, 512), range(%input_width, 128, 32768), multiple_of(%input_width, 128)] {
   %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %raw_policy = index.constant 2 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
   %policy = func.call pure @llm.projection.policy(%profile, %tag) : (index, index) -> (index)
-  %canonical = index.cmp ne, %policy, %zero : index
-  %word = index.constant 4 : offset
-  %block = index.constant 128 : index
-  %packet = index.constant 144 : offset
-  %elements = index.mul %rows, %input_width : index
-  %groups = index.div %elements, %block : index
-  %packed_bytes = index.scale %groups, %packet : index, offset -> offset
-  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
-  scf.if %canonical {
-    %bytes = index.scale %elements, %word : index, offset -> offset
-    %defined = buffer.alloca<global> align(256) %bytes : buffer
-    kernel.launch @llm.projection.prepare_f32_prefix[%rows, %input_width](%rows, %input_width, %count, %input, %defined) : [index, index](index, index, buffer, buffer, buffer)
-    template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %input_width, %zero, %dynamic, %origin, %count, %defined, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+  %raw = index.cmp eq, %policy, %raw_policy : index
+  %packed = scf.if %raw -> (buffer) {
+    // Ignored by the typed raw provider; do not allocate or read packed storage.
+    scf.yield %input : buffer
   } else {
-    template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %input_width, %zero, %dynamic, %origin, %count, %input, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    %word = index.constant 4 : offset
+    %block = index.constant 128 : index
+    %packet = index.constant 144 : offset
+    %elements = index.mul %rows, %input_width : index
+    %groups = index.div %elements, %block : index
+    %packed_bytes = index.scale %groups, %packet : index, offset -> offset
+    %storage = buffer.alloca<global> align(256) %packed_bytes : buffer
+    %canonical = index.cmp eq, %policy, %one : index
+    scf.if %canonical {
+      %bytes = index.scale %elements, %word : index, offset -> offset
+      %defined = buffer.alloca<global> align(256) %bytes : buffer
+      kernel.launch @llm.projection.prepare_f32_prefix[%rows, %input_width](%rows, %input_width, %count, %input, %defined) : [index, index](index, index, buffer, buffer, buffer)
+      template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %input_width, %zero, %dynamic, %origin, %count, %defined, %storage) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    } else {
+      template.apply<@llm.projection.pack_input>(%policy, %rows, %rows, %input_width, %zero, %dynamic, %origin, %count, %input, %storage) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    }
+    scf.yield %storage : buffer
   }
-  template.apply<@llm.projection.project_packed>(%policy, %tag, %rows, %rows, %input_width, %output_width, %weight_bytes, %zero, %dynamic, %origin, %count, %packed, %weight, %output) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_prepared>(%policy, %rows, %rows, %input_width, %output_width, %tag, %weight_bytes, %dynamic, %origin, %count, %input, %packed, %weight, %output) : (index, index, index, index, index, index, index, i32, offset, buffer, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
   template.return
 }
 
-// Defines inactive F32 rows before canonical packing; sibling consumers share
-// the caller-owned packed buffer without changing the quantization policy.
+// Defines inactive F32 rows before canonical packing. Existing matrix users
+// continue to own and share their packed buffer.
 template.decl @llm.projection.prepare_canonical_prefix(%capacity: index, %input_width: index, %count: buffer, %input: buffer, %packed: buffer)
 
 template.def<@llm.projection.prepare_canonical_prefix> @llm_projection_prepare_canonical_prefix(%capacity: index, %input_width: index, %count: buffer, %input: buffer, %packed: buffer) where [range(%capacity, 1, 512)] {
@@ -71,57 +84,58 @@ template.decl @llm.projection.policy_qkv(%profile: index, %rows: index, %hidden:
 
 template.def<@llm.projection.policy_qkv> @llm_projection_policy_qkv(%profile: index, %rows: index, %hidden: index, %q_size: index, %kv: index, %q_tag: index, %k_tag: index, %v_tag: index, %q_bytes: index, %k_bytes: index, %v_bytes: index, %count: buffer, %normalized: buffer, %q_weight: view<[%q_bytes]xi8>, %k_weight: view<[%k_bytes]xi8>, %v_weight: view<[%v_bytes]xi8>, %q: buffer, %k: buffer, %v: buffer) where [range(%profile, 0, 1), range(%rows, 1, 512), range(%hidden, 128, 32768), multiple_of(%hidden, 128)] {
   %zero = index.constant 0 : index
+  %one = index.constant 1 : index
   %origin = index.constant 0 : offset
   %dynamic = scalar.constant -1 : i32
-  %four = index.constant 4 : offset
   %block = index.constant 128 : index
   %packet = index.constant 144 : offset
-  %hidden_elements = index.mul %rows, %hidden : index
-  %hidden_bytes = index.scale %hidden_elements, %four : index, offset -> offset
-  %packed_blocks = index.div %hidden_elements, %block : index
-  %packed_bytes = index.scale %packed_blocks, %packet : index, offset -> offset
-  %packed = buffer.alloca<global> align(256) %packed_bytes : buffer
-  // Each operand keeps its established numerical policy. Q/K/V share a pack
-  // only when that policy agrees; canonical preparation defines inactive rows.
-  %one = index.constant 1 : index
-  %q_policy = func.call pure @llm.projection.policy(%profile, %q_tag) : (index, index) -> (index)
-  %q_canonical = index.cmp ne, %q_policy, %zero : index
-  %k_policy = func.call pure @llm.projection.policy(%profile, %k_tag) : (index, index) -> (index)
-  %k_canonical = index.cmp ne, %k_policy, %zero : index
-  %v_policy = func.call pure @llm.projection.policy(%profile, %v_tag) : (index, index) -> (index)
-  %v_canonical = index.cmp ne, %v_policy, %zero : index
-  %qk_canonical = scalar.ori %q_canonical, %k_canonical : i1
-  %any_canonical = scalar.ori %qk_canonical, %v_canonical : i1
-  %qk_all = scalar.andi %q_canonical, %k_canonical : i1
-  %all_canonical = scalar.andi %qk_all, %v_canonical : i1
-  %true = scalar.constant true : i1
-  %not_all = scalar.xori %all_canonical, %true : i1
-  scf.if %not_all {
-    template.apply<@llm.projection.pack_input>(%zero, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %normalized, %packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  }
-  %canonical_packed = buffer.alloca<global> align(256) %packed_bytes : buffer
-  scf.if %any_canonical {
-    %defined = buffer.alloca<global> align(256) %hidden_bytes : buffer
-    kernel.launch @llm.projection.prepare_f32_prefix[%rows, %hidden](%rows, %hidden, %count, %normalized, %defined) : [index, index](index, index, buffer, buffer, buffer)
-    template.apply<@llm.projection.pack_input>(%one, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %defined, %canonical_packed) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
-  }
-  %q_packed = scf.if %q_canonical -> (buffer) {
-    scf.yield %canonical_packed : buffer
+  %elements = index.mul %rows, %hidden : index
+  %groups = index.div %elements, %block : index
+  %bytes = index.scale %groups, %packet : index, offset -> offset
+  %qp = func.call pure @llm.projection.policy(%profile, %q_tag) : (index, index) -> (index)
+  %kp = func.call pure @llm.projection.policy(%profile, %k_tag) : (index, index) -> (index)
+  %vp = func.call pure @llm.projection.policy(%profile, %v_tag) : (index, index) -> (index)
+  %qcompat = index.cmp eq, %qp, %zero : index
+  %kcompat = index.cmp eq, %kp, %zero : index
+  %vcompat = index.cmp eq, %vp, %zero : index
+  %qc = index.cmp eq, %qp, %one : index
+  %kc = index.cmp eq, %kp, %one : index
+  %vc = index.cmp eq, %vp, %one : index
+  %qkcompat = scalar.ori %qcompat, %kcompat : i1
+  %anycompat = scalar.ori %qkcompat, %vcompat : i1
+  %qkc = scalar.ori %qc, %kc : i1
+  %anycanonical = scalar.ori %qkc, %vc : i1
+  %compatible = scf.if %anycompat -> (buffer) {
+    %storage = buffer.alloca<global> align(256) %bytes : buffer
+    template.apply<@llm.projection.pack_input>(%zero, %rows, %rows, %hidden, %zero, %dynamic, %origin, %count, %normalized, %storage) : (index, index, index, index, index, i32, offset, buffer, buffer, buffer)
+    scf.yield %storage : buffer
   } else {
-    scf.yield %packed : buffer
+    scf.yield %normalized : buffer
   }
-  template.apply<@llm.projection.project_packed>(%q_policy, %q_tag, %rows, %rows, %hidden, %q_size, %q_bytes, %zero, %dynamic, %origin, %count, %q_packed, %q_weight, %q) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%q_bytes]xi8>, buffer)
-  %k_packed = scf.if %k_canonical -> (buffer) {
-    scf.yield %canonical_packed : buffer
+  %canonical = scf.if %anycanonical -> (buffer) {
+    %storage = buffer.alloca<global> align(256) %bytes : buffer
+    template.apply<@llm.projection.prepare_canonical_prefix>(%rows, %hidden, %count, %normalized, %storage) : (index, index, buffer, buffer, buffer)
+    scf.yield %storage : buffer
   } else {
-    scf.yield %packed : buffer
+    scf.yield %normalized : buffer
   }
-  template.apply<@llm.projection.project_packed>(%k_policy, %k_tag, %rows, %rows, %hidden, %kv, %k_bytes, %zero, %dynamic, %origin, %count, %k_packed, %k_weight, %k) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%k_bytes]xi8>, buffer)
-  %v_packed = scf.if %v_canonical -> (buffer) {
-    scf.yield %canonical_packed : buffer
+  %qpacked = scf.if %qc -> (buffer) {
+    scf.yield %canonical : buffer
   } else {
-    scf.yield %packed : buffer
+    scf.yield %compatible : buffer
   }
-  template.apply<@llm.projection.project_packed>(%v_policy, %v_tag, %rows, %rows, %hidden, %kv, %v_bytes, %zero, %dynamic, %origin, %count, %v_packed, %v_weight, %v) : (index, index, index, index, index, index, index, index, i32, offset, buffer, buffer, view<[%v_bytes]xi8>, buffer)
+  %kpacked = scf.if %kc -> (buffer) {
+    scf.yield %canonical : buffer
+  } else {
+    scf.yield %compatible : buffer
+  }
+  %vpacked = scf.if %vc -> (buffer) {
+    scf.yield %canonical : buffer
+  } else {
+    scf.yield %compatible : buffer
+  }
+  template.apply<@llm.projection.project_prepared>(%qp, %rows, %rows, %hidden, %q_size, %q_tag, %q_bytes, %dynamic, %origin, %count, %normalized, %qpacked, %q_weight, %q) : (index, index, index, index, index, index, index, i32, offset, buffer, buffer, buffer, view<[%q_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_prepared>(%kp, %rows, %rows, %hidden, %kv, %k_tag, %k_bytes, %dynamic, %origin, %count, %normalized, %kpacked, %k_weight, %k) : (index, index, index, index, index, index, index, i32, offset, buffer, buffer, buffer, view<[%k_bytes]xi8>, buffer)
+  template.apply<@llm.projection.project_prepared>(%vp, %rows, %rows, %hidden, %kv, %v_tag, %v_bytes, %dynamic, %origin, %count, %normalized, %vpacked, %v_weight, %v) : (index, index, index, index, index, index, index, i32, offset, buffer, buffer, buffer, view<[%v_bytes]xi8>, buffer)
   template.return
 }

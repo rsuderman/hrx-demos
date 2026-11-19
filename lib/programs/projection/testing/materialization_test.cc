@@ -67,6 +67,7 @@ struct Input {
   int up_bytes = 14155776;
   int fixed_count = 1;
   bool matrix_route = false;
+  bool prepared_dispatch = false;
 };
 std::vector<Input> Inputs() {
   std::vector<Input> cases = {
@@ -207,7 +208,37 @@ std::vector<Input> Inputs() {
   routed("routed_f16_short_weights", 1, 1024, 16, 8, 17, 32766, false);
   routed("routed_f16_long_weights", 1, 1024, 16, 8, 17, 32770, false);
   routed("routed_f16_small_capacity", 1, 1024, 16, 17, 8, 32768, false);
-  routed("routed_f16_large_output", 1, 1024, 32769, 8, 17, 67110912, false);
+  routed("routed_f16_large_output", 1, 1024, 32769, 8, 17, 67110912, true);
+  routed("routed_f16_actual_head", 1, 3072, 128256, 1, 1, 788004864, true);
+  routed("routed_f16_shared_output_limit", 1, 128, 262208, 1, 1, 67125248,
+         true);
+  routed("routed_f16_past_shared_output_limit", 1, 128, 262209, 1, 1, 67125504,
+         false);
+  for (const auto &[name, policy, tag, valid] :
+       std::vector<std::tuple<const char *, int, int, bool>>{
+           {"prepared_raw", 2, 1, true},
+           {"prepared_f32_raw", 2, 0, true},
+           {"prepared_raw_adapter", 1, 1, true},
+           {"prepared_raw_compatible_rejected", 0, 1, false},
+           {"prepared_raw_unknown_policy", 3, 1, false},
+           {"prepared_quantized_raw_policy", 2, 8, false},
+           {"prepared_quantized_canonical", 1, 8, true},
+           {"prepared_quantized_compatible", 0, 12, true},
+           {"prepared_quantized_bad_compatible", 0, 8, false},
+           {"prepared_f32_bad_compatible", 0, 0, false},
+           {"prepared_unknown_tag", 2, 99, false}}) {
+    Input input;
+    input.name = name;
+    input.policy = policy;
+    input.tag = tag;
+    input.width = tag == 12 ? 256 : 128;
+    input.columns = 7;
+    input.rows = input.capacity = 1;
+    input.bytes = tag == 0 ? 3584 : tag == 8 ? 952 : tag == 12 ? 1008 : 1792;
+    input.expected = valid;
+    input.prepared_dispatch = true;
+    cases.push_back(input);
+  }
   routed("routed_bad_tag", 99, 4096, 32, 17, 512, 524288, false);
   routed("routed_f32_zero_rows", 0, 4096, 32, 0, 512, 524288, false);
   routed("routed_f32_large_capacity", 0, 4096, 32, 17, 513, 524288, false);
@@ -286,6 +317,9 @@ TEST_P(ProjectionMaterializationTest,
   if (input.prepacked_rows)
     source
         << "template.decl @llm.projection.canonical_rows_prepacked(%rows: index, %capacity: index, %input_width: index, %output_width: index, %tag: index, %weight_bytes: index, %count: buffer, %raw: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)\n";
+  if (input.prepared_dispatch)
+    source
+        << "template.decl @llm.projection.project_prepared(%policy:index,%rows:index,%capacity:index,%K:index,%N:index,%tag:index,%B:index,%fixed:i32,%origin:offset,%count:buffer,%raw:buffer,%packed:buffer,%weight:view<[%B]xi8>,%output:buffer)\n";
   for (const char *format : {"q4k", "q5k", "q6k", "q8_0", "q5_0", "q4_0",
                              "q4_1", "iq4_xs", "iq4_nl", "iq3_s", "q3k"})
     source << "config.def @ggml.linear_" << format
@@ -327,6 +361,9 @@ TEST_P(ProjectionMaterializationTest,
   } else if (input.matrix_route) {
     source
         << "  template.apply<@llm.projection.matrix>(%rows,%width,%cols,%tag,%bytes,%count,%raw,%weight,%output) : (index,index,index,index,index,buffer,buffer,view<[%bytes]xi8>,buffer)\n";
+  } else if (input.prepared_dispatch) {
+    source
+        << "  template.apply<@llm.projection.project_prepared>(%policy,%rows,%capacity,%width,%cols,%tag,%bytes,%fixed,%origin,%count,%raw,%packed,%weight,%output) : (index,index,index,index,index,index,index,i32,offset,buffer,buffer,buffer,view<[%bytes]xi8>,buffer)\n";
   } else if (input.prepacked_rows) {
     source
         << "  template.apply<@llm.projection.canonical_rows_prepacked>(%rows, %capacity, %width, %cols, %tag, %bytes, %count, %raw, %packed, %weight, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)\n";

@@ -55,6 +55,7 @@ exports_files(
     [
         "completion_test.cc",
         "emit_tensor_facts.cc",
+        "reflect_parameters.cc",
         "input_environment_test.cc",
         "output_emitter_test.cc",
         "template_analysis_test.cc",
@@ -65,6 +66,7 @@ exports_files(
         "configuration_test.cc",
         "numerical_builder_test.cc",
         "configuration_fixture.h",
+        "llama_f16_fixture.h",
         "alternating_qwen_fixture.h",
         "qwen3_configuration_test.cc",
         "qwen3_fixture.h",
@@ -132,7 +134,10 @@ iree_cc_library(
 iree_cc_library(
     name = "configuration_fixture",
     testonly = True,
-    hdrs = ["configuration_fixture.h"],
+    hdrs = [
+        "configuration_fixture.h",
+        "llama_f16_fixture.h",
+    ],
     cxxopts = _CXXOPTS,
     visibility = [
         "//lib/loomify:__pkg__",

@@ -34,6 +34,8 @@ h.emit("config.def @ggml.quantize_q8_1_x4.group_capacity = 524288 : index\n")
 
 
 def extent(tag, width, columns):
+    if tag == 1:
+        return width * columns * 2
     return (
         width
         * columns
@@ -46,6 +48,20 @@ def weight_body(tag, width, role, buffer, label, up_divisor=8187):
     # Reuse the maintained independent K-quant encoders. Change only fixture
     # scales to expose compatible MMQ half-folding vs canonical F32 scales.
     divisor = up_divisor if role == "up" else 4093
+    if tag == 1:
+        factor = "%inverse_channel" if role == "up" else "%channel_factor"
+        scale = 3 / (8192 if role == "up" else 4096)
+        return f"""  %rowbytes_{label} = index.constant {width*2} : offset
+  %row_{label} = index.scale %channel,%rowbytes_{label} : index,offset -> offset
+  %w_{label} = buffer.view %{buffer}[%row_{label}] : buffer -> view<{width}xf16>
+  %factor32_{label} = index.cast {factor} : index to i32
+  %factor_{label} = scalar.uitofp %factor32_{label} : i32 to f32
+  %scale_{label} = scalar.constant {scale} : f32
+  %value_{label} = scalar.mulf %factor_{label},%scale_{label} : f32
+  %half_{label} = scalar.fptrunc %value_{label} : f32 to f16
+  %width_{label} = index.constant {width} : index
+  scf.for %k_{label} = [%zero to %width_{label} step %one] {{ view.store %half_{label},%w_{label}[%k_{label}] : f16,view<{width}xf16> }}
+"""
     if tag in (12, 13, 14):
         body = h.weight_body(tag, width, role, buffer, label)
         body = body.replace(
@@ -98,11 +114,15 @@ def weight_body(tag, width, role, buffer, label, up_divisor=8187):
 
 
 def policy(profile, tag):
+    if tag == 1:
+        return 2
     return 0 if profile == 0 and tag in (12, 14) else 1
 
 
 def coefficient(tag, role, channel, selected_policy, active, up_divisor=8187):
     factor = 4 - channel if role == "up" else channel + 1
+    if tag == 1:
+        return h.f16(factor * 3 / (8192 if role == "up" else 4096))
     d = h.f16(h.f32(factor / (up_divisor if role == "up" else 4093)))
     combined = h.f32(3 * d)
     # Only retained Q4 MMQ rounds the combined weight scale to half.
@@ -143,6 +163,13 @@ def silu(value):
     return value * e / (1 + e)
 
 
+def raw_dot(values, coefficient):
+    total = 0.0
+    for value in values:
+        total = h.f32(total + h.f32(value * coefficient))
+    return total
+
+
 def gate_up(row, hidden, gt, ut, profile, active, normalized=False):
     # Each direction needs its own discriminating data: the subsequent Q8
     # pack can erase a gate difference for some otherwise valid up scales.
@@ -151,21 +178,37 @@ def gate_up(row, hidden, gt, ut, profile, active, normalized=False):
     x = 0.9921875 * (row + 1)
     if normalized:
         value = h.f32(initial / math.sqrt(initial * initial + 1e-6) * (127 / 32))
-        codes, d = quantized([value] * 4, policy(profile, gt), active)
-        xg = codes[0] * d
-        codes, d = quantized([value] * 4, policy(profile, ut), active)
-        xu = codes[0] * d
+        if gt == 1:
+            xg = value
+        else:
+            codes, d = quantized([value] * 4, policy(profile, gt), active)
+            xg = codes[0] * d
+        if ut == 1:
+            xu = value
+        else:
+            codes, d = quantized([value] * 4, policy(profile, ut), active)
+            xu = codes[0] * d
     else:
         xg = xu = x
     gates = [
-        h.f32(xg * hidden * coefficient(gt, "gate", c, policy(profile, gt), active))
+        (
+            raw_dot([xg] * hidden, coefficient(gt, "gate", c, 2, active))
+            if gt == 1
+            else h.f32(
+                xg * hidden * coefficient(gt, "gate", c, policy(profile, gt), active)
+            )
+        )
         for c in range(4)
     ]
     ups = [
-        h.f32(
-            xu
-            * hidden
-            * coefficient(ut, "up", c, policy(profile, ut), active, up_divisor)
+        (
+            raw_dot([xu] * hidden, coefficient(ut, "up", c, 2, active))
+            if ut == 1
+            else h.f32(
+                xu
+                * hidden
+                * coefficient(ut, "up", c, policy(profile, ut), active, up_divisor)
+            )
         )
         for c in range(4)
     ]
@@ -175,6 +218,15 @@ def gate_up(row, hidden, gt, ut, profile, active, normalized=False):
 def final_values(row, hidden, ffn, tags, profile, active):
     gt, ut, dt = tags
     activated = gate_up(row, hidden, gt, ut, profile, active, True)
+    if dt == 1:
+        initial = (-1 if row % 2 else 1) * (row + 1)
+        return [
+            h.f32(
+                initial
+                + raw_dot(activated * (ffn // 4), coefficient(dt, "down", c, 2, active))
+            )
+            for c in range(4)
+        ]
     codes, d = quantized(activated, policy(profile, dt), active)
     total = ffn // 4 * sum(codes)
     initial = (-1 if row % 2 else 1) * (row + 1)
@@ -216,6 +268,8 @@ def classic():
         (1, (12, 13, 14)),
         (1, (13, 12, 14)),
         (1, (14, 12, 8)),
+        (0, (1, 1, 1)),
+        (1, (1, 8, 1)),
     ]
     if mode == "classic_q4":
         tuples = [(0, (2, 2, 2)), (0, (2, 2, 3)), (1, (3, 2, 3))]
@@ -224,9 +278,16 @@ def classic():
         cases = [(1, 1), (17, 0), (17, 1), (17, 17)]
         if (profile, tags) in ((0, (12, 12, 14)), (0, (8, 12, 14)), (1, (12, 13, 14))):
             cases += [(rows, active) for rows in (8, 16, 64) for active in (0, 1, rows)]
-        for rows, active in cases:
+        if 1 in tags:
+            cases += [(rows, active) for rows in (8, 64) for active in (0, 1, rows)]
+        phased_cases = [(rows, active, 1 if rows == 1 else 0) for rows, active in cases]
+        if 1 in tags:
+            phased_cases.append((1, 1, 0))
+        for rows, active, phase in phased_cases:
             # The legacy decode route has an existing nonempty precondition.
             name = f"independent_p{profile}_{gt}_{ut}_{dt}_t{rows}_a{active}"
+            if rows == 1 and phase == 0:
+                name += "_prefill"
             gb, ub, db = (
                 extent(gt, hidden, ffn),
                 extent(ut, hidden, ffn),
@@ -296,7 +357,7 @@ def classic():
   %E = index.constant {hidden} : index
   %F = index.constant {ffn} : index
   %T = index.constant {rows} : index
-  %phase = index.constant {1 if rows == 1 else 0} : index
+  %phase = index.constant {phase} : index
   %profile = index.constant {profile} : index
   %gt = index.constant {gt} : index
   %ut = index.constant {ut} : index
