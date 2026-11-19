@@ -1,0 +1,22 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+kernel.def @observer_write_bytes() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<8xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %value = scalar.constant 23 : i8
+  scf.for %i = [%begin to %end step %step] {
+    view.store %value, %view[%i] : i8, view<8xi8>
+  }
+  kernel.return
+}
+
+command.def public @observer_subject() launch(%input: buffer, %output: buffer) {
+  kernel.launch @observer_write_bytes(%input, %output) : (buffer, buffer)
+  command.return
+}

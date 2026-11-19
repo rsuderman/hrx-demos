@@ -1,0 +1,27 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+command.decl @observer_subject() launch(%input: buffer, %output: buffer)
+
+func.def @observer_noop(%input: buffer, %output: buffer) {
+  func.return
+}
+
+check.scenario @observer_sentinel {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(7) : tensor<8xi8>
+    %owner = check.generate.fill value(7) : tensor<16xi8>
+    %slice = check.tensor.view %owner offset(4) : tensor<16xi8> -> tensor<8xi8>
+    %prefix = check.tensor.view %owner offset(0) : tensor<16xi8> -> tensor<4xi8>
+    %suffix = check.tensor.view %owner offset(12) : tensor<16xi8> -> tensor<4xi8>
+    %expected = check.generate.fill value(23) : tensor<8xi8>
+    check.compare<@observer_subject, @observer_noop>(%input, %slice) : (tensor<8xi8>, tensor<8xi8>) -> () {
+      // Target poststate23, independently authored expected23.
+      check.expect.bitwise actual(%slice) expected(%expected) : tensor<8xi8>
+      // Oracle's independent output remains7; target immutable input remains7.
+      check.expect.bitwise actual(%input) expected(%slice) : tensor<8xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<4xi8>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<4xi8>
+    }
+  }
+  check.return
+}
