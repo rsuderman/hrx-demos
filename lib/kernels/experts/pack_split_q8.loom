@@ -1,0 +1,78 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Extracted from Qwen3-30B-A3B-2507 cached program/llm.loom,
+// SHA256 056a85bd103c55f9a2fc80cdc2448695ceb8b39ae55a92ea4a014a4c1a3a8d89.
+// Active math, split metadata, reductions and precision retain donor semantics.
+// Fixed-capacity uniform count guards are the maintained wrapper adaptation.
+
+func.decl @llm.experts.active(%rows: index, %multiplier: index, %row: index, %count: buffer) -> (i1)
+
+target.decl @llm.platform.experts.wave32
+
+kernel.def target(@llm.platform.experts.wave32) @llm.experts.pack_split_q8(%rows: index, %width: index, %active_rows: index) {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  %c63 = index.constant 63 : index
+  %c64 = index.constant 64 : index
+  %groups = index.div %width, %c32 : index
+  %gp = index.add %groups, %c63 : index
+  %wgs = index.div %gp, %c64 : index
+  kernel.launch.config workgroups(%wgs, %rows, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch(%rows_arg: index, %width_arg: index, %active_rows: index, %count: buffer, %x: buffer, %xq: buffer) {
+  %rows = index.assume %rows_arg [range(%rows_arg, 1, 4096)] : index
+  %width = index.assume %width_arg [range(%width_arg, 32, 2048), multiple_of(%width_arg, 32)] : index
+  %zero = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %c32 = index.constant 32 : index
+  %c64 = index.constant 64 : index
+  %zero_f = scalar.constant 0.0 : f32
+  %c127 = scalar.constant 127.0 : f32
+  %zero_i = scalar.constant 0 : i32
+  %zero8i = vector.splati 0 : vector<8xi32>
+  %ones8 = vector.splati 1 : vector<32xi8>
+  %zero32 = vector.splatf 0.0 : vector<32xf32>
+  %groups = index.div %width, %c32 : index
+  %wg = kernel.workgroup.id<x> : index
+  %row_id = kernel.workgroup.id<y> : index
+  %row = index.assume %row_id [lt(%row_id, %rows)] : index
+  %lane_id = kernel.workitem.id<x> : index
+  %lane = index.assume %lane_id [range(%lane_id, 0, 63)] : index
+  %gbase = index.mul %wg, %c64 : index
+  %gi = index.add %gbase, %lane : index
+  %ok = index.cmp ult, %gi, %groups : index
+  scf.if %ok {
+    %g = index.assume %gi [lt(%gi, %groups)] : index
+    %x_view = buffer.view %x[%zero] : buffer -> view<[%rows]x[%groups]x32xf32>
+    %q_view = buffer.view %xq[%zero] : buffer -> view<[%rows]x[%groups]x8xi32>
+    %m_bytes = index.cast %width : index to offset
+    %m_off = index.scale %rows, %m_bytes : index, offset -> offset
+    %m_view = buffer.view %xq[%m_off] : buffer -> view<[%rows]x[%groups]x2xf32>
+    %active = func.call @llm.experts.active(%rows, %active_rows, %row, %count) : (index, index, index, buffer) -> (i1)
+    %v = scf.if %active -> (vector<32xf32>) {
+      %loaded = vector.load %x_view[%row, %g, %c0] : view<[%rows]x[%groups]x32xf32> -> vector<32xf32>
+      scf.yield %loaded : vector<32xf32>
+    } else {
+      scf.yield %zero32 : vector<32xf32>
+    }
+    %a = vector.absf %v : vector<32xf32>
+    %amax = vector.reduce<maxnumf> %a, %zero_f : vector<32xf32>, f32
+    %d = scalar.divf %amax, %c127 : f32
+    %nz = scalar.cmpf one, %amax, %zero_f : f32
+    %dv = vector.splat %d : vector<32xf32>
+    %sc = vector.divf %v, %dv : vector<32xf32>
+    %rd = vector.roundf %sc : vector<32xf32>
+    %nzv = vector.splat %nz : vector<32xi1>
+    %rs = vector.select %nzv, %rd, %zero32 : vector<32xf32>
+    %q = vector.fptosi %rs : vector<32xf32> to vector<32xi8>
+    %qw = vector.bitcast %q : vector<32xi8> to vector<8xi32>
+    vector.store %qw, %q_view[%row, %g, %c0] : vector<8xi32>, view<[%rows]x[%groups]x8xi32>
+    %qs = vector.dot4i<s8s8> %q, %ones8, %zero8i : vector<32xi8>, vector<32xi8>, vector<8xi32>
+    %qsi = vector.reduce<addi> %qs, %zero_i : vector<8xi32>, i32
+    %qsf = scalar.sitofp %qsi : i32 to f32
+    %dh = scalar.fptrunc %d : f32 to f16
+    %da = scalar.extf %dh : f16 to f32
+    %meta = vector.from_elements %da, %qsf : vector<2xf32>
+    vector.store %meta, %m_view[%row, %g, %c0] : vector<2xf32>, view<[%rows]x[%groups]x2xf32>
+  }
+  kernel.return
+}

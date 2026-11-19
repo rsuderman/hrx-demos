@@ -1,0 +1,144 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Isolated afn SiLU and multiply anchors; same two operations as indexed gate/up.
+func.decl @llm.experts.swiglu(%gate: f32, %up: f32) -> (f32)
+
+func.decl @llm.routing.normalize_selected(%probability: f32, %total: f32) -> (f32)
+
+target.decl @llm.platform.experts.wave32
+
+kernel.def target(@llm.platform.experts.wave32) @routed.activation() {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%gate: buffer, %up: buffer, %out: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %limit = index.constant 14 : index
+  %ok = index.cmp ult, %thread, %limit : index
+  scf.if %ok {
+    %i = index.assume %thread [range(%thread, 0, 13)] : index
+    %origin = index.constant 0 : offset
+    %g = buffer.view %gate[%origin] : buffer -> view<14xf32>
+    %u = buffer.view %up[%origin] : buffer -> view<14xf32>
+    %y = buffer.view %out[%origin] : buffer -> view<14xf32>
+    %gv = view.load %g[%i] : view<14xf32> -> f32
+    %uv = view.load %u[%i] : view<14xf32> -> f32
+    %v = func.call @llm.experts.swiglu(%gv, %uv) : (f32, f32) -> (f32)
+    view.store %v, %y[%i] : f32, view<14xf32>
+  }
+  kernel.return
+}
+
+func.decl @llm.experts.q4_codes(%w: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+func.decl @llm.experts.q6_codes(%w: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+kernel.def target(@llm.platform.experts.wave32) @routed.raw_codes(%tag: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%tag: index, %weight: buffer, %codes: buffer, %metadata: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %eight = index.constant 8 : index
+  %ok = index.cmp ult, %thread, %eight : index
+  scf.if %ok {
+    %group = index.assume %thread [range(%thread, 0, 7)] : index
+    %origin = index.constant 0 : offset
+    %q4tag = index.constant 12 : index
+    %q4 = index.cmp eq, %tag, %q4tag : index
+    %q, %s0, %s1 = scf.if %q4 -> (vector<32xi8>, f32, f32) {
+      %v, %a, %b = func.call @llm.experts.q4_codes(%weight, %origin, %group) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+      scf.yield %v, %a, %b : vector<32xi8>, f32, f32
+    } else {
+      %v, %a, %b = func.call @llm.experts.q6_codes(%weight, %origin, %group) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+      scf.yield %v, %a, %b : vector<32xi8>, f32, f32
+    }
+    %intcodes = vector.sitofp %q : vector<32xi8> to vector<32xf32>
+    %cv = buffer.view %codes[%origin] : buffer -> view<8x32xf32>
+    %mv = buffer.view %metadata[%origin] : buffer -> view<8x2xf32>
+    vector.store %intcodes, %cv[%group, 0] : vector<32xf32>, view<8x32xf32>
+    view.store %s0, %mv[%group, 0] : f32, view<8x2xf32>
+    view.store %s1, %mv[%group, 1] : f32, view<8x2xf32>
+  }
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.route_sums(%C: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%C, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%C: index, %probabilities: buffer, %weights: buffer, %sums: buffer, %flags: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %zero = index.constant 0 : index
+  %writer = index.cmp eq, %thread, %zero : index
+  scf.if %writer {
+    %row0 = kernel.workgroup.id<x> : index
+    %row = index.assume %row0 [lt(%row0, %C)] : index
+    %origin = index.constant 0 : offset
+    %one = index.constant 1 : index
+    %eight = index.constant 8 : index
+    %experts = index.constant 128 : index
+    %zf = scalar.constant 0.0 : f32
+    %limit = scalar.constant 3.4e+38 : f32
+    %yes = scalar.constant true : i1
+    %pv = buffer.view %probabilities[%origin] : buffer -> view<[%C]x128xf32>
+    %wv = buffer.view %weights[%origin] : buffer -> view<[%C]x8xf32>
+    %sv = buffer.view %sums[%origin] : buffer -> view<[%C]x2xf32>
+    %fv = buffer.view %flags[%origin] : buffer -> view<[%C]xi32>
+    %p_sum, %p_valid = scf.for %e = [%zero to %experts step %one](%acc = %zf : f32, %valid = %yes : i1) -> (f32, i1) {
+      %x = view.load %pv[%row, %e] : view<[%C]x128xf32> -> f32
+      %finite_nonnegative = scalar.cmpf oge, %x, %zf : f32
+      %bounded = scalar.cmpf olt, %x, %limit : f32
+      %ok = scalar.andi %finite_nonnegative, %bounded : i1
+      %next_valid = scalar.andi %valid, %ok : i1
+      %next = scalar.addf %acc, %x : f32
+      scf.yield %next, %next_valid : f32, i1
+    }
+    %w_sum, %w_valid = scf.for %k = [%zero to %eight step %one](%acc = %zf : f32, %valid = %yes : i1) -> (f32, i1) {
+      %x = view.load %wv[%row, %k] : view<[%C]x8xf32> -> f32
+      %finite_nonnegative = scalar.cmpf oge, %x, %zf : f32
+      %bounded = scalar.cmpf olt, %x, %limit : f32
+      %ok = scalar.andi %finite_nonnegative, %bounded : i1
+      %next_valid = scalar.andi %valid, %ok : i1
+      %next = scalar.addf %acc, %x : f32
+      scf.yield %next, %next_valid : f32, i1
+    }
+    %valid = scalar.andi %p_valid, %w_valid : i1
+    %flag = scalar.extui %valid : i1 to i32
+    view.store %flag, %fv[%row] : i32, view<[%C]xi32>
+    view.store %p_sum, %sv[%row, 0] : f32, view<[%C]x2xf32>
+    view.store %w_sum, %sv[%row, 1] : f32, view<[%C]x2xf32>
+  }
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.denominator() {
+  %one = index.constant 1 : index
+  %three = index.constant 3 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%three, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%probabilities: buffer, %out: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %eight = index.constant 8 : index
+  %ok = index.cmp ult, %thread, %eight : index
+  scf.if %ok {
+    %slot = index.assume %thread [range(%thread, 0, 7)] : index
+    %row0 = kernel.workgroup.id<x> : index
+    %row = index.assume %row0 [range(%row0, 0, 2)] : index
+    %origin = index.constant 0 : offset
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %zf = scalar.constant 0.0 : f32
+    %pv = buffer.view %probabilities[%origin] : buffer -> view<3x8xf32>
+    %ov = buffer.view %out[%origin] : buffer -> view<3x8xf32>
+    %sum = scf.for %k = [%zero to %eight step %one](%acc = %zf : f32) -> (f32) {
+      %p = view.load %pv[%row, %k] : view<3x8xf32> -> f32
+      %next = scalar.addf %acc, %p : f32
+      scf.yield %next : f32
+    }
+    %p = view.load %pv[%row, %slot] : view<3x8xf32> -> f32
+    %value = func.call @llm.routing.normalize_selected(%p, %sum) : (f32, f32) -> (f32)
+    view.store %value, %ov[%row, %slot] : f32, view<3x8xf32>
+  }
+  kernel.return
+}

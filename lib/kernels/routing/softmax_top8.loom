@@ -1,0 +1,163 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Extracted from Qwen3-30B-A3B-2507 cached program/llm.loom,
+// SHA256 056a85bd103c55f9a2fc80cdc2448695ceb8b39ae55a92ea4a014a4c1a3a8d89.
+// Active math, split metadata, reductions and precision retain donor semantics.
+// Fixed-capacity uniform count guards are the maintained wrapper adaptation.
+
+func.decl @llm.routing.normalize_selected(%probability: f32, %total: f32) -> (f32)
+
+func.decl @llm.experts.active(%rows: index, %multiplier: index, %row: index, %count: buffer) -> (i1)
+
+target.decl @llm.platform.experts.wave32
+
+kernel.def target(@llm.platform.experts.wave32) @llm.routing.softmax_top8(%tokens: index) {
+  %c1 = index.constant 1 : index
+  %c256 = index.constant 256 : index
+  kernel.launch.config workgroups(%tokens, %c1, %c1) workgroup_size(%c256, %c1, %c1) : index
+} launch(%tokens_arg: index, %x: buffer, %w: buffer, %count: buffer, %ids: buffer, %wts: buffer) {
+  %tokens = index.assume %tokens_arg [range(%tokens_arg, 1, 512)] : index
+  %token_id = kernel.workgroup.id<x> : index
+  %token = index.assume %token_id [lt(%token_id, %tokens)] : index
+  %multiplier = index.constant 1 : index
+  %active = func.call @llm.experts.active(%tokens, %multiplier, %token, %count) : (index, index, index, buffer) -> (i1)
+  scf.if %active {
+    %wave_id = kernel.subgroup.id : index
+    %wave = index.assume %wave_id [range(%wave_id, 0, 7)] : index
+    %lane_id = kernel.subgroup.lane.id : index
+    %lane = index.assume %lane_id [range(%lane_id, 0, 31)] : index
+    %zero = index.constant 0 : offset
+    %c0 = index.constant 0 : index
+    %c1 = index.constant 1 : index
+    %c32 = index.constant 32 : index
+    %c2 = index.constant 2 : index
+    %c3 = index.constant 3 : index
+    %cHG = index.constant 64 : index
+    %cE = index.constant 128 : index
+    %zero_f = scalar.constant 0.0 : f32
+    %x_view = buffer.view %x[%zero] : buffer -> view<[%tokens]x64x32xf32>
+    %w_view = buffer.view %w[%zero] : buffer -> view<128x64x32xf32>
+    %lg_bytes = index.constant 512 : offset
+    %lg = buffer.alloca<workgroup> align(16) %lg_bytes : buffer
+    %lg_view = buffer.view %lg[%zero] : buffer -> view<128xf32>
+    %first = index.cmp eq, %lane, %c0 : index
+    %cEPW = index.constant 16 : index
+    %e0 = index.mul %wave, %cEPW : index
+    %cU = index.constant 4 : index
+    scf.for %j = [%c0 to %cEPW step %cU] {
+      %e_raw = index.add %e0, %j : index
+      %ex0_raw = index.add %e_raw, %c0 : index
+      %ex0 = index.assume %ex0_raw [range(%ex0_raw, 0, 127)] : index
+      %ex1_raw = index.add %e_raw, %c1 : index
+      %ex1 = index.assume %ex1_raw [range(%ex1_raw, 0, 127)] : index
+      %ex2_raw = index.add %e_raw, %c2 : index
+      %ex2 = index.assume %ex2_raw [range(%ex2_raw, 0, 127)] : index
+      %ex3_raw = index.add %e_raw, %c3 : index
+      %ex3 = index.assume %ex3_raw [range(%ex3_raw, 0, 127)] : index
+      %part0, %part1, %part2, %part3 = scf.for %g = [%lane to %cHG step %c32](%acc0 = %zero_f : f32, %acc1 = %zero_f : f32, %acc2 = %zero_f : f32, %acc3 = %zero_f : f32) -> (f32, f32, f32, f32) {
+        %bg = index.assume %g [range(%g, 0, 63)] : index
+        %xv = vector.load %x_view[%token, %bg, %c0] : view<[%tokens]x64x32xf32> -> vector<32xf32>
+        %wv0 = vector.load %w_view[%ex0, %bg, %c0] : view<128x64x32xf32> -> vector<32xf32>
+        %wv1 = vector.load %w_view[%ex1, %bg, %c0] : view<128x64x32xf32> -> vector<32xf32>
+        %wv2 = vector.load %w_view[%ex2, %bg, %c0] : view<128x64x32xf32> -> vector<32xf32>
+        %wv3 = vector.load %w_view[%ex3, %bg, %c0] : view<128x64x32xf32> -> vector<32xf32>
+        %d0 = vector.dotf<reassoc|contract> %wv0, %xv, %zero_f : vector<32xf32>, vector<32xf32>, f32
+        %nx0 = scalar.addf %acc0, %d0 : f32
+        %d1 = vector.dotf<reassoc|contract> %wv1, %xv, %zero_f : vector<32xf32>, vector<32xf32>, f32
+        %nx1 = scalar.addf %acc1, %d1 : f32
+        %d2 = vector.dotf<reassoc|contract> %wv2, %xv, %zero_f : vector<32xf32>, vector<32xf32>, f32
+        %nx2 = scalar.addf %acc2, %d2 : f32
+        %d3 = vector.dotf<reassoc|contract> %wv3, %xv, %zero_f : vector<32xf32>, vector<32xf32>, f32
+        %nx3 = scalar.addf %acc3, %d3 : f32
+        scf.yield %nx0, %nx1, %nx2, %nx3 : f32, f32, f32, f32
+      }
+      %logit0 = kernel.subgroup.reduce<addf> %part0 : f32
+      %logit1 = kernel.subgroup.reduce<addf> %part1 : f32
+      %logit2 = kernel.subgroup.reduce<addf> %part2 : f32
+      %logit3 = kernel.subgroup.reduce<addf> %part3 : f32
+      scf.if %first {
+        view.store %logit0, %lg_view[%ex0] : f32, view<128xf32>
+        view.store %logit1, %lg_view[%ex1] : f32, view<128xf32>
+        view.store %logit2, %lg_view[%ex2] : f32, view<128xf32>
+        view.store %logit3, %lg_view[%ex3] : f32, view<128xf32>
+      }
+    }
+
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %t0 = kernel.workitem.id<x> : index
+    %tb = index.assume %t0 [range(%t0, 0, 255)] : index
+    %in_range = index.cmp ult, %tb, %cE : index
+    %removed = scalar.constant -3.0000000000000001e+38 : f32
+    // Donor used the ranking sentinel as padding for max(logits), which can
+    // dominate finite logits below -3e38. Only padding uses F32 lowest here;
+    // normalized probability ranking/removal retains the donor sentinel.
+    %padding_logit = scalar.constant -3.4028234663852886e+38 : f32
+    %prob_r, %raw = scf.if %in_range -> (f32, f32) {
+      %be = index.assume %tb [range(%tb, 0, 127)] : index
+      %lgt = view.load %lg_view[%be] : view<128xf32> -> f32
+      %prob_v = scalar.addf %lgt, %zero_f : f32
+
+      %score_v = scalar.addf %prob_v, %zero_f : f32
+      scf.yield %prob_v, %score_v : f32, f32
+    } else {
+      scf.yield %zero_f, %padding_logit : f32, f32
+    }
+    %lmax = kernel.workgroup.reduce<maxnumf> %raw : f32
+    %lsh = scalar.subf %raw, %lmax : f32
+    %lex = scalar.expf<afn> %lsh : f32
+    %lex_in = scf.select %in_range, %lex, %zero_f : f32
+    %lden = kernel.workgroup.reduce<addf> %lex_in : f32
+    %prob = scalar.divf %lex_in, %lden : f32
+    %score0 = scf.select %in_range, %prob, %removed : f32
+    %ids_view = buffer.view %ids[%zero] : buffer -> view<[%tokens]x8xi32>
+    %wts_view = buffer.view %wts[%zero] : buffer -> view<[%tokens]x8xf32>
+    %t32 = index.cast %tb : index to i32
+    %big_id = scalar.constant 1000000 : i32
+    %cKU = index.constant 8 : index
+    %minus1 = scalar.constant -1 : i32
+    %rest, %total, %my_w, %my_k = scf.for %round = [%c0 to %cKU step %c1](%sc = %score0 : f32, %sum = %zero_f : f32, %mw = %zero_f : f32, %mk = %minus1 : i32) -> (f32, f32, f32, i32) {
+      %best = kernel.workgroup.reduce<maxnumf> %sc : f32
+      %is_best = scalar.cmpf oeq, %sc, %best : f32
+      %cand = scf.select %is_best, %t32, %big_id : i32
+      %winner = kernel.workgroup.reduce<minsi> %cand : i32
+      %won = scalar.cmpi eq, %winner, %t32 : i32
+      %br = index.assume %round [range(%round, 0, 7)] : index
+      scf.if %won {
+        view.store %t32, %ids_view[%token, %br] : i32, view<[%tokens]x8xi32>
+      }
+      %mine = scf.select %won, %prob, %zero_f : f32
+      %wp = kernel.workgroup.reduce<addf> %mine : f32
+      %round32 = index.cast %br : index to i32
+      %next_mw = scf.select %won, %prob, %mw : f32
+      %next_mk = scf.select %won, %round32, %mk : i32
+      %next_sc = scf.select %won, %removed, %sc : f32
+      %next_sum = scalar.addf %sum, %wp : f32
+      scf.yield %next_sc, %next_sum, %next_mw, %next_mk : f32, f32, f32, i32
+    }
+    // The winner thread of each round keeps its prob in registers and writes the normalized weight
+    // itself: reading back other threads' global stores raced through the per-WGP cache when
+    // neighboring tokens' workgroups share a cache line (prefill outputs varied run to run).
+    %c0_i32r = scalar.constant 0 : i32
+    %writer = scalar.cmpi sge, %my_k, %c0_i32r : i32
+    scf.if %writer {
+      %kb = scalar.assume %my_k [range(%my_k, 0, 7)] : i32
+      %bk = index.cast %kb : i32 to index
+      %wn = func.call @llm.routing.normalize_selected(%my_w, %total) : (f32, f32) -> (f32)
+      view.store %wn, %wts_view[%token, %bk] : f32, view<[%tokens]x8xf32>
+    }
+  } else {
+    %tid_inactive = kernel.workitem.id<x> : index
+    %eight_inactive = index.constant 8 : index
+    %writer_inactive = index.cmp ult, %tid_inactive, %eight_inactive : index
+    scf.if %writer_inactive {
+      %origin_inactive = index.constant 0 : offset
+      %id_inactive = buffer.view %ids[%origin_inactive] : buffer -> view<[%tokens]x8xi32>
+      %wt_inactive = buffer.view %wts[%origin_inactive] : buffer -> view<[%tokens]x8xf32>
+      %zi_inactive = scalar.constant 0 : i32
+      %zf_inactive = scalar.constant 0.0 : f32
+      view.store %zi_inactive, %id_inactive[%token, %tid_inactive] : i32, view<[%tokens]x8xi32>
+      view.store %zf_inactive, %wt_inactive[%token, %tid_inactive] : f32, view<[%tokens]x8xf32>
+    }
+  }
+  kernel.return
+}

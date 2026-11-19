@@ -1,0 +1,20 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "common.loom",
+    "indexed.loom",
+    "pack_split_q8.loom",
+    "swiglu.loom",
+])
+
+filegroup(
+    name = "all_sources",
+    srcs = [
+        "common.loom",
+        "indexed.loom",
+        "pack_split_q8.loom",
+        "swiglu.loom",
+    ],
+)

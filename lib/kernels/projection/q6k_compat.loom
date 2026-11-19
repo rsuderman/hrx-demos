@@ -107,7 +107,7 @@ func.def inline @ggml_q6k_compat_weighted_parts(%weight: buffer, %weight_row_byt
 }
 
 func.def inline @ggml_q6k_compat_row(%input_size: index, %weight: buffer, %weight_row_byte_base: offset, %q8_input: buffer, %q8_row_byte_base: offset, %lane: index) -> (f32) {
-  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 27648), multiple_of(%input_size, 256)] : index
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
   %c256 = index.constant 256 : index
@@ -137,7 +137,7 @@ kernel.def target(@llm.platform.projection.q6k.compatible.wave32) export("ggml_l
   %token_capacity = config.get @ggml.linear_q6k_q8_1_x4.token_capacity : index
   %output_capacity = config.get @ggml.linear_q6k_q8_1_x4.output_capacity : index
   %bounded_token_count = index.assume %token_count [range(%token_count, 1, 2048), le(%token_count, %token_capacity)] : index
-  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 17408), multiple_of(%input_size, 256)] : index
+  %bounded_input_size = index.assume %input_size [range(%input_size, 256, 27648), multiple_of(%input_size, 256)] : index
   %bounded_output_size = index.assume %output_size [range(%output_size, 1, 262144), le(%output_size, %output_capacity)] : index
   %subgroup_size = target.subgroup.size : index
   %workgroup_size = index.constant 256 : index

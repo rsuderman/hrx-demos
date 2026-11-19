@@ -80,11 +80,27 @@ def main():
         action="append",
         help="scaled matrix CAPACITY:ACTIVE, repeatable; default 17:2",
     )
+    parser.add_argument(
+        "--wide-q6-down",
+        action="store_true",
+        help="exact audited Qwen32 full-shape C1/C17 down witness",
+    )
+    parser.add_argument("--provider-text", type=Path)
+    parser.add_argument("--provider-bc", type=Path)
+    parser.add_argument(
+        "--matrix-proof-root",
+        type=Path,
+        help="strict-normalized full-shape matrix proof directory for wide-Q6 witness",
+    )
     args = parser.parse_args()
     if not os.environ.get("LOOM_SERVE_DIR"):
         parser.error(
             "set the isolated validation instance LOOM_SERVE_DIR before invocation"
         )
+    if args.wide_q6_down:
+        from wide_q6_real_assets import run
+
+        return run(args)
     args.output.mkdir(parents=True, exist_ok=False)
     index = json.loads(args.tensor_index.read_text())
     tensors = {entry["name"]: entry for entry in index["tensors"]}

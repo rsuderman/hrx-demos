@@ -511,6 +511,7 @@ iree_cc_library(
         "//lib/loomify/testing:__pkg__",
         "//lib/loomify/testing/platform:__pkg__",
         "//lib/programs/ffn/testing:__pkg__",
+        "//lib/programs/ffn/testing/routed:__pkg__",
         "//lib/programs/projection/testing:__pkg__",
         "//lib/serving/testing:__pkg__",
         "//lib/text/testing:__pkg__",

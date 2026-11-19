@@ -93,7 +93,8 @@ serialized component with its raw members or a complete architecture product.
 | Q4_K projection bodies | [q4k.loom](../kernels/projection/q4k.loom), [canonical](../kernels/projection/q4k_canonical.loom), [compatible](../kernels/projection/q4k_compat.loom) | Stored GGUF enum12, 256-value/144-byte blocks. Use through projection composition with matching activation packing and arithmetic policy. | Projection operation checks above; [FFN capability checks](../programs/ffn/testing/BUILD.bazel). |
 | Q5_0 projection body | [q5_0.loom](../kernels/projection/q5_0.loom), [shared block32 codec](../kernels/projection/block32.loom), [shared launch/control](../kernels/projection/block32_launch.loom) | Enum6, 32-value/22-byte blocks; canonical packed-activation route. Distinct from Q5_K. | [Gemma operation checks](../programs/projection/testing/gemma3_checks.loom) and native materialization negatives. |
 | Q5_K projection bodies | [q5k.loom](../kernels/projection/q5k.loom) | Enum13, 256-value/176-byte blocks; canonical operation route. This is not Q5_0. | Projection operation checks; [Qwen common checks](../kernels/qwen/testing/common/checks.loom). |
-| Q6_K projection bodies | [q6k.loom](../kernels/projection/q6k.loom), [canonical](../kernels/projection/q6k_canonical.loom), [compatible](../kernels/projection/q6k_compat.loom) | Enum14, 256-value/210-byte blocks. Match reduction/packing policy, not just the storage tag. | Projection operation checks and FFN capability checks. |
+| Direct routed FFN: `llm.ffn.direct_routed` | [Composition](../programs/ffn/direct_routed.loom), [indexed experts and split pack](../kernels/experts/BUILD.bazel), [router/combine](../kernels/routing/BUILD.bazel) | First bounded E2048/F768/128-expert/top8 profile, C1..512; F32 router, independent Q4_K gate/up and Q4_K or Q6_K down. Stable softmax top8 with lowest-ID ties and selected-probability normalization; initial maximum padding uses lowest finite F32. Paired activation packing stores int8 payload followed by F32 half-rounded scale and raw sum per32 values, with fixed C/8C metadata origins; it is not dense Q8_1_x4. Count outside0..C follows the empty path. R count/input/weights; W disjoint output, inactive/invalid rows zero. Owns six transient global buffers totaling100416*C bytes before alignment, no persistent state, residual or shared expert. | [Independent stage/composition fixtures](../programs/ffn/testing/routed/fixtures.py), [observed stage seams](../programs/ffn/testing/routed/observe.py), [native materialization](../programs/ffn/testing/routed/materialization_test.cc), [SOURCE/BC checks](../programs/ffn/testing/routed/BUILD.bazel). Component acceptance does not establish actual rank3 model binding, real-model numerical execution, family support or Serve; those require a model consumer. |
+| Q6_K projection bodies | [q6k.loom](../kernels/projection/q6k.loom), [canonical](../kernels/projection/q6k_canonical.loom), [compatible](../kernels/projection/q6k_compat.loom) | Enum14, 256-value/210-byte blocks; input256..27648 multiple256. Existing fixed-wave block reduction and canonical/compatible packed policies remain distinct from scaled-F16 matrix arithmetic. | [Independent wide fixtures](../programs/projection/testing/matrix/wide_q6_fixtures.py) cover old3584/17408 and17664/21504/22016/27648, signed/high-bit/late-only blocks, tails, active rows, padding and ownership; [packed fixtures](../programs/projection/testing/fixtures.py) cover shifted origins/fixed counts. [Real-weight helper](../programs/projection/testing/matrix/wide_q6_real_assets.py) executes exact full Qwen32 down geometry through C1/C17 with bounded independent output samples. Complete model binding remains separate. |
 | Q8_0 projection bodies | [q8_0.loom](../kernels/projection/q8_0.loom), [shared launch/control](../kernels/projection/block32_launch.loom) | Enum8, 32-value/34-byte blocks; consumes the operation's packed Q8_1_x4 activations, not arbitrary Q8 buffers. | Projection operation checks; Qwen common/output fixtures. |
 | Activation packing and encoded-word helpers | [Quantization sources/BUILD](../kernels/quantization/BUILD.bazel), [common packed-word helper](../kernels/quantization/q8_1_x4.loom), [canonical](../kernels/quantization/q8_1_x4_canonical.loom), [MMVQ policy](../kernels/quantization/q8_1_x4_mmvq_compat.loom) | F32 input to Q8_1_x4 groups; native/MMQ/canonical arithmetic choices are part of the contract. R activation/count; W packed data and scale metadata. Width multiple128 in the public projection wrapper. | Projection checks and [compatible/canonical FFN fixtures](../programs/ffn/testing/BUILD.bazel). |
 | Weighted RMS row: `llm.rmsnorm.row` | [rmsnorm_row.loom](../kernels/normalization/rmsnorm_row.loom) | Hidden width1..32768; explicit epsilon, row and output offset; F32 input/weight, F32 or F16 output. R input/gamma; W separate output row; source asserts no alias. It does not add1 to stored gamma. | [Llama norm checks](../kernels/llama/testing/registered_norm_checks.loom), Qwen common/FFN fixtures. |
@@ -128,7 +129,7 @@ to generated capacity definitions and the selected kernel's contract:
 | Q4_K | 256..32768, multiple256 | Canonical and compatible |
 | Q5_0 | 128..32768, multiple128 | Canonical |
 | Q5_K | 256..32768, multiple256 | Canonical |
-| Q6_K | 256..17408, multiple256 | Canonical and compatible |
+| Q6_K | 256..27648, multiple256 | Canonical and compatible |
 | Q8_0 | 128..32768, multiple128 | Canonical |
 | IQ4_XS | 256..32768, multiple256 | Canonical; block256/136bytes, nonlinear codebook and signed subgroup scales |
 | IQ4_NL | 128..32768, multiple128 | Canonical; block32/18bytes, nonlinear IQ4 codebook |
@@ -454,7 +455,7 @@ for each layer, allowing independent supported effective profiles in constructed
 descriptors; GGUF extraction still follows its maintained metadata schema. Admission intersects consumed operations: hidden1024..32768 multiple256,
 H256, layers1..64, divisible Q/KV head counts1..128, FFN256..32768 multiple256,
 vocabulary256..262144 and each actual projection's format-specific input bound.
-In particular a Q6_K head/QKV/down operand imposes its own input<=17408;
+In particular a Q6_K head/QKV/down operand imposes its own input<=27648;
 checkpoint equality is not an admission rule. Constructed descriptor tests cover
 shape/tag/routing variation and transactional failures; they do not prove every
 admitted shape on hardware.
@@ -483,7 +484,7 @@ define inactive normalized input as zero; persistent state writes retain their
 separate active-count guards. The [gate fixtures](../programs/projection/testing/BUILD.bazel)
 exercise the actual shared dispatcher and tiny per-head output geometry.
 Quantized gate admission and capacity sizing use the shared canonical projection
-checker, including each format's block/extent rules and Q6_K's input limit17408.
+checker, including each format's block/extent rules and Q6_K's input limit27648.
 Sharing activation packing does not make weight encodings interchangeable or
 qualify a complete model using that encoding.
 
@@ -493,7 +494,7 @@ and ranges, rotary/window facts and history extent. The [model](../architectures
 and [layer](../programs/lfm3/layer.loom) retain the maintained operation order.
 The initial mapper admits hidden widths1024..8192 in multiples1024, H128,
 FFN widths256..32768 in multiples256, seven-tap short convolution, and rows1..512;
-individual operations retain their own format/geometry contracts, including Q6_K down-input<=17408.
+individual operations retain their own format/geometry contracts, including Q6_K down-input<=27648.
 It uses canonical quantized projection separately for mixed gate/up/down tags,
 without requiring another matrix or fused mixed-format provider.
 See [descriptor/configuration tests](../loomify/testing/lfm3_configuration_test.cc).

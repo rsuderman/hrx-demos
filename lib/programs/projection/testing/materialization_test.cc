@@ -141,7 +141,7 @@ std::vector<Input> Inputs() {
        false},
       {"unsupported_compatible_q8", 0, 8, 768, 1, 4, 39984, 524288, 262144,
        false},
-      {"bad_q6_width", 1, 14, 17664, 1, 4, 710010, 524288, 262144, false},
+      {"bad_q6_width", 1, 14, 27904, 1, 4, 1121610, 524288, 262144, false},
       {"bad_q8_alignment", 1, 8, 64, 1, 4, 3332, 524288, 262144, false},
       {"bad_weight_bytes", 1, 12, 768, 1, 4, 1, 524288, 262144, false},
       {"bad_capacity", 1, 12, 768, 4, 1, 21168, 524288, 262144, false},
@@ -150,6 +150,25 @@ std::vector<Input> Inputs() {
       {"packed_f32_ornith_rejected", 1, 0, 4096, 17, 512, 524288, 524288,
        262144, false, 32},
   };
+  for (int policy : {0, 1}) {
+    for (int width : {17408, 17664, 21504, 22016, 27648}) {
+      Input input;
+      input.name = "wide_q6_packed_provider";
+      input.policy = policy;
+      input.tag = 14;
+      input.width = width;
+      input.rows = input.capacity = 1;
+      input.columns = 9;
+      input.bytes = width / 256 * 210 * input.columns;
+      cases.push_back(input);
+      if (width == 27648) {
+        input.name = "wide_q6_short_weight_range";
+        --input.bytes;
+        input.expected = false;
+        cases.push_back(input);
+      }
+    }
+  }
   for (int tag : {20, 21, 11}) {
     for (int rows : {1, 17}) {
       Input input;

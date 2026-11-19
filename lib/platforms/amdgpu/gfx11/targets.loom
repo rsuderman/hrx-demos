@@ -40,3 +40,5 @@ amdgpu.target<gfx11-generic> @llm.platform.projection.iq4_nl.wave32 {subgroup_si
 amdgpu.target<gfx11-generic> @llm.platform.projection.iq3_s.wave32 {subgroup_size = 32}
 
 amdgpu.target<gfx11-generic> @llm.platform.projection.q3k.wave32 {subgroup_size = 32}
+
+amdgpu.target<gfx11-generic> @llm.platform.experts.wave32 {subgroup_size = 32}

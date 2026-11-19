@@ -1,0 +1,66 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// First direct expert profile: E2048/F768/expert128/top8. No family state.
+// Split Q8 payload and F32 metadata are paired exclusively with indexed kernels.
+
+kernel.decl @llm.experts.pack_split_q8(%rows: index, %width: index, %active_rows$2: index) launch(%rows_arg: index, %width_arg: index, %active_rows$5: index, %count: buffer, %x: buffer, %xq: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %w2: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q6(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %y: buffer)
+
+kernel.decl @llm.routing.weighted_top8(%tokens: index) launch(%tokens_arg: index, %count: buffer, %ys: buffer, %wts: buffer, %y: buffer)
+
+kernel.decl @llm.routing.softmax_top8(%tokens: index) launch(%tokens_arg: index, %x: buffer, %w: buffer, %count: buffer, %ids: buffer, %wts: buffer)
+
+template.decl @llm.ffn.direct_routed(%C: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer)
+
+template.decl @llm.experts.down_admit(%tag: index, %bytes: index)
+
+template.def<@llm.experts.down_admit> @llm_experts_down_q4_admit(%tag: index, %bytes: index) where [eq(%tag, 12), eq(%bytes, 113246208)] {
+  template.return
+}
+
+template.def<@llm.experts.down_admit> @llm_experts_down_q6_admit(%tag: index, %bytes: index) where [eq(%tag, 14), eq(%bytes, 165150720)] {
+  template.return
+}
+
+template.def<@llm.ffn.direct_routed> @llm_ffn_direct_routed(%C: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer) where [range(%C, 1, 512), eq(%gate_bytes, 113246208), eq(%up_bytes, 113246208)] {
+  template.apply<@llm.experts.down_admit>(%down_tag, %down_bytes) : (index, index)
+  %one = index.constant 1 : index
+  %eight = index.constant 8 : index
+  %hidden_width = index.constant 2048 : index
+  %expert_width = index.constant 768 : index
+  %q4 = index.constant 12 : index
+  %assignments = index.mul %C, %eight : index
+  %id_stride = index.constant 32 : offset
+  %input_stride = index.constant 2560 : offset
+  %hidden_stride = index.constant 24576 : offset
+  %packed_hidden_stride = index.constant 7680 : offset
+  %expert_stride = index.constant 65536 : offset
+  %id_bytes = index.scale %C, %id_stride : index, offset -> offset
+  %input_bytes = index.scale %C, %input_stride : index, offset -> offset
+  %hidden_bytes = index.scale %C, %hidden_stride : index, offset -> offset
+  %packed_hidden_bytes = index.scale %C, %packed_hidden_stride : index, offset -> offset
+  %expert_bytes = index.scale %C, %expert_stride : index, offset -> offset
+  %ids = buffer.alloca<global> align(256) %id_bytes : buffer
+  %weights = buffer.alloca<global> align(256) %id_bytes : buffer
+  %packed_input = buffer.alloca<global> align(256) %input_bytes : buffer
+  %hidden = buffer.alloca<global> align(256) %hidden_bytes : buffer
+  %packed_hidden = buffer.alloca<global> align(256) %packed_hidden_bytes : buffer
+  %expert_output = buffer.alloca<global> align(256) %expert_bytes : buffer
+  kernel.launch @llm.routing.softmax_top8[%C](%C, %input, %router, %count, %ids, %weights) : [index](index, buffer, view<128x2048xf32>, buffer, buffer, buffer)
+  kernel.launch @llm.experts.pack_split_q8[%C, %hidden_width, %one](%C, %hidden_width, %one, %count, %input, %packed_input) : [index, index, index](index, index, index, buffer, buffer, buffer)
+  kernel.launch @llm.experts.indexed_swiglu_q4[%expert_width, %assignments](%expert_width, %assignments, %count, %ids, %packed_input, %gate, %up, %hidden) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  kernel.launch @llm.experts.pack_split_q8[%assignments, %expert_width, %eight](%assignments, %expert_width, %eight, %count, %hidden, %packed_hidden) : [index, index, index](index, index, index, buffer, buffer, buffer)
+  %down_q4 = index.cmp eq, %down_tag, %q4 : index
+  scf.if %down_q4 {
+    kernel.launch @llm.experts.indexed_down_q4[%hidden_width, %assignments](%hidden_width, %assignments, %count, %ids, %packed_hidden, %down, %expert_output) : [index, index](index, index, buffer, buffer, buffer, view<[%down_bytes]xi8>, buffer)
+  } else {
+    kernel.launch @llm.experts.indexed_down_q6[%hidden_width, %assignments](%hidden_width, %assignments, %count, %ids, %packed_hidden, %down, %expert_output) : [index, index](index, index, buffer, buffer, buffer, view<[%down_bytes]xi8>, buffer)
+  }
+  kernel.launch @llm.routing.weighted_top8[%C](%C, %count, %expert_output, %weights, %output) : [index](index, buffer, buffer, buffer, buffer)
+  template.return
+}

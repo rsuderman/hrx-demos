@@ -1,0 +1,18 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "softmax_top8.loom",
+    "weighted_top8.loom",
+    "selected_weights.loom",
+])
+
+filegroup(
+    name = "all_sources",
+    srcs = [
+        "softmax_top8.loom",
+        "weighted_top8.loom",
+        "selected_weights.loom",
+    ],
+)

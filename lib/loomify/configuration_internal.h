@@ -87,7 +87,7 @@ inline bool CheckCanonicalProjection(const model::TensorRecord &tensor,
     break;
   case 14:
     block = 256;
-    maximum = 17408;
+    maximum = 27648;
     break;
   case 2:
   case 3:

@@ -1,0 +1,535 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Extracted from Qwen3-30B-A3B-2507 cached program/llm.loom,
+// SHA256 056a85bd103c55f9a2fc80cdc2448695ceb8b39ae55a92ea4a014a4c1a3a8d89.
+// Active math, split metadata, reductions and precision retain donor semantics.
+// Fixed-capacity uniform count guards are the maintained wrapper adaptation.
+
+func.decl @llm.experts.swiglu(%gate: f32, %up: f32) -> (f32)
+
+func.decl @llm.experts.active(%rows: index, %multiplier: index, %row: index, %count: buffer) -> (i1)
+
+target.decl @llm.platform.experts.wave32
+
+func.decl @llm.experts.q4_codes(%w: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+func.decl @llm.experts.q6_codes(%w: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+func.decl @llm.experts.store_row(%y: buffer, %tokens: index, %n: index, %token: index, %row: index, %value: f32, %accumulate: i32)
+
+kernel.def target(@llm.platform.experts.wave32) @llm.experts.indexed_swiglu_q4(%n: index, %tokens: index) {
+  %c1 = index.constant 1 : index
+  %lanes = index.constant 64 : index
+  %rows_per = index.constant 2 : index
+  %row_groups = index.div %n, %rows_per : index
+  kernel.launch.config workgroups(%tokens, %row_groups, %c1) workgroup_size(%lanes, %c1, %c1) : index
+} launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %w2: buffer, %y: buffer) {
+  %n = index.assume %n_arg [eq(%n_arg, 768)] : index
+  %tokens = index.assume %tokens_arg [range(%tokens_arg, 8, 4096), multiple_of(%tokens_arg, 8)] : index
+  %group_id = kernel.workgroup.id<y> : index
+  %a_id = kernel.workgroup.id<x> : index
+  %a = index.assume %a_id [lt(%a_id, %tokens)] : index
+  %multiplier = index.constant 8 : index
+  %active = func.call @llm.experts.active(%tokens, %multiplier, %a, %count) : (index, index, index, buffer) -> (i1)
+  scf.if %active {
+    %workitem_id = kernel.workitem.id<x> : index
+    %workitem = index.assume %workitem_id [range(%workitem_id, 0, 63)] : index
+    %wave_id = kernel.subgroup.id : index
+    %wave = index.assume %wave_id [range(%wave_id, 0, 1)] : index
+    %lane_id = kernel.subgroup.lane.id : index
+    %lane = index.assume %lane_id [range(%lane_id, 0, 31)] : index
+    %zero = index.constant 0 : offset
+    %c0 = index.constant 0 : index
+    %c1 = index.constant 1 : index
+    %cKU = index.constant 8 : index
+    %rows_per = index.constant 2 : index
+    %cW = index.constant 2 : index
+    %row_bytes = index.constant 1152 : offset
+    %expert_bytes = index.constant 884736 : offset
+    %block_bytes = index.constant 144 : offset
+    %zero_f = scalar.constant 0.0 : f32
+    %zero32 = vector.splatf 0.0 : vector<32xf32>
+    %c0_i32 = scalar.constant 0 : i32
+    %cE1_i32 = scalar.constant 127 : i32
+    %ids_view = buffer.view %ids[%zero] : buffer -> view<[%tokens]xi32>
+    %eid = view.load %ids_view[%a] : view<[%tokens]xi32> -> i32
+    %elo = scalar.maxsi %eid, %c0_i32 : i32
+    %ehi = scalar.minsi %elo, %cE1_i32 : i32
+    %eb32 = scalar.assume %ehi [range(%ehi, 0, 127)] : i32
+    %e = index.cast %eb32 : i32 to index
+    %e_off = index.scale %e, %expert_bytes : index, offset -> offset
+    %xrows = index.div %tokens, %cKU : index
+    %xr_v = index.div %a, %cKU : index
+    %xr = index.assume %xr_v [lt(%xr_v, %xrows)] : index
+    %cgroups = index.constant 64 : index
+    %xq_view = buffer.view %x[%zero] : buffer -> view<[%xrows]x64x8xi32>
+    %cK = index.constant 2048 : index
+    %xm_bytes = index.cast %cK : index to offset
+    %xm_off = index.scale %xrows, %xm_bytes : index, offset -> offset
+    %xm_view = buffer.view %x[%xm_off] : buffer -> view<[%xrows]x64x2xf32>
+    %zero32i8 = vector.splati 0 : vector<32xi8>
+    %zero1i = vector.splati 0 : vector<1xi32>
+    %row_base = index.mul %group_id, %rows_per : index
+    %ok = index.cmp ult, %workitem, %cgroups : index
+    %g_last = index.constant 63 : index
+    %g_c = index.min %workitem, %g_last : index
+    %g = index.assume %g_c [range(%g_c, 0, 63)] : index
+    %cgpb = index.constant 8 : index
+    %blk = index.div %g, %cgpb : index
+    %within = index.rem %g, %cgpb : index
+    %ba = index.scale %blk, %block_bytes : index, offset -> offset
+    %q0, %da0, %xs0 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+      %tk0 = index.assume %xr [lt(%xr, %xrows)] : index
+      %cw = vector.load %xq_view[%tk0, %g, %c0] : view<[%xrows]x64x8xi32> -> vector<8xi32>
+      %cb = vector.bitcast %cw : vector<8xi32> to vector<32xi8>
+      %mt = vector.load %xm_view[%tk0, %g, %c0] : view<[%xrows]x64x2xf32> -> vector<2xf32>
+      %m0 = vector.extract %mt[0] : vector<2xf32> -> f32
+      %m1 = vector.extract %mt[1] : vector<2xf32> -> f32
+      scf.yield %cb, %m0, %m1 : vector<32xi8>, f32, f32
+    } else {
+      scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+    }
+    %part_bytes = index.constant 32 : offset
+    %parts = buffer.alloca<workgroup> align(16) %part_bytes : buffer
+    %pv = buffer.view %parts[%zero] : buffer -> view<2x2x2xf32>
+    %first = index.cmp eq, %lane, %c0 : index
+    scf.for %r = [%c0 to %rows_per step %c1] {
+      %row_value = index.add %row_base, %r : index
+      %row = index.assume %row_value [lt(%row_value, %n)] : index
+      %ro = index.scale %row, %row_bytes : index, offset -> offset
+      %rb = index.assume %r [range(%r, 0, 1)] : index
+      %o0 = index.add %ro, %ba : offset
+      %o = index.add %o0, %e_off : offset
+      %wq0, %sc0, %mn0 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+        %v, %a, %b = func.call @llm.experts.q4_codes(%w, %o, %within) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+        scf.yield %v, %a, %b : vector<32xi8>, f32, f32
+      } else {
+        scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+      }
+      %wk0_0 = vector.slice %wq0[0] : vector<32xi8> -> vector<4xi8>
+      %wk0_1 = vector.slice %wq0[4] : vector<32xi8> -> vector<4xi8>
+      %wk0_2 = vector.slice %wq0[8] : vector<32xi8> -> vector<4xi8>
+      %wk0_3 = vector.slice %wq0[12] : vector<32xi8> -> vector<4xi8>
+      %wk0_4 = vector.slice %wq0[16] : vector<32xi8> -> vector<4xi8>
+      %wk0_5 = vector.slice %wq0[20] : vector<32xi8> -> vector<4xi8>
+      %wk0_6 = vector.slice %wq0[24] : vector<32xi8> -> vector<4xi8>
+      %wk0_7 = vector.slice %wq0[28] : vector<32xi8> -> vector<4xi8>
+      %qk0_0_0 = vector.slice %q0[0] : vector<32xi8> -> vector<4xi8>
+      %ac0_0_0 = vector.dot4i<s8s8> %wk0_0, %qk0_0_0, %zero1i : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_1_0 = vector.slice %q0[4] : vector<32xi8> -> vector<4xi8>
+      %ac0_1_0 = vector.dot4i<s8s8> %wk0_1, %qk0_1_0, %ac0_0_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_2_0 = vector.slice %q0[8] : vector<32xi8> -> vector<4xi8>
+      %ac0_2_0 = vector.dot4i<s8s8> %wk0_2, %qk0_2_0, %ac0_1_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_3_0 = vector.slice %q0[12] : vector<32xi8> -> vector<4xi8>
+      %ac0_3_0 = vector.dot4i<s8s8> %wk0_3, %qk0_3_0, %ac0_2_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_4_0 = vector.slice %q0[16] : vector<32xi8> -> vector<4xi8>
+      %ac0_4_0 = vector.dot4i<s8s8> %wk0_4, %qk0_4_0, %ac0_3_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_5_0 = vector.slice %q0[20] : vector<32xi8> -> vector<4xi8>
+      %ac0_5_0 = vector.dot4i<s8s8> %wk0_5, %qk0_5_0, %ac0_4_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_6_0 = vector.slice %q0[24] : vector<32xi8> -> vector<4xi8>
+      %ac0_6_0 = vector.dot4i<s8s8> %wk0_6, %qk0_6_0, %ac0_5_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_7_0 = vector.slice %q0[28] : vector<32xi8> -> vector<4xi8>
+      %ac0_7_0 = vector.dot4i<s8s8> %wk0_7, %qk0_7_0, %ac0_6_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %ie0_0 = vector.extract %ac0_7_0[0] : vector<1xi32> -> i32
+      %df0_0 = scalar.sitofp %ie0_0 : i32 to f32
+      %pd0_0 = scalar.mulf %df0_0, %sc0 : f32
+      %pm0_0 = scalar.mulf %xs0, %mn0 : f32
+      %pq0_0 = scalar.subf %pd0_0, %pm0_0 : f32
+      %d0 = scalar.mulf %pq0_0, %da0 : f32
+      %s0 = kernel.subgroup.reduce<addf> %d0 : f32
+      scf.if %first {
+        view.store %s0, %pv[0, %wave, %rb] : f32, view<2x2x2xf32>
+      }
+      %wq1, %sc1, %mn1 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+        %v, %a, %b = func.call @llm.experts.q4_codes(%w2, %o, %within) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+        scf.yield %v, %a, %b : vector<32xi8>, f32, f32
+      } else {
+        scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+      }
+      %wk1_0 = vector.slice %wq1[0] : vector<32xi8> -> vector<4xi8>
+      %wk1_1 = vector.slice %wq1[4] : vector<32xi8> -> vector<4xi8>
+      %wk1_2 = vector.slice %wq1[8] : vector<32xi8> -> vector<4xi8>
+      %wk1_3 = vector.slice %wq1[12] : vector<32xi8> -> vector<4xi8>
+      %wk1_4 = vector.slice %wq1[16] : vector<32xi8> -> vector<4xi8>
+      %wk1_5 = vector.slice %wq1[20] : vector<32xi8> -> vector<4xi8>
+      %wk1_6 = vector.slice %wq1[24] : vector<32xi8> -> vector<4xi8>
+      %wk1_7 = vector.slice %wq1[28] : vector<32xi8> -> vector<4xi8>
+      %qk0_0_1 = vector.slice %q0[0] : vector<32xi8> -> vector<4xi8>
+      %ac0_0_1 = vector.dot4i<s8s8> %wk1_0, %qk0_0_1, %zero1i : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_1_1 = vector.slice %q0[4] : vector<32xi8> -> vector<4xi8>
+      %ac0_1_1 = vector.dot4i<s8s8> %wk1_1, %qk0_1_1, %ac0_0_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_2_1 = vector.slice %q0[8] : vector<32xi8> -> vector<4xi8>
+      %ac0_2_1 = vector.dot4i<s8s8> %wk1_2, %qk0_2_1, %ac0_1_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_3_1 = vector.slice %q0[12] : vector<32xi8> -> vector<4xi8>
+      %ac0_3_1 = vector.dot4i<s8s8> %wk1_3, %qk0_3_1, %ac0_2_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_4_1 = vector.slice %q0[16] : vector<32xi8> -> vector<4xi8>
+      %ac0_4_1 = vector.dot4i<s8s8> %wk1_4, %qk0_4_1, %ac0_3_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_5_1 = vector.slice %q0[20] : vector<32xi8> -> vector<4xi8>
+      %ac0_5_1 = vector.dot4i<s8s8> %wk1_5, %qk0_5_1, %ac0_4_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_6_1 = vector.slice %q0[24] : vector<32xi8> -> vector<4xi8>
+      %ac0_6_1 = vector.dot4i<s8s8> %wk1_6, %qk0_6_1, %ac0_5_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_7_1 = vector.slice %q0[28] : vector<32xi8> -> vector<4xi8>
+      %ac0_7_1 = vector.dot4i<s8s8> %wk1_7, %qk0_7_1, %ac0_6_1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %ie1_0 = vector.extract %ac0_7_1[0] : vector<1xi32> -> i32
+      %df1_0 = scalar.sitofp %ie1_0 : i32 to f32
+      %pd1_0 = scalar.mulf %df1_0, %sc1 : f32
+      %pm1_0 = scalar.mulf %xs0, %mn1 : f32
+      %pq1_0 = scalar.subf %pd1_0, %pm1_0 : f32
+      %d1 = scalar.mulf %pq1_0, %da0 : f32
+      %s1 = kernel.subgroup.reduce<addf> %d1 : f32
+      scf.if %first {
+        view.store %s1, %pv[1, %wave, %rb] : f32, view<2x2x2xf32>
+      }
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %outputs = index.constant 2 : index
+    %lanes_step = index.constant 64 : index
+    scf.for %wr0 = [%workitem to %outputs step %lanes_step] {
+      %rr = index.assume %wr0 [range(%wr0, 0, 1)] : index
+      %t0 = scf.for %ww = [%c0 to %cW step %c1](%acc = %zero_f : f32) -> (f32) {
+        %bw = index.assume %ww [range(%ww, 0, 1)] : index
+        %p = view.load %pv[0, %bw, %rr] : view<2x2x2xf32> -> f32
+        %nx = scalar.addf %acc, %p : f32
+        scf.yield %nx : f32
+      }
+      %t1 = scf.for %ww = [%c0 to %cW step %c1](%acc = %zero_f : f32) -> (f32) {
+        %bw = index.assume %ww [range(%ww, 0, 1)] : index
+        %p = view.load %pv[1, %bw, %rr] : view<2x2x2xf32> -> f32
+        %nx = scalar.addf %acc, %p : f32
+        scf.yield %nx : f32
+      }
+      %value = func.call @llm.experts.swiglu(%t0, %t1) : (f32, f32) -> (f32)
+      %out_row = index.add %row_base, %rr : index
+      func.call @llm.experts.store_row(%y, %tokens, %n, %a, %out_row, %value, %c0_i32) : (buffer, index, index, index, index, f32, i32)
+    }
+  } else {
+    // Uniform per assignment workgroup, including every barrier in the active body.
+    %origin_inactive = index.constant 0 : offset
+    %output_inactive = buffer.view %y[%origin_inactive] : buffer -> view<[%tokens]x[%n]xf32>
+    %thread_inactive = kernel.workitem.id<x> : index
+    %two_inactive = index.constant 2 : index
+    %writer_inactive = index.cmp ult, %thread_inactive, %two_inactive : index
+    scf.if %writer_inactive {
+      %base_inactive = index.mul %group_id, %two_inactive : index
+      // y has exactly n/2 workgroups and only threads0/1 write this pair.
+      %col_inactive_raw = index.add %base_inactive, %thread_inactive : index
+      %col_inactive = index.assume %col_inactive_raw [lt(%col_inactive_raw, %n)] : index
+      %zero_inactive = scalar.constant 0.0 : f32
+      view.store %zero_inactive, %output_inactive[%a, %col_inactive] : f32, view<[%tokens]x[%n]xf32>
+    }
+  }
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @llm.experts.indexed_down_q4(%n: index, %tokens: index) {
+  %c1 = index.constant 1 : index
+  %lanes = index.constant 32 : index
+  %rows_per = index.constant 2 : index
+  %row_groups = index.div %n, %rows_per : index
+  kernel.launch.config workgroups(%tokens, %row_groups, %c1) workgroup_size(%lanes, %c1, %c1) : index
+} launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %y: buffer) {
+  %n = index.assume %n_arg [eq(%n_arg, 2048)] : index
+  %tokens = index.assume %tokens_arg [range(%tokens_arg, 8, 4096), multiple_of(%tokens_arg, 8)] : index
+  %group_id = kernel.workgroup.id<y> : index
+  %a_id = kernel.workgroup.id<x> : index
+  %a = index.assume %a_id [lt(%a_id, %tokens)] : index
+  %multiplier = index.constant 8 : index
+  %active = func.call @llm.experts.active(%tokens, %multiplier, %a, %count) : (index, index, index, buffer) -> (i1)
+  scf.if %active {
+    %workitem_id = kernel.workitem.id<x> : index
+    %workitem = index.assume %workitem_id [range(%workitem_id, 0, 31)] : index
+    %wave_id = kernel.subgroup.id : index
+    %wave = index.assume %wave_id [range(%wave_id, 0, 0)] : index
+    %lane_id = kernel.subgroup.lane.id : index
+    %lane = index.assume %lane_id [range(%lane_id, 0, 31)] : index
+    %zero = index.constant 0 : offset
+    %c0 = index.constant 0 : index
+    %c1 = index.constant 1 : index
+    %cKU = index.constant 8 : index
+    %rows_per = index.constant 2 : index
+    %cW = index.constant 1 : index
+    %row_bytes = index.constant 432 : offset
+    %expert_bytes = index.constant 884736 : offset
+    %block_bytes = index.constant 144 : offset
+    %zero_f = scalar.constant 0.0 : f32
+    %zero32 = vector.splatf 0.0 : vector<32xf32>
+    %c0_i32 = scalar.constant 0 : i32
+    %cE1_i32 = scalar.constant 127 : i32
+    %ids_view = buffer.view %ids[%zero] : buffer -> view<[%tokens]xi32>
+    %eid = view.load %ids_view[%a] : view<[%tokens]xi32> -> i32
+    %elo = scalar.maxsi %eid, %c0_i32 : i32
+    %ehi = scalar.minsi %elo, %cE1_i32 : i32
+    %eb32 = scalar.assume %ehi [range(%ehi, 0, 127)] : i32
+    %e = index.cast %eb32 : i32 to index
+    %e_off = index.scale %e, %expert_bytes : index, offset -> offset
+    %xr = index.assume %a [lt(%a, %tokens)] : index
+    %cgroups = index.constant 24 : index
+    %xq_view = buffer.view %x[%zero] : buffer -> view<[%tokens]x24x8xi32>
+    %cK = index.constant 768 : index
+    %xm_bytes = index.cast %cK : index to offset
+    %xm_off = index.scale %tokens, %xm_bytes : index, offset -> offset
+    %xm_view = buffer.view %x[%xm_off] : buffer -> view<[%tokens]x24x2xf32>
+    %zero32i8 = vector.splati 0 : vector<32xi8>
+    %zero1i = vector.splati 0 : vector<1xi32>
+    %row_base = index.mul %group_id, %rows_per : index
+    %ok = index.cmp ult, %workitem, %cgroups : index
+    %g_last = index.constant 23 : index
+    %g_c = index.min %workitem, %g_last : index
+    %g = index.assume %g_c [range(%g_c, 0, 23)] : index
+    %cgpb = index.constant 8 : index
+    %blk = index.div %g, %cgpb : index
+    %within = index.rem %g, %cgpb : index
+    %ba = index.scale %blk, %block_bytes : index, offset -> offset
+    %q0, %da0, %xs0 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+      %tk0 = index.assume %xr [lt(%xr, %tokens)] : index
+      %cw = vector.load %xq_view[%tk0, %g, %c0] : view<[%tokens]x24x8xi32> -> vector<8xi32>
+      %cb = vector.bitcast %cw : vector<8xi32> to vector<32xi8>
+      %mt = vector.load %xm_view[%tk0, %g, %c0] : view<[%tokens]x24x2xf32> -> vector<2xf32>
+      %m0 = vector.extract %mt[0] : vector<2xf32> -> f32
+      %m1 = vector.extract %mt[1] : vector<2xf32> -> f32
+      scf.yield %cb, %m0, %m1 : vector<32xi8>, f32, f32
+    } else {
+      scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+    }
+    %part_bytes = index.constant 8 : offset
+    %parts = buffer.alloca<workgroup> align(16) %part_bytes : buffer
+    %pv = buffer.view %parts[%zero] : buffer -> view<1x1x2xf32>
+    %first = index.cmp eq, %lane, %c0 : index
+    scf.for %r = [%c0 to %rows_per step %c1] {
+      %row_value = index.add %row_base, %r : index
+      %row = index.assume %row_value [lt(%row_value, %n)] : index
+      %ro = index.scale %row, %row_bytes : index, offset -> offset
+      %rb = index.assume %r [range(%r, 0, 1)] : index
+      %o0 = index.add %ro, %ba : offset
+      %o = index.add %o0, %e_off : offset
+      %wq0, %sc0, %mn0 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+        %v, %a, %b = func.call @llm.experts.q4_codes(%w, %o, %within) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+        scf.yield %v, %a, %b : vector<32xi8>, f32, f32
+      } else {
+        scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+      }
+      %wk0_0 = vector.slice %wq0[0] : vector<32xi8> -> vector<4xi8>
+      %wk0_1 = vector.slice %wq0[4] : vector<32xi8> -> vector<4xi8>
+      %wk0_2 = vector.slice %wq0[8] : vector<32xi8> -> vector<4xi8>
+      %wk0_3 = vector.slice %wq0[12] : vector<32xi8> -> vector<4xi8>
+      %wk0_4 = vector.slice %wq0[16] : vector<32xi8> -> vector<4xi8>
+      %wk0_5 = vector.slice %wq0[20] : vector<32xi8> -> vector<4xi8>
+      %wk0_6 = vector.slice %wq0[24] : vector<32xi8> -> vector<4xi8>
+      %wk0_7 = vector.slice %wq0[28] : vector<32xi8> -> vector<4xi8>
+      %qk0_0_0 = vector.slice %q0[0] : vector<32xi8> -> vector<4xi8>
+      %ac0_0_0 = vector.dot4i<s8s8> %wk0_0, %qk0_0_0, %zero1i : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_1_0 = vector.slice %q0[4] : vector<32xi8> -> vector<4xi8>
+      %ac0_1_0 = vector.dot4i<s8s8> %wk0_1, %qk0_1_0, %ac0_0_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_2_0 = vector.slice %q0[8] : vector<32xi8> -> vector<4xi8>
+      %ac0_2_0 = vector.dot4i<s8s8> %wk0_2, %qk0_2_0, %ac0_1_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_3_0 = vector.slice %q0[12] : vector<32xi8> -> vector<4xi8>
+      %ac0_3_0 = vector.dot4i<s8s8> %wk0_3, %qk0_3_0, %ac0_2_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_4_0 = vector.slice %q0[16] : vector<32xi8> -> vector<4xi8>
+      %ac0_4_0 = vector.dot4i<s8s8> %wk0_4, %qk0_4_0, %ac0_3_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_5_0 = vector.slice %q0[20] : vector<32xi8> -> vector<4xi8>
+      %ac0_5_0 = vector.dot4i<s8s8> %wk0_5, %qk0_5_0, %ac0_4_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_6_0 = vector.slice %q0[24] : vector<32xi8> -> vector<4xi8>
+      %ac0_6_0 = vector.dot4i<s8s8> %wk0_6, %qk0_6_0, %ac0_5_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_7_0 = vector.slice %q0[28] : vector<32xi8> -> vector<4xi8>
+      %ac0_7_0 = vector.dot4i<s8s8> %wk0_7, %qk0_7_0, %ac0_6_0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %ie0_0 = vector.extract %ac0_7_0[0] : vector<1xi32> -> i32
+      %df0_0 = scalar.sitofp %ie0_0 : i32 to f32
+      %pd0_0 = scalar.mulf %df0_0, %sc0 : f32
+      %pm0_0 = scalar.mulf %xs0, %mn0 : f32
+      %pq0_0 = scalar.subf %pd0_0, %pm0_0 : f32
+      %d0 = scalar.mulf %pq0_0, %da0 : f32
+      %s0 = kernel.subgroup.reduce<addf> %d0 : f32
+      scf.if %first {
+        view.store %s0, %pv[0, %wave, %rb] : f32, view<1x1x2xf32>
+      }
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %outputs = index.constant 2 : index
+    %lanes_step = index.constant 32 : index
+    scf.for %wr0 = [%workitem to %outputs step %lanes_step] {
+      %rr = index.assume %wr0 [range(%wr0, 0, 1)] : index
+      %t0 = scf.for %ww = [%c0 to %cW step %c1](%acc = %zero_f : f32) -> (f32) {
+        %bw = index.assume %ww [range(%ww, 0, 0)] : index
+        %p = view.load %pv[0, %bw, %rr] : view<1x1x2xf32> -> f32
+        %nx = scalar.addf %acc, %p : f32
+        scf.yield %nx : f32
+      }
+      %value = scalar.addf %t0, %zero_f : f32
+      %out_row = index.add %row_base, %rr : index
+      func.call @llm.experts.store_row(%y, %tokens, %n, %a, %out_row, %value, %c0_i32) : (buffer, index, index, index, index, f32, i32)
+    }
+  } else {
+    // Uniform per assignment workgroup, including every barrier in the active body.
+    %origin_inactive = index.constant 0 : offset
+    %output_inactive = buffer.view %y[%origin_inactive] : buffer -> view<[%tokens]x[%n]xf32>
+    %thread_inactive = kernel.workitem.id<x> : index
+    %two_inactive = index.constant 2 : index
+    %writer_inactive = index.cmp ult, %thread_inactive, %two_inactive : index
+    scf.if %writer_inactive {
+      %base_inactive = index.mul %group_id, %two_inactive : index
+      // y has exactly n/2 workgroups and only threads0/1 write this pair.
+      %col_inactive_raw = index.add %base_inactive, %thread_inactive : index
+      %col_inactive = index.assume %col_inactive_raw [lt(%col_inactive_raw, %n)] : index
+      %zero_inactive = scalar.constant 0.0 : f32
+      view.store %zero_inactive, %output_inactive[%a, %col_inactive] : f32, view<[%tokens]x[%n]xf32>
+    }
+  }
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @llm.experts.indexed_down_q6(%n: index, %tokens: index) {
+  %c1 = index.constant 1 : index
+  %lanes = index.constant 32 : index
+  %rows_per = index.constant 2 : index
+  %row_groups = index.div %n, %rows_per : index
+  kernel.launch.config workgroups(%tokens, %row_groups, %c1) workgroup_size(%lanes, %c1, %c1) : index
+} launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %y: buffer) {
+  %n = index.assume %n_arg [eq(%n_arg, 2048)] : index
+  %tokens = index.assume %tokens_arg [range(%tokens_arg, 8, 4096), multiple_of(%tokens_arg, 8)] : index
+  %group_id = kernel.workgroup.id<y> : index
+  %a_id = kernel.workgroup.id<x> : index
+  %a = index.assume %a_id [lt(%a_id, %tokens)] : index
+  %multiplier = index.constant 8 : index
+  %active = func.call @llm.experts.active(%tokens, %multiplier, %a, %count) : (index, index, index, buffer) -> (i1)
+  scf.if %active {
+    %workitem_id = kernel.workitem.id<x> : index
+    %workitem = index.assume %workitem_id [range(%workitem_id, 0, 31)] : index
+    %wave_id = kernel.subgroup.id : index
+    %wave = index.assume %wave_id [range(%wave_id, 0, 0)] : index
+    %lane_id = kernel.subgroup.lane.id : index
+    %lane = index.assume %lane_id [range(%lane_id, 0, 31)] : index
+    %zero = index.constant 0 : offset
+    %c0 = index.constant 0 : index
+    %c1 = index.constant 1 : index
+    %cKU = index.constant 8 : index
+    %rows_per = index.constant 2 : index
+    %cW = index.constant 1 : index
+    %row_bytes = index.constant 630 : offset
+    %expert_bytes = index.constant 1290240 : offset
+    %block_bytes = index.constant 210 : offset
+    %zero_f = scalar.constant 0.0 : f32
+    %zero32 = vector.splatf 0.0 : vector<32xf32>
+    %c0_i32 = scalar.constant 0 : i32
+    %cE1_i32 = scalar.constant 127 : i32
+    %ids_view = buffer.view %ids[%zero] : buffer -> view<[%tokens]xi32>
+    %eid = view.load %ids_view[%a] : view<[%tokens]xi32> -> i32
+    %elo = scalar.maxsi %eid, %c0_i32 : i32
+    %ehi = scalar.minsi %elo, %cE1_i32 : i32
+    %eb32 = scalar.assume %ehi [range(%ehi, 0, 127)] : i32
+    %e = index.cast %eb32 : i32 to index
+    %e_off = index.scale %e, %expert_bytes : index, offset -> offset
+    %xr = index.assume %a [lt(%a, %tokens)] : index
+    %cgroups = index.constant 24 : index
+    %xq_view = buffer.view %x[%zero] : buffer -> view<[%tokens]x24x8xi32>
+    %cK = index.constant 768 : index
+    %xm_bytes = index.cast %cK : index to offset
+    %xm_off = index.scale %tokens, %xm_bytes : index, offset -> offset
+    %xm_view = buffer.view %x[%xm_off] : buffer -> view<[%tokens]x24x2xf32>
+    %zero32i8 = vector.splati 0 : vector<32xi8>
+    %zero1i = vector.splati 0 : vector<1xi32>
+    %row_base = index.mul %group_id, %rows_per : index
+    %ok = index.cmp ult, %workitem, %cgroups : index
+    %g_last = index.constant 23 : index
+    %g_c = index.min %workitem, %g_last : index
+    %g = index.assume %g_c [range(%g_c, 0, 23)] : index
+    %cgpb = index.constant 8 : index
+    %blk = index.div %g, %cgpb : index
+    %within = index.rem %g, %cgpb : index
+    %ba = index.scale %blk, %block_bytes : index, offset -> offset
+    %q0, %da0, %xs0 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+      %tk0 = index.assume %xr [lt(%xr, %tokens)] : index
+      %cw = vector.load %xq_view[%tk0, %g, %c0] : view<[%tokens]x24x8xi32> -> vector<8xi32>
+      %cb = vector.bitcast %cw : vector<8xi32> to vector<32xi8>
+      %mt = vector.load %xm_view[%tk0, %g, %c0] : view<[%tokens]x24x2xf32> -> vector<2xf32>
+      %m0 = vector.extract %mt[0] : vector<2xf32> -> f32
+      %m1 = vector.extract %mt[1] : vector<2xf32> -> f32
+      scf.yield %cb, %m0, %m1 : vector<32xi8>, f32, f32
+    } else {
+      scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+    }
+    %part_bytes = index.constant 8 : offset
+    %parts = buffer.alloca<workgroup> align(16) %part_bytes : buffer
+    %pv = buffer.view %parts[%zero] : buffer -> view<1x1x2xf32>
+    %first = index.cmp eq, %lane, %c0 : index
+    scf.for %r = [%c0 to %rows_per step %c1] {
+      %row_value = index.add %row_base, %r : index
+      %row = index.assume %row_value [lt(%row_value, %n)] : index
+      %ro = index.scale %row, %row_bytes : index, offset -> offset
+      %rb = index.assume %r [range(%r, 0, 1)] : index
+      %o0 = index.add %ro, %ba : offset
+      %o = index.add %o0, %e_off : offset
+      %wq0, %sc0, %mn0 = scf.if %ok -> (vector<32xi8>, f32, f32) {
+        %v, %a, %b = func.call @llm.experts.q6_codes(%w, %o, %within) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+        scf.yield %v, %a, %b : vector<32xi8>, f32, f32
+      } else {
+        scf.yield %zero32i8, %zero_f, %zero_f : vector<32xi8>, f32, f32
+      }
+      %wk0_0 = vector.slice %wq0[0] : vector<32xi8> -> vector<4xi8>
+      %wk0_1 = vector.slice %wq0[4] : vector<32xi8> -> vector<4xi8>
+      %wk0_2 = vector.slice %wq0[8] : vector<32xi8> -> vector<4xi8>
+      %wk0_3 = vector.slice %wq0[12] : vector<32xi8> -> vector<4xi8>
+      %wk0_4 = vector.slice %wq0[16] : vector<32xi8> -> vector<4xi8>
+      %wk0_5 = vector.slice %wq0[20] : vector<32xi8> -> vector<4xi8>
+      %wk0_6 = vector.slice %wq0[24] : vector<32xi8> -> vector<4xi8>
+      %wk0_7 = vector.slice %wq0[28] : vector<32xi8> -> vector<4xi8>
+      %qk0_0_0l = vector.slice %q0[0] : vector<32xi8> -> vector<4xi8>
+      %ac0_0_0l = vector.dot4i<s8s8> %wk0_0, %qk0_0_0l, %zero1i : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_1_0l = vector.slice %q0[4] : vector<32xi8> -> vector<4xi8>
+      %ac0_1_0l = vector.dot4i<s8s8> %wk0_1, %qk0_1_0l, %ac0_0_0l : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_2_0l = vector.slice %q0[8] : vector<32xi8> -> vector<4xi8>
+      %ac0_2_0l = vector.dot4i<s8s8> %wk0_2, %qk0_2_0l, %ac0_1_0l : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_3_0l = vector.slice %q0[12] : vector<32xi8> -> vector<4xi8>
+      %ac0_3_0l = vector.dot4i<s8s8> %wk0_3, %qk0_3_0l, %ac0_2_0l : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %ie0_0l = vector.extract %ac0_3_0l[0] : vector<1xi32> -> i32
+      %qk0_4_0h = vector.slice %q0[16] : vector<32xi8> -> vector<4xi8>
+      %ac0_4_0h = vector.dot4i<s8s8> %wk0_4, %qk0_4_0h, %zero1i : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_5_0h = vector.slice %q0[20] : vector<32xi8> -> vector<4xi8>
+      %ac0_5_0h = vector.dot4i<s8s8> %wk0_5, %qk0_5_0h, %ac0_4_0h : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_6_0h = vector.slice %q0[24] : vector<32xi8> -> vector<4xi8>
+      %ac0_6_0h = vector.dot4i<s8s8> %wk0_6, %qk0_6_0h, %ac0_5_0h : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %qk0_7_0h = vector.slice %q0[28] : vector<32xi8> -> vector<4xi8>
+      %ac0_7_0h = vector.dot4i<s8s8> %wk0_7, %qk0_7_0h, %ac0_6_0h : vector<4xi8>, vector<4xi8>, vector<1xi32>
+      %ie0_0h = vector.extract %ac0_7_0h[0] : vector<1xi32> -> i32
+      %flo0_0 = scalar.sitofp %ie0_0l : i32 to f32
+      %fhi0_0 = scalar.sitofp %ie0_0h : i32 to f32
+      %plo0_0 = scalar.mulf %flo0_0, %sc0 : f32
+      %pq0_0 = scalar.fmaf %fhi0_0, %mn0, %plo0_0 : f32
+      %d0 = scalar.mulf %pq0_0, %da0 : f32
+      %s0 = kernel.subgroup.reduce<addf> %d0 : f32
+      scf.if %first {
+        view.store %s0, %pv[0, %wave, %rb] : f32, view<1x1x2xf32>
+      }
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %outputs = index.constant 2 : index
+    %lanes_step = index.constant 32 : index
+    scf.for %wr0 = [%workitem to %outputs step %lanes_step] {
+      %rr = index.assume %wr0 [range(%wr0, 0, 1)] : index
+      %t0 = scf.for %ww = [%c0 to %cW step %c1](%acc = %zero_f : f32) -> (f32) {
+        %bw = index.assume %ww [range(%ww, 0, 0)] : index
+        %p = view.load %pv[0, %bw, %rr] : view<1x1x2xf32> -> f32
+        %nx = scalar.addf %acc, %p : f32
+        scf.yield %nx : f32
+      }
+      %value = scalar.addf %t0, %zero_f : f32
+      %out_row = index.add %row_base, %rr : index
+      func.call @llm.experts.store_row(%y, %tokens, %n, %a, %out_row, %value, %c0_i32) : (buffer, index, index, index, index, f32, i32)
+    }
+  } else {
+    // Uniform per assignment workgroup, including every barrier in the active body.
+    %origin_inactive = index.constant 0 : offset
+    %output_inactive = buffer.view %y[%origin_inactive] : buffer -> view<[%tokens]x[%n]xf32>
+    %thread_inactive = kernel.workitem.id<x> : index
+    %two_inactive = index.constant 2 : index
+    %writer_inactive = index.cmp ult, %thread_inactive, %two_inactive : index
+    scf.if %writer_inactive {
+      %base_inactive = index.mul %group_id, %two_inactive : index
+      // y has exactly n/2 workgroups and only threads0/1 write this pair.
+      %col_inactive_raw = index.add %base_inactive, %thread_inactive : index
+      %col_inactive = index.assume %col_inactive_raw [lt(%col_inactive_raw, %n)] : index
+      %zero_inactive = scalar.constant 0.0 : f32
+      view.store %zero_inactive, %output_inactive[%a, %col_inactive] : f32, view<[%tokens]x[%n]xf32>
+    }
+  }
+  kernel.return
+}

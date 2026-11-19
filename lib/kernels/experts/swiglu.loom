@@ -1,0 +1,8 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Exact direct indexed donor activation, shared with isolated stage checks.
+func.def public inline @llm.experts.swiglu(%gate: f32, %up: f32) -> (f32) {
+  %activated = scalar.siluf<afn> %gate : f32
+  %value = scalar.mulf %activated, %up : f32
+  func.return %value : f32
+}

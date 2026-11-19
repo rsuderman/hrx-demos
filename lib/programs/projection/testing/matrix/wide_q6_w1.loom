@@ -1,0 +1,117 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Bounded compiler/provider legality probes. No metadata admission implied.
+template.decl @llm.projection.policy_rows(%profile: index, %C: index, %K: index, %N: index, %tag: index, %B: index, %count: buffer, %input: buffer, %weight: view<[%B]xi8>, %output: buffer)
+
+template.decl @llm.projection.matrix(%C: index, %K: index, %N: index, %tag: index, %B: index, %count: buffer, %input: buffer, %weight: view<[%B]xi8>, %output: buffer)
+
+config.def @ggml.linear_q4k_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q4k_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q5k_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q6k_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q8_0_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q5_0_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q4_0_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q4_0_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q4_1_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q4_1_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_iq4_xs_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_iq4_xs_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_iq4_nl_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_iq4_nl_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_iq3_s_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_iq3_s_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.linear_q3k_q8_1_x4.token_capacity = 512 : index
+
+config.def @ggml.linear_q3k_q8_1_x4.output_capacity = 262144 : index
+
+config.def @ggml.quantize_q8_1_x4.group_capacity = 524288 : index
+
+command.def public @wide_q6_w1.canonical_old() launch(%count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %C = index.constant 1 : index
+  %K = index.constant 17408 : index
+  %N = index.constant 9 : index
+  %B = index.constant 128520 : index
+  %tag = index.constant 14 : index
+  %profile = index.constant 1 : index
+  %zero = index.constant 0 : offset
+  %w = buffer.view %weight[%zero] : buffer -> view<[%B]xi8>
+  template.apply<@llm.projection.policy_rows>(%profile, %C, %K, %N, %tag, %B, %count, %input, %w, %output) : (index, index, index, index, index, index, buffer, buffer, view<[%B]xi8>, buffer)
+  command.return
+}
+
+command.def public @wide_q6_w1.canonical_wide() launch(%count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %C = index.constant 1 : index
+  %K = index.constant 27648 : index
+  %N = index.constant 9 : index
+  %B = index.constant 204120 : index
+  %tag = index.constant 14 : index
+  %profile = index.constant 1 : index
+  %zero = index.constant 0 : offset
+  %w = buffer.view %weight[%zero] : buffer -> view<[%B]xi8>
+  template.apply<@llm.projection.policy_rows>(%profile, %C, %K, %N, %tag, %B, %count, %input, %w, %output) : (index, index, index, index, index, index, buffer, buffer, view<[%B]xi8>, buffer)
+  command.return
+}
+
+command.def public @wide_q6_w1.matrix_old() launch(%count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %C = index.constant 17 : index
+  %K = index.constant 17408 : index
+  %N = index.constant 5120 : index
+  %B = index.constant 73113600 : index
+  %tag = index.constant 14 : index
+  %profile = index.constant 1 : index
+  %zero = index.constant 0 : offset
+  %w = buffer.view %weight[%zero] : buffer -> view<[%B]xi8>
+  template.apply<@llm.projection.matrix>(%C, %K, %N, %tag, %B, %count, %input, %w, %output) : (index, index, index, index, index, buffer, buffer, view<[%B]xi8>, buffer)
+  command.return
+}
+
+command.def public @wide_q6_w1.matrix_wide() launch(%count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %C = index.constant 17 : index
+  %K = index.constant 27648 : index
+  %N = index.constant 5120 : index
+  %B = index.constant 116121600 : index
+  %tag = index.constant 14 : index
+  %profile = index.constant 1 : index
+  %zero = index.constant 0 : offset
+  %w = buffer.view %weight[%zero] : buffer -> view<[%B]xi8>
+  template.apply<@llm.projection.matrix>(%C, %K, %N, %tag, %B, %count, %input, %w, %output) : (index, index, index, index, index, buffer, buffer, view<[%B]xi8>, buffer)
+  command.return
+}
+
+command.def public @wide_q6_w1.compatible_wide() launch(%count: buffer, %input: buffer, %weight: buffer, %output: buffer) {
+  %C = index.constant 1 : index
+  %K = index.constant 22016 : index
+  %N = index.constant 9 : index
+  %B = index.constant 162540 : index
+  %tag = index.constant 14 : index
+  %profile = index.constant 0 : index
+  %zero = index.constant 0 : offset
+  %w = buffer.view %weight[%zero] : buffer -> view<[%B]xi8>
+  template.apply<@llm.projection.policy_rows>(%profile, %C, %K, %N, %tag, %B, %count, %input, %w, %output) : (index, index, index, index, index, index, buffer, buffer, view<[%B]xi8>, buffer)
+  command.return
+}

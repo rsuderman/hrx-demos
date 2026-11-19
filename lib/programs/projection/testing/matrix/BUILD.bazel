@@ -335,3 +335,55 @@ genrule(
     "iq3_s",
     "q3k",
 ]]
+
+[loom_merge(
+    name = "wide_q6_w1_" + format,
+    testonly = True,
+    srcs = [
+        "wide_q6_w1.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[genrule(
+    name = "wide_q6_" + mode + "_fixtures",
+    testonly = True,
+    srcs = [
+        "wide_q6_fixtures.py",
+        "canonical_fixtures.py",
+    ],
+    outs = ["wide_q6_" + mode + "_checks.loom"],
+    cmd = "python3 $(location wide_q6_fixtures.py) $(location canonical_fixtures.py) " + mode + " $@",
+) for mode in [
+    "full",
+    "scaled",
+    "compatible",
+    "late",
+]]
+
+[loom_provider_checks(
+    name = "wide_q6_" + mode,
+    checks = [":wide_q6_" + mode + "_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "wide_q6_" + mode + "_provider",
+    provider_srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+) for mode in [
+    "full",
+    "scaled",
+    "compatible",
+    "late",
+]]

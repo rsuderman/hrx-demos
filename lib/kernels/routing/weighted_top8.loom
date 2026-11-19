@@ -1,0 +1,68 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Extracted from Qwen3-30B-A3B-2507 cached program/llm.loom,
+// SHA256 056a85bd103c55f9a2fc80cdc2448695ceb8b39ae55a92ea4a014a4c1a3a8d89.
+// Active math, split metadata, reductions and precision retain donor semantics.
+// Fixed-capacity uniform count guards are the maintained wrapper adaptation.
+
+func.decl @llm.experts.active(%rows: index, %multiplier: index, %row: index, %count: buffer) -> (i1)
+
+target.decl @llm.platform.experts.wave32
+
+kernel.def target(@llm.platform.experts.wave32) @llm.routing.weighted_top8(%tokens: index) {
+  %c1 = index.constant 1 : index
+  %c256 = index.constant 256 : index
+  %cb = index.constant 8 : index
+  kernel.launch.config workgroups(%tokens, %cb, %c1) workgroup_size(%c256, %c1, %c1) : index
+} launch(%tokens_arg: index, %count: buffer, %ys: buffer, %wts: buffer, %y: buffer) {
+  %tokens = index.assume %tokens_arg [range(%tokens_arg, 1, 512)] : index
+  %token_id = kernel.workgroup.id<x> : index
+  %token = index.assume %token_id [lt(%token_id, %tokens)] : index
+  %thread_id = kernel.workitem.id<x> : index
+  %blk_id = kernel.workgroup.id<y> : index
+  %c256 = index.constant 256 : index
+  %boff = index.mul %blk_id, %c256 : index
+  %c_raw = index.add %thread_id, %boff : index
+  %cH = index.constant 2048 : index
+  %in = index.cmp ult, %c_raw, %cH : index
+  scf.if %in {
+    %ch = index.assume %c_raw [range(%c_raw, 0, 2047)] : index
+    %zero = index.constant 0 : offset
+    %zero_f = scalar.constant 0.0 : f32
+    %ys_view = buffer.view %ys[%zero] : buffer -> view<[%tokens]x8x2048xf32>
+    %w_view = buffer.view %wts[%zero] : buffer -> view<[%tokens]x8xf32>
+    %y_view = buffer.view %y[%zero] : buffer -> view<[%tokens]x2048xf32>
+    %multiplier = index.constant 1 : index
+    %active = func.call @llm.experts.active(%tokens, %multiplier, %token, %count) : (index, index, index, buffer) -> (i1)
+    scf.if %active {
+      %w0 = view.load %w_view[%token, 0] : view<[%tokens]x8xf32> -> f32
+      %v0 = view.load %ys_view[%token, 0, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a0 = scalar.fmaf %w0, %v0, %zero_f : f32
+      %w1 = view.load %w_view[%token, 1] : view<[%tokens]x8xf32> -> f32
+      %v1 = view.load %ys_view[%token, 1, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a1 = scalar.fmaf %w1, %v1, %a0 : f32
+      %w2 = view.load %w_view[%token, 2] : view<[%tokens]x8xf32> -> f32
+      %v2 = view.load %ys_view[%token, 2, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a2 = scalar.fmaf %w2, %v2, %a1 : f32
+      %w3 = view.load %w_view[%token, 3] : view<[%tokens]x8xf32> -> f32
+      %v3 = view.load %ys_view[%token, 3, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a3 = scalar.fmaf %w3, %v3, %a2 : f32
+      %w4 = view.load %w_view[%token, 4] : view<[%tokens]x8xf32> -> f32
+      %v4 = view.load %ys_view[%token, 4, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a4 = scalar.fmaf %w4, %v4, %a3 : f32
+      %w5 = view.load %w_view[%token, 5] : view<[%tokens]x8xf32> -> f32
+      %v5 = view.load %ys_view[%token, 5, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a5 = scalar.fmaf %w5, %v5, %a4 : f32
+      %w6 = view.load %w_view[%token, 6] : view<[%tokens]x8xf32> -> f32
+      %v6 = view.load %ys_view[%token, 6, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a6 = scalar.fmaf %w6, %v6, %a5 : f32
+      %w7 = view.load %w_view[%token, 7] : view<[%tokens]x8xf32> -> f32
+      %v7 = view.load %ys_view[%token, 7, %ch] : view<[%tokens]x8x2048xf32> -> f32
+      %a7 = scalar.fmaf %w7, %v7, %a6 : f32
+      view.store %a7, %y_view[%token, %ch] : f32, view<[%tokens]x2048xf32>
+    } else {
+      view.store %zero_f, %y_view[%token, %ch] : f32, view<[%tokens]x2048xf32>
+    }
+  }
+  kernel.return
+}

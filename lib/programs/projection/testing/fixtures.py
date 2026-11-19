@@ -49,7 +49,7 @@ func.def @projection_test.row_scale(%row: index, %bounded: i1) -> (f32) {
 }
 func.def @projection_test.init(%capacity0: index, %width0: index, %columns0: index, %tag0: index, %complex: i1, %active_count0: index, %bounded_rows: i1, %weight_scale: f32, %input: buffer, %weight: buffer, %count: buffer) {
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 128)] : index
-  %width = index.assume %width0 [range(%width0, 128, 17408)] : index
+  %width = index.assume %width0 [range(%width0, 128, 27648)] : index
   %columns = index.assume %columns0 [range(%columns0, 1, 131072)] : index
   %tag = index.assume %tag0 [range(%tag0, 8, 14)] : index
   %active_count = index.assume %active_count0 [range(%active_count0, 0, 129)] : index
@@ -176,7 +176,7 @@ func.def @projection_test.expected(%policy0: index, %rows0: index, %capacity0: i
   %policy = index.assume %policy0 [range(%policy0, 0, 1)] : index
   %rows = index.assume %rows0 [range(%rows0, 1, 128)] : index
   %capacity = index.assume %capacity0 [range(%capacity0, 1, 128)] : index
-  %width = index.assume %width0 [range(%width0, 128, 17408)] : index
+  %width = index.assume %width0 [range(%width0, 128, 27648)] : index
   %columns = index.assume %columns0 [range(%columns0, 1, 131072)] : index
   %tag = index.assume %tag0 [range(%tag0, 8, 14)] : index
   %begin = index.assume %begin0 [range(%begin0, 0, 1)] : index
@@ -297,6 +297,13 @@ cases += [
     (1, 8, 128, 7, 1, 1, 0, 1, False, False),
     (1, 14, 17408, 7, 1, 1, 0, 1, False, False),
     (1, 8, 1024, 4096, 1, 1, 0, 1, False, False),
+]
+# Preserve actual compatible selection, count-origin8 and nonzero row-origin
+# through the wider provider, including fixed-count and dynamic-count callers.
+cases += [
+    (0, 14, width, 9, 8, 8, 1, count, dynamic, True)
+    for width in (17664, 21504, 22016, 27648)
+    for count, dynamic in ((1, False), (5, True))
 ]
 # Spark actual QKV/output/tied-head geometry; logical anchors remain independent.
 cases += [

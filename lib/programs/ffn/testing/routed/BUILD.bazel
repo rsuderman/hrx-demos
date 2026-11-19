@@ -1,0 +1,99 @@
+# Copyright 2026 AMD ROCm Software
+# SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
+load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
+load("//build_tools:loom_testing.bzl", "loom_checks", "loom_provider_checks")
+
+package(default_visibility = ["//visibility:public"])
+
+genrule(
+    name = "observed_stages",
+    testonly = True,
+    srcs = [
+        "observe.py",
+        "//lib/kernels/routing:softmax_top8.loom",
+        "//lib/kernels/experts:indexed.loom",
+    ],
+    outs = ["observed_stages.loom"],
+    cmd = "python3 $(location observe.py) $(location //lib/kernels/routing:softmax_top8.loom) $(location //lib/kernels/experts:indexed.loom) $@",
+)
+
+# Semantic modules bound the pinned bytecode SSA width without duplicating
+# provider math. Each stage/capacity emits its existing scenario subset once.
+[genrule(
+    name = stage + "_c" + str(capacity) + "_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = [stage + "_c" + str(capacity) + "_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ " + stage + " " + str(capacity),
+) for stage in [
+    "router",
+    "pack",
+    "combine",
+    "indexed",
+    "composition",
+] for capacity in [
+    1,
+    8,
+    16,
+    17,
+]]
+
+genrule(
+    name = "activation_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = ["activation_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ activation",
+)
+
+[loom_checks(
+    name = "routed_" + stage + "_c" + str(capacity),
+    checks = [":" + stage + "_c" + str(capacity) + "_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+) for stage in [
+    "router",
+    "pack",
+    "combine",
+    "indexed",
+    "composition",
+] for capacity in [
+    1,
+    8,
+    16,
+    17,
+]]
+
+loom_provider_checks(
+    name = "routed_activation",
+    checks = [":activation_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+    provider_srcs = [
+        ":observed_stages",
+        "activation.loom",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/ffn:direct_routed_sources",
+    ],
+)
+
+cc_test(
+    name = "materialization_test",
+    size = "small",
+    srcs = ["materialization_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/programs/ffn:direct_routed",
+        "//lib/programs/ffn:direct_routed_text",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:native_linking",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
+)

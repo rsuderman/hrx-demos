@@ -1,0 +1,9 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Exact donor selected-probability denominator; no policy selection or bias.
+func.def public inline @llm.routing.normalize_selected(%probability: f32, %total: f32) -> (f32) {
+  %minimum = scalar.constant 6.103515625e-05 : f32
+  %denominator = scalar.maxnumf %total, %minimum : f32
+  %weight = scalar.divf %probability, %denominator : f32
+  func.return %weight : f32
+}

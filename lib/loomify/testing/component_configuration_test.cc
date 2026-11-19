@@ -23,7 +23,7 @@ TEST(ComponentConfigurationTest,
     SCOPED_TRACE(tag);
     const uint64_t minimum =
         tag == 2 || tag == 3 || tag == 6 || tag == 8 || tag == 20 ? 128 : 256;
-    const uint64_t maximum = tag == 14 ? 17408 : 32768;
+    const uint64_t maximum = tag == 14 ? 27648 : 32768;
     const uint64_t output_limit = tag == 8 || tag == 14 ? 262208 : 262144;
     for (const auto width : {minimum, maximum}) {
       const auto tensor = Encoded(tag, width, output_limit);

@@ -50,3 +50,23 @@ filegroup(
     "bc",
     "text",
 ]]
+
+exports_files(["direct_routed.loom"])
+
+filegroup(
+    name = "direct_routed_sources",
+    srcs = [
+        "direct_routed.loom",
+        "//lib/kernels/experts:all_sources",
+        "//lib/kernels/routing:all_sources",
+    ],
+)
+
+[loom_merge(
+    name = "direct_routed" + ("_text" if format == "text" else ""),
+    srcs = [":direct_routed_sources"],
+    output_format = format,
+) for format in [
+    "bc",
+    "text",
+]]
