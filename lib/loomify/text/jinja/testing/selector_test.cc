@@ -395,6 +395,75 @@ TEST(TemplateSelectorTest, DiscoversActualExternalReadsUsingCompilerScopes) {
             std::vector<std::string>{"__loomify_strftime_now"});
 }
 
+TEST(TemplateSelectorTest, SuppliedDateLiteralKeepsProtectedLiveResult) {
+  constexpr std::string_view source =
+      "{% set date=strftime_now(format='%Y-%m-%d') %}"
+      "{% if date == 'first' %}{{ [1,0] }}"
+      "{% elif date == 'second' %}{{ [2,0] }}{% else %}{{ [3,0] }}{% endif %}";
+  GeneratedInputRenderer generated;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(CompileSelector(source, &generated, &diagnostic))
+      << diagnostic.message;
+  EXPECT_EQ(generated.protected_bindings,
+            std::vector<std::string>{"__loomify_strftime_now"});
+  for (bool bytecode : {false, true}) {
+    auto prepared = PrepareSelector(generated, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    ExpectSelection(
+        *prepared,
+        R"({"__loomify_strftime_now":{"format":"%Y-%m-%d","result":"first"}})",
+        1, 0);
+    ExpectSelection(
+        *prepared,
+        R"({"__loomify_strftime_now":{"format":"%Y-%m-%d","result":"second"}})",
+        2, 0);
+    ExpectSelection(
+        *prepared,
+        R"({"__loomify_strftime_now":{"format":"%Y-%m-%d","result":""}})", 3,
+        0);
+  }
+}
+
+TEST(TemplateSelectorTest, UnsupportedSuppliedDateCallShapesPreserveProduct) {
+  for (const char *source : {
+           "{{ strftime_now(format_name) }}",
+           "{{ strftime_now(1) }}",
+           "{{ strftime_now() }}",
+           "{{ strftime_now('%Y', '%m') }}",
+           "{{ strftime_now('%Y', format='%m') }}",
+           "{{ strftime_now(unexpected='%Y') }}",
+           "{% set alias=strftime_now %}{{ alias('%Y') }}",
+       }) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output{"preserved", "entry", {"helper"}};
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "date-call-shape.jinja", &output,
+                                     &diagnostic));
+    EXPECT_EQ(output.source, "preserved");
+    EXPECT_EQ(output.entrypoint, "entry");
+    EXPECT_EQ(output.helper_requirements, std::vector<std::string>{"helper"});
+    EXPECT_EQ(diagnostic.source_name, "date-call-shape.jinja");
+    EXPECT_FALSE(diagnostic.message.empty());
+    EXPECT_GT(diagnostic.offset, 0u);
+  }
+}
+
+TEST(TemplateSelectorTest, SuppliedDateMacroCapabilityTracksActualCalls) {
+  const std::string definition =
+      "{% macro stamp() %}{{ strftime_now('%d %B %Y') }}{% endmacro %}";
+  for (bool called : {false, true}) {
+    GeneratedInputRenderer output;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(
+        CompileChatTemplate(definition + (called ? "{{ stamp() }}" : "kept"),
+                            "date-macro.jinja", &output, &diagnostic))
+        << diagnostic.message;
+    EXPECT_EQ(output.protected_bindings,
+              called ? std::vector<std::string>{"__loomify_strftime_now"}
+                     : std::vector<std::string>{});
+  }
+}
+
 TEST(TemplateSelectorTest,
      NamespaceConstructorsDoNotDiscoverDeadExternalFallbacks) {
   const auto reads = [](std::string_view source, const char *name) {

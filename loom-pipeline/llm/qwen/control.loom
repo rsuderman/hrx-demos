@@ -192,7 +192,7 @@ func.def @qwen_publish_result_tokens(%results: buffer, %record: index, %output_c
 // Current source recipes publish at most eight tokens; the remaining slots
 // stay zero from the whole-buffer initialization below.
 // Only completed feedback enters this transform; bank contents are immutable.
-func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative: buffer, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
+func.def public @publish_epoch(%control_state: buffer, %plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative: buffer, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
   %origin = index.constant 0 : offset
   %continuations = buffer.view %next_speculative[%origin] : buffer -> view<16xi32>
   %zero = index.constant 0 : index

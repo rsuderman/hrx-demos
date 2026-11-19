@@ -250,7 +250,6 @@ iree_cc_library(
     ],
     cxxopts = _CXXOPTS,
     visibility = [
-        "//lib/loomify/benchmark:__pkg__",
         "//lib/loomify/testing:__pkg__",
     ],
     deps = [

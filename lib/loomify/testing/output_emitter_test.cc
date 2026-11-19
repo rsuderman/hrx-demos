@@ -1602,15 +1602,28 @@ TEST_P(OutputEmitterTest, ActualXmlSchemaHintsDoNotInventExecutionValidation) {
       "<tool_call><function=f><parameter=b>\nTrue\n</parameter></function></tool_call>",
       &program, &error))
       << error;
-  Expect(
-      program,
-      R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":[]})",
-      R"({"content":"","reasoning":"","calls":[{"type":"function","function":{"name":"f","arguments":"{\"b\":\"True\"}"}}]})");
-  // The native request boundary owns invalid tool inventory admission. It does
-  // not pass an invented request argument or a null descriptor to parse_tools.
-  ExpectRejected(
-      program,
-      R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":null})");
+  // Native omission defaults include null tools. With no schema hints the
+  // argument remains opaque; admission does not invent execution validation.
+  for (
+      const auto *request :
+      {R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false})",
+       R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":[]})",
+       R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":null})"}) {
+    SCOPED_TRACE(request);
+    Expect(
+        program, request,
+        R"({"content":"","reasoning":"","calls":[{"type":"function","function":{"name":"f","arguments":"{\"b\":\"True\"}"}}]})");
+  }
+  // Wrong types and duplicate fields still reject at the native boundary,
+  // including duplicates whose first value receives a null omission default.
+  for (
+      const auto *request :
+      {R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":{}})",
+       R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":false})",
+       R"({"messages":[{"role":"user","content":"question"}],"enable_thinking":false,"tools":null,"tools":[]})"}) {
+    SCOPED_TRACE(request);
+    ExpectRejected(program, request);
+  }
 }
 
 TEST_P(OutputEmitterTest,

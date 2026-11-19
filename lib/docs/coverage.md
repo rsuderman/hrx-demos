@@ -682,8 +682,17 @@ Llama, plain ChatML, Qwen2.5, Qwen3, Qwen3.5, Gemma, Spark and LFM3, together wi
 cases. Deferred float comparisons preserve numeric value, signed zero and exact
 surrounding bytes; the independent reference also checks native token IDs against
 HF tokenization of the actual output. Original Jinja bytes and IDs remain distinct.
-Compiler tests include branches beyond existing Serve admission. A finite supplied
-date keeps evaluation independent of the system clock.
+Compiler tests include branches beyond existing Serve admission. A date call accepts
+one source STRING-literal format and an exactly matching protected caller-supplied
+`{format,result}` pair; the result must be a STRING and is returned unchanged.
+Checks run only at a reached call. This does not interpret date directives or add a
+clock or trusted date provider to exported packages.
+
+Historical content projection and continued USER rendering preserve forward
+`replace` expressions through the existing renderer. Truth and type tests use the
+transformed value rather than inheriting facts from the original content.
+Replacement of generated assistant content and inferred inverse codecs remain
+unsupported.
 Focused [list/string/consumer cases](../loomify/text/jinja/testing/c4_cases.json) cover
 ownership, macro-local state, generation scope, replacement and reject consumers.
 LFM3's richer tool inputs are

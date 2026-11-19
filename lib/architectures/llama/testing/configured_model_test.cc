@@ -813,7 +813,12 @@ TEST_F(ConfiguredLlamaModelTest, EmbeddingOperationAdmitsItsOwnStaticFacts) {
              Case{8, 512, 3, 8, 1632, true},
              Case{8, 32768, 3, 8, 104448, true},
              Case{8, 33024, 3, 8, 105264, false},
-             Case{8, 512, 3, 1, 3072, false},
+             // The operation supports F16 gathers independently of full-model
+             // mapper/head admission. Its table still requires exact extents.
+             Case{8, 512, 3, 1, 3072, true},
+             Case{8, 512, 3, 1, 3071, false},
+             Case{8, 512, 3, 1, 3073, false},
+             Case{8, 512, 3, 99, 3072, false},
              Case{8, 513, 3, 12, 864, false},
              Case{8, 512, 0, 12, 864, false},
              Case{0, 512, 3, 12, 864, false},

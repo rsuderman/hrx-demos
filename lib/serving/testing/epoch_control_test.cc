@@ -349,6 +349,8 @@ protected:
   }
   iree_status_t Publish(std::array<int32_t, 6> controls, int32_t flags = 1,
                         int32_t raw_id = 91, int32_t published_id = -1) {
+    std::vector<uint8_t> control_state{0x19, 0xa7, 0x00, 0xff, 0x53};
+    const auto original_control_state = control_state;
     std::vector<int32_t> plan(32 * 9, 0), ids(16, 0), empty,
         progress(16 * 21, -77);
     plan[0] = 3;
@@ -359,7 +361,8 @@ protected:
     ids[0] = raw_id;
     const auto original_plan = plan, original_ids = ids;
     Arguments args;
-    if (!args.Buffer(types_, plan) || !args.Buffer(types_, empty))
+    if (!args.Buffer(types_, control_state, true) ||
+        !args.Buffer(types_, plan) || !args.Buffer(types_, empty))
       return iree_make_status(IREE_STATUS_INTERNAL);
     for (size_t i = 0; i < 5; ++i)
       args.I32(controls[i]);
@@ -370,6 +373,7 @@ protected:
         !args.Buffer(types_, progress, true))
       return iree_make_status(IREE_STATUS_INTERNAL);
     auto status = Call("publish_epoch", args, 0);
+    EXPECT_EQ(control_state, original_control_state);
     EXPECT_EQ(plan, original_plan);
     EXPECT_EQ(ids, original_ids);
     if (iree_status_is_ok(status)) {

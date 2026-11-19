@@ -177,6 +177,22 @@ TEST_P(CompletionTest, RendersSameSourceForCompletionAndNextTurn) {
       "<user>Hi</turn><assistant>Hello</turn><user>Again</turn><assistant>Hello</turn>");
 }
 
+TEST_P(CompletionTest, HistoricalReplacementsLeaveConstructedAssistantRaw) {
+  constexpr std::string_view source =
+      "{% macro clean(t) %}{% if t is string %}"
+      "{{ t|replace('x','')|replace('\\x00','')|replace('<A>','&lt;A>') }}"
+      "{% else %}{{ t }}{% endif %}{% endmacro %}"
+      "{% for m in messages %}{% if m.role == 'assistant' %}"
+      "{{ '<assistant>'+m.content+'</turn>' }}{% else %}"
+      "{{ '<user>'+clean(m.content)+'</turn>' }}{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  const auto answer = std::string("x<A>") + '\0' + u8"é";
+  Prepare(source, answer);
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"x<A>\u0000é"}]})"),
+            std::string(u8"<user>&lt;A>é</turn><assistant>") + answer +
+                "</turn>");
+}
+
 TEST_P(CompletionTest, SourceTrimDeterminesCanonicalAndRejectsCandidate) {
   const std::string source =
       "{% for m in messages %}{% if m.role == 'assistant' %}"

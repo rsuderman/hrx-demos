@@ -9,6 +9,10 @@ the wheel. The Qwen `.loom` runtime catalog is intended to be maintained here;
 the generic Loom Serve runtime and model tests remain in HRX, and checkpoints
 remain external.
 
+For performance changes or benchmark authoring, read
+[the benchmarking workflow](lib/docs/benchmarking.md) before choosing workloads,
+oracles, measurement policies or profiling evidence.
+
 Do not commit downloaded model weights, generated serving outputs, or machine-
 specific paths. Do not change the HRX source pin without updating `MODULE.bazel`
 and reviewing the resulting wheel build.

@@ -1817,14 +1817,13 @@ private:
       return Undefined();
     }
     if (name == "strftime_now" && expr.args.size() == 2 &&
-        expr.args[1].kind == Expr::Kind::String &&
-        expr.args[1].text == "%d %b %Y") {
+        expr.args[1].kind == Expr::Kind::String) {
       const auto capability = Name(name, state);
       Require(Compare("eq", capability.kind, I64(8)),
               Literal("strftime_now is undefined"));
       const Value object{capability.data, I64(2), KnownKind::Mapping};
       const auto format = Get(object, Literal("format"));
-      const auto expected = String("%d %b %Y");
+      const auto expected = String(expr.args[1].text);
       const auto valid =
           Call("jinja.equal",
                {format.data, format.kind, expected.data, expected.kind},

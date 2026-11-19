@@ -1,5 +1,173 @@
 [
   {
+    "id": "supplied-date-absent-call-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {},
+    "error_contains": "undefined"
+  },
+  {
+    "id": "supplied-date-nonmapping-call-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": []
+    },
+    "error_contains": "undefined"
+  },
+  {
+    "id": "supplied-date-missing-format-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "result": "date"
+      }
+    },
+    "error_contains": "unsupported supplied date format"
+  },
+  {
+    "id": "supplied-date-nonstring-format-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": 7,
+        "result": "date"
+      }
+    },
+    "error_contains": "unsupported supplied date format"
+  },
+  {
+    "id": "supplied-date-missing-result-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "%Y-%m-%d"
+      }
+    },
+    "error_contains": "supplied date result must be a string"
+  },
+  {
+    "id": "supplied-date-nonstring-result-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "%Y-%m-%d",
+        "result": false
+      }
+    },
+    "error_contains": "supplied date result must be a string"
+  },
+  {
+    "id": "supplied-date-empty-result",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "%Y-%m-%d",
+        "result": ""
+      }
+    }
+  },
+  {
+    "id": "supplied-date-explicit-input-skips-invalid-provider",
+    "source": "{% if current_date %}{{ current_date }}{% else %}{{ strftime_now('%Y-%m-%d') }}{% endif %}",
+    "environment": {
+      "current_date": "caller date",
+      "__loomify_strftime_now": {
+        "format": null,
+        "result": false
+      }
+    }
+  },
+  {
+    "id": "supplied-date-absent-provider-source-fallback",
+    "source": "{% if strftime_now is defined %}{{ strftime_now('%Y-%m-%d') }}{% else %}source fallback{% endif %}",
+    "environment": {
+      "__loomify_strftime_now": null
+    }
+  },
+  {
+    "id": "supplied-date-mapping-is-defined-before-field-validation",
+    "source": "{{ strftime_now is defined }}",
+    "environment": {
+      "__loomify_strftime_now": {}
+    }
+  },
+  {
+    "id": "supplied-date-uninvoked-macro-skips-invalid-provider",
+    "source": "{% macro unused() %}{{ strftime_now('%Y-%m-%d') }}{% endmacro %}kept",
+    "environment": {
+      "__loomify_strftime_now": {}
+    }
+  },
+  {
+    "id": "supplied-date-or-skips-invalid-provider",
+    "source": "{{ 'explicit' or strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {}
+    }
+  },
+  {
+    "id": "supplied-date-two-literals-one-provider-mismatch",
+    "source": "{{ strftime_now('%Y-%m-%d') }}{{ strftime_now('%d %B %Y') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "%Y-%m-%d",
+        "result": "2057-10-09"
+      }
+    },
+    "error_contains": "unsupported supplied date format"
+  },
+  {
+    "id": "supplied-date-full-month-literal",
+    "source": "{{ strftime_now('%d %B %Y') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "%d %B %Y",
+        "result": "09 October 2057"
+      }
+    }
+  },
+  {
+    "id": "supplied-date-iso-keyword-literal",
+    "source": "{{ strftime_now(format='%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "%Y-%m-%d",
+        "result": "2057-10-09"
+      }
+    }
+  },
+  {
+    "id": "supplied-date-opaque-literal",
+    "source": "{{ strftime_now('opaque-%Q') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "opaque-%Q",
+        "result": "supplied text"
+      }
+    }
+  },
+  {
+    "id": "supplied-date-format-error-precedes-result-error",
+    "source": "{{ strftime_now('%Y-%m-%d') }}",
+    "environment": {
+      "__loomify_strftime_now": {
+        "format": "wrong",
+        "result": 7
+      }
+    },
+    "error_contains": "unsupported supplied date format"
+  },
+  {
+    "id": "supplied-date-invalid-fields-lazy-branch",
+    "source": "{% if call %}{{ strftime_now('%Y-%m-%d') }}{% else %}untaken{% endif %}",
+    "environment": {
+      "call": false,
+      "__loomify_strftime_now": {
+        "format": 7,
+        "result": null
+      }
+    }
+  },
+  {
     "id": "plain-user-fallback-date",
     "environment": {"bos_token": "<|begin_of_text|>", "messages": [{"role": "user", "content": "Hello"}], "add_generation_prompt": true}
   },

@@ -105,7 +105,7 @@
     ],
     "files": {
       "llama/llama_3b/config.loom": "a42f19a6ab5e248b08022bf11d3043cd45049b8883ae6f7e8320960c45a7cf0d",
-      "llama/llama_3b/control.loom": "7232e8e5a1f4b6e839236b617251d8f08856bab7f504002fe65a68aada77d13c",
+      "llama/llama_3b/control.loom": "7f117b92ab5c10e35212ed4a5d2353b958f35ce62596aa2317a47daa8adc4d04",
       "llama/llama_3b/prepare.loom": "48a0e3affc13683f554d5dd6ed582c7a52db4edc8c36c2d50874ee5135734bd0",
       "llama/llama_3b/weights.loom": "27ab134d4a3295e0ab0c2ab1811aa733ff29686036c719f79f5aaaf1de502328",
       "common/generation_control.loom": "a236de505d31020f04cfa5835697d294a4acc82843c07db99d5c728c13931cd0",

@@ -112,7 +112,7 @@
     ],
     "files": {
       "qwen/qwen_27b/config.loom": "e21acdcee549e06304bae53667d8b123ede5eec85b4fe5468e4147a30ee1772d",
-      "qwen/qwen_27b/control.loom": "8e427bb320a79eba9f7e20620b160c5b74c50a8381a7d62be87a414c14edfca4",
+      "qwen/qwen_27b/control.loom": "697475b666e966a83b29483e138a2418834454fdd41b34bd5c4ea7d821aff5fa",
       "qwen/qwen_27b/prepare.loom": "9d8498c8b2bac8f01bac6a8ca894d85cb1a239ebcee502a8d72599c592d12114",
       "qwen/qwen_27b/weights.loom": "adc8da3afe47f1ef7c30458df8fce5efd21b084025287d0c944f4b3a6f52eda8",
       "common/generation_control.loom": "a236de505d31020f04cfa5835697d294a4acc82843c07db99d5c728c13931cd0",

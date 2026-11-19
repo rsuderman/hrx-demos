@@ -1171,6 +1171,12 @@ private:
     value.expression = Name(found->second, Range(source));
     return value;
   }
+  bool DirectSemantic(const Value &value) const {
+    const auto name = semantic_names_.find(value.origin);
+    return value.expression.kind == Expr::Kind::Name &&
+           name != semantic_names_.end() &&
+           value.expression.text == name->second;
+  }
   bool Future(const Expr &expression) const {
     if (expression.kind == Expr::Kind::Name &&
         predicate_bindings_.count(expression.text))
@@ -3110,7 +3116,7 @@ private:
           found != path.bindings.end()) {
         Value value = found->second;
         if (const auto truth = path.future_truth.find(value.origin);
-            truth != path.future_truth.end())
+            truth != path.future_truth.end() && DirectSemantic(value))
           value.truth = truth->second;
         return value;
       }
@@ -3387,19 +3393,28 @@ private:
         ObserveProjection(0, path);
         return Semantic(Origin::ArgumentItems, expr);
       }
+      // Historical projection and continued USER render forward. This does
+      // not define an inverse or a codec for transformed assistant output.
+      const bool forward_replace = expr.text == "replace" &&
+                                   subject.origin == Origin::Content &&
+                                   (projection_mode_ || context.continued_user);
       if (expr.text != "trim" && expr.text != "lstrip" &&
           expr.text != "rstrip" && expr.text != "tojson" &&
           expr.text != "string" && expr.text != "safe" &&
           expr.text != "default" && expr.text != "d" && expr.text != "length" &&
           expr.text != "first" && expr.text != "last" && expr.text != "list" &&
-          expr.text != "join") {
+          expr.text != "join" && !forward_replace) {
         if (IsFuture(subject.origin))
           Fail(expr.offset,
                "unsupported payload filter in format analysis: " + expr.text);
       }
       Expr rebuilt = expr;
-      for (size_t i = 0; i < rebuilt.args.size(); ++i)
+      if (forward_replace)
+        rebuilt.args[0] = subject.expression;
+      for (size_t i = forward_replace ? 1 : 0; i < rebuilt.args.size(); ++i)
         rebuilt.args[i] = Resolve(expr.args[i], path, context).expression;
+      if (forward_replace)
+        return TransformedPayload(std::move(subject), std::move(rebuilt), expr);
       subject.expression = std::move(rebuilt);
       if (!subject.expansion.empty() && expr.text != "safe") {
         auto value = PatternExpression(subject.expansion);
@@ -3575,7 +3590,8 @@ private:
             expr.text == "true" || expr.text == "false")
           known = false;
       }
-      if (IsFuture(subject.origin) && !projection_mode_) {
+      if (IsFuture(subject.origin) && !projection_mode_ &&
+          DirectSemantic(subject)) {
         const unsigned domain = Domain(subject.origin, path);
         const unsigned selected = domain & TestMask(expr.text);
         if (!selected)
@@ -3956,6 +3972,23 @@ private:
         Append(&item.parts, std::move(transformed));
       }
       return result;
+    } else if (context.continued_user && Future(value.expression)) {
+      // USER continuation renders forward, including scalar results derived
+      // from its text. Body retains dependency provenance, not extra output.
+      TextFormatPart part;
+      part.capture = TextCapture::Expression;
+      part.value_expression = value.expression;
+      part.source = Range(expression);
+      for (const auto &[name, capture] : predicate_bindings_)
+        if (capture == TextCapture::Content &&
+            ContainsName(value.expression, name)) {
+          TextFormatPart input;
+          input.capture = TextCapture::Content;
+          input.value_expression = Name(name);
+          input.source = Range(expression);
+          part.body.push_back(std::move(input));
+        }
+      Append(&path.parts, std::move(part));
     } else if (!Future(value.expression)) {
       // Source-observable request text may precede a payload (for example a
       // first-turn system prefix). Keep it as an actual native expression;

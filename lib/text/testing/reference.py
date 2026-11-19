@@ -112,6 +112,22 @@ def main():
     assert cases
     if not adapter:
         assert len({case["id"] for case in cases}) == len(cases)
+
+    def bind_supplied_date(binding):
+        # Source keyword binding is format=; fixture state stays in the closure.
+        def supplied_date(format):
+            if (
+                not isinstance(binding.get("format"), str)
+                or format != binding["format"]
+            ):
+                raise jinja2.TemplateError("unsupported supplied date format")
+            result = binding.get("result")
+            if not isinstance(result, str):
+                raise jinja2.TemplateError("supplied date result must be a string")
+            return result
+
+        return supplied_date
+
     rows = []
     for case_index, case in enumerate(cases):
         if adapter and adapter.REVISION not in case.get("revisions", []):
@@ -143,14 +159,8 @@ def main():
             # Adapter fixtures retain their own explicit Undefined/default policy.
             environment["strftime_now"] = jinja2.Undefined(name="strftime_now")
             capability = environment.pop("__loomify_strftime_now", None)
-            if capability is not None:
-                assert capability["format"] == "%d %b %Y"
-
-                def supplied_date(format_string, binding=capability):
-                    assert format_string == binding["format"]
-                    return binding["result"]
-
-                environment["strftime_now"] = supplied_date
+            if isinstance(capability, dict):
+                environment["strftime_now"] = bind_supplied_date(capability)
         row = {
             "id": (
                 f"{adapter.REVISION}:{case_index}:{case['id']}"

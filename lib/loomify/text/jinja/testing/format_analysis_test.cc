@@ -2554,6 +2554,215 @@ TEST(TextFormatAnalysisTest, RequestCaptureCannotHideFutureDependencies) {
   }
 }
 
+std::string ForwardReplaceSource() {
+  return "{% macro clean(t) %}{% if t is string %}"
+         "{{ t|replace('x','')|replace('\\x00','')|replace('<A>','&lt;A>') }}"
+         "{% else %}{{ t }}{% endif %}{% endmacro %}"
+         "{% for m in messages %}{% if m.role == 'assistant' %}"
+         "<A>{{ m.content }}</A>{% else %}<U>{{ clean(m.content) }}</U>"
+         "{% endif %}{% endfor %}{% if add_generation_prompt %}<A>{% endif %}";
+}
+
+TEST(TextFormatAnalysisTest, HistoricalReplaceKeepsProjectionAndAssistantRaw) {
+  const auto source = ForwardReplaceSource();
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "historical-replace.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileChatTemplate(source, "historical-replace.jinja", &product,
+                                  &diagnostic));
+  const auto text = std::string("x<A>") + '\0' + u8"é";
+  for (bool bytecode : {false, true}) {
+    auto adaptation =
+        PrepareSelection(source, analysis.adaptation_selector_template,
+                         bytecode, TemplateSelectorKind::Adaptation);
+    auto renderer = PrepareProduct(product, bytecode);
+    ASSERT_NE(adaptation, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    for (const auto &role : {std::string("user"), std::string("assistant")}) {
+      const auto message =
+          "{\"role\":" + Quote(role) + ",\"content\":" + Quote(text) + "}";
+      const auto environment =
+          "{\"messages\":[" + message + "],\"add_generation_prompt\":true}";
+      int64_t bits = -1, mode = -1;
+      ASSERT_TRUE(Select(
+          *adaptation,
+          WorkerEnvironment(analysis, environment, message, 0, "null", 0),
+          &bits, &mode));
+      TextAdaptation facts;
+      ASSERT_TRUE(DecodeTextAdaptation(bits, &facts));
+      EXPECT_EQ(facts.content_observes_representation, role == "user");
+      std::string rendered, error;
+      ASSERT_TRUE(renderer->Render(environment, &rendered, &error)) << error;
+      EXPECT_EQ(rendered, role == "user" ? std::string(u8"<U>&lt;A>é</U><A>")
+                                         : "<A>" + text + "</A><A>");
+    }
+    std::string rendered, error;
+    ASSERT_TRUE(renderer->Render(
+        R"({"messages":[{"role":"user","content":7}],"add_generation_prompt":true})",
+        &rendered, &error))
+        << error;
+    EXPECT_EQ(rendered, "<U>7</U><A>");
+  }
+}
+
+TEST(TextFormatAnalysisTest,
+     ContinuedReplaceDoesNotReuseOriginalTruthOrDomain) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+      "{% else %}<U>{% if m.content %}{% set clean=m.content|replace('x','') %}"
+      "{% if clean %}NONEMPTY{% else %}EMPTY{% endif %}"
+      "{{ (clean|length) is string }}{% else %}ZERO{% endif %}</U>{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}<A>{% endif %}";
+  TextFormatAnalysis analysis;
+  TextUserContinuation continuation;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "continued-replace.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_TRUE(AnalyzeUserContinuation(source, "continued-replace.jinja", {},
+                                      analysis, &continuation, &diagnostic))
+      << diagnostic.message;
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildContinuation(continuation, &recipe, &error))
+      << error;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "continued-replace.jinja", recipe,
+                                      &product, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto prepared = PrepareProduct(product, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    for (const auto &text :
+         {std::string(), std::string("x"), std::string("xy")}) {
+      std::string rendered;
+      ASSERT_TRUE(prepared->Render("{" + Quote(continuation.text_binding) +
+                                       ":" + Quote(text) + "}",
+                                   &rendered, &error))
+          << error;
+      EXPECT_EQ(rendered, text.empty()  ? "<U>ZERO</U><A>"
+                          : text == "x" ? "<U>EMPTYFalse</U><A>"
+                                        : "<U>NONEMPTYFalse</U><A>");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, AssistantReplaceStillNeedsAnOutputContract) {
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  EXPECT_FALSE(AnalyzeTextFormat(Frame("{{ m.content|replace('x','') }}"),
+                                 "assistant-replace.jinja", {}, &analysis,
+                                 &diagnostic));
+  EXPECT_EQ(diagnostic.message,
+            "unsupported payload filter in format analysis: replace");
+}
+
+TEST(TextFormatAnalysisTest, ContinuedReplaceKeepsForwardSourceBytes) {
+  const auto source = ForwardReplaceSource();
+  TextFormatAnalysis analysis;
+  TextUserContinuation continuation;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "forward-user.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_TRUE(AnalyzeUserContinuation(source, "forward-user.jinja", {},
+                                      analysis, &continuation, &diagnostic))
+      << diagnostic.message;
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildContinuation(continuation, &recipe, &error))
+      << error;
+  GeneratedInputRenderer forward, original;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "forward-user.jinja", recipe,
+                                      &forward, &diagnostic));
+  ASSERT_TRUE(CompileChatTemplate(source, "forward-user.jinja", &original,
+                                  &diagnostic));
+  for (bool bytecode : {false, true}) {
+    auto user = PrepareProduct(forward, bytecode);
+    auto renderer = PrepareProduct(original, bytecode);
+    ASSERT_NE(user, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    for (const auto &text :
+         {std::string(), std::string("x<A>") + '\0' + u8"é"}) {
+      std::string actual, expected;
+      ASSERT_TRUE(user->Render("{" + Quote(continuation.text_binding) + ":" +
+                                   Quote(text) + "}",
+                               &actual, &error))
+          << error;
+      ASSERT_TRUE(renderer->Render(
+          "{\"messages\":[{\"role\":\"user\",\"content\":" + Quote(text) +
+              "}],\"add_generation_prompt\":true}",
+          &expected, &error))
+          << error;
+      EXPECT_EQ(actual, expected);
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest,
+     HistoricalReplacementArgumentsKeepSelectedEffects) {
+  const std::string source =
+      "{% set ns=namespace(n=0) %}"
+      "{% macro replacement() %}{% set ns.n=ns.n+1 %}{% endmacro %}"
+      "{% macro clean(t) %}{% if t is string %}"
+      "{{ t|replace('x',replacement(),1) }}{% else %}{{ t }}{% endif %}{% endmacro %}"
+      "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+      "{% else %}<U>{{ clean(m.content) }}</U>{% endif %}{% endfor %}"
+      "{% if add_generation_prompt and ns.n == want %}<A>{% endif %}";
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "replacement-effects.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileChatTemplate(source, "replacement-effects.jinja", &product,
+                                  &diagnostic));
+  for (bool bytecode : {false, true}) {
+    auto selector =
+        PrepareSelection(source, analysis.selector_template, bytecode);
+    auto renderer = PrepareProduct(product, bytecode);
+    ASSERT_NE(selector, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    for (bool string : {false, true}) {
+      const auto environment =
+          std::string("{\"messages\":[{\"role\":\"user\",\"content\":") +
+          (string ? "\"xx\"" : "7") +
+          "}],\"add_generation_prompt\":true,\"want\":" +
+          (string ? "1}" : "0}");
+      int64_t id = -1, mode = -1;
+      ASSERT_TRUE(Select(*selector, environment, &id, &mode));
+      ASSERT_GE(id, 0);
+      ASSERT_LT(static_cast<size_t>(id), analysis.alternatives.size());
+      EXPECT_EQ(analysis.alternatives[id].generation_prefix, "<A>");
+      std::string rendered, error;
+      ASSERT_TRUE(renderer->Render(environment, &rendered, &error)) << error;
+      EXPECT_EQ(rendered, string ? "<U>x</U><A>" : "<U>7</U><A>");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, ContinuedReplaceRetainsHistoryAvailabilityChecks) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+      "{% else %}<U>{{ m.content|replace(messages[0].content,'') }}</U>{% endif %}"
+      "{% endfor %}{% if add_generation_prompt %}<A>{% endif %}";
+  TextFormatAnalysis analysis;
+  TextUserContinuation continuation;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "history-user-replace.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  EXPECT_FALSE(AnalyzeUserContinuation(source, "history-user-replace.jinja", {},
+                                       analysis, &continuation, &diagnostic));
+  EXPECT_NE(diagnostic.message.find("unavailable history"), std::string::npos)
+      << diagnostic.message;
+}
+
 TEST(TextFormatAnalysisTest, CapturedAssistantBodyKeepsPayloadAndScope) {
   const auto source =
       Frame("{% set text %}{{ m.content }}{% endset %}{{ text }}");
