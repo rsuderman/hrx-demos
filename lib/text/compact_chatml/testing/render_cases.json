@@ -683,7 +683,7 @@
   },
   {
     "id": "tool-reference",
-    "native_admission_error": "unsupported chat",
+    "native_admission_error": "content part type must be text, image_url, or video_url",
     "request": {
       "messages": [
         {

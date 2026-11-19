@@ -1,0 +1,339 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Source-needed ordered consumers. Key scratch and permutations stay private;
+// tuple provenance for immediate dictsort rows belongs to compiler lowering.
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
+func.decl import("json") @parse_f64(%source: buffer, %begin: i64, %length: i64) -> (f64)
+
+func.decl @jinja.check(%valid: i1)
+
+func.decl @jinja.join(%a: buffer, %b: buffer) -> (buffer)
+
+func.decl @jinja.get(%value: buffer, %kind: i64, %key: buffer) -> (buffer, i64)
+
+func.decl @jinja.index(%value: buffer, %kind: i64, %ordinal: i64) -> (buffer, i64)
+
+func.decl @jinja.member(%source: buffer, %members: buffer, %count: i64, %ordinal: i64) -> (buffer, i64)
+
+func.decl @jinja.list(%value: buffer, %kind: i64) -> (buffer, i64)
+
+func.decl @jinja.items(%value: buffer, %kind: i64, %allow_undefined: i1) -> (buffer, i64)
+
+func.decl @jinja.truth(%value: buffer, %kind: i64) -> (i1)
+
+func.decl @jinja.integer(%value: i64) -> (buffer)
+
+func.decl @jinja.tointeger(%value: buffer, %kind: i64) -> (i64)
+
+func.decl @jinja.tojson(%value: buffer, %kind: i64, %indent: i64) -> (buffer)
+
+func.decl @jinja.numeric_text(%value: buffer, %kind: i64) -> (buffer)
+
+func.decl @jinja.is_integer(%value: buffer) -> (i1)
+
+func.decl @jinja.index_integer_fits(%value: buffer) -> (i1)
+
+func.decl @jinja.check_exact_float_integer(%value: buffer)
+
+func.decl @jinja.lower(%value: buffer, %kind: i64) -> (buffer)
+
+func.decl @jinja.upper(%value: buffer, %kind: i64) -> (buffer)
+
+func.decl @text.json_quote(%value: buffer) -> (buffer)
+
+func.def @jinja.collection_count(%count: i64) -> (index) {
+  %zero = scalar.constant 0 : i64
+  %maximum = scalar.constant 2147483647 : i64
+  %nonnegative = scalar.cmpi sge, %count, %zero : i64
+  %within = scalar.cmpi sle, %count, %maximum : i64
+  %valid = scalar.andi %nonnegative, %within : i1
+  func.call @jinja.check(%valid) : (i1)
+  %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  func.return %extent : index
+}
+
+func.def @jinja.collection_append(%body: buffer, %item: buffer, %ordinal: i64) -> (buffer) {
+  %zero = scalar.constant 0 : i64
+  %first = scalar.cmpi eq, %ordinal, %zero : i64
+  %prefix = scf.if %first -> (buffer) {
+    scf.yield %body : buffer
+  } else {
+    %comma = buffer.constant utf8(",") : buffer
+    %delimited = func.call @jinja.join(%body, %comma) : (buffer, buffer) -> (buffer)
+    scf.yield %delimited : buffer
+  }
+  %next = func.call @jinja.join(%prefix, %item) : (buffer, buffer) -> (buffer)
+  func.return %next : buffer
+}
+
+// Eagerly normalize every string key exactly once. Retain the original kind
+// separately: Undefined uses a null scratch payload without acquiring null's
+// comparison semantics or failing a singleton sort through tojson.
+func.def @jinja.collection_key_record(%value: buffer, %kind: i64) -> (buffer) {
+  %zero = scalar.constant 0 : i64
+  %seven = scalar.constant 7 : i64
+  %default = scalar.constant -1 : i64
+  %string = scalar.cmpi eq, %kind, %zero : i64
+  %normalized = scf.if %string -> (buffer) {
+    %lower = func.call @jinja.lower(%value, %kind) : (buffer, i64) -> (buffer)
+    scf.yield %lower : buffer
+  } else {
+    scf.yield %value : buffer
+  }
+  %undefined = scalar.cmpi eq, %kind, %seven : i64
+  %encoded = scf.if %undefined -> (buffer) {
+    %null = buffer.constant utf8("null") : buffer
+    scf.yield %null : buffer
+  } else {
+    %json = func.call @jinja.tojson(%normalized, %kind, %default) : (buffer, i64, i64) -> (buffer)
+    scf.yield %json : buffer
+  }
+  %open = buffer.constant utf8("[") : buffer
+  %comma = buffer.constant utf8(",") : buffer
+  %close = buffer.constant utf8("]") : buffer
+  %kind_text = func.call @jinja.integer(%kind) : (i64) -> (buffer)
+  %head = func.call @jinja.join(%open, %kind_text) : (buffer, buffer) -> (buffer)
+  %separated = func.call @jinja.join(%head, %comma) : (buffer, buffer) -> (buffer)
+  %body = func.call @jinja.join(%separated, %encoded) : (buffer, buffer) -> (buffer)
+  %record = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+  func.return %record : buffer
+}
+
+func.def @jinja.collection_key(%keys: buffer, %table: buffer, %count: i64, %ordinal: i64) -> (buffer, i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %three = scalar.constant 3 : i64
+  %record, %record_kind = func.call @jinja.member(%keys, %table, %count, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+  %tag, %tag_kind = func.call @jinja.index(%record, %three, %zero) : (buffer, i64, i64) -> (buffer, i64)
+  %kind = func.call @jinja.tointeger(%tag, %tag_kind) : (buffer, i64) -> (i64)
+  %value, %payload_kind = func.call @jinja.index(%record, %three, %one) : (buffer, i64, i64) -> (buffer, i64)
+  func.return %value, %kind : buffer, i64
+}
+
+// This is the selected finite comparison domain, not general Python ordering.
+// Sort's single attribute key is a one-element Python list: equal None and
+// same-type Undefined keys tie before scalar ordering is attempted. Compound
+// array/mapping keys and numeric values beyond the existing exact domain have
+// checked native capability failures, not claimed Python error parity.
+func.def @jinja.collection_less(%a: buffer, %ak: i64, %b: buffer, %bk: i64) -> (i1) {
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %four64 = scalar.constant 4 : i64
+  %five64 = scalar.constant 5 : i64
+  %six64 = scalar.constant 6 : i64
+  %seven64 = scalar.constant 7 : i64
+  %same_kind = scalar.cmpi eq, %ak, %bk : i64
+  %none = scalar.cmpi eq, %ak, %six64 : i64
+  %undefined = scalar.cmpi eq, %ak, %seven64 : i64
+  %empty_kind = scalar.ori %none, %undefined : i1
+  %empty_tie = scalar.andi %same_kind, %empty_kind : i1
+  %less = scf.if %empty_tie -> (i1) {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  } else {
+    %as = scalar.cmpi eq, %ak, %zero64 : i64
+    %bs = scalar.cmpi eq, %bk, %zero64 : i64
+    %strings = scalar.andi %as, %bs : i1
+    %ordered = scf.if %strings -> (i1) {
+      %al = buffer.length %a
+      %bl = buffer.length %b
+      %shorter = index.cmp ult, %al, %bl : offset
+      %common = scf.select %shorter, %al, %bl : offset
+      %zero = index.constant 0 : offset
+      %compared = buffer.compare %a[%zero], %b[%zero], %common
+      %zero32 = scalar.constant 0 : i32
+      %equal = scalar.cmpi eq, %compared, %zero32 : i32
+      %prefix_less = scalar.cmpi slt, %compared, %zero32 : i32
+      %result = scf.select %equal, %shorter, %prefix_less : i1
+      scf.yield %result : i1
+    } else {
+      %an = scalar.cmpi eq, %ak, %one64 : i64
+      %at = scalar.cmpi eq, %ak, %four64 : i64
+      %af = scalar.cmpi eq, %ak, %five64 : i64
+      %ab = scalar.ori %at, %af : i1
+      %anum = scalar.ori %an, %ab : i1
+      %bn = scalar.cmpi eq, %bk, %one64 : i64
+      %bt = scalar.cmpi eq, %bk, %four64 : i64
+      %bf = scalar.cmpi eq, %bk, %five64 : i64
+      %bb = scalar.ori %bt, %bf : i1
+      %bnum = scalar.ori %bn, %bb : i1
+      %numeric = scalar.andi %anum, %bnum : i1
+      func.call @jinja.check(%numeric) : (i1)
+      %atext = func.call @jinja.numeric_text(%a, %ak) : (buffer, i64) -> (buffer)
+      %btext = func.call @jinja.numeric_text(%b, %bk) : (buffer, i64) -> (buffer)
+      %ai = func.call @jinja.is_integer(%atext) : (buffer) -> (i1)
+      %bi = func.call @jinja.is_integer(%btext) : (buffer) -> (i1)
+      %integers = scalar.andi %ai, %bi : i1
+      %result = scf.if %integers -> (i1) {
+        %afits = func.call @jinja.index_integer_fits(%atext) : (buffer) -> (i1)
+        %bfits = func.call @jinja.index_integer_fits(%btext) : (buffer) -> (i1)
+        %fits = scalar.andi %afits, %bfits : i1
+        func.call @jinja.check(%fits) : (i1)
+        %av = func.call @jinja.tointeger(%atext, %one64) : (buffer, i64) -> (i64)
+        %bv = func.call @jinja.tointeger(%btext, %one64) : (buffer, i64) -> (i64)
+        %less = scalar.cmpi slt, %av, %bv : i64
+        scf.yield %less : i1
+      } else {
+        %mixed = scalar.xori %ai, %bi : i1
+        scf.if %mixed {
+          %integer = scf.select %ai, %atext, %btext : buffer
+          func.call @jinja.check_exact_float_integer(%integer) : (buffer)
+        }
+        %al = buffer.length %atext
+        %bl = buffer.length %btext
+        %al64 = index.cast %al : offset to i64
+        %bl64 = index.cast %bl : offset to i64
+        %av = func.call @parse_f64(%atext, %zero64, %al64) : (buffer, i64, i64) -> (f64)
+        %bv = func.call @parse_f64(%btext, %zero64, %bl64) : (buffer, i64, i64) -> (f64)
+        %maximum = scalar.constant 1.7976931348623157e+308 : f64
+        %minimum = scalar.constant -1.7976931348623157e+308 : f64
+        %ahi = scalar.cmpf ole, %av, %maximum : f64
+        %alo = scalar.cmpf oge, %av, %minimum : f64
+        %bhi = scalar.cmpf ole, %bv, %maximum : f64
+        %blo = scalar.cmpf oge, %bv, %minimum : f64
+        %afinite = scalar.andi %ahi, %alo : i1
+        %bfinite = scalar.andi %bhi, %blo : i1
+        %finite = scalar.andi %afinite, %bfinite : i1
+        func.call @jinja.check(%finite) : (i1)
+        %less = scalar.cmpf olt, %av, %bv : f64
+        scf.yield %less : i1
+      }
+      scf.yield %result : i1
+    }
+    scf.yield %ordered : i1
+  }
+  func.return %less : i1
+}
+
+// Stable insertion of original ordinals. All keys exist before this helper is
+// entered; no comparison or key-domain check occurs for a singleton.
+func.def @jinja.collection_order(%keys: buffer) -> (buffer) {
+  %table, %type, %count_value = func.call @members(%keys) : (buffer) -> (buffer, i32, i64)
+  %count = func.call @jinja.collection_count(%count_value) : (i64) -> (index)
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %stride = index.constant 8 : offset
+  // count <= INT32_MAX, so the eight-byte records cannot overflow offset/i64.
+  %bytes = index.scale %count, %stride : index, offset -> offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %order = buffer.view %storage[%origin] : buffer -> view<[%count]xi64>
+  %true = scalar.constant true : i1
+  scf.for %i = [%zero to %count step %one] {
+    %ordinal = index.cast %i : index to i64
+    %key, %kind = func.call @jinja.collection_key(%keys, %table, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+    %position, %again = scf.while(%position = %i : index, %again = %true : i1) -> (index, i1) {
+      %nonzero = index.cmp ugt, %position, %zero : index
+      %active = scalar.andi %nonzero, %again : i1
+      scf.condition %active, %position, %again : i1, index, i1
+    } do(%position: index, %again: i1) {
+      %within = index.cmp ult, %position, %count : index
+      %positive = index.cmp ugt, %position, %zero : index
+      %valid = scalar.andi %within, %positive : i1
+      func.call @jinja.check(%valid) : (i1)
+      %bounded = index.assume %position [range(%position, 1, 2147483647), lt(%position, %count)] : index
+      %before = index.sub %bounded, %one : index
+      %previous = view.load %order[%before] : view<[%count]xi64> -> i64
+      %old_key, %old_kind = func.call @jinja.collection_key(%keys, %table, %count_value, %previous) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      %less = func.call @jinja.collection_less(%key, %kind, %old_key, %old_kind) : (buffer, i64, buffer, i64) -> (i1)
+      scf.if %less {
+        view.store %previous, %order[%bounded] : i64, view<[%count]xi64>
+      }
+      %next = scf.select %less, %before, %bounded : index
+      scf.yield %next, %less : index, i1
+    }
+    %within = index.cmp ult, %position, %count : index
+    func.call @jinja.check(%within) : (i1)
+    %bounded = index.assume %position [range(%position, 0, 2147483647), lt(%position, %count)] : index
+    view.store %ordinal, %order[%bounded] : i64, view<[%count]xi64>
+  }
+  func.return %storage : buffer
+}
+
+// Extract all keys before comparisons, then reorder original values rather
+// than their normalized keys. from_pairs selects a fixed compiler-owned key
+// extraction route, not a dynamic source attribute/filter dispatch.
+func.def @jinja.collection_sort(%sequence: buffer, %from_pairs: i1) -> (buffer, i64) {
+  %zero64 = scalar.constant 0 : i64
+  %three64 = scalar.constant 3 : i64
+  %default = scalar.constant -1 : i64
+  %table, %type, %count_value = func.call @members(%sequence) : (buffer) -> (buffer, i32, i64)
+  %count = func.call @jinja.collection_count(%count_value) : (i64) -> (index)
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %open = buffer.constant utf8("[") : buffer
+  %close = buffer.constant utf8("]") : buffer
+  %type_key = buffer.constant utf8("type") : buffer
+  %key_body = scf.for %i = [%zero to %count step %one](%prior = %open : buffer) -> (buffer) {
+    %ordinal = index.cast %i : index to i64
+    %item, %item_kind = func.call @jinja.member(%sequence, %table, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+    %key, %key_kind = scf.if %from_pairs -> (buffer, i64) {
+      %key, %kind = func.call @jinja.index(%item, %three64, %zero64) : (buffer, i64, i64) -> (buffer, i64)
+      scf.yield %key, %kind : buffer, i64
+    } else {
+      %key, %kind = func.call @jinja.get(%item, %item_kind, %type_key) : (buffer, i64, buffer) -> (buffer, i64)
+      scf.yield %key, %kind : buffer, i64
+    }
+    %record = func.call @jinja.collection_key_record(%key, %key_kind) : (buffer, i64) -> (buffer)
+    %next = func.call @jinja.collection_append(%prior, %record, %ordinal) : (buffer, buffer, i64) -> (buffer)
+    scf.yield %next : buffer
+  }
+  %keys = func.call @jinja.join(%key_body, %close) : (buffer, buffer) -> (buffer)
+  %storage = func.call @jinja.collection_order(%keys) : (buffer) -> (buffer)
+  %origin = index.constant 0 : offset
+  %order = buffer.view %storage[%origin] : buffer -> view<[%count]xi64>
+  %body = scf.for %i = [%zero to %count step %one](%prior = %open : buffer) -> (buffer) {
+    %ordinal = view.load %order[%i] : view<[%count]xi64> -> i64
+    %item, %kind = func.call @jinja.member(%sequence, %table, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+    %encoded = func.call @jinja.tojson(%item, %kind, %default) : (buffer, i64, i64) -> (buffer)
+    %position = index.cast %i : index to i64
+    %next = func.call @jinja.collection_append(%prior, %encoded, %position) : (buffer, buffer, i64) -> (buffer)
+    scf.yield %next : buffer
+  }
+  %result = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+  func.return %result, %three64 : buffer, i64
+}
+
+func.def public @jinja.sort_type(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %sequence, %sequence_kind = func.call @jinja.list(%value, %kind) : (buffer, i64) -> (buffer, i64)
+  %false = scalar.constant false : i1
+  %result, %result_kind = func.call @jinja.collection_sort(%sequence, %false) : (buffer, i1) -> (buffer, i64)
+  func.return %result, %result_kind : buffer, i64
+}
+
+func.def public @jinja.dictsort(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %false = scalar.constant false : i1
+  %true = scalar.constant true : i1
+  %pairs, %pairs_kind = func.call @jinja.items(%value, %kind, %false) : (buffer, i64, i1) -> (buffer, i64)
+  %result, %result_kind = func.call @jinja.collection_sort(%pairs, %true) : (buffer, i1) -> (buffer, i64)
+  func.return %result, %result_kind : buffer, i64
+}
+
+func.def public @jinja.map_upper_list(%value: buffer, %kind: i64) -> (buffer, i64) {
+  %three64 = scalar.constant 3 : i64
+  %open = buffer.constant utf8("[") : buffer
+  %close = buffer.constant utf8("]") : buffer
+  %truth = func.call @jinja.truth(%value, %kind) : (buffer, i64) -> (i1)
+  %body = scf.if %truth -> (buffer) {
+    %sequence, %sequence_kind = func.call @jinja.list(%value, %kind) : (buffer, i64) -> (buffer, i64)
+    %table, %type, %count_value = func.call @members(%sequence) : (buffer) -> (buffer, i32, i64)
+    %count = func.call @jinja.collection_count(%count_value) : (i64) -> (index)
+    %zero = index.constant 0 : index
+    %one = index.constant 1 : index
+    %body = scf.for %i = [%zero to %count step %one](%prior = %open : buffer) -> (buffer) {
+      %ordinal = index.cast %i : index to i64
+      %item, %item_kind = func.call @jinja.member(%sequence, %table, %count_value, %ordinal) : (buffer, buffer, i64, i64) -> (buffer, i64)
+      %upper = func.call @jinja.upper(%item, %item_kind) : (buffer, i64) -> (buffer)
+      %quoted = func.call @text.json_quote(%upper) : (buffer) -> (buffer)
+      %next = func.call @jinja.collection_append(%prior, %quoted, %ordinal) : (buffer, buffer, i64) -> (buffer)
+      scf.yield %next : buffer
+    }
+    scf.yield %body : buffer
+  } else {
+    scf.yield %open : buffer
+  }
+  %result = func.call @jinja.join(%body, %close) : (buffer, buffer) -> (buffer)
+  func.return %result, %three64 : buffer, i64
+}

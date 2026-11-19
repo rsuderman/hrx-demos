@@ -15,7 +15,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user"
       },
       {
         "id": "source-custom-role",
@@ -52,7 +52,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user"
       },
       {
         "id": "late-invalid-role",
@@ -104,7 +104,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user"
       },
       {
         "id": "late-invalid-role",
@@ -158,7 +158,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user"
       }
     ]
   },
@@ -180,7 +180,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "qwen25-one-user"
       }
     ]
   },
@@ -207,7 +207,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "qwen3-one-user"
       }
     ]
   },
@@ -231,7 +231,8 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user",
+        "reference_generation_prompt": true
       }
     ]
   },
@@ -258,7 +259,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user"
       }
     ]
   },
@@ -285,7 +286,7 @@
       {
         "id": "tools-null-rejected",
         "request": "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"tools\":null}",
-        "error_contains": "tools"
+        "reference_case": "one-user"
       }
     ]
   }

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import site
 import sys
+import unicodedata
 
 sys.dont_write_bytecode = True
 
@@ -58,6 +59,7 @@ def main():
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--check-native", type=Path)
+    parser.add_argument("--require-unicode-version")
     parser.add_argument(
         "--source-override",
         action="store_true",
@@ -66,6 +68,12 @@ def main():
     args = parser.parse_args()
     assert not args.source_override or args.adapter
     assert sys.prefix != sys.base_prefix and not site.ENABLE_USER_SITE
+    if args.require_unicode_version:
+        assert unicodedata.unidata_version == args.require_unicode_version, (
+            "oracle Unicode data version mismatch",
+            unicodedata.unidata_version,
+            args.require_unicode_version,
+        )
     assert not os.environ.get("PYTHONPATH") and not os.environ.get("PYTHONHOME")
     versions = {key: importlib.metadata.version(key) for key in PINNED}
     assert versions == PINNED, versions
@@ -239,6 +247,7 @@ def main():
     manifest = {
         "versions": versions,
         "python": sys.version,
+        "unicode_data_version": unicodedata.unidata_version,
         "interpreter": sys.executable,
         "user_site": site.ENABLE_USER_SITE,
         "revision": adapter.REVISION if adapter else None,

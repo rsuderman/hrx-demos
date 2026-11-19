@@ -89,6 +89,7 @@ struct Path {
   // Only the original root's explicit empty-history rejection establishes this.
   bool source_nonempty = false;
   std::optional<Expr> rejection;
+  std::optional<Template> rejection_statements;
   std::map<Origin, unsigned> domains;
   std::map<Origin, bool> future_truth;
   size_t emission = 0;
@@ -103,6 +104,12 @@ struct Context {
   size_t target_loop = 0;
   // Only ScanTop grants same-scope availability of this retained producer.
   std::optional<size_t> request_capture;
+  // Granted only by a future Choice arm beginning with an actual For;
+  // never inherited through another lexical owner or repetition.
+  std::optional<size_t> failing_loop;
+  bool allow_statement_errors = true;
+  // Original target-loop Output, preserved through macro-body expansion.
+  std::optional<size_t> source_output_owner;
 };
 Expr Name(std::string name, SourceRange range = {}) {
   Expr result;
@@ -318,6 +325,42 @@ bool SameGuards(const std::vector<Expr> &a, const std::vector<Expr> &b) {
       return false;
   return true;
 }
+bool HasStatementError(const Parts &parts) {
+  for (const auto &part : parts)
+    if (!part.body_error_statements.body.empty() ||
+        !part.otherwise_error_statements.body.empty() ||
+        HasStatementError(part.body) || HasStatementError(part.otherwise))
+      return true;
+  return false;
+}
+bool SameErrorStatements(const Template &a, const Template &b) {
+  if (a.body.size() != b.body.size())
+    return false;
+  // Construction retains exactly one childless, unfiltered For header.
+  for (size_t i = 0; i < a.body.size(); ++i)
+    if (a.body[i].kind != b.body[i].kind || a.body[i].text != b.body[i].text ||
+        !SameExpression(a.body[i].expression, b.body[i].expression))
+      return false;
+  return true;
+}
+bool SameErrorPattern(const Parts &a, const Parts &b) {
+  if (a.size() != b.size())
+    return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (a[i].capture != b[i].capture || a[i].literal != b[i].literal ||
+        !SameExpression(a[i].predicate, b[i].predicate) ||
+        !SameExpression(a[i].value_expression, b[i].value_expression) ||
+        !SameExpression(a[i].body_error, b[i].body_error) ||
+        !SameExpression(a[i].otherwise_error, b[i].otherwise_error) ||
+        !SameErrorStatements(a[i].body_error_statements,
+                             b[i].body_error_statements) ||
+        !SameErrorStatements(a[i].otherwise_error_statements,
+                             b[i].otherwise_error_statements) ||
+        !SameErrorPattern(a[i].body, b[i].body) ||
+        !SameErrorPattern(a[i].otherwise, b[i].otherwise))
+      return false;
+  return true;
+}
 Expr Conjunction(const std::vector<Expr> &guards) {
   Expr result = Boolean(true);
   for (const auto &guard : guards)
@@ -448,16 +491,12 @@ bool TaggedSteps(const Parts &parts, const TextFormatAnalysis &analysis,
       if (!TaggedSteps(part.body, analysis, opener, out, error))
         return false;
     } else if (part.capture == TextCapture::Choice) {
-      if (part.body_error.kind != Expr::Kind::None ||
-          part.otherwise_error.kind != Expr::Kind::None) {
-        if (part.body_error.kind != Expr::Kind::None &&
-            part.otherwise_error.kind != Expr::Kind::None) {
+      if (part.HasBodyError() || part.HasOtherwiseError()) {
+        if (part.HasBodyError() && part.HasOtherwiseError()) {
           *error = "tagged source has no successful wire arm";
           return false;
         }
-        const auto &success = part.body_error.kind == Expr::Kind::None
-                                  ? part.body
-                                  : part.otherwise;
+        const auto &success = !part.HasBodyError() ? part.body : part.otherwise;
         if (!TaggedSteps(success, analysis, opener, out, error))
           return false;
         continue;
@@ -569,7 +608,9 @@ public:
       : source_(source.source()), source_name_(source.source_name()),
         ast_(source.ast()), globals_(globals), diagnostic_(diagnostic),
         macros_(source.analysis_macros()), source_names_(source.source_names()),
-        macro_calls_(source.analysis_macro_calls()) {}
+        macro_calls_(source.analysis_macro_calls()) {
+    GatherRecursiveDependencies();
+  }
 
   bool Run(TextFormatAnalysis *out) {
     const auto &ast = ast_;
@@ -610,6 +651,7 @@ public:
     ScanTop(ast.body, {initial});
     if (failed_)
       return false;
+    ProvePromptPrefix();
     bodies_ = FormatChoices(bodies_, true);
     // Splitting a request guard can expose an arm which emits no assistant
     // bytes. It is not a format: preserve its non-admission through the guarded
@@ -634,6 +676,8 @@ public:
         References(part.value_expression, &selector_roots);
         References(part.body_error, &selector_roots);
         References(part.otherwise_error, &selector_roots);
+        NodeReferences(part.body_error_statements.body, &selector_roots);
+        NodeReferences(part.otherwise_error_statements.body, &selector_roots);
         self(self, part.body);
         self(self, part.otherwise);
       }
@@ -653,6 +697,8 @@ public:
       References(guard, &selector_roots);
     for (const auto &guard : projection_rejection_rules_)
       References(guard, &selector_roots);
+    if (!recursive_target_outputs_.empty())
+      selector_roots.insert(target_missing_);
     selector_needed_ = SelectorDependencies(std::move(selector_roots));
     std::vector<Node> prelude;
     if (selector_needed_.count(target_missing_)) {
@@ -781,6 +827,7 @@ public:
     result.format_route_guards = std::move(selected_guards);
     result.predicate_bindings = predicate_bindings_;
     result.completion_message_loops = completion_message_loops_;
+    result.completion_prompt_prefixes = completion_prompt_prefixes_;
     result.completion_last_conditions = completion_last_conditions_;
     result.completion_reasoning_outputs = completion_reasoning_outputs_;
     result.completion_rewrite_diagnostics = completion_rewrite_diagnostics_;
@@ -845,6 +892,8 @@ public:
         References(part.value_expression, &roots);
         References(part.body_error, &roots);
         References(part.otherwise_error, &roots);
+        NodeReferences(part.body_error_statements.body, &roots);
+        NodeReferences(part.otherwise_error_statements.body, &roots);
         self(self, part.body);
         self(self, part.otherwise);
         result.evidence.push_back(part.source);
@@ -1186,6 +1235,14 @@ private:
         return true;
     return false;
   }
+  bool Future(const Template &statements) const {
+    std::set<std::string> names;
+    NodeReferences(statements.body, &names);
+    for (const auto &name : names)
+      if (predicate_bindings_.count(name))
+        return true;
+    return false;
+  }
   std::optional<Expr> PatternExpression(const Parts &parts) {
     Expr result = String("");
     for (const auto &part : parts) {
@@ -1193,11 +1250,14 @@ private:
       if (part.capture == TextCapture::Literal)
         value = String(part.literal);
       else if (part.capture == TextCapture::Choice) {
+        if (!part.body_error_statements.body.empty() ||
+            !part.otherwise_error_statements.body.empty())
+          return std::nullopt;
         auto yes = PatternExpression(part.body);
         auto no = PatternExpression(part.otherwise);
-        if (part.body_error.kind != Expr::Kind::None)
+        if (part.HasBodyError())
           yes = part.body_error;
-        if (part.otherwise_error.kind != Expr::Kind::None)
+        if (part.HasOtherwiseError())
           no = part.otherwise_error;
         if (!yes || !no)
           return std::nullopt;
@@ -2099,19 +2159,60 @@ private:
         result.push_back(guard);
     return result;
   }
+  void RecursiveEffects(const TextFormatPart &part,
+                        std::vector<const Expr *> *effects) const {
+    if (part.capture == TextCapture::Expression) {
+      std::vector<const Expr *> calls;
+      GatherCalls(part.value_expression, &calls);
+      if (std::any_of(calls.begin(), calls.end(), [&](const auto *call) {
+            return recursive_macros_.count(call->args[0].text);
+          }))
+        effects->push_back(&part.value_expression);
+    }
+    for (const auto &child : part.body)
+      RecursiveEffects(child, effects);
+    for (const auto &child : part.otherwise)
+      RecursiveEffects(child, effects);
+  }
+  bool PriorRecursiveEffect(const std::vector<const Expr *> &effects,
+                            const Expr &predicate) {
+    std::set<std::string> fields;
+    References(predicate, &fields);
+    for (const auto *expression : effects) {
+      for (const auto &field : fields) {
+        const auto dot = field.find('.');
+        if (dot == std::string::npos ||
+            !namespace_roots_.count(field.substr(0, dot)))
+          continue;
+        Path caller;
+        if (MacroExpressionMayWrite(*expression, field, caller, {}))
+          return true;
+      }
+    }
+    return false;
+  }
   bool SplitRequestChoice(const Parts &input, Parts *yes, Parts *no,
                           Expr *condition, bool *yes_error, bool *no_error,
                           size_t *choice_offset, bool preserve_validation,
                           const std::vector<std::pair<size_t, Expr>> &retained,
-                          bool *validation_only, bool unconditional) {
+                          bool *validation_only, bool unconditional,
+                          std::vector<const Expr *> prior_effects = {}) {
     for (size_t index = 0; index < input.size(); ++index) {
       const auto &part = input[index];
-      if (part.capture == TextCapture::Choice && !Future(part.predicate)) {
+      // A post-call source validation observes the prospective assistant's
+      // effects. Keep it after that call in the recipe; LIVE history has not
+      // executed this future statement and cannot supply its predicate value.
+      const bool after_effect =
+          preserve_validation && part.capture == TextCapture::Choice &&
+          ((part.body_error.kind == Expr::Kind::None) !=
+           (part.otherwise_error.kind == Expr::Kind::None)) &&
+          PriorRecursiveEffect(prior_effects, part.predicate);
+      if (part.capture == TextCapture::Choice && !Future(part.predicate) &&
+          !after_effect) {
         std::string bytes;
         const bool validation =
             preserve_validation &&
-            ((part.body_error.kind == Expr::Kind::None) !=
-             (part.otherwise_error.kind == Expr::Kind::None)) &&
+            ((!part.HasBodyError()) != (!part.HasOtherwiseError())) &&
             SuccessfulLiteral(part, &bytes) && bytes.empty();
         // Future-controlled branches and zero-trip repeats do not establish
         // unconditional assistant admission. Retain their validation locally.
@@ -2127,8 +2228,8 @@ private:
         *condition = part.predicate;
         *choice_offset = part.source.begin;
         *validation_only = validation;
-        *yes_error = part.body_error.kind != Expr::Kind::None;
-        *no_error = part.otherwise_error.kind != Expr::Kind::None;
+        *yes_error = part.HasBodyError();
+        *no_error = part.HasOtherwiseError();
         if (validation) {
           *yes = input;
           *no = input;
@@ -2151,7 +2252,7 @@ private:
       if (SplitRequestChoice(part.body, &body_yes, &body_no, condition,
                              yes_error, no_error, choice_offset,
                              preserve_validation, retained, validation_only,
-                             always)) {
+                             always, prior_effects)) {
         *yes = input;
         *no = input;
         (*yes)[index].body = std::move(body_yes);
@@ -2161,13 +2262,14 @@ private:
       if (SplitRequestChoice(part.otherwise, &body_yes, &body_no, condition,
                              yes_error, no_error, choice_offset,
                              preserve_validation, retained, validation_only,
-                             always)) {
+                             always, prior_effects)) {
         *yes = input;
         *no = input;
         (*yes)[index].otherwise = std::move(body_yes);
         (*no)[index].otherwise = std::move(body_no);
         return true;
       }
+      RecursiveEffects(part, &prior_effects);
     }
     return false;
   }
@@ -2914,9 +3016,31 @@ private:
     for (const auto &part : parts)
       if (CountDependent(part.predicate) ||
           CountDependent(part.value_expression) || CountDependent(part.body) ||
-          CountDependent(part.otherwise))
+          CountDependent(part.otherwise) || CountDependent(part.body_error) ||
+          CountDependent(part.otherwise_error) ||
+          CountDependent(part.body_error_statements) ||
+          CountDependent(part.otherwise_error_statements))
         return true;
     return false;
+  }
+  bool CountDependent(const Template &statements) const {
+    std::set<std::string> names;
+    NodeReferences(statements.body, &names);
+    for (const auto &name : names)
+      if (count_targets_.count(name) || count_target_names_.count(name))
+        return true;
+    return false;
+  }
+  void TargetCounts(std::vector<Node> *nodes) const {
+    for (auto &node : *nodes) {
+      node.expression = TargetCounts(node.expression);
+      if (node.predicate)
+        node.predicate = TargetCounts(*node.predicate);
+      for (auto &value : node.defaults)
+        value = TargetCounts(value);
+      TargetCounts(&node.body);
+      TargetCounts(&node.otherwise);
+    }
   }
   void TargetCounts(Parts *parts) const {
     for (auto &part : *parts) {
@@ -2924,6 +3048,8 @@ private:
       part.value_expression = TargetCounts(part.value_expression);
       part.body_error = TargetCounts(part.body_error);
       part.otherwise_error = TargetCounts(part.otherwise_error);
+      TargetCounts(&part.body_error_statements.body);
+      TargetCounts(&part.otherwise_error_statements.body);
       TargetCounts(&part.body);
       TargetCounts(&part.otherwise);
     }
@@ -3131,6 +3257,12 @@ private:
       return Constant(expr.text, expr);
     if (expr.kind == Expr::Kind::Boolean)
       return Constant(expr.text == "true", expr);
+    if (expr.kind == Expr::Kind::Integer) {
+      Value value{Origin::Request, expr};
+      value.defined = true;
+      value.truth = expr.text != "0";
+      return value;
+    }
     if (expr.kind == Expr::Kind::None) {
       Value value{Origin::Request, expr};
       value.defined = true;
@@ -3395,26 +3527,37 @@ private:
       }
       // Historical projection and continued USER render forward. This does
       // not define an inverse or a codec for transformed assistant output.
-      const bool forward_replace = expr.text == "replace" &&
-                                   subject.origin == Origin::Content &&
-                                   (projection_mode_ || context.continued_user);
+      const bool forward_sort = expr.text == "sort" && expr.args.size() == 2 &&
+                                expr.keywords.size() == 2 &&
+                                expr.keywords[1] == "attribute" &&
+                                expr.args[1].kind == Expr::Kind::String &&
+                                expr.args[1].text == "type";
+      const bool forward_transform =
+          (expr.text == "replace" || forward_sort) &&
+          subject.origin == Origin::Content &&
+          (projection_mode_ || context.continued_user);
       if (expr.text != "trim" && expr.text != "lstrip" &&
           expr.text != "rstrip" && expr.text != "tojson" &&
           expr.text != "string" && expr.text != "safe" &&
           expr.text != "default" && expr.text != "d" && expr.text != "length" &&
           expr.text != "first" && expr.text != "last" && expr.text != "list" &&
-          expr.text != "join" && !forward_replace) {
+          expr.text != "join" && !forward_transform) {
         if (IsFuture(subject.origin))
           Fail(expr.offset,
                "unsupported payload filter in format analysis: " + expr.text);
       }
       Expr rebuilt = expr;
-      if (forward_replace)
+      if (forward_transform)
         rebuilt.args[0] = subject.expression;
-      for (size_t i = forward_replace ? 1 : 0; i < rebuilt.args.size(); ++i)
+      for (size_t i = forward_transform ? 1 : 0; i < rebuilt.args.size(); ++i)
         rebuilt.args[i] = Resolve(expr.args[i], path, context).expression;
-      if (forward_replace)
+      if (forward_transform) {
+        // A projection-irrelevant assignment may lose the result's Content
+        // origin before a later loop. The eager sort itself observes it.
+        if (forward_sort && projection_mode_)
+          ObserveProjection(2, path);
         return TransformedPayload(std::move(subject), std::move(rebuilt), expr);
+      }
       subject.expression = std::move(rebuilt);
       if (!subject.expansion.empty() && expr.text != "safe") {
         auto value = PatternExpression(subject.expansion);
@@ -3448,7 +3591,8 @@ private:
             semantic_origin = actual.origin;
           request_call.args[i] = actual.expression;
         }
-        if (!semantic_actual)
+        if (!semantic_actual && (!recursive_macros_.count(callee.text) ||
+                                 RequestRecursiveCall(expr, path, context)))
           return {Origin::Request, std::move(request_call)};
         if (projection_mode_) {
           Emit(expr, path, context);
@@ -3831,6 +3975,10 @@ private:
             choice.body_error = *yes[0].rejection;
           if (no[0].rejection)
             choice.otherwise_error = *no[0].rejection;
+          if (yes[0].rejection_statements)
+            choice.body_error_statements = *yes[0].rejection_statements;
+          if (no[0].rejection_statements)
+            choice.otherwise_error_statements = *no[0].rejection_statements;
           Append(&path.parts, std::move(choice));
         }
         return {std::move(path)};
@@ -3861,6 +4009,46 @@ private:
         return {std::move(path)};
       }
       if (const auto macro = macros_.find(name); macro != macros_.end()) {
+        bool unresolved_namespace = false;
+        if (RequestRecursiveCall(expression, path, context,
+                                 &unresolved_namespace)) {
+          if (!RecordTargetRegion(context, expression.offset, true))
+            return {};
+          // Preserve original execution rather than expanding a private schema
+          // into the future output grammar. The existing recipe/source slicing
+          // owns this expression and its lexical declaration dependencies.
+          TextFormatPart part;
+          part.capture = TextCapture::Expression;
+          part.source = Range(expression);
+          part.value_expression = expression;
+          for (size_t i = 1; i < expression.args.size(); ++i)
+            part.value_expression.args[i] =
+                Resolve(expression.args[i], path, context).expression;
+          if (!projection_mode_)
+            Append(&path.parts, std::move(part));
+          if (!projection_mode_ && !continuation_mode_ &&
+              context.source_output_owner &&
+              completion_message_loops_.count(context.target_loop)) {
+            recursive_target_outputs_[*context.source_output_owner] =
+                context.target_loop;
+            if (!recursive_history_guards_.count(context.target_loop))
+              recursive_history_guards_[context.target_loop] =
+                  FreshCountName("__text_recursive_history");
+          }
+          Node execution;
+          execution.kind = Node::Kind::Output;
+          execution.expression = expression;
+          Node retained;
+          retained.body = {std::move(execution)};
+          ForgetCaptureWrites(retained, &path);
+          return {std::move(path)};
+        }
+        if (unresolved_namespace) {
+          Fail(
+              expression.offset,
+              "recursive macro namespace capture has future source dependencies");
+          return {};
+        }
         if (!macro_stack_.insert(name).second) {
           Fail(expression.offset, "recursive macro format cannot be analyzed");
           return {};
@@ -3905,7 +4093,10 @@ private:
                   definition.defaults[i - first_default], path, context);
           }
         }
-        auto result = Walk(definition.body, {std::move(path)}, context);
+        Context macro_context = context;
+        macro_context.failing_loop.reset();
+        macro_context.allow_statement_errors = false;
+        auto result = Walk(definition.body, {std::move(path)}, macro_context);
         for (auto &item : result)
           item.bindings = prior_bindings;
         macro_stack_.erase(name);
@@ -4059,8 +4250,206 @@ private:
       }
     }
   }
+  void GatherRecursiveDependencies() {
+    // Lexical direct summaries keep private locals out of module dependency
+    // closure. The finite graph is also used to recognize private recursion;
+    // no call is evaluated or symbolically unrolled here.
+    for (const auto &[name, definition] : macros_) {
+      std::set<std::string> locals(definition->parameters.begin(),
+                                   definition->parameters.end());
+      auto &inputs = recursive_dependencies_[name];
+      CaptureInputs(definition->body, &locals, &inputs);
+      recursive_body_inputs_[name] = inputs;
+      GatherCalls(definition->body, &recursive_body_calls_[name]);
+      for (const auto &value : definition->defaults)
+        References(value, &inputs);
+      for (const auto &parameter : definition->parameters)
+        for (auto it = inputs.begin(); it != inputs.end();)
+          if (*it == parameter ||
+              it->compare(0, parameter.size() + 1, parameter + ".") == 0)
+            it = inputs.erase(it);
+          else
+            ++it;
+    }
+    for (const auto &[name, unused] : macros_) {
+      std::set<std::string> pending = recursive_dependencies_[name], seen;
+      while (!pending.empty()) {
+        const auto input = *pending.begin();
+        pending.erase(pending.begin());
+        if (!seen.insert(input).second)
+          continue;
+        if (input == name)
+          recursive_macros_.insert(name);
+        if (const auto callee = recursive_dependencies_.find(input);
+            callee != recursive_dependencies_.end())
+          pending.insert(callee->second.begin(), callee->second.end());
+      }
+      recursive_dependencies_[name] = std::move(seen);
+    }
+    // A private acyclic wrapper can own loops and effects around its recursive
+    // callee. Preserve that original expression as one qualified computation.
+    bool changed;
+    do {
+      changed = false;
+      for (const auto &[name, inputs] : recursive_dependencies_)
+        if (!recursive_macros_.count(name))
+          for (const auto &input : inputs)
+            if (recursive_macros_.count(input)) {
+              changed |= recursive_macros_.insert(name).second;
+              break;
+            }
+    } while (changed);
+  }
+  void GatherCalls(const Expr &expression,
+                   std::vector<const Expr *> *calls) const {
+    if (expression.kind == Expr::Kind::Call && !expression.args.empty() &&
+        expression.args[0].kind == Expr::Kind::Name &&
+        macros_.count(expression.args[0].text))
+      calls->push_back(&expression);
+    for (const auto &argument : expression.args)
+      GatherCalls(argument, calls);
+  }
+  void GatherCalls(const std::vector<Node> &nodes,
+                   std::vector<const Expr *> *calls) const {
+    for (const auto &node : nodes) {
+      GatherCalls(node.expression, calls);
+      if (node.predicate)
+        GatherCalls(*node.predicate, calls);
+      GatherCalls(node.body, calls);
+      GatherCalls(node.otherwise, calls);
+    }
+  }
+  bool MacroRequestInputs(const Expr &expression,
+                          std::set<std::string> *inputs) const {
+    std::vector<const Expr *> pending;
+    GatherCalls(expression, &pending);
+    std::set<std::pair<std::string, std::vector<bool>>> seen;
+    while (!pending.empty()) {
+      const auto &call = *pending.back();
+      pending.pop_back();
+      const auto &name = call.args[0].text;
+      const auto &definition = *macros_.at(name);
+      std::vector<bool> supplied(definition.parameters.size(), false);
+      size_t positional = 0;
+      for (size_t i = 1; i < call.args.size(); ++i) {
+        size_t parameter = positional++;
+        if (i < call.keywords.size() && !call.keywords[i].empty()) {
+          const auto found =
+              std::find(definition.parameters.begin(),
+                        definition.parameters.end(), call.keywords[i]);
+          parameter = found - definition.parameters.begin();
+        }
+        if (parameter >= supplied.size() || supplied[parameter])
+          return false;
+        supplied[parameter] = true;
+      }
+      // There are finitely many source callsites/provided masks. Reaching the
+      // same pair cannot introduce another lazy default or lexical dependency.
+      if (!seen.emplace(name, supplied).second)
+        continue;
+      auto direct = recursive_body_inputs_.at(name);
+      const auto &calls = recursive_body_calls_.at(name);
+      pending.insert(pending.end(), calls.begin(), calls.end());
+      const auto first = supplied.size() - definition.defaults.size();
+      for (size_t i = first; i < supplied.size(); ++i)
+        if (!supplied[i]) {
+          const auto &value = definition.defaults[i - first];
+          References(value, &direct);
+          GatherCalls(value, &pending);
+        }
+      for (const auto &input : direct) {
+        const auto root = input.substr(0, input.find('.'));
+        if (!macros_.count(input) &&
+            std::find(definition.parameters.begin(),
+                      definition.parameters.end(),
+                      root) == definition.parameters.end())
+          inputs->insert(input);
+      }
+    }
+    return true;
+  }
+  bool RequestRecursiveCall(const Expr &call, Path &path,
+                            const Context &context,
+                            bool *unresolved_namespace = nullptr) {
+    if (call.kind != Expr::Kind::Call || call.args.empty() ||
+        call.args[0].kind != Expr::Kind::Name ||
+        !recursive_macros_.count(call.args[0].text))
+      return false;
+    const auto request_value = [&](const Value &value) {
+      const auto parts = [&](auto &&self, const Parts &items) -> bool {
+        for (const auto &part : items)
+          if ((part.capture != TextCapture::Literal &&
+               part.capture != TextCapture::Expression &&
+               part.capture != TextCapture::Choice) ||
+              Future(part.predicate) || Future(part.value_expression) ||
+              Future(part.body_error) || Future(part.otherwise_error) ||
+              !self(self, part.body) || !self(self, part.otherwise))
+            return false;
+        return true;
+      };
+      return value.origin == Origin::Request && !Future(value.expression) &&
+             parts(parts, value.expansion);
+    };
+    std::set<std::string> actual_inputs;
+    std::set<std::string> lexical_inputs;
+    if (!MacroRequestInputs(call, &lexical_inputs))
+      return false;
+    bool actual_request = true;
+    for (size_t i = 1; i < call.args.size(); ++i) {
+      actual_request &= request_value(Resolve(call.args[i], path, context));
+      References(call.args[i], &actual_inputs);
+    }
+    for (const auto &guard : path.guards) {
+      if (Future(guard))
+        actual_request = false;
+      References(guard, &actual_inputs);
+    }
+    const auto request_inputs = [&](std::set<std::string> pending,
+                                    const Bindings &bindings) {
+      std::set<std::string> seen;
+      while (!pending.empty()) {
+        const auto input = *pending.begin();
+        pending.erase(pending.begin());
+        if (!seen.insert(input).second)
+          continue;
+        if (macros_.count(input))
+          continue;
+        const auto root = input.substr(0, input.find('.'));
+        if (root == "messages" || message_sequences_.count(root) ||
+            predicate_bindings_.count(root) || count_target_names_.count(root))
+          return false;
+        for (const auto &key : {input, root})
+          if (const auto binding = bindings.find(key);
+              binding != bindings.end()) {
+            if (!request_value(binding->second))
+              return false;
+            References(binding->second.expression, &pending);
+            if (!MacroRequestInputs(binding->second.expression, &pending))
+              return false;
+          }
+      }
+      return true;
+    };
+    // Walk intentionally does not replace namespace fields with speculative
+    // values. Source/alias dependency closure still records writes, including
+    // a future payload assigned after the module constructor.
+    std::set<std::string> fields;
+    for (const auto &input : lexical_inputs) {
+      const auto dot = input.find('.');
+      if (dot != std::string::npos &&
+          namespace_roots_.count(input.substr(0, dot)))
+        fields.insert(input);
+    }
+    const bool namespace_request =
+        request_inputs(NeededClosure(std::move(fields)), path.bindings);
+    if (unresolved_namespace)
+      *unresolved_namespace = !namespace_request;
+    return actual_request && namespace_request &&
+           request_inputs(std::move(actual_inputs), path.bindings) &&
+           request_inputs(lexical_inputs, path.module_bindings);
+  }
   bool RequestCapture(const Node &node, const Path &path,
-                      const Context &context) const {
+                      const Context &context) {
     if (!context.request_capture || *context.request_capture != node.offset)
       return false;
     const auto has_loop = [&](auto &&self,
@@ -4076,6 +4465,17 @@ private:
     // loops. Only their source-ordered external inputs enter global closure.
     std::set<std::string> locals, inputs;
     CaptureInputs(node.body, &locals, &inputs);
+    std::vector<const Expr *> calls;
+    GatherCalls(node.body, &calls);
+    for (const auto *call : calls) {
+      const auto &name = call->args[0].text;
+      buffered_loop |= recursive_macros_.count(name) ||
+                       has_loop(has_loop, macros_.at(name)->body);
+      if (!MacroRequestInputs(*call, &inputs))
+        return false;
+    }
+    for (const auto &[name, unused] : macros_)
+      inputs.erase(name);
     for (const auto &guard : path.guards)
       References(guard, &inputs);
     const auto dependencies = NeededClosure(std::move(inputs));
@@ -4086,7 +4486,9 @@ private:
              part.capture != TextCapture::Choice) ||
             Future(part.predicate) || Future(part.value_expression) ||
             Future(part.body_error) || Future(part.otherwise_error) ||
-            !self(self, part.body) || !self(self, part.otherwise))
+            Future(part.body_error_statements) ||
+            Future(part.otherwise_error_statements) || !self(self, part.body) ||
+            !self(self, part.otherwise))
           return false;
       return true;
     };
@@ -4096,7 +4498,8 @@ private:
           predicate_bindings_.count(root) || count_target_names_.count(root))
         return false;
       if (const auto macro = macros_.find(name); macro != macros_.end())
-        buffered_loop |= has_loop(has_loop, macro->second->body);
+        buffered_loop |= has_loop(has_loop, macro->second->body) ||
+                         recursive_macros_.count(name);
       for (const auto &key : {name, root}) {
         const auto binding = path.bindings.find(key);
         if (binding == path.bindings.end())
@@ -4110,6 +4513,139 @@ private:
     // Keep the existing literal and semantic expansion paths where no private
     // repetition needs opacity. A Request label alone never grants this path.
     return buffered_loop;
+  }
+  // This first-emission proof is deliberately lexical. It recognizes a fresh
+  // pending flag, one original message loop and its immediate fallback, rather
+  // than treating arbitrary request-origin text as an immutable prompt prefix.
+  bool PrefixExpressionStable(const Expr &expression,
+                              const std::set<std::string> &forbidden,
+                              std::set<std::string> *active) const {
+    if (expression.kind == Expr::Kind::Name && forbidden.count(expression.text))
+      return false;
+    if (expression.kind == Expr::Kind::Call && !expression.args.empty() &&
+        expression.args.front().kind == Expr::Kind::Name) {
+      const auto &name = expression.args.front().text;
+      if (name == "namespace")
+        return false;
+      if (const auto found = macros_.find(name); found != macros_.end()) {
+        if (!active->insert(name).second)
+          return false;
+        const auto &macro = *found->second;
+        bool stable = PrefixNodesStable(macro.body, forbidden, active);
+        for (const auto &value : macro.defaults)
+          stable &= PrefixExpressionStable(value, forbidden, active);
+        active->erase(name);
+        if (!stable)
+          return false;
+      }
+    }
+    for (const auto &arg : expression.args)
+      if (!PrefixExpressionStable(arg, forbidden, active))
+        return false;
+    return true;
+  }
+  bool PrefixNodesStable(const std::vector<Node> &nodes,
+                         const std::set<std::string> &forbidden,
+                         std::set<std::string> *active) const {
+    for (const auto &node : nodes) {
+      // No namespace writes/escapes or shadowing of a proof identity. Ordinary
+      // local call/argument bindings remain normal original source operations.
+      if ((node.kind == Node::Kind::Set || node.kind == Node::Kind::Capture ||
+           node.kind == Node::Kind::For) &&
+          (node.text.find('.') != std::string::npos ||
+           forbidden.count(node.text)))
+        return false;
+      if (node.kind == Node::Kind::Macro ||
+          node.kind == Node::Kind::Generation ||
+          !PrefixExpressionStable(node.expression, forbidden, active) ||
+          (node.predicate &&
+           !PrefixExpressionStable(*node.predicate, forbidden, active)) ||
+          !PrefixNodesStable(node.body, forbidden, active) ||
+          !PrefixNodesStable(node.otherwise, forbidden, active))
+        return false;
+    }
+    return true;
+  }
+  void ProvePromptPrefix() {
+    const auto &nodes = ast_.body;
+    size_t start = 0;
+    while (start < nodes.size() && nodes[start].kind == Node::Kind::Macro)
+      ++start;
+    // Direct root siblings establish dominance without moving computations
+    // out of an original conditional, capture or generation scope.
+    if (nodes.size() != start + 5)
+      return;
+    const auto &capture = nodes[start], &initial = nodes[start + 1],
+               &loop = nodes[start + 2], &fallback = nodes[start + 3],
+               &generation = nodes[start + 4];
+    const std::set<std::string> controls{"messages", "add_generation_prompt",
+                                         "loop"};
+    if (capture.kind != Node::Kind::Capture || controls.count(capture.text) ||
+        controls.count(initial.text) ||
+        !opaque_request_captures_.count(capture.offset) ||
+        initial.kind != Node::Kind::Set ||
+        initial.expression.kind != Expr::Kind::Call ||
+        initial.expression.args.size() != 2 ||
+        initial.expression.keywords.size() != 2 ||
+        initial.expression.args[0].kind != Expr::Kind::Name ||
+        initial.expression.args[0].text != "namespace" ||
+        initial.expression.args[1].kind != Expr::Kind::Boolean ||
+        initial.expression.args[1].text != "true" ||
+        initial.expression.keywords[1].empty() ||
+        initial.text.find('.') != std::string::npos ||
+        initial.text == capture.text || loop.kind != Node::Kind::For ||
+        loop.expression.kind != Expr::Kind::Name ||
+        loop.expression.text != "messages" || loop.predicate ||
+        !loop.otherwise.empty() || loop.body.empty() ||
+        fallback.kind != Node::Kind::If || !fallback.otherwise.empty() ||
+        fallback.body.size() != 1 || generation.kind != Node::Kind::If ||
+        generation.expression.kind != Expr::Kind::Name ||
+        generation.expression.text != "add_generation_prompt" ||
+        !generation.otherwise.empty())
+      return;
+    const auto pending = initial.text + "." + initial.expression.keywords[1];
+    const auto &first = loop.body.front();
+    if (first.kind != Node::Kind::If || !first.otherwise.empty() ||
+        first.body.size() != 2 || first.expression.kind != Expr::Kind::Binary ||
+        first.expression.text != "and" || first.expression.args.size() != 2 ||
+        Access(first.expression.args[0]) != pending ||
+        Access(fallback.expression) != pending)
+      return;
+    const auto &role = first.expression.args[1];
+    if (role.kind != Expr::Kind::Binary || role.text != "!=" ||
+        role.args.size() != 2 || Access(role.args[0]) != loop.text + ".role" ||
+        role.args[1].kind != Expr::Kind::String ||
+        role.args[1].text == "assistant")
+      return;
+    const auto is_emission = [&](const Node &node) {
+      return node.kind == Node::Kind::Output &&
+             node.expression.kind == Expr::Kind::Name &&
+             node.expression.text == capture.text;
+    };
+    const auto &clear = first.body[1];
+    if (!is_emission(first.body[0]) || !is_emission(fallback.body[0]) ||
+        clear.kind != Node::Kind::Set || clear.text != pending ||
+        clear.expression.kind != Expr::Kind::Boolean ||
+        clear.expression.text != "false")
+      return;
+    std::set<std::string> forbidden{initial.text, capture.text, "messages",
+                                    "add_generation_prompt", "loop"};
+    std::set<std::string> active;
+    if (forbidden.count(loop.text) ||
+        loop.text.find(',') != std::string::npos ||
+        !PrefixNodesStable(capture.body, forbidden, &active))
+      return;
+    const std::vector<Node> body(loop.body.begin() + 1, loop.body.end());
+    if (!PrefixNodesStable(body, forbidden, &active))
+      return;
+    for (const auto &node : generation.body)
+      if (node.kind != Node::Kind::Text &&
+          !(node.kind == Node::Kind::Output &&
+            node.expression.kind == Expr::Kind::String))
+        return;
+    completion_prompt_prefixes_.push_back({{first.offset, first.end},
+                                           Range(first.body[0].expression),
+                                           capture.text});
   }
   void ForgetCaptureWrites(const Node &capture, Path *path) {
     for (const auto &[field, unused] : definitions_) {
@@ -4129,6 +4665,25 @@ private:
       path->module_bindings[field] = std::move(runtime);
     }
   }
+  bool RecordTargetRegion(const Context &context, size_t offset,
+                          bool opaque_call) {
+    if (projection_mode_ || continuation_mode_ || !context.target ||
+        !completion_message_loops_.count(context.target_loop))
+      return true;
+    auto &own = opaque_call ? recursive_target_call_loops_
+                            : recursive_target_namespace_writes_;
+    const auto &other = opaque_call ? recursive_target_namespace_writes_
+                                    : recursive_target_call_loops_;
+    if (other.count(context.target_loop))
+      return Fail(
+          offset,
+          "target namespace statements mixed with request recursion require single-region recipe retention");
+    // Whole request-only wrappers execute natively, so their internal writes
+    // never enter this symbolic statement walk. Separately expanded statements
+    // cannot share their original region with an extracted opaque call yet.
+    own.insert(context.target_loop);
+    return true;
+  }
   std::vector<Path> Walk(const std::vector<Node> &nodes,
                          std::vector<Path> paths, const Context &context) {
     for (const auto &node : nodes) {
@@ -4145,7 +4700,10 @@ private:
           next.push_back(std::move(path));
         } else if (node.kind == Node::Kind::Output) {
           const size_t prior_parts = path.parts.size();
-          auto emitted = Emit(node.expression, std::move(path), context);
+          Context emission = context;
+          if (emission.target && !emission.source_output_owner)
+            emission.source_output_owner = node.offset;
+          auto emitted = Emit(node.expression, std::move(path), emission);
           for (auto &item : emitted) {
             if (!projection_mode_ && context.target &&
                 !context.continued_user && !item.rejected &&
@@ -4159,6 +4717,7 @@ private:
           }
         } else if (node.kind == Node::Kind::Capture) {
           if (RequestCapture(node, path, context)) {
+            opaque_request_captures_.insert(node.offset);
             ForgetCaptureWrites(node, &path);
             Value value{Origin::Request,
                         Name(node.text, {node.offset, node.end})};
@@ -4170,15 +4729,28 @@ private:
           }
           Path captured = path;
           captured.parts.clear();
-          auto bodies = Walk(node.body, {std::move(captured)}, context);
+          Context capture_context = context;
+          capture_context.failing_loop.reset();
+          capture_context.allow_statement_errors = false;
+          auto bodies = Walk(node.body, {std::move(captured)}, capture_context);
           if (bodies.size() != 1) {
             Fail(node.offset, "capture did not form one buffered value");
             continue;
           }
           auto &body = bodies.front();
+          std::vector<const Expr *> recursive_effects;
+          for (const auto &part : body.parts)
+            RecursiveEffects(part, &recursive_effects);
+          if (context.target && !recursive_effects.empty()) {
+            Fail(
+                node.offset,
+                "target-local recursive capture requires single-region recipe retention");
+            continue;
+          }
           if (body.rejected) {
             path.rejected = true;
             path.rejection = body.rejection;
+            path.rejection_statements = body.rejection_statements;
           }
           // Ordinary capture locals do not escape. Existing namespace fields
           // remain effects, just as in renderer lowering and retained prelude.
@@ -4198,6 +4770,29 @@ private:
           path.bindings[node.text] = std::move(value);
           next.push_back(std::move(path));
         } else if (node.kind == Node::Kind::Set) {
+          if (node.text.find('.') != std::string::npos &&
+              !RecordTargetRegion(context, node.offset, false))
+            continue;
+          if (context.target && node.text.find('.') == std::string::npos) {
+            std::vector<const Expr *> calls;
+            GatherCalls(node.expression, &calls);
+            if (std::any_of(calls.begin(), calls.end(), [&](const auto *call) {
+                  return recursive_macros_.count(call->args[0].text);
+                })) {
+              const auto value = Resolve(node.expression, path, context);
+              calls.clear();
+              GatherCalls(value.expression, &calls);
+              if (std::any_of(
+                      calls.begin(), calls.end(), [&](const auto *call) {
+                        return recursive_macros_.count(call->args[0].text);
+                      })) {
+                Fail(
+                    node.offset,
+                    "target-local recursive assignment requires single-region recipe retention");
+                continue;
+              }
+            }
+          }
           if (!Relevant(node.text, analysis_needed_)) {
             if (projection_mode_)
               Resolve(node.expression, path, context);
@@ -4260,8 +4855,19 @@ private:
               yes_path.guards.push_back(condition.expression);
               no_path.guards.push_back(Unary("not", condition.expression));
             }
-            auto yes = Walk(node.body, {std::move(yes_path)}, context);
-            auto no = Walk(node.otherwise, {std::move(no_path)}, context);
+            const auto arm_context = [&](const std::vector<Node> &arm) {
+              Context result = context;
+              result.failing_loop.reset();
+              if (context.allow_statement_errors && !projection_mode_ &&
+                  Future(condition.expression) && !arm.empty() &&
+                  arm.front().kind == Node::Kind::For && !arm.front().predicate)
+                result.failing_loop = arm.front().offset;
+              return result;
+            };
+            auto yes =
+                Walk(node.body, {std::move(yes_path)}, arm_context(node.body));
+            auto no = Walk(node.otherwise, {std::move(no_path)},
+                           arm_context(node.otherwise));
             if (yes.size() == 1 && no.size() == 1) {
               RecordRetentionChoice(node.offset, condition);
               TextFormatPart choice;
@@ -4274,6 +4880,10 @@ private:
                 choice.body_error = *yes[0].rejection;
               if (no[0].rejection)
                 choice.otherwise_error = *no[0].rejection;
+              if (yes[0].rejection_statements)
+                choice.body_error_statements = *yes[0].rejection_statements;
+              if (no[0].rejection_statements)
+                choice.otherwise_error_statements = *no[0].rejection_statements;
               // A guarded phi preserves definitions without enumerating the
               // product of unrelated request/representation decisions.
               JoinBindings(condition.expression, yes[0].bindings,
@@ -4288,8 +4898,7 @@ private:
                   yes[0].adaptation.content_observes_representation ||
                   no[0].adaptation.content_observes_representation;
               if (!choice.body.empty() || !choice.otherwise.empty() ||
-                  choice.body_error.kind != Expr::Kind::None ||
-                  choice.otherwise_error.kind != Expr::Kind::None)
+                  choice.HasBodyError() || choice.HasOtherwiseError())
                 Append(&path.parts, std::move(choice));
               next.push_back(std::move(path));
             } else {
@@ -4306,6 +4915,18 @@ private:
             continue;
           }
           Value sequence = Resolve(node.expression, path, context);
+          if (context.allow_statement_errors && !projection_mode_ &&
+              context.failing_loop == node.offset && DirectSemantic(sequence) &&
+              Domain(sequence.origin, path) == 2) {
+            Node failure = node;
+            failure.expression = sequence.expression;
+            failure.body.clear();
+            failure.otherwise.clear();
+            path.rejected = true;
+            path.rejection_statements = Template{{std::move(failure)}};
+            next.push_back(std::move(path));
+            continue;
+          }
           if (projection_mode_ && (sequence.origin == Origin::Arguments ||
                                    sequence.origin == Origin::ArgumentItems ||
                                    sequence.origin == Origin::ArgumentKeys)) {
@@ -4327,6 +4948,8 @@ private:
             continue;
           }
           Context nested = context;
+          nested.failing_loop.reset();
+          nested.allow_statement_errors = false;
           nested.loops.push_back({sequence.origin, sequence.expression});
           Path repeated = path;
           repeated.parts.clear();
@@ -4725,7 +5348,17 @@ private:
           auto evaluate = node;
           evaluate.kind = Node::Kind::Set;
           evaluate.text = FreshCountName("__text_discarded_output");
-          out->push_back(std::move(evaluate));
+          if (const auto target = recursive_target_outputs_.find(node.offset);
+              target != recursive_target_outputs_.end()) {
+            Node historical;
+            historical.kind = Node::Kind::If;
+            historical.expression =
+                Name(recursive_history_guards_.at(target->second));
+            historical.body.push_back(std::move(evaluate));
+            out->push_back(std::move(historical));
+          } else {
+            out->push_back(std::move(evaluate));
+          }
         }
         continue;
       }
@@ -4778,6 +5411,20 @@ private:
       if (node.kind != Node::Kind::Macro && node.kind != Node::Kind::Capture) {
         copy.body.clear();
         copy.otherwise.clear();
+        if (const auto historical = recursive_history_guards_.find(node.offset);
+            node.kind == Node::Kind::For &&
+            historical != recursive_history_guards_.end()) {
+          Node snapshot;
+          snapshot.kind = Node::Kind::Set;
+          snapshot.text = historical->second;
+          Expr last;
+          last.kind = Expr::Kind::GetAttr;
+          last.text = "last";
+          last.args = {Name("loop")};
+          snapshot.expression = Binary("or", Name(target_missing_),
+                                       Unary("not", std::move(last)));
+          copy.body.push_back(std::move(snapshot));
+        }
         SlicePrelude(node.body, &copy.body);
         SlicePrelude(node.otherwise, &copy.otherwise);
       }
@@ -4929,13 +5576,15 @@ private:
         result += part.literal;
       } else if (part.capture == TextCapture::Choice) {
         std::string literal;
+        if (part.HasBodyError() && part.HasOtherwiseError())
+          return result;
         if (SuccessfulLiteral(part, &literal)) {
           result += literal;
           continue;
         }
-        if (part.body_error.kind != Expr::Kind::None)
+        if (part.HasBodyError())
           return result + Leading(part.otherwise);
-        if (part.otherwise_error.kind != Expr::Kind::None)
+        if (part.HasOtherwiseError())
           return result + Leading(part.body);
         const auto a = Leading(part.body), b = Leading(part.otherwise);
         size_t n = 0;
@@ -4958,13 +5607,15 @@ private:
         result = part.literal + result;
       } else if (part.capture == TextCapture::Choice) {
         std::string literal;
+        if (part.HasBodyError() && part.HasOtherwiseError())
+          return result;
         if (SuccessfulLiteral(part, &literal)) {
           result = literal + result;
           continue;
         }
-        if (part.body_error.kind != Expr::Kind::None)
+        if (part.HasBodyError())
           return Trailing(part.otherwise) + result;
-        if (part.otherwise_error.kind != Expr::Kind::None)
+        if (part.HasOtherwiseError())
           return Trailing(part.body) + result;
         const auto a = Trailing(part.body), b = Trailing(part.otherwise);
         size_t n = 0;
@@ -4981,6 +5632,8 @@ private:
     return result;
   }
   bool SuccessfulLiteral(const TextFormatPart &part, std::string *out) const {
+    if (part.HasBodyError() && part.HasOtherwiseError())
+      return false;
     auto literal = [&](const Parts &items, std::string *bytes) -> bool {
       for (const auto &item : items) {
         if (item.capture == TextCapture::Literal)
@@ -5006,9 +5659,9 @@ private:
       std::string repeated;
       return literal(part.body, &repeated) && repeated.empty();
     }
-    if (part.body_error.kind != Expr::Kind::None)
+    if (part.HasBodyError())
       return literal(part.otherwise, out);
-    if (part.otherwise_error.kind != Expr::Kind::None)
+    if (part.HasOtherwiseError())
       return literal(part.body, out);
     std::string yes, no;
     if (!literal(part.body, &yes) || !literal(part.otherwise, &no) || yes != no)
@@ -5254,6 +5907,10 @@ private:
     return true;
   }
   bool Merge(const TextFormatAlternative &from, TextFormatAlternative *to) {
+    if ((HasStatementError(from.assistant_pattern) ||
+         HasStatementError(to->assistant_pattern)) &&
+        !SameErrorPattern(from.assistant_pattern, to->assistant_pattern))
+      return Fail(0, "cannot merge distinct guarded source-statement errors");
     to->completion_guards.erase(
         std::remove_if(
             to->completion_guards.begin(), to->completion_guards.end(),
@@ -5310,6 +5967,14 @@ private:
   bool failed_ = false;
   const std::map<std::string, const Node *> &macros_;
   std::set<std::string> macro_stack_;
+  std::map<std::string, std::set<std::string>> recursive_dependencies_;
+  std::map<std::string, std::set<std::string>> recursive_body_inputs_;
+  std::map<std::string, std::vector<const Expr *>> recursive_body_calls_;
+  std::set<std::string> recursive_macros_;
+  std::map<size_t, size_t> recursive_target_outputs_;
+  std::map<size_t, std::string> recursive_history_guards_;
+  std::set<size_t> recursive_target_call_loops_;
+  std::set<size_t> recursive_target_namespace_writes_;
   std::vector<Path> bodies_;
   std::vector<Path> generations_;
   std::vector<Path> projection_paths_;
@@ -5340,6 +6005,8 @@ private:
   bool resolving_last_ = false;
   size_t resolve_depth_ = 0;
   std::set<size_t> completion_message_loops_;
+  std::set<size_t> opaque_request_captures_;
+  std::vector<TextPromptPrefix> completion_prompt_prefixes_;
   std::map<size_t, Expr> completion_last_conditions_;
   std::set<size_t> completion_reasoning_outputs_;
   std::map<size_t, std::string> completion_rewrite_diagnostics_;
@@ -5582,8 +6249,7 @@ private:
   bool PartEncoding(const TextFormatPart &part, int type, Encoding *out) {
     if (part.capture != TextCapture::Choice)
       return EncodingFor(part.value_expression, type, out);
-    if (type == 2 && part.body_error.kind == Expr::Kind::None &&
-        part.otherwise_error.kind == Expr::Kind::None) {
+    if (type == 2 && !part.HasBodyError() && !part.HasOtherwiseError()) {
       std::string yes, no;
       if (LiteralSequence(part.body, &yes) &&
           LiteralSequence(part.otherwise, &no) &&
@@ -5593,15 +6259,13 @@ private:
       }
     }
     if (const auto decision = TypePredicate(part.predicate, type)) {
-      const auto &error = *decision ? part.body_error : part.otherwise_error;
-      if (error.kind != Expr::Kind::None)
+      if (*decision ? part.HasBodyError() : part.HasOtherwiseError())
         return Fail("source rejects this captured value type");
       return PartSequenceEncoding(*decision ? part.body : part.otherwise, type,
                                   out);
     }
     Encoding yes, no;
-    if (part.body_error.kind != Expr::Kind::None ||
-        part.otherwise_error.kind != Expr::Kind::None ||
+    if (part.HasBodyError() || part.HasOtherwiseError() ||
         !PartSequenceEncoding(part.body, type, &yes) ||
         !PartSequenceEncoding(part.otherwise, type, &no))
       return Fail("value codec has an unsupported conditional source domain");

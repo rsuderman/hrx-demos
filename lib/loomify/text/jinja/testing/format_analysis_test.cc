@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -2484,6 +2485,426 @@ TEST(TextFormatAnalysisTest,
   }
 }
 
+TEST(TextFormatAnalysisTest, RecursiveRequestCaptureRetainsOriginalExecution) {
+  for (bool effectful : {false, true}) {
+    const std::string source =
+        "{% set ns=namespace(n=0) %}"
+        "{% macro nest(n) %}" +
+        std::string(effectful ? "{% set ns.n=ns.n+1 %}" : "") +
+        "[{% if n %}{{ nest(n-1) }}{% else %}leaf{% endif %}]"
+        "{% endmacro %}"
+        "{% set buffered %}{{ nest(depth) }}{% endset %}"
+        "{{ buffered }}" +
+        Frame(
+            "{% if buffered == expected and buffered == expected and ns.n == want %}"
+            "{{ m.content }}{% else %}{{ raise_exception('recursive prelude repeated or lost') }}{% endif %}");
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(AnalyzeTextFormat(source, "recursive-request-capture.jinja", {},
+                                  &analysis, &diagnostic))
+        << diagnostic.message;
+    ASSERT_FALSE(analysis.alternatives.empty());
+    GeneratedInputRenderer renderer_product;
+    ASSERT_TRUE(CompileChatTemplate(source, "recursive-request-render.jinja",
+                                    &renderer_product, &diagnostic))
+        << diagnostic.message;
+    for (bool bytecode : {false, true}) {
+      auto selector =
+          PrepareSelection(source, analysis.selector_template, bytecode);
+      auto renderer = PrepareProduct(renderer_product, bytecode);
+      ASSERT_NE(selector, nullptr);
+      ASSERT_NE(renderer, nullptr);
+      for (int depth : {0, 3}) {
+        const std::string expected =
+            std::string(depth + 1, '[') + "leaf" + std::string(depth + 1, ']');
+        const std::string fields =
+            "\"depth\":" + std::to_string(depth) +
+            ",\"expected\":" + Quote(expected) +
+            ",\"want\":" + std::to_string(effectful ? depth + 1 : 0);
+        const auto live =
+            "{" + fields +
+            ",\"messages\":[{\"role\":\"user\",\"content\":\"q\"}],\"add_generation_prompt\":true}";
+        int64_t id = -1, mode = -1;
+        ASSERT_TRUE(Select(*selector, live, &id, &mode));
+        ASSERT_GE(id, 0);
+        ASSERT_LT(static_cast<size_t>(id), analysis.alternatives.size());
+        internal::RecipeBuilder builder(analysis, source);
+        Template recipe;
+        std::string error;
+        ASSERT_TRUE(builder.Build(analysis.alternatives[id], &recipe, &error))
+            << error;
+        GeneratedInputRenderer product;
+        ASSERT_TRUE(CompileTemplateRenderer(source,
+                                            "recursive-request-recipe.jinja",
+                                            recipe, &product, &diagnostic))
+            << diagnostic.message;
+        auto prepared = PrepareProduct(product, bytecode);
+        ASSERT_NE(prepared, nullptr);
+        const std::string assistant =
+            R"({"role":"assistant","content":"PAYLOAD"})";
+        const auto completed = "{" + fields + ",\"messages\":[" + assistant +
+                               "],\"add_generation_prompt\":false," +
+                               Quote(builder.assistant_binding()) + ":" +
+                               assistant + "}";
+        std::string rendered;
+        ASSERT_TRUE(prepared->Render(completed, &rendered, &error)) << error;
+        EXPECT_EQ(rendered, "<turn>assistant:PAYLOAD</turn>");
+        ASSERT_TRUE(renderer->Render(completed, &rendered, &error)) << error;
+        EXPECT_EQ(rendered, expected + "<turn>assistant:PAYLOAD</turn>");
+      }
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, RecursiveFutureOutputKeepsPreciseDiagnostic) {
+  const auto source =
+      "{% macro nest(value) %}[{{ value }}{% if value %}{{ nest(value) }}{% endif %}]"
+      "{% endmacro %}" +
+      Frame("{{ nest(m.content) }}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  EXPECT_FALSE(AnalyzeTextFormat(source, "recursive-future-output.jinja", {},
+                                 &analysis, &diagnostic));
+  EXPECT_NE(diagnostic.message.find("recursive macro format"),
+            std::string::npos)
+      << diagnostic.message;
+}
+
+TEST(TextFormatAnalysisTest,
+     RecursiveRequestCallPreservesLazyDefaultOverrides) {
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  for (int shape : {0, 1, 2}) {
+    SCOPED_TRACE(shape);
+    const std::string call = shape == 0 ? "{{ nest(depth,'fixed') }}"
+                             : shape == 1
+                                 ? "{{ nest(depth,'fixed')|string }}"
+                                 : "{{ wrapper(depth,'fixed')|string }}";
+    const std::string source =
+        "{% set ns=namespace(n=0) %}"
+        "{% macro nest(n,value=messages[-1].content) %}"
+        "{% set ns.n=ns.n+1 %}[{{ value }}{% if n %}{{ nest(n-1,value) }}{% endif %}]"
+        "{% endmacro %}"
+        "{% macro wrapper(n,v) %}{% for inner in [0] %}{{ nest(n,v) }}{% endfor %}{% endmacro %}" +
+        Frame(
+            call +
+            "{% if m.content %}{% if not loop.last or ns.n == want %}{{ m.content }}"
+            "{% else %}{{ raise_exception('recursive call repeated or lost') }}{% endif %}"
+            "{% else %}{{ m.content }}{% endif %}");
+    ASSERT_TRUE(AnalyzeTextFormat(source, "recursive-request-default.jinja", {},
+                                  &analysis, &diagnostic))
+        << diagnostic.message;
+    ASSERT_FALSE(analysis.alternatives.empty());
+    ASSERT_FALSE(analysis.target_missing_binding.empty());
+    ASSERT_FALSE(analysis.selector_template.body.empty());
+    EXPECT_EQ(analysis.selector_template.body.front().kind, Node::Kind::Set);
+    EXPECT_EQ(analysis.selector_template.body.front().text,
+              analysis.target_missing_binding);
+    EXPECT_EQ(analysis.selector_template.body.front().expression.text, "1");
+    EXPECT_EQ(analysis.selector_template.body.front().expression.kind,
+              Expr::Kind::Integer);
+    GeneratedInputRenderer original;
+    ASSERT_TRUE(CompileChatTemplate(source, "recursive-default-original.jinja",
+                                    &original, &diagnostic))
+        << diagnostic.message;
+    for (bool bytecode : {false, true}) {
+      for (bool historical : {false, true}) {
+        SCOPED_TRACE(historical);
+        auto selector =
+            PrepareSelection(source, analysis.selector_template, bytecode);
+        auto renderer = PrepareProduct(original, bytecode);
+        ASSERT_NE(selector, nullptr);
+        ASSERT_NE(renderer, nullptr);
+        int64_t id = -1, mode = -1;
+        const auto fields =
+            std::string("\"depth\":2,\"want\":") + (historical ? "6," : "3,");
+        const std::string history =
+            historical ? R"({"role":"assistant","content":"HIST"})"
+                       : R"({"role":"user","content":"q"})";
+        ASSERT_TRUE(Select(*selector,
+                           "{" + fields + "\"messages\":[" + history +
+                               "],\"add_generation_prompt\":true}",
+                           &id, &mode));
+        ASSERT_GE(id, 0);
+        ASSERT_LT(static_cast<size_t>(id), analysis.alternatives.size());
+        internal::RecipeBuilder builder(analysis, source);
+        Template recipe;
+        std::string error;
+        ASSERT_TRUE(builder.Build(analysis.alternatives[id], &recipe, &error))
+            << error;
+        GeneratedInputRenderer product;
+        ASSERT_TRUE(CompileTemplateRenderer(source,
+                                            "recursive-direct-recipe.jinja",
+                                            recipe, &product, &diagnostic))
+            << diagnostic.message;
+        auto prepared = PrepareProduct(product, bytecode);
+        ASSERT_NE(prepared, nullptr);
+        const std::string assistant =
+            R"({"role":"assistant","content":"PAYLOAD"})";
+        const auto completed =
+            "{" + fields + "\"messages\":[" + history + "," + assistant +
+            "],\"add_generation_prompt\":false," +
+            Quote(builder.assistant_binding()) + ":" + assistant + "}";
+        std::string rendered;
+        ASSERT_TRUE(prepared->Render(completed, &rendered, &error)) << error;
+        EXPECT_EQ(rendered,
+                  "<turn>assistant:[fixed[fixed[fixed]]]PAYLOAD</turn>");
+        std::string full_render;
+        ASSERT_TRUE(renderer->Render(completed, &full_render, &error)) << error;
+        EXPECT_EQ((historical
+                       ? "<turn>assistant:[fixed[fixed[fixed]]]HIST</turn>"
+                       : "") +
+                      rendered,
+                  full_render);
+        const auto rejected =
+            "{\"depth\":2,\"want\":4,\"messages\":[" + history + "," +
+            assistant + "],\"add_generation_prompt\":false," +
+            Quote(builder.assistant_binding()) + ":" + assistant + "}";
+        for (auto *consumer : {prepared.get(), renderer.get()}) {
+          rendered = "preserved sentinel";
+          EXPECT_FALSE(consumer->Render(rejected, &rendered, &error));
+          EXPECT_NE(error.find("recursive call repeated or lost"),
+                    std::string::npos)
+              << error;
+          EXPECT_EQ(rendered, "preserved sentinel");
+          ASSERT_TRUE(consumer->Render(completed, &rendered, &error)) << error;
+        }
+        EXPECT_EQ(analysis.selector_template.body.front().expression.text, "1");
+      }
+    }
+  }
+  const std::string captured =
+      "{% macro nest(n,value=messages[-1].content) %}"
+      "{{ value }}{% if n %}{{ nest(n-1,value) }}{% endif %}{% endmacro %}"
+      "{% set buffered %}{{ nest(depth,'fixed') }}{% endset %}" +
+      Frame(
+          "{% if buffered == 'fixedfixedfixed' %}{{ m.content }}"
+          "{% else %}{{ raise_exception('wrong buffered value') }}{% endif %}");
+  EXPECT_TRUE(AnalyzeTextFormat(captured, "recursive-captured-default.jinja",
+                                {}, &analysis, &diagnostic))
+      << diagnostic.message;
+}
+
+TEST(TextFormatAnalysisTest,
+     TargetLocalRecursiveValuesNeedSingleRegionRetention) {
+  for (const auto &setup : {
+           std::string("{% set buffered %}{{ nest(2,'fixed') }}{% endset %}"),
+           std::string("{% set buffered=nest(2,'fixed') %}"),
+       }) {
+    const std::string source =
+        "{% set ns=namespace(n=0) %}"
+        "{% macro nest(n,v) %}{% set ns.n=ns.n+1 %}[{{ v }}"
+        "{% if n %}{{ nest(n-1,v) }}{% endif %}]{% endmacro %}" +
+        Frame(
+            setup +
+            "{{ buffered }}{{ buffered }}"
+            "{% if ns.n == 3 %}{{ m.content }}{% else %}"
+            "{{ raise_exception('target capture executed repeatedly') }}{% endif %}");
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "target-recursive-capture.jinja", {},
+                                   &analysis, &diagnostic))
+        << diagnostic.message;
+    EXPECT_NE(diagnostic.message.find("target-local recursive"),
+              std::string::npos)
+        << diagnostic.message;
+    EXPECT_NE(diagnostic.message.find("single-region recipe retention"),
+              std::string::npos)
+        << diagnostic.message;
+    GeneratedInputRenderer original;
+    ASSERT_TRUE(CompileChatTemplate(source, "target-recursive-capture.jinja",
+                                    &original, &diagnostic))
+        << diagnostic.message;
+    for (bool bytecode : {false, true}) {
+      auto renderer = PrepareProduct(original, bytecode);
+      ASSERT_NE(renderer, nullptr);
+      std::string error;
+      const std::string assistant =
+          R"({"role":"assistant","content":"PAYLOAD"})";
+      const auto completed =
+          "{\"messages\":[" + assistant + "],\"add_generation_prompt\":false}";
+      std::string original_text;
+      ASSERT_TRUE(renderer->Render(completed, &original_text, &error)) << error;
+      EXPECT_EQ(
+          original_text,
+          "<turn>assistant:[fixed[fixed[fixed]]][fixed[fixed[fixed]]]PAYLOAD</turn>");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, MixedTargetStatementsNeedSingleRegionRetention) {
+  const std::string common =
+      "{% set ns=namespace(n=0,m=0) %}"
+      "{% macro nest(n) %}{% set ns.n=ns.n+1 %}[{% if n %}{{ nest(n-1) }}{% endif %}]{% endmacro %}"
+      "{% macro touch() %}{% set ns.m=ns.m+1 %}{% endmacro %}"
+      "{% macro wrap(content) %}{% set ns.m=ns.m+1 %}{{ nest(2) }}{{ content }}{% endmacro %}";
+  for (
+      const auto &[body, expected] :
+      std::vector<std::pair<std::string, std::string>>{
+          {"{{ wrap(m.content) }}{% if ns.n==3 and ns.m==1 %}{{ '' }}{% else %}"
+           "{{ raise_exception('mixed wrapper effect lost') }}{% endif %}",
+           "<turn>assistant:[[[]]]PAYLOAD</turn>"},
+          {"{{ touch()+nest(2)+m.content }}{% if ns.n==3 and ns.m==1 %}{{ '' }}{% else %}"
+           "{{ raise_exception('mixed concatenation effect lost') }}{% endif %}",
+           "<turn>assistant:[[[]]]PAYLOAD</turn>"},
+          {"{{ nest(2) }}{% set ns.m=ns.n %}{{ nest(0) }}{{ m.content }}"
+           "{% if ns.n==4 and ns.m==3 %}{{ '' }}{% else %}"
+           "{{ raise_exception('mixed statement effect reordered') }}{% endif %}",
+           "<turn>assistant:[[[]]][]PAYLOAD</turn>"},
+      }) {
+    const std::string source = common + Frame(body);
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "mixed-future-macro.jinja", {},
+                                   &analysis, &diagnostic))
+        << diagnostic.message;
+    EXPECT_NE(diagnostic.message.find(
+                  "target namespace statements mixed with request recursion"),
+              std::string::npos)
+        << diagnostic.message;
+    EXPECT_NE(diagnostic.message.find("single-region recipe retention"),
+              std::string::npos)
+        << diagnostic.message;
+    GeneratedInputRenderer original;
+    ASSERT_TRUE(CompileChatTemplate(source, "mixed-future-macro.jinja",
+                                    &original, &diagnostic))
+        << diagnostic.message;
+    for (bool bytecode : {false, true}) {
+      auto renderer = PrepareProduct(original, bytecode);
+      ASSERT_NE(renderer, nullptr);
+      std::string error;
+      const std::string assistant =
+          R"({"role":"assistant","content":"PAYLOAD"})";
+      const auto completed =
+          "{\"messages\":[" + assistant + "],\"add_generation_prompt\":false}";
+      std::string original_text;
+      ASSERT_TRUE(renderer->Render(completed, &original_text, &error)) << error;
+      EXPECT_EQ(original_text, expected);
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, RecursiveCallIgnoresUnreachedNamespaceStatement) {
+  const std::string source =
+      "{% set ns=namespace(n=0,m=0) %}"
+      "{% macro nest(n) %}{% set ns.n=ns.n+1 %}[{% if n %}{{ nest(n-1) }}{% endif %}]{% endmacro %}" +
+      Frame(
+          "{% if false %}{% set ns.m=99 %}{% endif %}{{ nest(2) }}{{ m.content }}"
+          "{% if ns.n==3 and ns.m==0 %}{{ '' }}{% else %}"
+          "{{ raise_exception('dead statement affected call') }}{% endif %}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "unreached-namespace.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  GeneratedInputRenderer original;
+  ASSERT_TRUE(CompileChatTemplate(source, "unreached-namespace.jinja",
+                                  &original, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto renderer = PrepareProduct(original, bytecode);
+    ASSERT_NE(renderer, nullptr);
+    internal::RecipeBuilder builder(analysis, source);
+    Template recipe;
+    std::string error;
+    ASSERT_TRUE(builder.Build(analysis.alternatives.front(), &recipe, &error))
+        << error;
+    GeneratedInputRenderer product;
+    ASSERT_TRUE(CompileTemplateRenderer(source,
+                                        "unreached-namespace-recipe.jinja",
+                                        recipe, &product, &diagnostic))
+        << diagnostic.message;
+    auto prepared = PrepareProduct(product, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    const std::string assistant = R"({"role":"assistant","content":"PAYLOAD"})";
+    const auto completed =
+        "{\"messages\":[" + assistant + "],\"add_generation_prompt\":false," +
+        Quote(builder.assistant_binding()) + ":" + assistant + "}";
+    std::string original_text, recipe_text;
+    ASSERT_TRUE(renderer->Render(completed, &original_text, &error)) << error;
+    ASSERT_TRUE(prepared->Render(completed, &recipe_text, &error)) << error;
+    EXPECT_EQ(original_text, "<turn>assistant:[[[]]]PAYLOAD</turn>");
+    EXPECT_EQ(recipe_text, original_text);
+  }
+}
+
+TEST(TextFormatAnalysisTest, RecursiveRequestCannotHideFutureCaptures) {
+  for (
+      const auto &source : {
+          std::string(
+              "{% set ns=namespace(value='') %}"
+              "{% macro nest(n) %}{{ ns.value }}{% if n %}{{ nest(n-1) }}{% endif %}{% endmacro %}") +
+              Frame("{% set ns.value=m.content %}{{ nest(0) }}"),
+          std::string(
+              "{% set hidden=messages[-1].content %}"
+              "{% macro nest(n) %}{{ hidden }}{% if n %}{{ nest(n-1) }}{% endif %}{% endmacro %}") +
+              Frame("{{ nest(2) }}{{ m.content }}"),
+          std::string(
+              "{% macro nest(n,value=messages[-1].content) %}"
+              "{{ value }}{% if n %}{{ nest(n-1,value) }}{% endif %}{% endmacro %}") +
+              Frame("{{ nest(2) }}{{ m.content }}"),
+      }) {
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "recursive-hidden-future.jinja", {},
+                                   &analysis, &diagnostic));
+    EXPECT_FALSE(diagnostic.message.empty());
+  }
+}
+
+TEST(TextFormatAnalysisTest, RecursiveBaseCaseCanExposeFutureContent) {
+  const auto source =
+      "{% macro nest(n,v) %}{% if n %}{{ nest(n-1,v) }}{% else %}{{ v }}{% endif %}{% endmacro %}" +
+      Frame("{{ nest(0,m.content) }}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "recursive-base-case.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  GeneratedInputRenderer renderer;
+  ASSERT_TRUE(CompileChatTemplate(source, "recursive-base-case.jinja",
+                                  &renderer, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto prepared = PrepareProduct(renderer, bytecode);
+    ASSERT_NE(prepared, nullptr);
+    std::string rendered, error;
+    ASSERT_TRUE(prepared->Render(
+        R"({"messages":[{"role":"assistant","content":"PAYLOAD"}],"add_generation_prompt":false})",
+        &rendered, &error))
+        << error;
+    EXPECT_EQ(rendered, "<turn>assistant:PAYLOAD</turn>");
+  }
+}
+
+TEST(TextFormatAnalysisTest, UserContinuationInitializesMacroCaptureSummaries) {
+  for (
+      const auto &prefix : {
+          std::string("{% macro fixed(v) %}{{ v }}{% endmacro %}"
+                      "{% set buffered %}{{ fixed('x') }}{% endset %}"),
+          std::string(
+              "{% macro nest(n,v) %}{{ v }}{% if n %}{{ nest(n-1,v) }}{% endif %}{% endmacro %}"
+              "{% set buffered %}{{ nest(2,'x') }}{% endset %}"),
+      }) {
+    const auto source =
+        prefix +
+        "{% for m in messages %}{% if m.role=='assistant' %}<A>{{ m.content }}</A>"
+        "{% else %}<U>{{ m.content }}</U>{% endif %}{% endfor %}"
+        "{% if add_generation_prompt %}<A>{% endif %}";
+    TextFormatAnalysis analysis;
+    TextUserContinuation continuation;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(AnalyzeTextFormat(source, "macro-continuation.jinja", {},
+                                  &analysis, &diagnostic))
+        << diagnostic.message;
+    EXPECT_TRUE(AnalyzeUserContinuation(source, "macro-continuation.jinja", {},
+                                        analysis, &continuation, &diagnostic))
+        << diagnostic.message;
+  }
+}
+
 TEST(TextFormatAnalysisTest, UnusedRequestLoopCaptureKeepsLazySourceErrors) {
   const std::string source =
       "{% if flag %}{% set unused %}{% for v in values %}"
@@ -2763,6 +3184,133 @@ TEST(TextFormatAnalysisTest, ContinuedReplaceRetainsHistoryAvailabilityChecks) {
       << diagnostic.message;
 }
 
+std::string
+ForwardSortSource(std::string_view filter = "sort(attribute='type')") {
+  return "{% for m in messages %}{% if m.role == 'assistant' %}"
+         "<A>{{ m.content }}</A>{% else %}<U>{% set blocks=m.content|" +
+         std::string(filter) +
+         " %}{% for block in blocks %}{{ block.text }}{% endfor %}</U>"
+         "{% endif %}{% endfor %}"
+         "{% if add_generation_prompt %}<A>{% endif %}";
+}
+
+TEST(TextFormatAnalysisTest, HistoricalSortKeepsProjectionAndAssistantRaw) {
+  const auto source = ForwardSortSource();
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "historical-sort.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileChatTemplate(source, "historical-sort.jinja", &product,
+                                  &diagnostic));
+  for (bool bytecode : {false, true}) {
+    auto adaptation =
+        PrepareSelection(source, analysis.adaptation_selector_template,
+                         bytecode, TemplateSelectorKind::Adaptation);
+    auto renderer = PrepareProduct(product, bytecode);
+    ASSERT_NE(adaptation, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    for (bool user : {true, false}) {
+      const auto message =
+          user
+              ? R"({"role":"user","content":[{"type":"b","text":"B"},{"type":"a","text":"A"}]})"
+              : R"({"role":"assistant","content":"plain"})";
+      const auto environment = std::string("{\"messages\":[") + message +
+                               "],\"add_generation_prompt\":true}";
+      int64_t bits = -1, mode = -1;
+      ASSERT_TRUE(Select(
+          *adaptation,
+          WorkerEnvironment(analysis, environment, message, 0, "null", 0),
+          &bits, &mode));
+      TextAdaptation facts;
+      ASSERT_TRUE(DecodeTextAdaptation(bits, &facts));
+      EXPECT_EQ(facts.content_observes_representation, user);
+      std::string rendered, error;
+      ASSERT_TRUE(renderer->Render(environment, &rendered, &error)) << error;
+      EXPECT_EQ(rendered, user ? "<U>AB</U><A>" : "<A>plain</A><A>");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, ContinuedSortKeepsItsProducedListDomain) {
+  const std::string source =
+      "{% for m in messages %}{% if m.role == 'assistant' %}<A>{{ m.content }}</A>"
+      "{% else %}<U>{% set ordered=m.content|sort(attribute='type') %}"
+      "{{ ordered is string }}:{{ ordered|length }}:{{ ordered|join('|') }}"
+      "</U>{% endif %}{% endfor %}"
+      "{% if add_generation_prompt %}<A>{% endif %}";
+  TextFormatAnalysis analysis;
+  TextUserContinuation continuation;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "continued-sort.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_TRUE(AnalyzeUserContinuation(source, "continued-sort.jinja", {},
+                                      analysis, &continuation, &diagnostic))
+      << diagnostic.message;
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildContinuation(continuation, &recipe, &error))
+      << error;
+  GeneratedInputRenderer forward, original;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "continued-sort.jinja", recipe,
+                                      &forward, &diagnostic));
+  ASSERT_TRUE(CompileChatTemplate(source, "continued-sort.jinja", &original,
+                                  &diagnostic));
+  for (bool bytecode : {false, true}) {
+    auto user = PrepareProduct(forward, bytecode);
+    auto renderer = PrepareProduct(original, bytecode);
+    ASSERT_NE(user, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    for (const auto &text : {std::string(), std::string("ba")}) {
+      std::string actual, expected;
+      ASSERT_TRUE(user->Render("{" + Quote(continuation.text_binding) + ":" +
+                                   Quote(text) + "}",
+                               &actual, &error))
+          << error;
+      ASSERT_TRUE(renderer->Render(
+          "{\"messages\":[{\"role\":\"user\",\"content\":" + Quote(text) +
+              "}],\"add_generation_prompt\":true}",
+          &expected, &error))
+          << error;
+      EXPECT_EQ(actual, expected);
+      EXPECT_EQ(actual,
+                text.empty() ? "<U>False:0:</U><A>" : "<U>False:2:b|a</U><A>");
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest, ForwardSortKeepsUnsupportedOutputBoundaries) {
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  EXPECT_FALSE(
+      AnalyzeTextFormat(Frame("{{ m.content|sort(attribute='type')|tojson }}"),
+                        "assistant-sort.jinja", {}, &analysis, &diagnostic));
+  EXPECT_EQ(diagnostic.message,
+            "unsupported payload filter in format analysis: sort");
+  for (const auto filter : {"sort", "sort(attribute='type',reverse=true)",
+                            "sort(attribute='other')"}) {
+    SCOPED_TRACE(filter);
+    EXPECT_FALSE(AnalyzeTextFormat(ForwardSortSource(filter),
+                                   "historical-sort-options.jinja", {},
+                                   &analysis, &diagnostic));
+    EXPECT_EQ(diagnostic.message,
+              "unsupported payload filter in format analysis: sort");
+  }
+  auto calls = TaggedCalls(true, "{{ v }}");
+  const std::string original = "c.function.arguments.items()";
+  const auto at = calls.find(original);
+  ASSERT_NE(at, std::string::npos);
+  calls.replace(at, original.size(), "c.function.arguments|dictsort");
+  EXPECT_FALSE(AnalyzeTextFormat(Frame("{{ m.content }}" + calls),
+                                 "assistant-dictsort.jinja", {}, &analysis,
+                                 &diagnostic));
+  EXPECT_EQ(diagnostic.message,
+            "unsupported payload filter in format analysis: dictsort");
+}
+
 TEST(TextFormatAnalysisTest, CapturedAssistantBodyKeepsPayloadAndScope) {
   const auto source =
       Frame("{% set text %}{{ m.content }}{% endset %}{{ text }}");
@@ -2831,6 +3379,309 @@ TEST(TextFormatAnalysisTest, BufferedPreludeRetainsUnusedTextAndFilterEffects) {
       EXPECT_EQ(analysis.alternatives[id].generation_prefix,
                 expected == 4 ? "<turn>assistant:" : "");
     }
+  }
+}
+
+std::string PromptPrefixSource() {
+  return "{% set prefix %}{% if fail %}{{ raise_exception('prefix failure') }}{% endif %}"
+         "{% if tools %}<tools>{% for tool in tools %}{{ tool.name }}{% endfor %}</tools>{% endif %}{% endset %}"
+         "{% set state=namespace(pending=true) %}"
+         "{% for m in messages %}"
+         "{% if state.pending and m.role != 'system' %}{{ prefix }}{% set state.pending=false %}{% endif %}"
+         "{% if m.role == 'assistant' %}<assistant>{{ m.content }}</turn>{% else %}<other>{{ m.content }}</turn>{% endif %}"
+         "{% endfor %}"
+         "{% if state.pending %}{{ prefix }}{% endif %}"
+         "{% if add_generation_prompt %}<assistant>{% endif %}";
+}
+
+TEST(TextFormatAnalysisTest, PromptPrefixNeedsAnOriginalFirstEmissionProof) {
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  const auto source = PromptPrefixSource();
+  ASSERT_TRUE(
+      AnalyzeTextFormat(source, "prefix.jinja", {}, &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_EQ(analysis.completion_prompt_prefixes.size(), 1u);
+  GeneratedInputRenderer turn;
+  ASSERT_TRUE(EmitTextTurnControls(source, "prefix.jinja", analysis, {}, &turn,
+                                   &diagnostic))
+      << diagnostic.message;
+  for (const auto &binding : turn.external_bindings) {
+    EXPECT_NE(binding, "prefix");
+    EXPECT_NE(binding, "state");
+  }
+
+  // The combined product also owns request-time _prior_reflow, whose retained
+  // original capture legitimately reads tools. Each late turn was separately
+  // checked by TurnAvailable before this aggregate dependency union was built.
+  EXPECT_NE(std::find(turn.external_bindings.begin(),
+                      turn.external_bindings.end(), "tools"),
+            turn.external_bindings.end());
+
+  // Each variant breaks the original LIVE/FULL prefix theorem or its lexical
+  // proof. Keep the unavailable binding, rather than guessing prefix bytes.
+  for (
+      const auto &[before, after] :
+      std::vector<std::pair<std::string, std::string>>{
+          {"{% endfor %}{% if state.pending %}",
+           "{% else %}empty-history{% endfor %}{% if state.pending %}"},
+          {"m.role != 'system'", "m.content"},
+          {"{% if state.pending %}{{ prefix }}{% endif %}", ""},
+          {"{% if state.pending %}{{ prefix }}{% endif %}",
+           "{% if state.pending %}different{% endif %}"},
+          {"{% set state.pending=false %}", "{% set state.pending=true %}"},
+          {"{% if m.role == 'assistant' %}",
+           "{% set alias=state %}{% if m.role == 'assistant' %}"},
+          {"{% if m.role == 'assistant' %}",
+           "{% if loop.last %}last{% endif %}{% if m.role == 'assistant' %}"}}) {
+    auto variant = source;
+    const auto at = variant.find(before);
+    ASSERT_NE(at, std::string::npos) << before;
+    variant.replace(at, before.size(), after);
+    TextFormatAnalysis rejected;
+    if (AnalyzeTextFormat(variant, "unsafe-prefix.jinja", {}, &rejected,
+                          &diagnostic))
+      EXPECT_TRUE(rejected.completion_prompt_prefixes.empty()) << after;
+  }
+  TextFormatAnalysis conditional;
+  if (AnalyzeTextFormat("{% if enabled %}" + source + "{% endif %}",
+                        "conditional-prefix.jinja", {}, &conditional,
+                        &diagnostic))
+    EXPECT_TRUE(conditional.completion_prompt_prefixes.empty());
+}
+
+TEST(TextFormatAnalysisTest, FutureNullLoopKeepsGuardedNativeFailure) {
+  const auto source =
+      std::string("{% set media=namespace(n=0) %}") +
+      Frame("{% if m.content is string %}{{ m.content }}{% else %}"
+            "{% for piece in m.content %}{% set media.n=media.n+1 %}"
+            "{{ piece.text }}{% endfor %}{% endif %}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "null-content-loop.jinja", {},
+                                &analysis, &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  const TextFormatPart *choice = nullptr;
+  for (const auto &part : analysis.alternatives.front().assistant_pattern)
+    if (!part.otherwise_error_statements.body.empty())
+      choice = &part;
+  ASSERT_NE(choice, nullptr);
+  ASSERT_EQ(choice->otherwise_error_statements.body.size(), 1u);
+  const auto &header = choice->otherwise_error_statements.body.front();
+  EXPECT_EQ(header.kind, Node::Kind::For);
+  EXPECT_EQ(header.text, "piece");
+  EXPECT_TRUE(header.body.empty());
+  EXPECT_TRUE(header.otherwise.empty());
+  EXPECT_EQ(header.expression.kind, Expr::Kind::Name);
+  EXPECT_EQ(analysis.predicate_bindings.at(header.expression.text),
+            TextCapture::Content);
+  EXPECT_EQ(header.offset, source.find("{% for piece") + 2);
+
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildTurn(analysis.alternatives.front().assistant_pattern,
+                                {}, &recipe, &error))
+      << error;
+  GeneratedInputRenderer turn, original;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "null-content-recipe.jinja",
+                                      recipe, &turn, &diagnostic))
+      << diagnostic.message;
+  EXPECT_EQ(std::find(turn.external_bindings.begin(),
+                      turn.external_bindings.end(), "media"),
+            turn.external_bindings.end());
+  ASSERT_TRUE(CompileChatTemplate(source, "null-content-original.jinja",
+                                  &original, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto native = PrepareProduct(turn, bytecode);
+    auto renderer = PrepareProduct(original, bytecode);
+    auto adaptation =
+        PrepareSelection(source, analysis.adaptation_selector_template,
+                         bytecode, TemplateSelectorKind::Adaptation);
+    ASSERT_NE(native, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    ASSERT_NE(adaptation, nullptr);
+    std::string actual;
+    ASSERT_TRUE(native->Render("{" + Quote(builder.assistant_binding()) +
+                                   R"(:{"content":"PAYLOAD"}})",
+                               &actual, &error))
+        << error;
+    EXPECT_EQ(actual, "<turn>assistant:PAYLOAD</turn>");
+    actual = "preserved";
+    EXPECT_FALSE(native->Render("{" + Quote(builder.assistant_binding()) +
+                                    R"(:{"content":null}})",
+                                &actual, &error));
+    EXPECT_EQ(actual, "preserved");
+    EXPECT_FALSE(error.empty());
+
+    const std::string message =
+        R"({"role":"assistant","content":[{"text":"A"},{"text":"B"}]})";
+    const auto environment =
+        "{\"messages\":[" + message + "],\"add_generation_prompt\":false}";
+    ASSERT_TRUE(renderer->Render(environment, &actual, &error)) << error;
+    EXPECT_EQ(actual, "<turn>assistant:AB</turn>");
+    int64_t bits = -1, mode = -1;
+    ASSERT_TRUE(
+        Select(*adaptation,
+               WorkerEnvironment(analysis, environment, message, 0, "null", 0),
+               &bits, &mode));
+    TextAdaptation facts;
+    ASSERT_TRUE(DecodeTextAdaptation(bits, &facts));
+    EXPECT_TRUE(facts.content_observes_representation);
+  }
+}
+
+TEST(TextFormatAnalysisTest,
+     NullLoopFailureKeepsTrailingSourceErrorsUnreachable) {
+  const auto source =
+      Frame("{% if m.content is string %}{{ m.content }}{% else %}"
+            "{% for piece in m.content %}{{ piece.text }}{% endfor %}"
+            "UNREACHABLE_LITERAL{{ raise_exception('unreachable tail') }}"
+            "{% set unused=strftime_now('%Y') %}{% endif %}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "null-loop-tail.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildTurn(analysis.alternatives.front().assistant_pattern,
+                                {}, &recipe, &error))
+      << error;
+  GeneratedInputRenderer product, original;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "null-loop-tail.jinja", recipe,
+                                      &product, &diagnostic))
+      << diagnostic.message;
+  EXPECT_TRUE(product.protected_bindings.empty());
+  ASSERT_TRUE(CompileChatTemplate(source, "null-loop-tail.jinja", &original,
+                                  &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto native = PrepareProduct(product, bytecode);
+    auto renderer = PrepareProduct(original, bytecode);
+    ASSERT_NE(native, nullptr);
+    ASSERT_NE(renderer, nullptr);
+    std::string actual;
+    ASSERT_TRUE(native->Render("{" + Quote(builder.assistant_binding()) +
+                                   R"(:{"content":"PAYLOAD"}})",
+                               &actual, &error))
+        << error;
+    EXPECT_EQ(actual, "<turn>assistant:PAYLOAD</turn>");
+    const std::string environment =
+        R"({"messages":[{"role":"assistant","content":null}],"add_generation_prompt":false})";
+    std::string original_error;
+    actual = "preserved";
+    EXPECT_FALSE(renderer->Render(environment, &actual, &original_error));
+    EXPECT_EQ(actual, "preserved");
+    EXPECT_FALSE(original_error.empty());
+    EXPECT_EQ(original_error.find("unreachable tail"), std::string::npos);
+    EXPECT_EQ(original_error.find("strftime_now"), std::string::npos);
+    EXPECT_FALSE(native->Render("{" + Quote(builder.assistant_binding()) +
+                                    R"(:{"content":null}})",
+                                &actual, &error));
+    EXPECT_EQ(actual, "preserved");
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(error.find("unreachable tail"), std::string::npos);
+    EXPECT_EQ(error.find("strftime_now"), std::string::npos);
+  }
+}
+
+TEST(TextFormatAnalysisTest, BothFailingFutureArmsDoNotExtendWireHeader) {
+  const auto source =
+      Frame("{% if m.content is string %}{{ '<branch>'+m.content }}{% else %}"
+            "{% if m.reasoning_content is string %}"
+            "{% for piece in m.content %}{% endfor %}{% else %}"
+            "{% for piece in m.content %}{% endfor %}{% endif %}"
+            "{{ '<branch>' }}{% endif %}");
+  TextFormatAnalysis analysis;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(AnalyzeTextFormat(source, "both-null-arms.jinja", {}, &analysis,
+                                &diagnostic))
+      << diagnostic.message;
+  ASSERT_FALSE(analysis.alternatives.empty());
+  // The failed branch's later literal cannot establish a shared header.
+  EXPECT_EQ(analysis.alternatives.front().assistant_header, "<turn>assistant:");
+  internal::RecipeBuilder builder(analysis, source);
+  Template recipe;
+  std::string error;
+  ASSERT_TRUE(builder.BuildTurn(analysis.alternatives.front().assistant_pattern,
+                                {}, &recipe, &error))
+      << error;
+  GeneratedInputRenderer product;
+  ASSERT_TRUE(CompileTemplateRenderer(source, "both-null-arms.jinja", recipe,
+                                      &product, &diagnostic))
+      << diagnostic.message;
+  for (bool bytecode : {false, true}) {
+    auto native = PrepareProduct(product, bytecode);
+    ASSERT_NE(native, nullptr);
+    std::string actual;
+    ASSERT_TRUE(native->Render("{" + Quote(builder.assistant_binding()) +
+                                   R"(:{"content":"PAYLOAD"}})",
+                               &actual, &error))
+        << error;
+    EXPECT_EQ(actual, "<turn>assistant:<branch>PAYLOAD</turn>");
+    for (const auto *reasoning : {"null", "\"thought\""}) {
+      actual = "preserved";
+      EXPECT_FALSE(native->Render(
+          "{" + Quote(builder.assistant_binding()) +
+              R"(:{"content":null,"reasoning_content":)" + reasoning + "}}",
+          &actual, &error));
+      EXPECT_EQ(actual, "preserved");
+      EXPECT_FALSE(error.empty());
+    }
+  }
+}
+
+TEST(TextFormatAnalysisTest,
+     NullLoopAdmissionCannotDropPriorEvaluationOrOwners) {
+  const std::string loop =
+      "{% for piece in m.content %}{{ piece.text }}{% endfor %}";
+  for (const auto &arm :
+       {"{% set ignored=strftime_now('%Y') %}" + loop,
+        "{{ risky_request_value }}" + loop,
+        "{% set unused %}" + loop + "{% endset %}",
+        std::string("{{ collect(m.content) }}"),
+        std::string("{% for piece in m.content|default([],true) %}"
+                    "{{ piece }}{% endfor %}"),
+        std::string("{% for c in m.tool_calls %}") +
+            "{% if m.content is string %}{{ m.content }}{% else %}" + loop +
+            "{% endif %}{% endfor %}"}) {
+    SCOPED_TRACE(arm);
+    const auto source =
+        "{% macro collect(value) %}{% if value is string %}{{ value }}"
+        "{% else %}{% for piece in value %}{{ piece.text }}{% endfor %}"
+        "{% endif %}{% endmacro %}" +
+        Frame("{% if m.content is string %}{{ m.content }}{% else %}" + arm +
+              "{% endif %}");
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "null-loop-owner.jinja", {},
+                                   &analysis, &diagnostic));
+    EXPECT_FALSE(diagnostic.message.empty());
+  }
+  for (const auto &body :
+       {std::string("{{ collect(m.content) }}"),
+        std::string("{% set unused %}{% if m.content is string %}") +
+            "{{ m.content }}{% else %}" + loop +
+            "{% endif %}{% endset %}{{ m.content }}",
+        std::string("{% for c in m.tool_calls %}") +
+            "{% if m.content is string %}{{ m.content }}{% else %}" + loop +
+            "{% endif %}{% endfor %}"}) {
+    SCOPED_TRACE(body);
+    const auto source =
+        "{% macro collect(value) %}{% if value is string %}{{ value }}"
+        "{% else %}{% for piece in value %}{{ piece.text }}{% endfor %}"
+        "{% endif %}{% endmacro %}" +
+        Frame(body);
+    TextFormatAnalysis analysis;
+    Diagnostic diagnostic;
+    EXPECT_FALSE(AnalyzeTextFormat(source, "null-loop-nested-owner.jinja", {},
+                                   &analysis, &diagnostic));
+    EXPECT_FALSE(diagnostic.message.empty());
   }
 }
 

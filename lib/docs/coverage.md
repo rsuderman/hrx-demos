@@ -629,6 +629,25 @@ Filters use the existing scalar string conversion; methods require string values
 The reject filter supports positional `equalto` through immediate join or explicit
 list consumers, preserving order and existing scalar equality. Standalone, stored,
 truth-tested and directly serialized reject iterators remain unsupported.
+Lower and upper filters share full Unicode16 string casing, including expansions
+and original-context Final_Sigma, using native15.1 mappings plus shared version
+delta and property data. Their scalar conversion follows the existing string
+helper; container Python repr is outside that helper's domain. The developer
+generator consumes explicitly supplied hash-pinned UCD inputs; ordinary exports
+neither download nor regenerate Unicode data. The independent oracle records its
+Unicode data version alongside Python and package versions.
+Selected ordered consumers reuse this casing: stable
+`sort(attribute='type')` with default ordering, no-argument `dictsort` as an
+immediate loop iterable, and literal `map('upper')|list`. Dictsort preserves
+whole-row tuple provenance while unpacked key/value bindings retain their own
+value semantics. Sorting supports string keys and the existing bounded numeric
+domain: signed64 integral comparisons, finite floats, and mixed comparisons
+within the exact integer range. Compound ordering and larger mixed numeric
+values remain explicit capability limits. Missing keys tie with missing keys,
+and null keys tie with null keys, following Jinja's attribute-key list equality;
+mixed unordered keys still fail. Empty and singleton keys do not trigger
+comparisons; original values and stable ties are preserved. Other sort
+options and stored dictsort/map iterators remain unsupported.
 Statically named nonrecursive macros become Loom functions with explicit lexical
 captures and namespace field results. Namespace identities are resolved by the
 compiler; they are not runtime JSON objects. Closed macro-local constructors may

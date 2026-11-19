@@ -28,6 +28,9 @@ loom_merge(
 
 _PRODUCTS = {
     "//lib/text/common:jinja.loom": "kJinjaHelpers",
+    "//lib/text/common:unicode_case_data.loom": "kUnicodeCaseData",
+    "//lib/text/common:unicode_case.loom": "kUnicodeCase",
+    "//lib/text/common:unicode_collections.loom": "kUnicodeCollections",
     "//lib/text/common:strings.loom": "kTextStrings",
     "//lib/text/common:json.loom": "kTextJson",
     "//lib/text/common:identity.loom": "kTextIdentity",

@@ -583,6 +583,85 @@ func.def public @jinja.tointeger(%value: buffer, %kind: i64) -> (i64) {
   func.return %number : i64
 }
 
+// Range accepts integral JSON numbers and booleans, with checked signed64 width.
+func.def public @jinja.range_integer(%value: buffer, %kind: i64) -> (i64) {
+  %one = scalar.constant 1 : i64
+  %four = scalar.constant 4 : i64
+  %five = scalar.constant 5 : i64
+  %number = scalar.cmpi eq, %kind, %one : i64
+  %yes = scalar.cmpi eq, %kind, %four : i64
+  %no = scalar.cmpi eq, %kind, %five : i64
+  %boolean = scalar.ori %yes, %no : i1
+  %numeric = scalar.ori %number, %boolean : i1
+  func.call @jinja.check(%numeric) : (i1)
+  %text = func.call @jinja.numeric_text(%value, %kind) : (buffer, i64) -> (buffer)
+  %integer = func.call @jinja.is_integer(%text) : (buffer) -> (i1)
+  %fits = func.call @jinja.index_integer_fits(%text) : (buffer) -> (i1)
+  %valid = scalar.andi %integer, %fits : i1
+  func.call @jinja.check(%valid) : (i1)
+  %result = func.call @jinja.tointeger(%text, %one) : (buffer, i64) -> (i64)
+  func.return %result : i64
+}
+
+// Signed64 endpoints are ordered by their unsigned rank (x XOR INT64_MIN).
+// Distance and magnitude therefore cover the full domain without signed overflow.
+func.def public @jinja.range_count(%start: i64, %stop: i64, %step: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %minus_one = scalar.constant -1 : i64
+  %minimum = scalar.constant -9223372036854775808 : i64
+  %limit = scalar.constant 2147483647 : i64
+  %nonzero = scalar.cmpi ne, %step, %zero : i64
+  func.call @jinja.check(%nonzero) : (i1)
+  %positive = scalar.cmpi sgt, %step, %zero : i64
+  %a = scalar.xori %start, %minimum : i64
+  %b = scalar.xori %stop, %minimum : i64
+  %ascending = scalar.cmpi ult, %a, %b : i64
+  %descending = scalar.cmpi ugt, %a, %b : i64
+  %nonempty = scf.select %positive, %ascending, %descending : i1
+  %count = scf.if %nonempty -> (i64) {
+    %complement = scalar.xori %step, %minus_one : i64
+    %negative_magnitude = scalar.addi %complement, %one : i64
+    %magnitude = scf.select %positive, %step, %negative_magnitude : i64
+    %high = scf.select %positive, %b, %a : i64
+    %low = scf.select %positive, %a, %b : i64
+    %distance = scalar.subi %high, %low : i64
+    %last_distance = scalar.subi %distance, %one : i64
+    %quotient = scalar.divui %last_distance, %magnitude : i64
+    %fits = scalar.cmpi ult, %quotient, %limit : i64
+    func.call @jinja.check(%fits) : (i1)
+    %length = scalar.addi %quotient, %one : i64
+    scf.yield %length : i64
+  } else {
+    scf.yield %zero : i64
+  }
+  func.return %count : i64
+}
+
+// Compiler-private caller contract: 0 <= ordinal < checked range_count. Thus
+// ordinal*magnitude and the resulting rank are exact, and no final step is taken.
+func.def public @jinja.range_at(%start: i64, %step: i64, %ordinal: i64) -> (i64) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %minus_one = scalar.constant -1 : i64
+  %minimum = scalar.constant -9223372036854775808 : i64
+  %positive = scalar.cmpi sgt, %step, %zero : i64
+  %complement = scalar.xori %step, %minus_one : i64
+  %negative_magnitude = scalar.addi %complement, %one : i64
+  %magnitude = scf.select %positive, %step, %negative_magnitude : i64
+  %offset = scalar.muli %ordinal, %magnitude : i64
+  %rank = scalar.xori %start, %minimum : i64
+  %result_rank = scf.if %positive -> (i64) {
+    %next = scalar.addi %rank, %offset : i64
+    scf.yield %next : i64
+  } else {
+    %next = scalar.subi %rank, %offset : i64
+    scf.yield %next : i64
+  }
+  %result = scalar.xori %result_rank, %minimum : i64
+  func.return %result : i64
+}
+
 func.def public @jinja.string(%value: buffer, %kind: i64) -> (buffer) {
   %zero = scalar.constant 0 : i64
   %one = scalar.constant 1 : i64

@@ -5,4 +5,7 @@ exports_files([
     "json.loom",
     "identity.loom",
     "jinja.loom",
+    "unicode_case_data.loom",
+    "unicode_case.loom",
+    "unicode_collections.loom",
 ])

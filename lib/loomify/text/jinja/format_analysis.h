@@ -76,6 +76,18 @@ struct TextFormatPart {
   // validation emits this existing raise_exception expression for that arm.
   Expr body_error;
   Expr otherwise_error;
+  // A proved NULL-iteration failure retains its source For header. Its body
+  // cannot execute; the existing compiler owns the actual iteration error.
+  Template body_error_statements;
+  Template otherwise_error_statements;
+  bool HasBodyError() const {
+    return body_error.kind != Expr::Kind::None ||
+           !body_error_statements.body.empty();
+  }
+  bool HasOtherwiseError() const {
+    return otherwise_error.kind != Expr::Kind::None ||
+           !otherwise_error_statements.body.empty();
+  }
   // Exact supported capture transform, including filter arguments/keywords,
   // over predicate_bindings. Native probe validation lowers this with the
   // existing compiler rather than reimplementing JSON/string semantics.
@@ -162,12 +174,21 @@ inline constexpr int64_t kTextAdaptationOriginalContent = 4;
 // STRING handling takes precedence over mapping. Failure preserves output.
 bool DecodeTextAdaptation(int64_t mask, TextAdaptation *out);
 
+// A source-proved first-emission region already owned by the live prompt.
+// Keep typed identities for both guarded and flattened analysis paths.
+struct TextPromptPrefix {
+  SourceRange choice_source;
+  SourceRange expression_source;
+  std::string capture_binding;
+};
+
 struct TextFormatAnalysis {
   std::vector<TextFormatAlternative> alternatives;
   // Completion-only source provenance from this analyzer's existing resolved
   // assistant walk. Short-circuited/dead message-role paths contribute no
   // facts.
   std::set<size_t> completion_message_loops;
+  std::vector<TextPromptPrefix> completion_prompt_prefixes;
   std::map<size_t, Expr> completion_last_conditions;
   // Actual Output nodes whose newly emitted pattern contains Reasoning.
   // Capture source ranges may instead point to an alias definition.

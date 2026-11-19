@@ -698,7 +698,30 @@ bool RecipeBuilder::Parts(const std::vector<TextFormatPart> &parts,
     case TextCapture::Choice:
       node.kind = Node::Kind::If;
       node.expression = part.predicate;
-      if (part.body_error.kind != Expr::Kind::None) {
+      for (const auto *statements :
+           {&part.body_error_statements, &part.otherwise_error_statements}) {
+        if (statements->body.size() > 1) {
+          *error = "source-statement error must retain one failing loop header";
+          return false;
+        }
+        for (const auto &statement : statements->body)
+          if (statement.kind != Node::Kind::For || statement.predicate ||
+              !statement.body.empty() || !statement.otherwise.empty() ||
+              !statement.defaults.empty() || !statement.parameters.empty()) {
+            *error = "unsupported source-statement error slice";
+            return false;
+          }
+      }
+      if ((part.body_error.kind != Expr::Kind::None &&
+           !part.body_error_statements.body.empty()) ||
+          (part.otherwise_error.kind != Expr::Kind::None &&
+           !part.otherwise_error_statements.body.empty())) {
+        *error = "source error arm has two validation representations";
+        return false;
+      }
+      if (!part.body_error_statements.body.empty()) {
+        node.body = part.body_error_statements.body;
+      } else if (part.HasBodyError()) {
         Node failure;
         failure.kind = Node::Kind::Output;
         failure.expression = part.body_error;
@@ -706,7 +729,9 @@ bool RecipeBuilder::Parts(const std::vector<TextFormatPart> &parts,
       } else if (!Parts(part.body, context, &node.body, error)) {
         return false;
       }
-      if (part.otherwise_error.kind != Expr::Kind::None) {
+      if (!part.otherwise_error_statements.body.empty()) {
+        node.otherwise = part.otherwise_error_statements.body;
+      } else if (part.HasOtherwiseError()) {
         Node failure;
         failure.kind = Node::Kind::Output;
         failure.expression = part.otherwise_error;
@@ -1488,12 +1513,51 @@ Expr TurnSimplify(Expr e, const TextFormatAnalysis &analysis,
       return e.args[*condition ? 1 : 2];
   return e;
 }
+bool TurnPromptOwned(const TextFormatPart &part,
+                     const TextFormatAnalysis &analysis) {
+  const auto same_range = [](SourceRange a, SourceRange b) {
+    return a.begin == b.begin && a.end == b.end;
+  };
+  const auto expression = [&](const TextFormatPart &value,
+                              const TextPromptPrefix &prefix) {
+    return value.capture == TextCapture::Expression &&
+           same_range(value.source, prefix.expression_source) &&
+           value.value_expression.kind == Expr::Kind::Name &&
+           value.value_expression.text == prefix.capture_binding &&
+           value.body.empty() && value.otherwise.empty() &&
+           !value.HasBodyError() && !value.HasOtherwiseError();
+  };
+  for (const auto &prefix : analysis.completion_prompt_prefixes) {
+    if (expression(part, prefix))
+      return true;
+    if (part.capture == TextCapture::Choice &&
+        same_range(part.source, prefix.choice_source) && !part.HasBodyError() &&
+        !part.HasOtherwiseError() && part.body.size() == 1 &&
+        part.otherwise.empty() && expression(part.body.front(), prefix))
+      return true;
+  }
+  return false;
+}
+
+bool TurnNodesSame(const std::vector<Node> &a, const std::vector<Node> &b);
+void TurnSimplifyError(Template *statements, const TextFormatAnalysis &analysis,
+                       const std::vector<Expr> &guards,
+                       std::optional<bool> first, std::optional<int> calls) {
+  // Statement errors own only the childless For header checked by Parts.
+  for (auto &node : statements->body)
+    node.expression = TurnSimplify(std::move(node.expression), analysis, guards,
+                                   first, calls);
+}
 TurnParts TurnSimplifyParts(TurnParts parts, const TextFormatAnalysis &analysis,
                             const std::vector<Expr> &guards,
                             std::optional<bool> first = {},
                             std::optional<int> calls = {}) {
   TurnParts result;
   for (auto &part : parts) {
+    // Check original source identities before simplifying or flattening Parts.
+    // Only the late completion copy drops this region; full recipes retain it.
+    if (TurnPromptOwned(part, analysis))
+      continue;
     part.predicate =
         TurnSimplify(std::move(part.predicate), analysis, guards, first, calls);
     part.value_expression = TurnSimplify(std::move(part.value_expression),
@@ -1502,15 +1566,17 @@ TurnParts TurnSimplifyParts(TurnParts parts, const TextFormatAnalysis &analysis,
                                    first, calls);
     part.otherwise_error = TurnSimplify(std::move(part.otherwise_error),
                                         analysis, guards, first, calls);
+    TurnSimplifyError(&part.body_error_statements, analysis, guards, first,
+                      calls);
+    TurnSimplifyError(&part.otherwise_error_statements, analysis, guards, first,
+                      calls);
     part.body =
         TurnSimplifyParts(std::move(part.body), analysis, guards, first, calls);
     part.otherwise = TurnSimplifyParts(std::move(part.otherwise), analysis,
                                        guards, first, calls);
     if (part.capture == TextCapture::Choice) {
       if (auto selected = TurnTruth(part.predicate)) {
-        const auto &failure =
-            *selected ? part.body_error : part.otherwise_error;
-        if (failure.kind == Expr::Kind::None) {
+        if (!(*selected ? part.HasBodyError() : part.HasOtherwiseError())) {
           auto &body = *selected ? part.body : part.otherwise;
           result.insert(result.end(), body.begin(), body.end());
           continue;
@@ -1530,6 +1596,10 @@ bool TurnPartsSame(const TurnParts &a, const TurnParts &b) {
         !TurnSame(a[i].value_expression, b[i].value_expression) ||
         !TurnSame(a[i].body_error, b[i].body_error) ||
         !TurnSame(a[i].otherwise_error, b[i].otherwise_error) ||
+        !TurnNodesSame(a[i].body_error_statements.body,
+                       b[i].body_error_statements.body) ||
+        !TurnNodesSame(a[i].otherwise_error_statements.body,
+                       b[i].otherwise_error_statements.body) ||
         !TurnPartsSame(a[i].body, b[i].body) ||
         !TurnPartsSame(a[i].otherwise, b[i].otherwise))
       return false;
@@ -1611,6 +1681,13 @@ bool TurnCallsRepresentable(const TurnParts &parts,
       *offset = part.source.begin;
       return false;
     }
+    for (const auto *statements :
+         {&part.body_error_statements, &part.otherwise_error_statements})
+      for (const auto &node : statements->body)
+        if (!TurnCallsPresence(node.expression, analysis, false)) {
+          *offset = node.offset;
+          return false;
+        }
     // The source loop itself is replaced by actual native formatted records.
     // Its per-call body is checked separately against render_tool's inputs.
     if (part.capture != TextCapture::RepeatCalls &&
@@ -1620,24 +1697,46 @@ bool TurnCallsRepresentable(const TurnParts &parts,
   }
   return true;
 }
-const Expr *TurnValidationError(const TurnParts &parts, const Expr &success) {
+const Expr *TurnValidationError(const TurnParts &parts, const Expr &success,
+                                bool *statement_error) {
   for (const auto &part : parts) {
     if (part.capture == TextCapture::Choice) {
-      if (TurnSame(success, part.predicate) &&
-          part.otherwise_error.kind != Expr::Kind::None)
+      if (TurnSame(success, part.predicate) && part.HasOtherwiseError()) {
+        if (!part.otherwise_error_statements.body.empty()) {
+          *statement_error = true;
+          return nullptr;
+        }
         return &part.otherwise_error;
+      }
       if (success.kind == Expr::Kind::Unary && success.text == "not" &&
           success.args.size() == 1 &&
-          TurnSame(success.args[0], part.predicate) &&
-          part.body_error.kind != Expr::Kind::None)
+          TurnSame(success.args[0], part.predicate) && part.HasBodyError()) {
+        if (!part.body_error_statements.body.empty()) {
+          *statement_error = true;
+          return nullptr;
+        }
         return &part.body_error;
+      }
     }
-    if (const auto *error = TurnValidationError(part.body, success))
+    if (const auto *error =
+            TurnValidationError(part.body, success, statement_error))
       return error;
-    if (const auto *error = TurnValidationError(part.otherwise, success))
+    if (*statement_error)
+      return nullptr;
+    if (const auto *error =
+            TurnValidationError(part.otherwise, success, statement_error))
       return error;
+    if (*statement_error)
+      return nullptr;
   }
   return nullptr;
+}
+bool TurnStatementCapture(const Template &statements,
+                          const TextFormatAnalysis &analysis, bool call) {
+  for (const auto &node : statements.body)
+    if (TurnExprCapture(node.expression, analysis, call))
+      return true;
+  return false;
 }
 bool TurnCallDependent(const TextFormatPart &part,
                        const TextFormatAnalysis &analysis) {
@@ -1646,7 +1745,9 @@ bool TurnCallDependent(const TextFormatPart &part,
       TurnExprCapture(part.predicate, analysis, true) ||
       TurnExprCapture(part.value_expression, analysis, true) ||
       TurnExprCapture(part.body_error, analysis, true) ||
-      TurnExprCapture(part.otherwise_error, analysis, true))
+      TurnExprCapture(part.otherwise_error, analysis, true) ||
+      TurnStatementCapture(part.body_error_statements, analysis, true) ||
+      TurnStatementCapture(part.otherwise_error_statements, analysis, true))
     return true;
   for (const auto &p : part.body)
     if (TurnCallDependent(p, analysis))
@@ -1669,8 +1770,7 @@ bool TurnSplitCall(const TurnParts &parts, const TextFormatAnalysis &analysis,
     }
     if (part.capture == TextCapture::Choice &&
         !TurnExprCapture(part.predicate, analysis, true) &&
-        part.body_error.kind == Expr::Kind::None &&
-        part.otherwise_error.kind == Expr::Kind::None) {
+        !part.HasBodyError() && !part.HasOtherwiseError()) {
       TurnParts yes_prefix, no_prefix, yes_body, no_body;
       if (!TurnSplitCall(part.body, analysis, &yes_prefix, &yes_body) ||
           !TurnSplitCall(part.otherwise, analysis, &no_prefix, &no_body) ||
@@ -1740,6 +1840,9 @@ bool TurnForbiddenFormatter(const TurnParts &parts,
         TurnExprCapture(part.value_expression, analysis, false) ||
         TurnExprCapture(part.body_error, analysis, false) ||
         TurnExprCapture(part.otherwise_error, analysis, false) ||
+        TurnStatementCapture(part.body_error_statements, analysis, false) ||
+        TurnStatementCapture(part.otherwise_error_statements, analysis,
+                             false) ||
         TurnForbiddenFormatter(part.body, analysis) ||
         TurnForbiddenFormatter(part.otherwise, analysis))
       return true;
@@ -1778,8 +1881,7 @@ bool TurnObservesArgumentString(const TurnParts &parts,
       if (subject.kind == Expr::Kind::Name &&
           it != analysis.predicate_bindings.end() &&
           it->second == TextCapture::Arguments &&
-          (negated ? part.otherwise_error : part.body_error).kind ==
-              Expr::Kind::None &&
+          !(negated ? part.HasOtherwiseError() : part.HasBodyError()) &&
           TurnHasArgumentOutput(negated ? part.otherwise : part.body))
         return true;
     }
@@ -1794,14 +1896,20 @@ bool TurnObservesArgumentString(const TurnParts &parts,
 bool TurnNodesSame(const std::vector<Node> &a, const std::vector<Node> &b) {
   if (a.size() != b.size())
     return false;
-  for (size_t i = 0; i < a.size(); ++i)
+  for (size_t i = 0; i < a.size(); ++i) {
     if (a[i].kind != b[i].kind || a[i].text != b[i].text ||
         a[i].parameters != b[i].parameters ||
         a[i].defaults.size() != b[i].defaults.size() ||
+        a[i].predicate.has_value() != b[i].predicate.has_value() ||
+        (a[i].predicate && !TurnSame(*a[i].predicate, *b[i].predicate)) ||
         !TurnSame(a[i].expression, b[i].expression) ||
         !TurnNodesSame(a[i].body, b[i].body) ||
         !TurnNodesSame(a[i].otherwise, b[i].otherwise))
       return false;
+    for (size_t d = 0; d < a[i].defaults.size(); ++d)
+      if (!TurnSame(a[i].defaults[d], b[i].defaults[d]))
+        return false;
+  }
   return true;
 }
 bool TurnLiveWrite(const std::vector<Node> &nodes,
@@ -2096,7 +2204,14 @@ bool internal::EmitTextTurnControls(const SourceTemplate &unit,
     admitted.expression = TurnBool(true);
     const Expr *append_error = nullptr;
     for (const auto &guard : format.completion_guards) {
-      const auto *error = TurnValidationError(format.assistant_pattern, guard);
+      bool statement_error = false;
+      const auto *error = TurnValidationError(format.assistant_pattern, guard,
+                                              &statement_error);
+      if (statement_error)
+        return Fail(
+            source, name, Offset(format),
+            "completion cannot transport a source-statement append-validation error",
+            diagnostic);
       // proof_guards also includes facts inferred from successful validation
       // (for example nonfirst ordinal). Those are not separate runtime errors.
       // Only a retained source error arm discharged by this exact guard needs
@@ -2306,16 +2421,29 @@ func.def @text.turn_environment(%content: buffer, %reasoning: buffer, %tools: bu
   %content_key = buffer.constant utf8("content") : buffer
   %reason_key = buffer.constant utf8("reasoning_content") : buffer
   %calls_key = buffer.constant utf8("tool_calls") : buffer
-  %content_object = func.call @text.turn_set(%empty_object, %content_key, %content) : (buffer, buffer, buffer) -> (buffer)
   %zero = index.constant 0 : offset
+  %content_bytes = buffer.length %content
+  %empty_content = index.cmp eq, %content_bytes, %zero : offset
+  %tool_bytes = buffer.length %tools
+  %has_tools = index.cmp ne, %tool_bytes, %zero : offset
+  // Successful generated render_tool fragments are nonempty. Native completion
+  // concatenates exactly those fragments, so this preserves its NULL content
+  // rule for tool-only assistants without changing original history values.
+  %null_content = scalar.andi %empty_content, %has_tools : i1
+  %content_object = scf.if %null_content -> (buffer) {
+    %null = buffer.constant utf8("null") : buffer
+    %updated = func.call @text.input_set_member(%empty_object, %content_key, %null) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  } else {
+    %updated = func.call @text.turn_set(%empty_object, %content_key, %content) : (buffer, buffer, buffer) -> (buffer)
+    scf.yield %updated : buffer
+  }
   %reason_bytes = buffer.length %reasoning
   %has_reason = index.cmp ne, %reason_bytes, %zero : offset
   %with_reason = scf.if %has_reason -> (buffer) {
     %updated = func.call @text.turn_set(%content_object, %reason_key, %reasoning) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer
   } else { scf.yield %content_object : buffer }
-  %tool_bytes = buffer.length %tools
-  %has_tools = index.cmp ne, %tool_bytes, %zero : offset
   %assistant = scf.if %has_tools -> (buffer) {
     %updated = func.call @text.turn_set(%with_reason, %calls_key, %tools) : (buffer, buffer, buffer) -> (buffer)
     scf.yield %updated : buffer

@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace hrx::loomify_gguf::jinja::testing {
@@ -158,6 +159,9 @@ public:
                     << diagnostic.column << ": " << diagnostic.message;
       return false;
     }
+    return InitProduct(generated, bytecode);
+  }
+  bool InitProduct(const GeneratedInputRenderer &generated, bool bytecode) {
     const auto runfiles = std::filesystem::path(RequiredEnv("TEST_SRCDIR")) /
                           RequiredEnv("TEST_WORKSPACE");
     std::string error;
@@ -322,8 +326,340 @@ TEST_P(JinjaExecutionTest, IndependentOriginalTemplateAndSemanticCases) {
 TEST_P(JinjaExecutionTest, RejectsExplicitUnsupportedCapabilities) {
   CheckReferences(GetParam(), true);
 }
+TEST_P(JinjaExecutionTest, RecursiveResourceFailurePreservesOutputAndReuse) {
+  // These intentionally unbounded calls exercise the checked VM frame boundary,
+  // not the Python oracle. The outer native test process supplies supervision.
+  for (
+      const char *source : {
+          "{% macro recur() %}prefix{% if explode %}{{ recur() }}{% else %}ok{% endif %}{% endmacro %}{{ recur() }}",
+          "{% macro recur(value=recur() if explode else 'ok') %}[{{ value }}]{% endmacro %}{{ recur() }}",
+      }) {
+    SCOPED_TRACE(source);
+    Evaluator evaluator;
+    ASSERT_TRUE(evaluator.Init(source, GetParam(), 0));
+    std::string output = "preserved sentinel";
+    const auto status = evaluator.Evaluate("{\"explode\":true}", &output);
+    EXPECT_EQ(iree_status_code(status), IREE_STATUS_RESOURCE_EXHAUSTED)
+        << StatusText(iree_status_clone(status));
+    iree_status_ignore(status);
+    EXPECT_EQ(output, "preserved sentinel");
+    ASSERT_TRUE(Ok(evaluator.Evaluate("{\"explode\":false}", &output)));
+    EXPECT_EQ(output, std::string(source).find("prefix") != std::string::npos
+                          ? "prefixok"
+                          : "[ok]");
+  }
+}
+TEST_P(JinjaExecutionTest, RangeBoundsPreserveOutputAndReuse) {
+  Evaluator evaluator;
+  ASSERT_TRUE(evaluator.Init(
+      "{% for value in range(start,stop,step) %}{{ value }};{% else %}empty{% endfor %}",
+      GetParam(), 0));
+  for (
+      const char *environment : {
+          "{\"start\":0,\"stop\":2147483648,\"step\":1}",
+          "{\"start\":-9223372036854775808,\"stop\":9223372036854775807,\"step\":1}",
+          "{\"start\":9223372036854775807,\"stop\":-9223372036854775808,\"step\":-1}",
+          "{\"start\":0,\"stop\":0,\"step\":0}",
+          "{\"start\":2,\"stop\":0,\"step\":0}",
+          "{\"start\":9223372036854775808,\"stop\":0,\"step\":1}",
+          "{\"start\":-9223372036854775809,\"stop\":0,\"step\":1}",
+      }) {
+    SCOPED_TRACE(environment);
+    std::string output = "preserved sentinel";
+    const auto status = evaluator.Evaluate(environment, &output);
+    EXPECT_FALSE(iree_status_is_ok(status));
+    iree_status_ignore(status);
+    EXPECT_EQ(output, "preserved sentinel");
+    ASSERT_TRUE(Ok(evaluator.Evaluate(
+        "{\"start\":2,\"stop\":-1,\"step\":-1,\"range\":\"ignored environment key\"}",
+        &output)));
+    EXPECT_EQ(output, "2;1;0;");
+  }
+}
+TEST_P(JinjaExecutionTest, RangeCountAcceptsExactNativeExtentWithoutIteration) {
+  // Exercise the actual helper at its boundary without constructing or walking
+  // two billion rows. Ordinary range rows exercise it through compiler
+  // lowering.
+  GeneratedInputRenderer generated;
+  generated.entrypoint = "range_count_boundary";
+  generated.helper_requirements = {"lib/text/common/strings.loom",
+                                   "lib/text/common/json.loom",
+                                   "lib/text/common/jinja.loom"};
+  generated.source = R"loom(
+func.decl @jinja.range_count(%start: i64, %stop: i64, %step: i64) -> (i64)
+func.decl @jinja.integer(%value: i64) -> (buffer)
+func.def public @range_count_boundary(%environment: buffer) -> (buffer) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %limit = scalar.constant 2147483647 : i64
+  %count = func.call @jinja.range_count(%zero, %limit, %one) : (i64, i64, i64) -> (i64)
+  %result = func.call @jinja.integer(%count) : (i64) -> (buffer)
+  func.return %result : buffer
+}
+)loom";
+  Evaluator evaluator;
+  ASSERT_TRUE(evaluator.InitProduct(generated, GetParam()));
+  std::string output;
+  ASSERT_TRUE(Ok(evaluator.Evaluate("{}", &output)));
+  EXPECT_EQ(output, "2147483647");
+}
 INSTANTIATE_TEST_SUITE_P(SerializedForms, JinjaExecutionTest,
                          ::testing::Values(false, true));
+
+TEST(JinjaCompilerTest, CompilesUnicodeCaseFilters) {
+  for (const char *filter : {"lower", "upper"}) {
+    SCOPED_TRACE(filter);
+    GeneratedInputRenderer output;
+    Diagnostic diagnostic;
+    ASSERT_TRUE(CompileChatTemplate("{{ value|" + std::string(filter) + " }}",
+                                    "unicode-case.jinja", &output, &diagnostic))
+        << diagnostic.message;
+    EXPECT_NE(output.source.find("@jinja." + std::string(filter)),
+              std::string::npos);
+    EXPECT_NE(std::find(output.helper_requirements.begin(),
+                        output.helper_requirements.end(),
+                        "lib/text/common/unicode_case.loom"),
+              output.helper_requirements.end());
+  }
+}
+
+TEST(JinjaCompilerTest, RejectsUnicodeCaseTestsAndArguments) {
+  for (const char *source :
+       {"{{ value is lower }}", "{{ value is upper }}", "{{ value|lower(1) }}",
+        "{{ value|upper(1) }}", "{{ value|lower(unknown=1) }}",
+        "{{ value|upper(unknown=1) }}"}) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output{"preserved", "entry", {"helper"}};
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "unicode-case-negative.jinja",
+                                     &output, &diagnostic));
+    EXPECT_EQ(output.source, "preserved");
+    EXPECT_EQ(output.entrypoint, "entry");
+    EXPECT_EQ(output.helper_requirements, std::vector<std::string>{"helper"});
+    EXPECT_EQ(diagnostic.source_name, "unicode-case-negative.jinja");
+    EXPECT_FALSE(diagnostic.message.empty());
+    EXPECT_GT(diagnostic.offset, 0u);
+    EXPECT_GE(diagnostic.line, 1u);
+    EXPECT_GE(diagnostic.column, 1u);
+  }
+}
+
+TEST_P(JinjaExecutionTest, UnicodeCaseValidatesRawUtf8AndRecovers) {
+  const auto runfiles = std::filesystem::path(RequiredEnv("TEST_SRCDIR")) /
+                        RequiredEnv("TEST_WORKSPACE");
+  for (const char *filter : {"lower", "upper"}) {
+    SCOPED_TRACE(filter);
+    GeneratedInputRenderer generated;
+    generated.entrypoint = "unicode_case_raw";
+    generated.helper_requirements = {
+        "lib/text/common/strings.loom", "lib/text/common/json.loom",
+        "lib/text/common/jinja.loom", "lib/text/common/unicode_case_data.loom",
+        "lib/text/common/unicode_case.loom"};
+    generated.source =
+        "func.decl @jinja." + std::string(filter) +
+        "(%value: buffer, %kind: i64) -> (buffer)\n"
+        "func.def public @unicode_case_raw(%value: buffer) -> (buffer) {\n"
+        "  %string_kind = scalar.constant 0 : i64\n"
+        "  %result = func.call @jinja." +
+        filter +
+        "(%value, %string_kind) : (buffer, i64) -> (buffer)\n"
+        "  func.return %result : buffer\n"
+        "}\n";
+    std::unique_ptr<PreparedTemplate> prepared;
+    std::string error;
+    ASSERT_TRUE(PreparedTemplate::Prepare(generated, runfiles.string(),
+                                          RequiredEnv("TEST_TMPDIR"),
+                                          GetParam(), &prepared, &error))
+        << error;
+    const bool upper = std::string_view(filter) == "upper";
+    const std::string boundaries =
+        u8"\u0080\u07ff\u0800\ud7ff\ue000\uffff\U00010000\U0010ffff";
+    const std::vector<std::pair<std::string, std::string>> valid = {
+        {"", ""},
+        {std::string("A\0Z", 3),
+         upper ? std::string("A\0Z", 3) : std::string("a\0z", 3)},
+        {boundaries, boundaries},
+        {u8"ßİﬃ", upper ? u8"SSİFFI" : u8"ßi\u0307ﬃ"},
+    };
+    for (const auto &[input, expected] : valid) {
+      SCOPED_TRACE(Hex(input));
+      std::string output = "preserved";
+      int32_t code = -1;
+      ASSERT_TRUE(prepared->Render(input, &output, &error, &code)) << error;
+      EXPECT_EQ(code, IREE_STATUS_OK);
+      EXPECT_EQ(output, expected);
+    }
+    // Render clones its argument with read-only access. These bytes bypass
+    // JSON entirely and exercise the helper's own transport boundary.
+    for (const std::string input : {
+             std::string("\xc2", 1),
+             std::string("\xe2\x82", 2),
+             std::string("\xf0\x90\x80", 3),
+             std::string("\xc0\x80", 2),
+             std::string("\xe0\x80\xaf", 3),
+             std::string("\xf0\x80\x80\xaf", 4),
+             std::string("\x80", 1),
+             std::string("\xe2\x28\xa1", 3),
+             std::string("\xed\xa0\x80", 3),
+             std::string("\xf4\x90\x80\x80", 4),
+             std::string("\xf5\x80\x80\x80", 4),
+         }) {
+      SCOPED_TRACE(Hex(input));
+      std::string output = "preserved";
+      int32_t code = IREE_STATUS_OK;
+      EXPECT_FALSE(prepared->Render(input, &output, &error, &code));
+      EXPECT_EQ(code, IREE_STATUS_INVALID_ARGUMENT) << error;
+      EXPECT_EQ(output, "preserved");
+      EXPECT_FALSE(error.empty());
+      ASSERT_TRUE(prepared->Render("aZ", &output, &error, &code)) << error;
+      EXPECT_EQ(code, IREE_STATUS_OK);
+      EXPECT_EQ(output, upper ? "AZ" : "az");
+    }
+  }
+}
+
+TEST_P(JinjaExecutionTest, UnicodeNativeBaseAndDeltaImportAnchors) {
+  GeneratedInputRenderer generated;
+  generated.entrypoint = "unicode_import_anchors";
+  generated.helper_requirements = {
+      "lib/text/common/strings.loom", "lib/text/common/json.loom",
+      "lib/text/common/jinja.loom", "lib/text/common/unicode_case_data.loom"};
+  generated.source = R"loom(
+func.decl import("string", "codepoint.to_upper") @anchor.upper(%codepoint: i32) -> (i32, i32, i32, i32)
+func.decl import("string", "codepoint.to_lower") @anchor.lower(%codepoint: i32) -> (i32, i32, i32)
+func.decl @jinja.case_override(%codepoint: i32, %upper: i1) -> (i32, i32, i32, i32)
+func.decl @jinja.case_cased(%codepoint: i32) -> (i1)
+func.decl @jinja.case_ignorable(%codepoint: i32) -> (i1)
+func.decl @jinja.check(%valid: i1)
+global.rodata.def @anchor.ok = bytes("6f6b")
+func.def @anchor.equal(%actual: i32, %expected: i32) {
+  %same = scalar.cmpi eq, %actual, %expected : i32
+  func.call @jinja.check(%same) : (i1)
+  func.return
+}
+func.def public @unicode_import_anchors(%unused: buffer) -> (buffer) {
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %two = scalar.constant 2 : i32
+  %false = scalar.constant false : i1
+  %true = scalar.constant true : i1
+  %sharp_s = scalar.constant 223 : i32
+  %capital_s = scalar.constant 83 : i32
+  %sharp_count, %sharp_first, %sharp_second, %sharp_third = func.call @anchor.upper(%sharp_s) : (i32) -> (i32, i32, i32, i32)
+  func.call @anchor.equal(%sharp_count, %two) : (i32, i32)
+  func.call @anchor.equal(%sharp_first, %capital_s) : (i32, i32)
+  func.call @anchor.equal(%sharp_second, %capital_s) : (i32, i32)
+  %dotted_i = scalar.constant 304 : i32
+  %small_i = scalar.constant 105 : i32
+  %dot = scalar.constant 775 : i32
+  %dotted_count, %dotted_first, %dotted_second = func.call @anchor.lower(%dotted_i) : (i32) -> (i32, i32, i32)
+  func.call @anchor.equal(%dotted_count, %two) : (i32, i32)
+  func.call @anchor.equal(%dotted_first, %small_i) : (i32, i32)
+  func.call @anchor.equal(%dotted_second, %dot) : (i32, i32)
+  %new_upper = scalar.constant 7305 : i32
+  %new_lower = scalar.constant 7306 : i32
+  %native_lower_count, %native_lower_first, %native_lower_second = func.call @anchor.lower(%new_upper) : (i32) -> (i32, i32, i32)
+  func.call @anchor.equal(%native_lower_count, %one) : (i32, i32)
+  func.call @anchor.equal(%native_lower_first, %new_upper) : (i32, i32)
+  %native_upper_count, %native_upper_first, %native_upper_second, %native_upper_third = func.call @anchor.upper(%new_lower) : (i32) -> (i32, i32, i32, i32)
+  func.call @anchor.equal(%native_upper_count, %one) : (i32, i32)
+  func.call @anchor.equal(%native_upper_first, %new_lower) : (i32, i32)
+  %delta_lower_count, %delta_lower_first, %delta_lower_second, %delta_lower_third = func.call @jinja.case_override(%new_upper, %false) : (i32, i1) -> (i32, i32, i32, i32)
+  func.call @anchor.equal(%delta_lower_count, %one) : (i32, i32)
+  func.call @anchor.equal(%delta_lower_first, %new_lower) : (i32, i32)
+  %delta_upper_count, %delta_upper_first, %delta_upper_second, %delta_upper_third = func.call @jinja.case_override(%new_lower, %true) : (i32, i1) -> (i32, i32, i32, i32)
+  func.call @anchor.equal(%delta_upper_count, %one) : (i32, i32)
+  func.call @anchor.equal(%delta_upper_first, %new_upper) : (i32, i32)
+  %unchanged_count, %unchanged_first, %unchanged_second, %unchanged_third = func.call @jinja.case_override(%sharp_s, %true) : (i32, i1) -> (i32, i32, i32, i32)
+  func.call @anchor.equal(%unchanged_count, %zero) : (i32, i32)
+  %overlap = scalar.constant 837 : i32
+  %overlap_cased = func.call @jinja.case_cased(%overlap) : (i32) -> (i1)
+  %overlap_ignorable = func.call @jinja.case_ignorable(%overlap) : (i32) -> (i1)
+  func.call @jinja.check(%overlap_cased) : (i1)
+  func.call @jinja.check(%overlap_ignorable) : (i1)
+  %sigma = scalar.constant 931 : i32
+  %sigma_cased = func.call @jinja.case_cased(%sigma) : (i32) -> (i1)
+  %sigma_ignorable = func.call @jinja.case_ignorable(%sigma) : (i32) -> (i1)
+  %not_ignorable = scalar.cmpi eq, %sigma_ignorable, %false : i1
+  func.call @jinja.check(%sigma_cased) : (i1)
+  func.call @jinja.check(%not_ignorable) : (i1)
+  %new_upper_cased = func.call @jinja.case_cased(%new_upper) : (i32) -> (i1)
+  func.call @jinja.check(%new_upper_cased) : (i1)
+  %result = global.load @anchor.ok : buffer
+  func.return %result : buffer
+}
+)loom";
+  const auto runfiles = std::filesystem::path(RequiredEnv("TEST_SRCDIR")) /
+                        RequiredEnv("TEST_WORKSPACE");
+  std::unique_ptr<PreparedTemplate> prepared;
+  std::string error;
+  ASSERT_TRUE(PreparedTemplate::Prepare(generated, runfiles.string(),
+                                        RequiredEnv("TEST_TMPDIR"), GetParam(),
+                                        &prepared, &error))
+      << error;
+  std::string output;
+  ASSERT_TRUE(prepared->Render("", &output, &error)) << error;
+  EXPECT_EQ(output, "ok");
+}
+
+TEST(JinjaCompilerTest, CompilesSelectedOrderedConsumers) {
+  for (
+      const char *source :
+      {"{% set ordered=values|sort(attribute='type') %}{{ ordered|tojson }}",
+       "{% for key,value in mapping|dictsort %}{{ key }}{{ value|tojson }}{% endfor %}",
+       "{% set mapped=values|map('upper')|list %}{{ mapped|tojson }}"}) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output;
+    Diagnostic diagnostic;
+    EXPECT_TRUE(
+        CompileChatTemplate(source, "collections.jinja", &output, &diagnostic))
+        << diagnostic.message;
+    EXPECT_NE(std::find(output.helper_requirements.begin(),
+                        output.helper_requirements.end(),
+                        "lib/text/common/unicode_collections.loom"),
+              output.helper_requirements.end());
+  }
+}
+
+TEST(JinjaCompilerTest, RejectsUnselectedCollectionOptionsAndIteratorValues) {
+  for (
+      const char *source :
+      {"{{ values|sort }}",
+       "{{ values|sort(attribute='other') }}",
+       "{{ values|sort(attribute=key) }}",
+       "{{ values|sort(attribute='type',reverse=true) }}",
+       "{{ values|sort(false,false,'type') }}",
+       "{{ mapping|dictsort }}",
+       "{{ mapping|dictsort|tojson }}",
+       "{% set pairs=mapping|dictsort %}{% for pair in pairs %}x{% endfor %}",
+       "{% for key,value in mapping|dictsort(true) %}x{% endfor %}",
+       "{% for pair in mapping|dictsort %}{{ (pair+[1])|tojson }}{% endfor %}",
+       "{% macro f(x) %}{{ x|tojson }}{% endmacro %}{% for pair in mapping|dictsort %}{{ f(pair) }}{% endfor %}",
+       "{% for key,value in mapping|dictsort %}{% if not loop.first %}{{ (loop.previtem+[1])|tojson }}{% endif %}{% endfor %}",
+       "{{ values|map('upper') }}",
+       "{{ values|map('upper')|tojson }}",
+       "{{ values|map('upper')|join }}",
+       "{% set iterator=values|map('upper') %}{{ iterator|list|tojson }}",
+       "{% if values|map('upper') %}x{% endif %}",
+       "{{ values|map('lower')|list|tojson }}",
+       "{{ values|map(name)|list|tojson }}",
+       "{{ values|map('upper',1)|list|tojson }}",
+       "{{ values|map(attribute='upper')|list|tojson }}",
+       "{{ values|map('upper')|list(1)|tojson }}"}) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer output{"preserved", "entry", {"helper"}};
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "collections-negative.jinja",
+                                     &output, &diagnostic));
+    EXPECT_EQ(output.source, "preserved");
+    EXPECT_EQ(output.entrypoint, "entry");
+    EXPECT_EQ(output.helper_requirements, std::vector<std::string>{"helper"});
+    EXPECT_EQ(diagnostic.source_name, "collections-negative.jinja");
+    EXPECT_FALSE(diagnostic.message.empty());
+    EXPECT_GE(diagnostic.line, 1u);
+    EXPECT_GE(diagnostic.column, 1u);
+  }
+}
 
 TEST(JinjaCompilerTest, RejectsObservedConditionalCollectorIdentity) {
   const std::string pair =
@@ -399,7 +735,6 @@ TEST(JinjaCompilerTest, RejectsUnsupportedSyntaxAndPreservesOutput) {
        "{{ unknown_call() }}",
        "{% if false %}{{ unknown_call() }}{% endif %}",
        "{{ 001 }}",
-       "{% macro recur() %}{{ recur() }}{% endmacro %}{{ recur() }}",
        "{% macro f(x) %}{{ x }}{% endmacro %}{{ f(1, 2) }}",
        "{% macro f(x) %}{{ x }}{% endmacro %}{{ f(unknown=1) }}",
        "{{ value.items()|tojson }}",
@@ -494,6 +829,45 @@ TEST(JinjaCompilerTest, RejectIteratorValuesRemainUnsupported) {
     EXPECT_EQ(diagnostic.source_name, "reject.jinja");
     EXPECT_GT(diagnostic.offset, 0u);
   }
+}
+TEST(JinjaCompilerTest, RangeValuesAndShadowingRemainUnsupported) {
+  for (const char *source : {
+           "{{ range }}",
+           "{{ range(3)|list|tojson }}",
+           "{% set values=range(3) %}{% for x in values %}{{ x }}{% endfor %}",
+           "{% set alias=range %}{{ alias(3) }}",
+           "{% for x in range(3)|list %}{{ x }}{% endfor %}",
+           "{% for x in range() %}{{ x }}{% endfor %}",
+           "{% for x in range(1,2,3,4) %}{{ x }}{% endfor %}",
+           "{% for x in range(stop=3) %}{{ x }}{% endfor %}",
+           "{% for x in range(3) if x %}{{ loop.revindex }}{% endfor %}",
+           "{% set range=3 %}",
+           "{% set range %}x{% endset %}",
+           "{% macro range() %}x{% endmacro %}",
+           "{% macro f(range) %}{{ range }}{% endmacro %}",
+           "{% for range in [1] %}x{% endfor %}",
+       }) {
+    SCOPED_TRACE(source);
+    GeneratedInputRenderer generated;
+    generated.source = "preserved";
+    Diagnostic diagnostic;
+    EXPECT_FALSE(CompileChatTemplate(source, "range-negative.jinja", &generated,
+                                     &diagnostic));
+    EXPECT_EQ(generated.source, "preserved");
+    EXPECT_FALSE(diagnostic.message.empty());
+  }
+}
+TEST(JinjaCompilerTest, ImmediateRangeDoesNotCaptureBuiltinOrMaterializeList) {
+  GeneratedInputRenderer generated;
+  Diagnostic diagnostic;
+  ASSERT_TRUE(CompileChatTemplate(
+      "{% macro rows(stop) %}{% for x in range(stop) %}{{ x }}{% endfor %}{% endmacro %}{{ rows(count) }}",
+      "range-bindings.jinja", &generated, &diagnostic));
+  EXPECT_EQ(generated.external_bindings, std::vector<std::string>{"count"});
+  EXPECT_TRUE(generated.protected_bindings.empty());
+  EXPECT_NE(generated.source.find("@jinja.range_count"), std::string::npos);
+  EXPECT_NE(generated.source.find("@jinja.range_at"), std::string::npos);
+  EXPECT_EQ(generated.source.find("@jinja.iteration"), std::string::npos);
 }
 TEST(JinjaCompilerTest, SourceLocationUsesOriginalTemplateBytes) {
   GeneratedInputRenderer output;

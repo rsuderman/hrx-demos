@@ -69,6 +69,9 @@ struct Loop {
   std::string position;
   std::string count;
   bool filtered = false;
+  // Present only for an immediate range iterable, never a JSON range value.
+  std::string range_start;
+  std::string range_step;
 };
 
 enum class LoweringProduct {
@@ -96,14 +99,19 @@ public:
         if (macros_.count(parameter))
           Fail(node->offset,
                "macro parameters cannot shadow statically resolved macros");
-    for (const auto &[name, node] : macros_)
-      CheckCalls(name, *node);
+    for (const auto &[name, node] : macros_) {
+      auto &calls = macro_calls_[name];
+      Calls(node->body, &calls);
+      for (const auto &value : node->defaults)
+        Calls(value, &calls);
+    }
     DiscoverClosedRegions(ast.body);
     for (const auto &[name, node] : macros_)
       DiscoverClosedRegions(node->body, node->parameters);
     GatherModule(ast.body);
     for (const auto &[name, node] : macros_)
       AnalyzeCaptures(name);
+    CloseCaptures();
     if (failed_)
       return false;
     const std::string entrypoint = EntryPoint();
@@ -172,6 +180,14 @@ public:
     result.helper_requirements = {"lib/text/common/strings.loom",
                                   "lib/text/common/json.loom",
                                   "lib/text/common/jinja.loom"};
+    if (uses_casing_ || uses_collections_) {
+      result.helper_requirements.push_back(
+          "lib/text/common/unicode_case_data.loom");
+      result.helper_requirements.push_back("lib/text/common/unicode_case.loom");
+    }
+    if (uses_collections_)
+      result.helper_requirements.push_back(
+          "lib/text/common/unicode_collections.loom");
     auto pending = called_macros_;
     std::set<std::string> visited;
     while (!pending.empty()) {
@@ -408,7 +424,7 @@ private:
   }
   static bool Reserved(const std::string &name) {
     return name == "loop" || name == "namespace" || name == "raise_exception" ||
-           name == "strftime_now";
+           name == "strftime_now" || name == "range";
   }
   void GatherModule(const std::vector<Node> &nodes) {
     for (const auto &node : nodes) {
@@ -451,27 +467,16 @@ private:
       Calls(node.otherwise, calls);
     }
   }
-  void CheckCalls(const std::string &name, const Node &node) {
-    if (checked_macros_.count(name))
-      return;
-    if (!checking_macros_.insert(name).second) {
-      Fail(node.offset, "recursive macros are not supported");
-      return;
-    }
-    auto &calls = macro_calls_[name];
-    Calls(node.body, &calls);
-    for (const auto &value : node.defaults)
-      Calls(value, &calls);
-    for (const auto &callee : calls)
-      CheckCalls(callee, *macros_.at(callee));
-    checking_macros_.erase(name);
-    checked_macros_.insert(name);
-  }
   void ReferencedNames(const Expr &expr, std::set<std::string> *names) {
     if (expr.kind == Expr::Kind::Name)
       names->insert(expr.text);
-    for (const auto &arg : expr.args)
-      ReferencedNames(arg, names);
+    const size_t first = expr.kind == Expr::Kind::Call && !expr.args.empty() &&
+                                 expr.args[0].kind == Expr::Kind::Name &&
+                                 expr.args[0].text == "range"
+                             ? 1
+                             : 0;
+    for (size_t i = first; i < expr.args.size(); ++i)
+      ReferencedNames(expr.args[i], names);
   }
   // This is a lexical eligibility query, not namespace value analysis. A bare
   // root could escape through an alias or JSON value, so only direct fields and
@@ -799,20 +804,35 @@ private:
       if (module_bindings_.count(used))
         capture.namespaces.insert(module_bindings_.at(used));
     }
-    for (const auto &callee : macro_calls_[name]) {
-      AnalyzeCaptures(callee);
-      const auto &child = macro_captures_.at(callee);
-      capture.values.insert(child.values.begin(), child.values.end());
-      capture.namespaces.insert(child.namespaces.begin(),
-                                child.namespaces.end());
-      capture.effects.insert(child.effects.begin(), child.effects.end());
-    }
-    // A direct field write may use an admitted static alias, including one
-    // selected by equal branch bindings. Return all captured identities rather
-    // than create a second alias/branch analysis beside ordinary lowering.
-    if (!writes.empty())
-      capture.effects.insert(capture.namespaces.begin(),
-                             capture.namespaces.end());
+    capture.may_write = !writes.empty();
+  }
+  void CloseCaptures() {
+    // All direct lexical summaries exist before traversing an edge. Monotone
+    // union over finite module identities handles cycles without observing a
+    // partially discovered signature. Activation-local slots never cross edges.
+    bool changed;
+    do {
+      changed = false;
+      for (auto &[name, capture] : macro_captures_) {
+        const auto before = capture.values.size() + capture.namespaces.size() +
+                            capture.effects.size();
+        for (const auto &callee : macro_calls_[name]) {
+          const auto &child = macro_captures_.at(callee);
+          capture.values.insert(child.values.begin(), child.values.end());
+          capture.namespaces.insert(child.namespaces.begin(),
+                                    child.namespaces.end());
+          capture.effects.insert(child.effects.begin(), child.effects.end());
+        }
+        // A direct write may use an admitted static alias. Preserve the
+        // existing conservative return protocol, including transitively
+        // captured slots.
+        if (capture.may_write)
+          capture.effects.insert(capture.namespaces.begin(),
+                                 capture.namespaces.end());
+        changed |= before != capture.values.size() + capture.namespaces.size() +
+                                 capture.effects.size();
+      }
+    } while (changed);
   }
   static State NamespaceSubset(const State &state,
                                const std::set<size_t> &ids) {
@@ -971,6 +991,11 @@ private:
   }
   Value Name(const std::string &name, State &state, size_t offset = 0,
              bool used = true) {
+    if (name == "range") {
+      Fail(offset,
+           "range values are supported only as immediate loop iterables");
+      return Undefined();
+    }
     if (name == "loop" && !loops_.empty() && loops_.back().filtered) {
       Fail(offset, "filtered-loop metadata is not supported");
       return Undefined();
@@ -1246,6 +1271,17 @@ private:
     return Undefined();
   }
 
+  Value LoopRow(const Loop &loop, const std::string &ordinal) {
+    if (!loop.range_start.empty())
+      return Integer(Call("jinja.range_at",
+                          {loop.range_start, loop.range_step, ordinal},
+                          {"i64", "i64", "i64"}, "i64"));
+    return TupleResult(Pair("jinja.index",
+                            {loop.sequence.data, loop.sequence.kind, ordinal},
+                            {"buffer", "i64", "i64"}),
+                       loop.sequence);
+  }
+
   Value LoopAttribute(const Expr &expr, State &) {
     const auto &loop = loops_.back();
     if (loop.filtered) {
@@ -1263,6 +1299,16 @@ private:
       return Boolean(Compare("eq", loop.position, I64(0)));
     if (expr.text == "length")
       return Integer(loop.count);
+    if (expr.text == "revindex" || expr.text == "revindex0") {
+      const auto reverse = Fresh();
+      Line(reverse + " = scalar.subi " + loop.count + ", " + loop.position +
+           " : i64");
+      if (expr.text == "revindex")
+        return Integer(reverse);
+      const auto previous = Fresh(), one = I64(1);
+      Line(previous + " = scalar.subi " + reverse + ", " + one + " : i64");
+      return Integer(previous);
+    }
     const auto one = I64(1), next = Fresh();
     Line(next + " = scalar.addi " + loop.position + ", " + one + " : i64");
     if (expr.text == "last")
@@ -1279,9 +1325,7 @@ private:
       Line(result.data + ", " + result.kind + " = scf.if " + exists +
            " -> (buffer, i64) {");
       ++indent_;
-      const auto value = Pair(
-          "jinja.index", {loop.sequence.data, loop.sequence.kind, position},
-          {"buffer", "i64", "i64"});
+      const auto value = LoopRow(loop, position);
       Line("scf.yield " + value.data + ", " + value.kind + " : buffer, i64");
       --indent_;
       Line("} else {");
@@ -1360,6 +1404,30 @@ private:
     // join's delimiter expression and conversion, as Jinja's lazy iterator
     // requires.
     const auto &subject = expr.args[0];
+    if (expr.text == "list" && subject.kind == Expr::Kind::Filter &&
+        subject.text == "map") {
+      if (expr.args.size() != 1 || subject.args.size() != 2 ||
+          subject.args[1].kind != Expr::Kind::String ||
+          subject.args[1].text != "upper" ||
+          std::any_of(subject.keywords.begin(), subject.keywords.end(),
+                      [](const auto &keyword) { return !keyword.empty(); })) {
+        Fail(
+            expr.offset,
+            "map supports literal positional 'upper' with an immediate explicit list consumer");
+        return Undefined();
+      }
+      const auto input = Expression(subject.args[0], state);
+      uses_collections_ = true;
+      auto result = Pair("jinja.map_upper_list", {input.data, input.kind},
+                         {"buffer", "i64"});
+      result.known = KnownKind::List;
+      return result;
+    }
+    if (expr.text == "map") {
+      Fail(expr.offset,
+           "map iterator requires an immediate explicit list consumer");
+      return Undefined();
+    }
     if ((expr.text == "list" || expr.text == "join") &&
         subject.kind == Expr::Kind::Filter && subject.text == "reject") {
       if (subject.args.size() != 3 ||
@@ -1398,6 +1466,47 @@ private:
       return Undefined();
     }
     const auto value = Expression(expr.args[0], state);
+    if (expr.text == "lower" || expr.text == "upper") {
+      if (expr.args.size() != 1 ||
+          std::any_of(expr.keywords.begin(), expr.keywords.end(),
+                      [](const auto &keyword) { return !keyword.empty(); })) {
+        Fail(expr.offset, expr.text + " supports no filter arguments");
+        return Undefined();
+      }
+      uses_casing_ = true;
+      return {Call("jinja." + expr.text, {value.data, value.kind},
+                   {"buffer", "i64"}, "buffer"),
+              I64(0), KnownKind::String};
+    }
+    if (expr.text == "sort") {
+      if (expr.args.size() != 2 || expr.keywords.size() != 2 ||
+          expr.keywords[1] != "attribute" ||
+          expr.args[1].kind != Expr::Kind::String ||
+          expr.args[1].text != "type") {
+        Fail(
+            expr.offset,
+            "sort supports only literal attribute='type' with default ordering");
+        return Undefined();
+      }
+      uses_collections_ = true;
+      auto result = TupleResult(
+          Pair("jinja.sort_type", {value.data, value.kind}, {"buffer", "i64"}),
+          value);
+      result.known = KnownKind::List;
+      return result;
+    }
+    if (expr.text == "dictsort") {
+      if (expr.args.size() != 1 || items_expression_ != &expr) {
+        Fail(
+            expr.offset,
+            "dictsort supports no arguments and immediate loop consumption only");
+        return Undefined();
+      }
+      uses_collections_ = true;
+      return TupleResult(
+          Pair("jinja.dictsort", {value.data, value.kind}, {"buffer", "i64"}),
+          value);
+    }
     if (expr.text == "min") {
       if (expr.args.size() != 1 ||
           std::any_of(expr.keywords.begin(), expr.keywords.end(),
@@ -1801,6 +1910,11 @@ private:
       return Undefined();
     }
     const auto &name = expr.args[0].text;
+    if (name == "range") {
+      Fail(expr.offset,
+           "range values are supported only as immediate loop iterables");
+      return Undefined();
+    }
     for (size_t i = 1; i < expr.keywords.size(); ++i) {
       const auto &keyword = expr.keywords[i];
       if (!keyword.empty() &&
@@ -1986,19 +2100,51 @@ private:
     const auto *previous_items = items_expression_;
     const bool items_rows =
         (node.expression.kind == Expr::Kind::Filter &&
-         node.expression.text == "items") ||
+         (node.expression.text == "items" ||
+          node.expression.text == "dictsort")) ||
         (node.expression.kind == Expr::Kind::Call &&
          !node.expression.args.empty() &&
          node.expression.args[0].kind == Expr::Kind::GetAttr &&
          node.expression.args[0].text == "items");
-    items_expression_ = &node.expression;
-    const auto input = Expression(node.expression, state);
-    items_expression_ = previous_items;
-    const auto sequence = TupleResult(
-        Pair("jinja.iteration", {input.data, input.kind}, {"buffer", "i64"}),
-        input);
-    const auto count = Call("jinja.length", {sequence.data, sequence.kind},
-                            {"buffer", "i64"}, "i64");
+    const auto &iterable = node.expression;
+    const bool range = iterable.kind == Expr::Kind::Call &&
+                       !iterable.args.empty() &&
+                       iterable.args[0].kind == Expr::Kind::Name &&
+                       iterable.args[0].text == "range";
+    Value sequence;
+    std::string count, range_start, range_step;
+    if (range) {
+      if (iterable.args.size() < 2 || iterable.args.size() > 4 ||
+          std::any_of(iterable.keywords.begin(), iterable.keywords.end(),
+                      [](const auto &keyword) { return !keyword.empty(); })) {
+        Fail(iterable.offset,
+             "range requires one to three positional arguments");
+        return;
+      }
+      // Call arguments all execute before range's own type/bounds checks.
+      std::vector<Value> arguments;
+      for (size_t i = 1; i < iterable.args.size(); ++i)
+        arguments.push_back(Expression(iterable.args[i], state));
+      std::vector<std::string> integers;
+      for (const auto &argument : arguments)
+        integers.push_back(Call("jinja.range_integer",
+                                {argument.data, argument.kind},
+                                {"buffer", "i64"}, "i64"));
+      range_start = integers.size() == 1 ? I64(0) : integers[0];
+      const auto stop = integers.size() == 1 ? integers[0] : integers[1];
+      range_step = integers.size() == 3 ? integers[2] : I64(1);
+      count = Call("jinja.range_count", {range_start, stop, range_step},
+                   {"i64", "i64", "i64"}, "i64");
+    } else {
+      items_expression_ = &node.expression;
+      const auto input = Expression(node.expression, state);
+      items_expression_ = previous_items;
+      sequence = TupleResult(
+          Pair("jinja.iteration", {input.data, input.kind}, {"buffer", "i64"}),
+          input);
+      count = Call("jinja.length", {sequence.data, sequence.kind},
+                   {"buffer", "i64"}, "i64");
+    }
     const auto nonnegative = Compare("sge", count, I64(0));
     const auto fits = Compare("sle", count, I64(2147483647)), valid = Fresh();
     Line(valid + " = scalar.andi " + nonnegative + ", " + fits + " : i1");
@@ -2050,10 +2196,8 @@ private:
     // constructor must not retain the previous iteration's namespace presence.
     ResetLoopNamespaces(node.body, inner);
     inner.output = prior;
-    auto row =
-        TupleResult(Pair("jinja.index", {sequence.data, sequence.kind, ordinal},
-                         {"buffer", "i64", "i64"}),
-                    sequence);
+    Loop iteration{sequence, ordinal, count, false, range_start, range_step};
+    auto row = LoopRow(iteration, ordinal);
     if (targets.size() == 1) {
       row.tuple_data = row.tuple_data || items_rows;
       inner.bindings.erase(targets[0]);
@@ -2073,12 +2217,12 @@ private:
                         row);
       }
     }
-    auto neighbor_sequence = sequence;
-    neighbor_sequence.tuple_data = neighbor_sequence.tuple_data || items_rows;
+    iteration.sequence.tuple_data = iteration.sequence.tuple_data || items_rows;
     std::string any_accepted;
     if (node.predicate) {
       const auto condition = Truth(Expression(*node.predicate, inner));
-      loops_.push_back({neighbor_sequence, ordinal, count, true});
+      iteration.filtered = true;
+      loops_.push_back(iteration);
       Node branch;
       branch.kind = Node::Kind::If;
       branch.offset = node.offset;
@@ -2090,7 +2234,7 @@ private:
              condition + " : i1");
       }
     } else {
-      loops_.push_back({neighbor_sequence, ordinal, count});
+      loops_.push_back(iteration);
       EmitNodes(node.body, inner);
     }
     loops_.pop_back();
@@ -2167,9 +2311,7 @@ private:
           object.fields[field] = value;
           break;
         }
-        if (macros_.count(node.text) || node.text == "loop" ||
-            node.text == "raise_exception" || node.text == "strftime_now" ||
-            node.text == "namespace") {
+        if (macros_.count(node.text) || Reserved(node.text)) {
           Fail(node.offset,
                "assignment to reserved template builtin: " + node.text);
           break;
@@ -2273,6 +2415,8 @@ private:
   LoweringProduct product_ = LoweringProduct::Renderer;
   std::string symbol_suffix_;
   bool failed_ = false;
+  bool uses_casing_ = false;
+  bool uses_collections_ = false;
   size_t next_ = 0;
   unsigned indent_ = 0;
   Value environment_;
@@ -2286,9 +2430,10 @@ private:
   struct MacroCaptures {
     std::set<std::string> values, closed_local_roots;
     std::set<size_t> namespaces, effects, local_namespaces;
+    bool may_write = false;
   };
   std::map<std::string, MacroCaptures> macro_captures_;
-  std::set<std::string> checking_macros_, checked_macros_, module_names_;
+  std::set<std::string> module_names_;
   std::map<std::string, size_t> module_bindings_;
   std::set<const Node *> closed_region_constructors_;
   std::map<const Node *,

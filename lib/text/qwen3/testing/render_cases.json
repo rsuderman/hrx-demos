@@ -328,7 +328,6 @@
         }
       ]
     },
-    "native_admission_error": "duplicate or wrongly typed chat field 'reasoning_content'",
     "native_counterpart": "qwen3-null-reason-fallback-native"
   },
   {

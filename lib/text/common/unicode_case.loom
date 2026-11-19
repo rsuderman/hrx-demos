@@ -1,0 +1,312 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Whole-string Unicode 16 casing. Native Unicode 15.1 mappings are corrected by
+// the shared version delta; Final_Sigma reads the original, validated string.
+func.decl import("string", "codepoint.to_upper") @jinja.case_native_upper(%codepoint: i32) -> (i32, i32, i32, i32)
+
+func.decl import("string", "codepoint.to_lower") @jinja.case_native_lower(%codepoint: i32) -> (i32, i32, i32)
+
+func.decl @jinja.string(%value: buffer, %kind: i64) -> (buffer)
+
+func.decl @jinja.check(%valid: i1)
+
+func.decl @jinja.case_override(%codepoint: i32, %upper: i1) -> (i32, i32, i32, i32)
+
+func.decl @jinja.case_cased(%codepoint: i32) -> (i1)
+
+func.decl @jinja.case_ignorable(%codepoint: i32) -> (i1)
+
+// Check the complete sequence before loading any continuation byte. Reject
+// overlong forms, surrogate values, isolated continuations and scalars >10FFFF.
+func.def @jinja.case_next(%text: buffer, %position: offset) -> (i32, offset) {
+  %length = buffer.length %text
+  %inside = index.cmp ult, %position, %length : offset
+  func.call @jinja.check(%inside) : (i1)
+  %first = buffer.load.i8.u %text[%position]
+  %c128 = scalar.constant 128 : i32
+  %ascii = scalar.cmpi ult, %first, %c128 : i32
+  %step = index.constant 1 : offset
+  %after_first = index.add %position, %step : offset
+  %value, %end = scf.if %ascii -> (i32, offset) {
+    scf.yield %first, %after_first : i32, offset
+  } else {
+    %c194 = scalar.constant 194 : i32
+    %c224 = scalar.constant 224 : i32
+    %c240 = scalar.constant 240 : i32
+    %c244 = scalar.constant 244 : i32
+    %above = scalar.cmpi uge, %first, %c194 : i32
+    %below = scalar.cmpi ule, %first, %c244 : i32
+    %lead = scalar.andi %above, %below : i1
+    func.call @jinja.check(%lead) : (i1)
+    %two = scalar.cmpi ult, %first, %c224 : i32
+    %three = scalar.cmpi ult, %first, %c240 : i32
+    %two_count = index.constant 2 : index
+    %three_count = index.constant 3 : index
+    %four_count = index.constant 4 : index
+    %wide_count = scf.select %three, %three_count, %four_count : index
+    %count = scf.select %two, %two_count, %wide_count : index
+    %width = index.cast %count : index to offset
+    %remaining = index.sub %length, %position : offset
+    %fits = index.cmp ule, %width, %remaining : offset
+    func.call @jinja.check(%fits) : (i1)
+    %mask_two = scalar.constant 31 : i32
+    %mask_three = scalar.constant 15 : i32
+    %mask_four = scalar.constant 7 : i32
+    %wide_mask = scf.select %three, %mask_three, %mask_four : i32
+    %mask = scf.select %two, %mask_two, %wide_mask : i32
+    %initial = scalar.andi %first, %mask : i32
+    %one = index.constant 1 : index
+    %shift = scalar.constant 6 : i32
+    %low_mask = scalar.constant 63 : i32
+    %c192 = scalar.constant 192 : i32
+    %decoded, %after = scf.for %i = [%one to %count step %one](%decoded = %initial : i32, %cursor = %after_first : offset) -> (i32, offset) {
+      %byte = buffer.load.i8.u %text[%cursor]
+      %byte_type = scalar.andi %byte, %c192 : i32
+      %continuation = scalar.cmpi eq, %byte_type, %c128 : i32
+      func.call @jinja.check(%continuation) : (i1)
+      %low = scalar.andi %byte, %low_mask : i32
+      %high = scalar.shli %decoded, %shift : i32
+      %next = scalar.ori %high, %low : i32
+      %next_cursor = index.add %cursor, %step : offset
+      scf.yield %next, %next_cursor : i32, offset
+    }
+    %min_two = scalar.constant 128 : i32
+    %min_three = scalar.constant 2048 : i32
+    %min_four = scalar.constant 65536 : i32
+    %wide_min = scf.select %three, %min_three, %min_four : i32
+    %minimum = scf.select %two, %min_two, %wide_min : i32
+    %shortest = scalar.cmpi uge, %decoded, %minimum : i32
+    %max = scalar.constant 1114111 : i32
+    %in_range = scalar.cmpi ule, %decoded, %max : i32
+    %surrogate_begin = scalar.constant 55296 : i32
+    %surrogate_end = scalar.constant 57343 : i32
+    %before_surrogates = scalar.cmpi ult, %decoded, %surrogate_begin : i32
+    %after_surrogates = scalar.cmpi ugt, %decoded, %surrogate_end : i32
+    %not_surrogate = scalar.ori %before_surrogates, %after_surrogates : i1
+    %scalar = scalar.andi %in_range, %not_surrogate : i1
+    %valid = scalar.andi %shortest, %scalar : i1
+    func.call @jinja.check(%valid) : (i1)
+    scf.yield %decoded, %after : i32, offset
+  }
+  func.return %value, %end : i32, offset
+}
+
+// Called only after whole-input validation. The explicit bound prevents a
+// backward read from escaping even if a caller violates that internal contract.
+func.def @jinja.case_previous(%text: buffer, %end: offset) -> (i32, offset) {
+  %zero = index.constant 0 : offset
+  %step = index.constant 1 : offset
+  %nonempty = index.cmp ugt, %end, %zero : offset
+  func.call @jinja.check(%nonempty) : (i1)
+  %last = index.sub %end, %step : offset
+  %mask = scalar.constant 192 : i32
+  %marker = scalar.constant 128 : i32
+  %begin = scf.while(%cursor = %last : offset) -> (offset) {
+    %byte = buffer.load.i8.u %text[%cursor]
+    %kind = scalar.andi %byte, %mask : i32
+    %continuation = scalar.cmpi eq, %kind, %marker : i32
+    scf.condition %continuation, %cursor : i1, offset
+  } do(%cursor: offset) {
+    %nonzero = index.cmp ugt, %cursor, %zero : offset
+    func.call @jinja.check(%nonzero) : (i1)
+    %prior = index.sub %cursor, %step : offset
+    scf.yield %prior : offset
+  }
+  %codepoint, %after = func.call @jinja.case_next(%text, %begin) : (buffer, offset) -> (i32, offset)
+  %aligned = index.cmp eq, %after, %end : offset
+  func.call @jinja.check(%aligned) : (i1)
+  func.return %codepoint, %begin : i32, offset
+}
+
+func.def @jinja.case_map(%codepoint: i32, %upper: i1, %final_sigma: i1) -> (i32, i32, i32, i32) {
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %count, %first, %second, %third = scf.if %final_sigma -> (i32, i32, i32, i32) {
+    %sigma = scalar.constant 962 : i32
+    scf.yield %one, %sigma, %zero, %zero : i32, i32, i32, i32
+  } else {
+    %override_count, %a, %b, %c = func.call @jinja.case_override(%codepoint, %upper) : (i32, i1) -> (i32, i32, i32, i32)
+    %overridden = scalar.cmpi ne, %override_count, %zero : i32
+    %count, %first, %second, %third = scf.if %overridden -> (i32, i32, i32, i32) {
+      scf.yield %override_count, %a, %b, %c : i32, i32, i32, i32
+    } else {
+      %count, %first, %second, %third = scf.if %upper -> (i32, i32, i32, i32) {
+        %count, %first, %second, %third = func.call @jinja.case_native_upper(%codepoint) : (i32) -> (i32, i32, i32, i32)
+        scf.yield %count, %first, %second, %third : i32, i32, i32, i32
+      } else {
+        %count, %first, %second = func.call @jinja.case_native_lower(%codepoint) : (i32) -> (i32, i32, i32)
+        scf.yield %count, %first, %second, %zero : i32, i32, i32, i32
+      }
+      scf.yield %count, %first, %second, %third : i32, i32, i32, i32
+    }
+    scf.yield %count, %first, %second, %third : i32, i32, i32, i32
+  }
+  func.return %count, %first, %second, %third : i32, i32, i32, i32
+}
+
+// One scalar emitter owns both exact sizing and writing, with checked addition.
+func.def @jinja.case_emit(%output: buffer, %position: i64, %codepoint: i32, %write: i1) -> (i64) {
+  %c0 = scalar.constant 0 : i32
+  %c6 = scalar.constant 6 : i32
+  %c12 = scalar.constant 12 : i32
+  %c18 = scalar.constant 18 : i32
+  %c128 = scalar.constant 128 : i32
+  %c2048 = scalar.constant 2048 : i32
+  %c65536 = scalar.constant 65536 : i32
+  %ascii = scalar.cmpi ult, %codepoint, %c128 : i32
+  %two = scalar.cmpi ult, %codepoint, %c2048 : i32
+  %three = scalar.cmpi ult, %codepoint, %c65536 : i32
+  %wide_shift = scf.select %three, %c12, %c18 : i32
+  %multi_shift = scf.select %two, %c6, %wide_shift : i32
+  %shift = scf.select %ascii, %c0, %multi_shift : i32
+  %one64 = scalar.constant 1 : i64
+  %two64 = scalar.constant 2 : i64
+  %three64 = scalar.constant 3 : i64
+  %four64 = scalar.constant 4 : i64
+  %wide_size = scf.select %three, %three64, %four64 : i64
+  %multi_size = scf.select %two, %two64, %wide_size : i64
+  %size = scf.select %ascii, %one64, %multi_size : i64
+  %zero64 = scalar.constant 0 : i64
+  %nonnegative = scalar.cmpi sge, %position, %zero64 : i64
+  func.call @jinja.check(%nonnegative) : (i1)
+  %bounded_position = scalar.assume %position [range(%position, 0, 9223372036854775807)] : i64
+  %maximum = scalar.constant 9223372036854775807 : i64
+  %room = scalar.subi %maximum, %bounded_position : i64
+  %fits = scalar.cmpi ule, %size, %room : i64
+  func.call @jinja.check(%fits) : (i1)
+  %end = scalar.addi %bounded_position, %size : i64
+  scf.if %write {
+    %buffer_size = buffer.length %output
+    %available = index.cast %buffer_size : offset to i64
+    %inside = scalar.cmpi ule, %end, %available : i64
+    func.call @jinja.check(%inside) : (i1)
+    %c192 = scalar.constant 192 : i32
+    %c224 = scalar.constant 224 : i32
+    %c240 = scalar.constant 240 : i32
+    %wide_marker = scf.select %three, %c224, %c240 : i32
+    %multi_marker = scf.select %two, %c192, %wide_marker : i32
+    %marker = scf.select %ascii, %c0, %multi_marker : i32
+    %high = scalar.shrui %codepoint, %shift : i32
+    %first = scalar.ori %high, %marker : i32
+    %cursor = index.cast %bounded_position : i64 to offset
+    buffer.store.i8 %first, %output[%cursor]
+    %step = index.constant 1 : offset
+    %after_first = index.add %cursor, %step : offset
+    %mask = scalar.constant 63 : i32
+    %after, %unused = scf.while(%cursor = %after_first : offset, %remaining = %shift : i32) -> (offset, i32) {
+      %more = scalar.cmpi ugt, %remaining, %c0 : i32
+      scf.condition %more, %cursor, %remaining : i1, offset, i32
+    } do(%cursor: offset, %remaining: i32) {
+      %next_shift = scalar.subi %remaining, %c6 : i32
+      %shifted = scalar.shrui %codepoint, %next_shift : i32
+      %low = scalar.andi %shifted, %mask : i32
+      %byte = scalar.ori %low, %c128 : i32
+      buffer.store.i8 %byte, %output[%cursor]
+      %next = index.add %cursor, %step : offset
+      scf.yield %next, %next_shift : offset, i32
+    }
+  }
+  func.return %end : i64
+}
+
+// Size and write use identical mappings and original-context state transitions.
+func.def @jinja.case_pass(%text: buffer, %following: buffer, %upper: i1, %output: buffer, %write: i1) -> (i64) {
+  %zero = index.constant 0 : offset
+  %zero64 = scalar.constant 0 : i64
+  %zero32 = scalar.constant 0 : i32
+  %one32 = scalar.constant 1 : i32
+  %two32 = scalar.constant 2 : i32
+  %sigma = scalar.constant 931 : i32
+  %false = scalar.constant false : i1
+  %true = scalar.constant true : i1
+  %lower = scalar.xori %upper, %true : i1
+  %length = buffer.length %text
+  %position, %size, %previous = scf.while(%position = %zero : offset, %size = %zero64 : i64, %previous = %false : i1) -> (offset, i64, i1) {
+    %more = index.cmp ult, %position, %length : offset
+    scf.condition %more, %position, %size, %previous : i1, offset, i64, i1
+  } do(%position: offset, %size: i64, %previous: i1) {
+    %codepoint, %next = func.call @jinja.case_next(%text, %position) : (buffer, offset) -> (i32, offset)
+    %following_value = buffer.load.i8.u %following[%position]
+    %no_following = scalar.cmpi eq, %following_value, %zero32 : i32
+    %capital_sigma = scalar.cmpi eq, %codepoint, %sigma : i32
+    %lower_sigma = scalar.andi %lower, %capital_sigma : i1
+    %preceded = scalar.andi %lower_sigma, %previous : i1
+    %final_sigma = scalar.andi %preceded, %no_following : i1
+    %count, %first, %second, %third = func.call @jinja.case_map(%codepoint, %upper, %final_sigma) : (i32, i1, i1) -> (i32, i32, i32, i32)
+    %after_first = func.call @jinja.case_emit(%output, %size, %first, %write) : (buffer, i64, i32, i1) -> (i64)
+    %has_second = scalar.cmpi ugt, %count, %one32 : i32
+    %after_second = scf.if %has_second -> (i64) {
+      %after = func.call @jinja.case_emit(%output, %after_first, %second, %write) : (buffer, i64, i32, i1) -> (i64)
+      scf.yield %after : i64
+    } else {
+      scf.yield %after_first : i64
+    }
+    %has_third = scalar.cmpi ugt, %count, %two32 : i32
+    %after_third = scf.if %has_third -> (i64) {
+      %after = func.call @jinja.case_emit(%output, %after_second, %third, %write) : (buffer, i64, i32, i1) -> (i64)
+      scf.yield %after : i64
+    } else {
+      scf.yield %after_second : i64
+    }
+    %ignorable = func.call @jinja.case_ignorable(%codepoint) : (i32) -> (i1)
+    %cased = func.call @jinja.case_cased(%codepoint) : (i32) -> (i1)
+    %next_previous = scf.select %ignorable, %previous, %cased : i1
+    scf.yield %next, %after_third, %next_previous : offset, i64, i1
+  }
+  func.return %size : i64
+}
+
+func.def @jinja.case(%value: buffer, %kind: i64, %upper: i1) -> (buffer) {
+  %text = func.call @jinja.string(%value, %kind) : (buffer, i64) -> (buffer)
+  %zero = index.constant 0 : offset
+  %length = buffer.length %text
+  // Validate before reverse traversal, including on the uppercase route.
+  %validated = scf.while(%position = %zero : offset) -> (offset) {
+    %more = index.cmp ult, %position, %length : offset
+    scf.condition %more, %position : i1, offset
+  } do(%position: offset) {
+    %codepoint, %next = func.call @jinja.case_next(%text, %position) : (buffer, offset) -> (i32, offset)
+    scf.yield %next : offset
+  }
+  // Only scalar-start bytes are written/read. A reverse pass keeps long runs of
+  // Case_Ignorable codepoints linear; overlap characters are skipped first.
+  %following = buffer.alloca<private> align(1) %length : buffer
+  %false = scalar.constant false : i1
+  %begin, %next_cased = scf.while(%end = %length : offset, %next_cased = %false : i1) -> (offset, i1) {
+    %more = index.cmp ugt, %end, %zero : offset
+    scf.condition %more, %end, %next_cased : i1, offset, i1
+  } do(%end: offset, %next_cased: i1) {
+    %codepoint, %begin = func.call @jinja.case_previous(%text, %end) : (buffer, offset) -> (i32, offset)
+    %flag = scalar.extui %next_cased : i1 to i32
+    buffer.store.i8 %flag, %following[%begin]
+    %ignorable = func.call @jinja.case_ignorable(%codepoint) : (i32) -> (i1)
+    %cased = func.call @jinja.case_cased(%codepoint) : (i32) -> (i1)
+    %next = scf.select %ignorable, %next_cased, %cased : i1
+    scf.yield %begin, %next : offset, i1
+  }
+  %empty = buffer.alloca<private> align(1) %zero : buffer
+  %size = func.call @jinja.case_pass(%text, %following, %upper, %empty, %false) : (buffer, buffer, i1, buffer, i1) -> (i64)
+  %zero64 = scalar.constant 0 : i64
+  %nonnegative = scalar.cmpi sge, %size, %zero64 : i64
+  func.call @jinja.check(%nonnegative) : (i1)
+  %bounded_size = scalar.assume %size [range(%size, 0, 9223372036854775807)] : i64
+  %bytes = index.cast %bounded_size : i64 to offset
+  %output = buffer.alloca<private> align(1) %bytes : buffer
+  %true = scalar.constant true : i1
+  %written = func.call @jinja.case_pass(%text, %following, %upper, %output, %true) : (buffer, buffer, i1, buffer, i1) -> (i64)
+  %exact = scalar.cmpi eq, %size, %written : i64
+  func.call @jinja.check(%exact) : (i1)
+  func.return %output : buffer
+}
+
+func.def public @jinja.lower(%value: buffer, %kind: i64) -> (buffer) {
+  %upper = scalar.constant false : i1
+  %result = func.call @jinja.case(%value, %kind, %upper) : (buffer, i64, i1) -> (buffer)
+  func.return %result : buffer
+}
+
+func.def public @jinja.upper(%value: buffer, %kind: i64) -> (buffer) {
+  %upper = scalar.constant true : i1
+  %result = func.call @jinja.case(%value, %kind, %upper) : (buffer, i64, i1) -> (buffer)
+  func.return %result : buffer
+}

@@ -177,6 +177,24 @@ TEST_P(CompletionTest, RendersSameSourceForCompletionAndNextTurn) {
       "<user>Hi</turn><assistant>Hello</turn><user>Again</turn><assistant>Hello</turn>");
 }
 
+TEST_P(CompletionTest, StructuredHistoryKeepsFutureNullLoopErrorLazy) {
+  constexpr std::string_view source =
+      "{% for m in messages %}{{ '<'+m.role+'>' }}"
+      "{% if m.content is string %}{{ m.content }}{% else %}"
+      "{% for piece in m.content %}{{ piece.text }}{% endfor %}"
+      "{% endif %}{{ '</turn>' }}{% endfor %}"
+      "{% if add_generation_prompt %}{{ '<assistant>' }}{% endif %}";
+  Prepare(source, "answer");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":[{"text":"question"}]}]})"),
+      "<user>question</turn><assistant>answer</turn>");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"assistant","content":[{"text":"old"}]},{"role":"user","content":"again"}]})"),
+      "<assistant>old</turn><user>again</turn><assistant>answer</turn>");
+}
+
 TEST_P(CompletionTest, HistoricalReplacementsLeaveConstructedAssistantRaw) {
   constexpr std::string_view source =
       "{% macro clean(t) %}{% if t is string %}"
@@ -456,17 +474,59 @@ TEST_P(CompletionTest,
 }
 
 TEST_P(CompletionTest, ToolCompletionUsesOrdinaryWireStringProjection) {
+  // Generated tool-only content is canonical NULL; this source prints it as
+  // Jinja's "None". Original history keeps its existing request projection.
   Prepare(kTools, "", "",
           R"(<call>{"name":"lookup","arguments":"{\"n\":1.2500e+02}"}</call>)",
           0);
   EXPECT_EQ(
       Render(
           R"({"messages":[{"role":"user","content":"Hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{}}}}]})"),
-      "<user>Hi</turn><assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn>");
+      "<user>Hi</turn><assistant>None<call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn>");
   EXPECT_EQ(
       Render(
           R"({"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"request-assigned-7","type":"function","function":{"name":"lookup","arguments":"{\"n\":1.2500e+02}"}}]},{"role":"tool","tool_call_id":"request-assigned-7","content":"found"}]})"),
-      "<assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn><tool>found</turn><assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn>");
+      "<assistant><call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn><tool>found</turn><assistant>None<call>{\"name\":\"lookup\",\"arguments\":\"{\\\"n\\\":1.2500e+02}\"}</call></turn>");
+}
+
+TEST_P(CompletionTest, CanonicalToolOnlyContentReachesSourceNullLoopFailure) {
+  std::string source(kTools);
+  const auto content = source.find("{{ m.content }}");
+  ASSERT_NE(content, std::string::npos);
+  source.replace(
+      content, std::string("{{ m.content }}").size(),
+      "{% if m.content is string %}{{ m.content }}{% else %}"
+      "{% for piece in m.content %}{{ piece.text }}{% endfor %}{% endif %}");
+  // Obtain actual source-formatted bytes through the existing render_tool
+  // wrapper, then pass that same fragment to the real complete_text hook.
+  Prepare(source, "{}", "", "", 0, true);
+  const auto calls = Render("{}");
+  ASSERT_FALSE(calls.empty());
+  constexpr std::string_view request =
+      R"({"messages":[{"role":"user","content":"Hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{}}}}]})";
+  for (const char *reasoning : {"", "thought"}) {
+    SCOPED_TRACE(reasoning);
+    Prepare(source, "", reasoning, calls, 0);
+    ASSERT_NE(prepared_, nullptr);
+    std::string actual = "preserved", error;
+    EXPECT_FALSE(prepared_->Render(request, &actual, &error));
+    EXPECT_EQ(actual, "preserved");
+    EXPECT_FALSE(error.empty());
+    Prepare(source, "answer", reasoning, calls, 0);
+    EXPECT_EQ(Render(request),
+              "<user>Hi</turn><assistant>answer" + calls + "</turn>");
+  }
+  // Empty content without generated calls is STRING. An explicit historical
+  // empty STRING remains its original representation even while calls follow.
+  Prepare(source, "", "", "", 0, false, "different raw response");
+  EXPECT_EQ(Render(R"({"messages":[{"role":"user","content":"Hi"}]})"),
+            "<user>Hi</turn><assistant></turn>");
+  Prepare(source, "answer", "", calls, 0);
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"user","content":"Hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{}}}}]})"),
+      "<assistant>" + calls + "</turn><user>Hi</turn><assistant>answer" +
+          calls + "</turn>");
 }
 
 TEST_P(CompletionTest, NativeFormatterPreservesOriginalArgumentStringLexemes) {
@@ -487,6 +547,54 @@ TEST_P(CompletionTest, FailurePreservesOutputAndSuccessfulRenderCanAliasInput) {
   std::string request = R"({"messages":[{"role":"user","content":"Hi"}]})";
   EXPECT_TRUE(prepared_->Render(request, &request, &error)) << error;
   EXPECT_EQ(request, "<user>Hi</turn><assistant>Hello</turn>");
+}
+
+TEST_P(CompletionTest,
+       RequestPrefixStaysInPromptAcrossFirstAssistantPlacement) {
+  const std::string source =
+      "{% set prefix %}{% if fail %}{{ raise_exception('prefix failure') }}{% endif %}"
+      "{% if tools %}<tools>{% for tool in tools %}{{ tool.name }}{% endfor %}</tools>{% endif %}{% endset %}"
+      "{% set state=namespace(pending=true) %}"
+      "{% for m in messages %}"
+      "{% if state.pending and m.role != 'system' %}{{ prefix }}{% set state.pending=false %}{% endif %}"
+      "{% if m.role == 'assistant' %}<assistant>{{ m.content }}</turn>{% else %}<other>{{ m.content }}</turn>{% endif %}"
+      "{% endfor %}"
+      "{% if state.pending %}{{ prefix }}{% endif %}"
+      "{% if add_generation_prompt %}<assistant>{% endif %}";
+  Prepare(source, "Hello");
+  for (
+      const auto &[history, prior] :
+      std::vector<std::pair<std::string, std::string>>{
+          {"[]", ""},
+          {R"([{"role":"system","content":"s"}])", "<other>s</turn>"},
+          {R"([{"role":"system","content":"s"},{"role":"system","content":"t"}])",
+           "<other>s</turn><other>t</turn>"}}) {
+    for (const auto &[tools, prefix] :
+         std::vector<std::pair<std::string, std::string>>{
+             {"", ""},
+             {",\"tools\":[]", ""},
+             {R"(,"tools":[{"name":"x"},{"name":"y"}])", "<tools>xy</tools>"}})
+      EXPECT_EQ(Render("{\"messages\":" + history + tools + "}"),
+                prior + prefix + "<assistant>Hello</turn>");
+  }
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"user","content":"u"}],"tools":[{"name":"x"}]})"),
+      "<tools>x</tools><other>u</turn><assistant>Hello</turn>");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"assistant","content":"a"}],"tools":[{"name":"x"}]})"),
+      "<tools>x</tools><assistant>a</turn><assistant>Hello</turn>");
+  EXPECT_EQ(
+      Render(
+          R"({"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"},{"role":"assistant","content":"a"},{"role":"user","content":"v"}],"tools":[{"name":"x"}]})"),
+      "<other>s</turn><tools>x</tools><other>u</turn><assistant>a</turn><other>v</turn><assistant>Hello</turn>");
+  ASSERT_NE(prepared_, nullptr);
+  std::string output = "preserved", error;
+  EXPECT_FALSE(
+      prepared_->Render(R"({"messages":[],"fail":true})", &output, &error));
+  EXPECT_EQ(output, "preserved");
+  EXPECT_NE(error.find("prefix failure"), std::string::npos) << error;
 }
 
 INSTANTIATE_TEST_SUITE_P(SourceAndBytecode, CompletionTest, ::testing::Bool());
