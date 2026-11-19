@@ -78,14 +78,15 @@ TEST(ConfigurationFactsTest, OwnsAllNamedRangesAndNoPrograms) {
 TEST(ConfigurationFactsTest, QwenDecodePolicyIsOneBoundedDerivedFact) {
   for (bool large : {false, true})
     for (uint64_t tokens : {1u, 128u, 512u})
-      for (uint64_t context : {512u, 1024u}) {
+      for (uint64_t context : {512u, 1024u, 2048u}) {
         ConfigurationFacts facts;
         std::string error;
         ASSERT_TRUE(DeriveConfiguration(testing::QwenModelFacts(large),
                                         "immutable fixture", {tokens, context},
                                         &facts, &error))
             << error;
-        const bool eligible = !large && tokens == 128 && context == 512;
+        const bool eligible =
+            !large && tokens == 128 && (context == 512 || context == 2048);
         EXPECT_EQ(facts.specialized_decode, eligible);
         EXPECT_EQ(
             Scalars(facts.source).at("runner.qwen38.specialized_decode").first,
