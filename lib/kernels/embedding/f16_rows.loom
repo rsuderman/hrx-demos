@@ -1,0 +1,22 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Raw half tables use an exact extension, without projection arithmetic.
+template.decl @llm.token_embedding_f16_f32.row(%hidden: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer)
+
+template.def<@llm.token_embedding_f16_f32.row> device @llm_token_embedding_f16_f32_row(%hidden: index, %token: i32, %output_origin: offset, %weight: buffer, %output: buffer) where [range(%hidden, 32, 32768)] {
+  %two = index.constant 2 : offset
+  %stride = index.scale %hidden, %two : index, offset -> offset
+  %id = index.cast %token : i32 to index
+  %origin = index.scale %id, %stride : index, offset -> offset
+  %weight_noalias, %output_noalias = buffer.assume.noalias %weight, %output : buffer, buffer
+  %row = buffer.view %weight_noalias[%origin] : buffer -> view<[%hidden]xf16>
+  %out = buffer.view %output_noalias[%output_origin] : buffer -> view<[%hidden]xf32>
+  %lane = kernel.workitem.id<x> : index
+  %step = index.constant 256 : index
+  scf.for %column = [%lane to %hidden step %step] {
+    %half = view.load %row[%column] : view<[%hidden]xf16> -> f16
+    %value = scalar.extf %half : f16 to f32
+    view.store %value, %out[%column] : f32, view<[%hidden]xf32>
+  }
+  template.return
+}

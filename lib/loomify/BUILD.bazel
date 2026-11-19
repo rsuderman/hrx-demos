@@ -507,6 +507,7 @@ iree_cc_library(
     cxxopts = _CXXOPTS,
     visibility = [
         "//lib/architectures:__subpackages__",
+        "//lib/kernels/embedding/testing:__pkg__",
         "//lib/loomify:__pkg__",
         "//lib/loomify/testing:__pkg__",
         "//lib/loomify/testing/platform:__pkg__",
@@ -684,13 +685,23 @@ cc_test(
     size = "small",
     srcs = ["//lib/loomify/testing:qwen3_configuration_test.cc"],
     copts = _CXXOPTS,
+    data = [
+        "//lib/architectures/qwen3:implementation",
+        "//lib/architectures/qwen3:implementation_text",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:implementation",
+    ],
+    linkstatic = True,
     deps = [
         ":configuration",
+        ":native_linking",
         "//lib/loomify/testing:qwen3_fixture",
         "//tools/model:gguf_catalog",
         "//tools/model:model_descriptor",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
     ],
 )
 

@@ -1,5 +1,6 @@
 # Copyright 2026 AMD ROCm™ Software
 # SPDX-License-Identifier: MIT
+load("@hrx_system//build_tools/bazel:cc_test.bzl", "cc_test")
 load("@hrx_system//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("@hrx_system//loom/target/amdgpu:execution_profiles.bzl", "AMD_GPU_HARDWARE_PROFILE")
 load("//build_tools:loom_merge.bzl", "loom_merge")
@@ -105,4 +106,57 @@ genrule(
     ],
     outs = ["generated_epoch_contract_checks.loom"],
     cmd = "python3 $(location epoch_contract_fixtures.py) $(location epoch_contract_core.loom.in) $@",
+)
+
+loom_provider_checks(
+    name = "f16_gather",
+    checks = [":f16_gather_checks"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "f16_gather_provider",
+    provider_srcs = [
+        "//lib/kernels/embedding:gather_f32_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+    ],
+)
+
+genrule(
+    name = "f16_gather_checks",
+    testonly = True,
+    srcs = ["f16_fixtures.py"],
+    outs = ["generated_f16_gather_checks.loom"],
+    cmd = "python3 $(location f16_fixtures.py) $@",
+)
+
+[loom_merge(
+    name = "contract_provider_" + format,
+    testonly = True,
+    srcs = [
+        "//lib/kernels/embedding:gather_f32_sources",
+        "//lib/kernels/embedding:ordinary_f32_sources",
+        "//lib/kernels/embedding:epoch_f32_sources",
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+cc_test(
+    name = "materialization_test",
+    size = "small",
+    srcs = ["materialization_test.cc"],
+    copts = ["-std=c++17"],
+    data = [
+        ":contract_provider_text",
+        ":contract_provider_bc",
+    ],
+    linkstatic = True,
+    deps = [
+        "//lib/loomify:native_linking",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+        "@hrx_system//loom/binding/c:loomc",
+        "@hrx_system//loom/binding/c/target/amdgpu",
+    ],
 )

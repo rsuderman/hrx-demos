@@ -5,8 +5,8 @@
 #include "tools/model/model_descriptor.h"
 #include <cstdlib>
 namespace hrx::loomify_gguf::testing {
-inline model::ModelDescriptor Qwen3ModelFacts(uint64_t hidden = 1024,
-                                              uint32_t layers = 2) {
+inline model::ModelDescriptor
+Qwen3ModelFacts(uint64_t hidden = 1024, uint32_t layers = 2, bool tied = true) {
   model::ModelDescriptor m;
   m.family = "qwen3";
   m.name = "Qwen3 configuration fixture";
@@ -16,7 +16,7 @@ inline model::ModelDescriptor Qwen3ModelFacts(uint64_t hidden = 1024,
   m.key_head_width = m.value_head_width = m.rope.width = 128;
   m.rms_epsilon = 1e-6;
   m.rope.base = 1000000;
-  m.output_tied_to_embedding = true;
+  m.output_tied_to_embedding = tied;
   uint64_t next = 4096;
   auto tensor = [&](std::string role, std::string name, uint32_t tag,
                     uint64_t a, uint64_t b = 1) {
@@ -35,6 +35,8 @@ inline model::ModelDescriptor Qwen3ModelFacts(uint64_t hidden = 1024,
                       m.vocabulary_size),
                tensor("output_norm", "output_norm.weight", 0, hidden)};
   auto output = m.globals.front();
+  if (!tied)
+    output = tensor("output", "output.weight", 14, hidden, m.vocabulary_size);
   output.role = "output";
   m.globals.push_back(std::move(output));
   for (uint32_t i = 0; i < layers; ++i) {

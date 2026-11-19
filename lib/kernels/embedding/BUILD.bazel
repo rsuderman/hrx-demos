@@ -19,6 +19,7 @@ filegroup(
 )
 
 _ROW_CODEC_SOURCES = [
+    "f16_rows.loom",
     "q4k_rows.loom",
     "q5k_rows.loom",
     "q6k_rows.loom",

@@ -15,6 +15,8 @@ config.decl @qwen3.model.embedding_tag : index
 
 config.decl @qwen3.model.output_weight_bytes : index
 
+config.decl @qwen3.model.tie_word_embeddings : index
+
 command.decl @loomify.qwen3.layer(%layer: index, %phase: index, %rows: index, %control_origin: offset) launch(%parameters: buffer, %residual: buffer, %epoch: buffer, %map: buffer, %cache: buffer, %count: buffer)
 
 kernel.decl @llm.epoch.snapshot_count() launch(%kind: index, %origin: offset, %packet: buffer, %count: buffer)
@@ -48,7 +50,15 @@ command.def @loomify.qwen3.model() launch(%parameters: buffer, %residual: buffer
   %vocab = config.get @qwen3.model.vocabulary_size : index
   %output_bytes = config.get @qwen3.model.output_weight_bytes : index
   %gamma = command.parameter %parameters, "output_norm.weight" : view<[%hidden]xf32>
-  %weight = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
+  %tie = config.get @qwen3.model.tie_word_embeddings : index
+  %tied = index.cmp ne, %tie, %zero : index
+  %weight = scf.if %tied -> (view<[%output_bytes]xi8>) {
+    %shared = command.parameter %parameters, "token_embd.weight" : view<[%output_bytes]xi8>
+    scf.yield %shared : view<[%output_bytes]xi8>
+  } else {
+    %separate = command.parameter %parameters, "output.weight" : view<[%output_bytes]xi8>
+    scf.yield %separate : view<[%output_bytes]xi8>
+  }
   %head_policy = index.constant 0 : index
   %head_tag = index.constant 14 : index
   template.apply<@llm.output.last_greedy>(%rows, %zero, %zero_offset, %hidden, %vocab, %output_bytes, %head_policy, %head_tag, %residual, %count, %gamma, %weight, %selected_ids) : (index, index, offset, index, index, index, index, index, buffer, buffer, view<[%hidden]xf32>, view<[%output_bytes]xi8>, buffer)

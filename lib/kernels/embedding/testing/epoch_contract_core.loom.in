@@ -87,7 +87,7 @@ func.def @epoch_contract.q8_value(%input: index, %channel: index) -> (f32) {
 func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stride0: index, %bytes: index, %weights: buffer, %ids: buffer, %count: buffer) {
   %rows = index.assume %rows0 [range(%rows0, 2, 513)] : index
   %vocab = index.assume %vocab0 [range(%vocab0, 2, 128257)] : index
-  %stride = index.assume %stride0 [range(%stride0, 144, 272)] : index
+  %stride = index.assume %stride0 [range(%stride0, 144, 512)] : index
   %zero = index.constant 0 : index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
@@ -97,6 +97,8 @@ func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stri
   %bank = index.constant 16 : offset
   %stride_bytes = index.cast %stride : index to offset
   %first_id = index.sub %vocab, %two : index
+  %f16_tag = index.constant 1 : index
+  %f16 = index.cmp eq, %tag, %f16_tag : index
   %q6_tag = index.constant 14 : index
   %q8_tag = index.constant 8 : index
   %q8 = index.cmp eq, %tag, %q8_tag : index
@@ -121,61 +123,69 @@ func.def @epoch_contract.setup(%tag: index, %rows0: index, %vocab0: index, %stri
     }
     %low = index.cmp eq, %r, %zero : index
     %d = scf.select %low, %half, %unit : f16
-    scf.if %q8 {
-      func.call @epoch_contract.q8_setup_row(%r, %base, %weights) : (index, offset, buffer) -> ()
+    scf.if %f16 {
+      %width = index.constant 256 : index
+      %half_row = buffer.view %weights[%base] : buffer -> view<256xf16>
+      scf.for %column = [%zero to %width step %one] {
+        view.store %d, %half_row[%column] : f16, view<256xf16>
+      }
     } else {
-    scf.if %q6 {
-      %ql = buffer.view %weights[%base] : buffer -> view<128xi8>
-      %qh_offset = index.constant 128 : offset
-      %qh_base = index.add %base, %qh_offset : offset
-      %qh = buffer.view %weights[%qh_base] : buffer -> view<64xi8>
-      %sc_offset = index.constant 192 : offset
-      %sc_base = index.add %base, %sc_offset : offset
-      %sc = buffer.view %weights[%sc_base] : buffer -> view<16xi8>
-      %d_offset = index.constant 208 : offset
-      %d_base = index.add %base, %d_offset : offset
-      %ds = buffer.view %weights[%d_base] : buffer -> view<1xf16>
-      %n128 = index.constant 128 : index
-      %n64 = index.constant 64 : index
-      %n16 = index.constant 16 : index
-      scf.for %i = [%zero to %n128 step %one] {
-        view.store %q6_codes, %ql[%i] : i8, view<128xi8>
-      }
-      scf.for %i = [%zero to %n64 step %one] {
-        view.store %q6_high, %qh[%i] : i8, view<64xi8>
-      }
-      scf.for %i = [%zero to %n16 step %one] {
-        view.store %one8, %sc[%i] : i8, view<16xi8>
-      }
-      view.store %d, %ds[0] : f16, view<1xf16>
-    } else {
-      %header = buffer.view %weights[%base] : buffer -> view<2xf16>
-      view.store %d, %header[0] : f16, view<2xf16>
-      view.store %zero_half, %header[1] : f16, view<2xf16>
-      %sc_offset = index.constant 4 : offset
-      %sc_base = index.add %base, %sc_offset : offset
-      %sc = buffer.view %weights[%sc_base] : buffer -> view<12xi8>
-      scf.for %i = [%zero to %twelve step %one] {
-        view.store %one8, %sc[%i] : i8, view<12xi8>
-      }
-      %q4_offset = index.constant 16 : offset
-      %q5_offset = index.constant 48 : offset
-      %code_offset = scf.select %q5, %q5_offset, %q4_offset : offset
-      %code_base = index.add %base, %code_offset : offset
-      %codes = buffer.view %weights[%code_base] : buffer -> view<128xi8>
-      %n128 = index.constant 128 : index
-      scf.for %i = [%zero to %n128 step %one] {
-        view.store %q4_codes, %codes[%i] : i8, view<128xi8>
-      }
-      scf.if %q5 {
-        %high_base = index.add %base, %q4_offset : offset
-        %highs = buffer.view %weights[%high_base] : buffer -> view<32xi8>
-        %n32 = index.constant 32 : index
-        scf.for %i = [%zero to %n32 step %one] {
-          view.store %q5_high, %highs[%i] : i8, view<32xi8>
+      scf.if %q8 {
+        func.call @epoch_contract.q8_setup_row(%r, %base, %weights) : (index, offset, buffer) -> ()
+      } else {
+        scf.if %q6 {
+          %ql = buffer.view %weights[%base] : buffer -> view<128xi8>
+          %qh_offset = index.constant 128 : offset
+          %qh_base = index.add %base, %qh_offset : offset
+          %qh = buffer.view %weights[%qh_base] : buffer -> view<64xi8>
+          %sc_offset = index.constant 192 : offset
+          %sc_base = index.add %base, %sc_offset : offset
+          %sc = buffer.view %weights[%sc_base] : buffer -> view<16xi8>
+          %d_offset = index.constant 208 : offset
+          %d_base = index.add %base, %d_offset : offset
+          %ds = buffer.view %weights[%d_base] : buffer -> view<1xf16>
+          %n128 = index.constant 128 : index
+          %n64 = index.constant 64 : index
+          %n16 = index.constant 16 : index
+          scf.for %i = [%zero to %n128 step %one] {
+            view.store %q6_codes, %ql[%i] : i8, view<128xi8>
+          }
+          scf.for %i = [%zero to %n64 step %one] {
+            view.store %q6_high, %qh[%i] : i8, view<64xi8>
+          }
+          scf.for %i = [%zero to %n16 step %one] {
+            view.store %one8, %sc[%i] : i8, view<16xi8>
+          }
+          view.store %d, %ds[0] : f16, view<1xf16>
+        } else {
+          %header = buffer.view %weights[%base] : buffer -> view<2xf16>
+          view.store %d, %header[0] : f16, view<2xf16>
+          view.store %zero_half, %header[1] : f16, view<2xf16>
+          %sc_offset = index.constant 4 : offset
+          %sc_base = index.add %base, %sc_offset : offset
+          %sc = buffer.view %weights[%sc_base] : buffer -> view<12xi8>
+          scf.for %i = [%zero to %twelve step %one] {
+            view.store %one8, %sc[%i] : i8, view<12xi8>
+          }
+          %q4_offset = index.constant 16 : offset
+          %q5_offset = index.constant 48 : offset
+          %code_offset = scf.select %q5, %q5_offset, %q4_offset : offset
+          %code_base = index.add %base, %code_offset : offset
+          %codes = buffer.view %weights[%code_base] : buffer -> view<128xi8>
+          %n128 = index.constant 128 : index
+          scf.for %i = [%zero to %n128 step %one] {
+            view.store %q4_codes, %codes[%i] : i8, view<128xi8>
+          }
+          scf.if %q5 {
+            %high_base = index.add %base, %q4_offset : offset
+            %highs = buffer.view %weights[%high_base] : buffer -> view<32xi8>
+            %n32 = index.constant 32 : index
+            scf.for %i = [%zero to %n32 step %one] {
+              view.store %q5_high, %highs[%i] : i8, view<32xi8>
+            }
+          }
         }
       }
-    }
     }
   }
   %nview = buffer.view %count[%zero_offset] : buffer -> view<1xi32>
@@ -229,7 +239,10 @@ func.def @epoch_contract.expected(%tag: index, %rows0: index, %vocab: index, %st
     %q8 = index.cmp eq, %tag, %q8_tag : index
     %q6_tag = index.constant 14 : index
     %q5 = index.cmp eq, %tag, %q5_tag : index
-    %q6 = index.cmp eq, %tag, %q6_tag : index
+    %q6_only = index.cmp eq, %tag, %q6_tag : index
+    %f16_tag = index.constant 1 : index
+    %f16 = index.cmp eq, %tag, %f16_tag : index
+    %q6 = scalar.ori %q6_only, %f16 : i1
     %q4_low = scalar.constant 1.0 : f32
     %q4_high = scalar.constant 2.0 : f32
     %q5_low = scalar.constant 9.0 : f32
@@ -334,7 +347,10 @@ func.def @ordinary_contract.expected(%tag: index, %vocab: index, %stride: index,
   %q8 = index.cmp eq, %tag, %q8_tag : index
   %q6_tag = index.constant 14 : index
   %q5 = index.cmp eq, %tag, %q5_tag : index
-  %q6 = index.cmp eq, %tag, %q6_tag : index
+  %q6_only = index.cmp eq, %tag, %q6_tag : index
+  %f16_tag = index.constant 1 : index
+  %f16 = index.cmp eq, %tag, %f16_tag : index
+  %q6 = scalar.ori %q6_only, %f16 : i1
   %q4_low = scalar.constant 1.0 : f32
   %q4_high = scalar.constant 2.0 : f32
   %q5_low = scalar.constant 9.0 : f32
