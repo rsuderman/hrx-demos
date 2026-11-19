@@ -180,3 +180,36 @@ matched reuse. Tool details remain upstream:
 [benchmarking](https://rocm.github.io/hrx-system/loom/workflows/benchmark/),
 [result interpretation](https://rocm.github.io/hrx-system/loom/workflows/benchmark-results/),
 and [compile reports](https://rocm.github.io/hrx-system/loom/workflows/compile-reports/).
+
+## Matrix integration coverage
+
+Use `//lib/programs/projection/testing/matrix:integration_iq_full` for the broad
+IQ matrix correctness batch. It selects SOURCE and bytecode checks for
+`iq4_nl`, `iq3_s`, `q3k`, `canonical`, `shared_preparation` and `policy_qkv`.
+The first three full fixtures contain their respective tiny cases, so do not
+also select those six tiny modules in this full batch. All tiny-only developer
+targets remain available; `classic_tiny` has a distinct direct-kernel provider
+and is not covered by this omission rule.
+
+`//lib/programs/projection/testing/matrix:integration_iq_full_modules` builds
+the corresponding twelve modules; it is not an execution inventory. Before
+hardware execution, expand the test suite with the same source and configured
+Bazel wrapper outside the device lease:
+
+```bash
+bazel query 'tests(//lib/programs/projection/testing/matrix:integration_iq_full)'
+```
+
+Require exact equality with the reviewed twelve concrete
+`<family>_<text|bc>_test_execute_amd_gpu_hardware_test` labels, and verify their
+hardware resource metadata. Stop on missing, extra or nonhardware members;
+never silently filter future suite members. Build the selected products before
+taking the shared GPU lease and preserve all scenario, trial and expectation
+checks under that lease.
+
+The matrix families share one ordered SOURCE/bytecode provider pair. Legacy
+`<family>_provider_<text|bc>` labels still produce their original basenames as
+byte-for-byte copies for runfile consumers. Provider sharing changes build
+work, not fixture contents, numerical policies or assertions. Measure build
+and execution time separately using the same source, pin, configuration and
+inputs; reduced action or module counts alone do not prove a speedup.

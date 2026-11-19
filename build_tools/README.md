@@ -22,14 +22,43 @@ With no option the command checks only. Both modes require the versions in
 `build_tools/format-tools.env` for Black, clang-format, and Buildifier; these
 three tools must already be installed. Formatting is also
 checked by the lightweight GitHub workflow and local CI before source capture.
-Loom formatting uses `loom-format` built by Bazel from the HRX revision already
-pinned in `MODULE.bazel`; no separate formatter version or HRX pin change is
-needed. Install Bazelisk as `bazel` (or the version in `.bazelversion`). The first
-Loom check builds the native tool and downloads pinned build inputs; subsequent
-checks reuse Bazel's cache. A C/C++ toolchain is required, but no GPU or model
-assets are needed. `BAZEL` may select an explicit Bazel executable.
-`HRX_FORMAT_BAZEL_ROOT` may select an absolute external Bazel state directory;
-the default is the project workspace's `tools/formatting-bazel` directory.
+Loom formatting uses `loom-format` from the HRX revision pinned in
+`MODULE.bazel`. A verified standalone copy can be reused across checkouts and
+raw staged snapshots. Every selected file is still checked; the cache stores a
+formatter executable, not formatting results. A C/C++ toolchain is required for
+population, but no GPU or model assets are needed.
+
+The ordinary uncached path retains `BAZEL` (including operational wrappers) and
+`HRX_FORMAT_BAZEL_ROOT` (absolute external Bazel state). Set
+`HRX_FORMATTER_CACHE=off` to explicitly retain custom wrapper build semantics.
+Default canonical cache hits bypass the wrapper. Cache entries live under
+`HRX_FORMATTER_CACHE_ROOT`, an absolute external directory defaulting to the
+project workspace's `tools/loom-format`.
+
+To populate canonical entries, provision the published Linux x86-64 Bazel 9.3.2
+binary separately and set `HRX_FORMATTER_BAZEL` to its absolute path. Its SHA256
+must be `2e14c55c298752d71e8a0bbd762665ffce5966c9ad00ec5d1a8b82a58e7bfa06`;
+Bazelisk and arbitrary wrappers are not population launchers. Acquire it from
+`https://releases.bazel.build/9.3.2/release/bazel-9.3.2-linux-x86_64`, verify the
+published checksum, and make it executable. Format calls never download it.
+Population uses `/usr/bin/clang` and `/usr/bin/clang++`, ignores all Bazel rc files,
+sets explicit strict/pinned dependency and task/VM/static-tool options, and uses
+a temporary owned Bazel output. It shuts down that output and removes it after
+copying and checking the standalone executable. A configured invalid launcher
+or failed canonical build is an error. Without canonical setup, unsupported
+hosts/pins or local module overrides use the existing uncached path, with no
+cache publication.
+
+Entries identify the snapshot's MODULE/lock/version bytes, published HRX pin,
+host ABI, compiler/Bazel bytes and maintained recipe. The executable hash is
+checked on every use. Partial, corrupt or symlinked entries never execute;
+concurrent writers publish atomically. The resolver is the cache owner and
+keeps the current entry plus the newest entry for another pin, skipping entries
+held by active format calls. Deleting the cache when no formatter is running is
+safe. Task cleanup removes population scratch, not these documented reusable
+tool entries. No private SDK, shared compiler library or runfiles are retained.
+The pre-commit hook selects the staged pin even when the working tree has a
+different unstaged pin. Install Bazelisk as `bazel` for the uncached fallback.
 The tools are not dependencies of the installed wheel. Setup on Linux x86-64:
 
 ```bash
@@ -95,6 +124,62 @@ list locally, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`, or u
 `git blame --ignore-revs-file .git-blame-ignore-revs PATH`. Clones do not inherit
 the local Git setting. Preserve the formatting commit at integration, or update
 the tracked hash if history changes.
+
+## Early Loomify CPU validation
+
+Before expensive GPU work, run the reviewed admission/materialization batch from
+this checkout root in a caller-owned task venv. Supply the three existing immutable
+fixtures (`LOOMIFY_TEST_MINICPM_GGUF`, `LOOMIFY_TEST_GGUF`, and
+`LOOMIFY_TEST_HYPERCLOVAX_GGUF`); the helper fails before Bazel if any is missing.
+Set an absolute task-owned `LOOM_SERVE_DIR` outside the checkout, disable user site,
+and remove inherited `PYTHONPATH`/`PYTHONHOME`. For example:
+
+```bash
+TASK_VENV/bin/python build_tools/loomify-validation.py native \
+  --bazel /absolute/task-owned/bazel-wrapper \
+  --result-dir /absolute/new/evidence/native --jobs 4
+```
+
+The wrapper owns the SDK, output base, build-memory limits and explicit action,
+host and test environment. The helper creates none of them. It runs only four
+reviewed CPU tests (projection materialization, FFN capability, embedding
+materialization and configured Llama), propagates the exact fixture variables,
+and overrides `local_test_jobs` only for that batch. `--jobs` accepts 1–4 and
+defaults to 4; keep hardware execution serial. Missing, stale, empty, failed or
+skipped XML returns nonzero. A caller must stop on failure before GPU work.
+
+The new external result directory contains the command log, current Bazel JSON
+events and a `result.json` with source/config identities, per-case results,
+elapsed time and child resource usage. Optional `--input-record FILE` and repeatable
+`--rc FILE` record existing caller input/config identities; `--rc` records a file
+already selected by the wrapper and does not configure Bazel. Fixture payloads
+are not rehashed. On cancellation, the helper interrupts and reaps the client,
+then invokes the same exclusive task wrapper's public `shutdown` with a bounded
+wait to reconcile detached Bazel work. A failed/timed-out shutdown records
+`cleanup.status=unresolved`; its owner must reconcile that output before reuse
+or removal. No unrelated Bazel output or process names are targeted. Linux child `peak_rss_kib` is the largest child's high-water
+mark, not a simultaneous aggregate-memory measurement; measure the complete
+executor separately when comparing job settings. This early batch supplements
+existing final verification; it does not replace local CI or model execution.
+
+### Reusing accepted qualification
+
+An integration may retain an accepted execution only when its complete executed
+boundary is associated with final source: relevant source and whole program/launch
+products, pin/compiler/runtime/ABI, platform, flags, fixtures/oracles and selected
+scenarios must match. Record the prior result, unchanged boundary, retained
+coverage and fresh checks in the existing external integration record before
+running gates. Target names, pass counts or an unchanged leaf kernel alone do not
+establish equivalence. Missing identities, unexpected skips or changed inputs
+require affected revalidation rather than assumed reuse.
+
+Final composition checks, required reviews/formatting, applicable SOURCE/bytecode
+and negative-contract checks, bounded final-product smoke and owned lifecycle
+shutdown remain required. Reuse does not waive full pre-landing local CI or grant
+reduced-coverage authorization. Retain compact successful evidence; do not keep
+SDKs or exports indefinitely. A later rebuild can associate old execution proof
+only when the relevant complete product bytes and runtime/input identities match.
+The designated integrator owns the final reuse decision and its external protocol.
 
 ## Choose a gate
 

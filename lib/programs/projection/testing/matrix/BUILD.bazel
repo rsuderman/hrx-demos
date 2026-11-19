@@ -6,9 +6,48 @@ load("@hrx_system//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE
 # Copyright 2026 AMD ROCm Software
 # SPDX-License-Identifier: MIT
 load("//build_tools:loom_merge.bzl", "loom_merge")
-load("//build_tools:loom_testing.bzl", "loom_provider_checks")
+load("//build_tools:loom_testing.bzl", "loom_checks", "loom_provider_checks")
 
 package(default_visibility = ["//visibility:private"])
+
+# These families have the same ordered provider closure. Keep the legacy
+# labels and basenames as copies for consumers that resolve their runfiles.
+[loom_merge(
+    name = "matrix_provider_" + format,
+    testonly = True,
+    srcs = [
+        "//lib/platforms/amdgpu/gfx11:targets.loom",
+        "//lib/platforms/amdgpu/gfx11/projection:sources",
+        "//lib/programs/projection:matrix_sources",
+        "//lib/programs/projection:packed_sources",
+        "//lib/programs/projection:prepared_rows_sources",
+    ],
+    output_format = format,
+) for format in [
+    "text",
+    "bc",
+]]
+
+[genrule(
+    name = family + "_provider_" + format,
+    testonly = True,
+    srcs = [":matrix_provider_" + format],
+    outs = [family + "_provider_" + format + extension],
+    cmd = "cp $(location :matrix_provider_" + format + ") $@",
+) for family in [
+    "classic",
+    "iq4_xs",
+    "iq4_nl",
+    "iq3_s",
+    "q3k",
+    "iq4_xs_tiny",
+    "iq4_nl_tiny",
+    "iq3_s_tiny",
+    "q3k_tiny",
+] for format, extension in [
+    ("text", ".loom"),
+    ("bc", ".loombc"),
+]]
 
 [genrule(
     name = name + "_fixtures",
@@ -27,18 +66,11 @@ package(default_visibility = ["//visibility:private"])
     ("q3k", "q3k_fixtures.py"),
 ]]
 
-[loom_provider_checks(
+[loom_checks(
     name = name,
     checks = [":" + name + "_fixtures"],
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
-    provider_name = name + "_provider",
-    provider_srcs = [
-        "//lib/platforms/amdgpu/gfx11:targets.loom",
-        "//lib/platforms/amdgpu/gfx11/projection:sources",
-        "//lib/programs/projection:matrix_sources",
-        "//lib/programs/projection:packed_sources",
-        "//lib/programs/projection:prepared_rows_sources",
-    ],
+    provider_name = "matrix_provider",
 ) for name in [
     "classic",
     "iq4_xs",
@@ -83,18 +115,11 @@ genrule(
     cmd = "python3 $(location iq4_xs_fixtures.py) $(location canonical_fixtures.py) tiny $@",
 )
 
-loom_provider_checks(
+loom_checks(
     name = "iq4_xs_tiny",
     checks = [":iq4_xs_tiny_fixtures"],
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
-    provider_name = "iq4_xs_tiny_provider",
-    provider_srcs = [
-        "//lib/platforms/amdgpu/gfx11:targets.loom",
-        "//lib/platforms/amdgpu/gfx11/projection:sources",
-        "//lib/programs/projection:matrix_sources",
-        "//lib/programs/projection:packed_sources",
-        "//lib/programs/projection:prepared_rows_sources",
-    ],
+    provider_name = "matrix_provider",
 )
 
 genrule(
@@ -318,18 +343,11 @@ genrule(
     "q3k",
 ]]
 
-[loom_provider_checks(
+[loom_checks(
     name = name + "_tiny",
     checks = [":" + name + "_tiny_fixtures"],
     execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
-    provider_name = name + "_tiny_provider",
-    provider_srcs = [
-        "//lib/platforms/amdgpu/gfx11:targets.loom",
-        "//lib/platforms/amdgpu/gfx11/projection:sources",
-        "//lib/programs/projection:matrix_sources",
-        "//lib/programs/projection:packed_sources",
-        "//lib/programs/projection:prepared_rows_sources",
-    ],
+    provider_name = "matrix_provider",
 ) for name in [
     "iq4_nl",
     "iq3_s",
@@ -387,3 +405,39 @@ genrule(
     "compatible",
     "late",
 ]]
+
+# Complete IQ integration coverage. Tiny-only developer targets remain available;
+# these full counterparts already contain the omitted tiny scenario bodies.
+_INTEGRATION_IQ_FAMILIES = [
+    "iq4_nl",
+    "iq3_s",
+    "q3k",
+    "canonical",
+    "shared_preparation",
+    "policy_qkv",
+]
+
+test_suite(
+    name = "integration_iq_full",
+    tests = [
+        ":" + family + "_" + format + "_test"
+        for family in _INTEGRATION_IQ_FAMILIES
+        for format in [
+            "text",
+            "bc",
+        ]
+    ],
+)
+
+filegroup(
+    name = "integration_iq_full_modules",
+    testonly = True,
+    srcs = [
+        ":" + family + "_" + format + "_test_module"
+        for family in _INTEGRATION_IQ_FAMILIES
+        for format in [
+            "text",
+            "bc",
+        ]
+    ],
+)

@@ -105,7 +105,7 @@ done < "$selection"
 
 echo "Formatting $mode: ${#bazel_files[@]} Bazel/Starlark, ${#cpp_files[@]} C/C++, ${#python_files[@]} Python, ${#loom_files[@]} Loom files."
 if (( ${#loom_files[@]} )); then
-  command -v "${BAZEL:-bazel}" >/dev/null || missing 'Missing Bazel for the pinned Loom formatter.'
+  bash "$root/build_tools/loom-format.sh" --cache-preflight || missing 'Missing Bazel or invalid pinned Loom formatter configuration.'
 fi
 status=0
 if (( ${#bazel_files[@]} )); then

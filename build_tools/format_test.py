@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Check the formatter runner's selection, failure, and write boundaries."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,7 @@ class FormatRunnerTest(unittest.TestCase):
             "format.sh",
             "format-tools.env",
             "loom-format.sh",
+            "loom_format_cache.py",
             "pre-commit.sh",
         ):
             shutil.copyfile(
@@ -49,9 +51,11 @@ class FormatRunnerTest(unittest.TestCase):
             HRX_FORMAT_HOOK_ROOT=str(self.base / "hooks"),
             HRX_FORMAT_TOOLS=str(self.base / "unused-tools"),
             BAZEL="bazel",
+            HRX_FORMATTER_CACHE="off",
         )
         for tool in (
             "git",
+            "python3",
             "dirname",
             "realpath",
             "mktemp",
@@ -175,6 +179,52 @@ class FormatRunnerTest(unittest.TestCase):
             ],
         )
         self.assertIn("@hrx_system//loom/src/loom/tools/loom-format", calls["bazel"])
+
+    def test_hook_cached_formatter_selects_staged_pin_not_worktree_pin(self):
+        from build_tools import loom_format_cache as cache
+
+        for name in (
+            "format.sh",
+            "format-tools.env",
+            "loom-format.sh",
+            "loom_format_cache.py",
+            "pre-commit.sh",
+        ):
+            self.git("add", "build_tools/" + name)
+        module = self.track(
+            "MODULE.bazel",
+            'git_override(module_name = "hrx", commit = "'
+            + "a" * 40
+            + '", remote = "https://example.com/hrx.git",)',
+        )
+        self.track("MODULE.bazel.lock", "lock")
+        self.track(".bazelversion", "9.3.2\n")
+        self.track("source.loom")
+        expected = cache.identity(self.root)
+        self.assertIsNotNone(expected)
+        entry = (
+            self.base / "cache" / hashlib.sha256(cache.encoded(expected)).hexdigest()
+        )
+        entry.mkdir(parents=True)
+        tool = entry / "loom-format"
+        tool.write_text(
+            f"#!{sys.executable}\nimport json,os,sys\nwith open(os.environ['FORMAT_TEST_LOG'], 'a') as f: f.write(json.dumps(['cached',sys.argv[1:]])+'\\n')\n"
+        )
+        tool.chmod(0o755)
+        (entry / "manifest.json").write_bytes(
+            cache.encoded(
+                {"identity": expected, "executable_sha256": cache.digest(tool)}
+            )
+        )
+        module.write_text(module.read_text().replace("a" * 40, "b" * 40))
+        self.env.update(
+            HRX_FORMATTER_CACHE="on", HRX_FORMATTER_CACHE_ROOT=str(self.base / "cache")
+        )
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cached", dict(self.calls()))
+        self.assertNotIn("bazel", dict(self.calls()))
+        self.assertIn("b" * 40, module.read_text())
 
     def test_check_reports_drift_without_source_or_index_writes(self):
         target = self.track("test.py")
