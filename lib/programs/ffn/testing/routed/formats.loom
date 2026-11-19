@@ -1,0 +1,132 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Test-only observers/comparisons. Numerical expectations live in fixtures.py.
+target.decl @llm.platform.experts.wave32
+
+func.decl @llm.experts.q5_codes(%weight: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+func.decl @llm.experts.block32_codes(%tag: index, %weight: buffer, %origin: offset) -> (vector<32xi8>, f32, f32)
+
+func.decl @llm.experts.swiglu(%gate: f32, %up: f32) -> (f32)
+
+func.def inline @routed.format_codes_body(%tag: index, %weight: buffer, %codes: buffer, %metadata: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %zero = index.constant 0 : offset
+  %one = index.constant 1 : index
+  %eight = index.constant 8 : index
+  %q5tag = index.constant 13 : index
+  %q5 = index.cmp eq, %tag, %q5tag : index
+  %groups = scf.select %q5, %eight, %one : index
+  %ok = index.cmp ult, %thread, %groups : index
+  scf.if %ok {
+    %group = index.assume %thread [range(%thread, 0, 7)] : index
+    %q, %scale, %minimum = scf.if %q5 -> (vector<32xi8>, f32, f32) {
+      %decoded_q5, %s, %m = func.call @llm.experts.q5_codes(%weight, %zero, %group) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+      scf.yield %decoded_q5, %s, %m : vector<32xi8>, f32, f32
+    } else {
+      %decoded_block32, %s, %m = func.call @llm.experts.block32_codes(%tag, %weight, %zero) : (index, buffer, offset) -> (vector<32xi8>, f32, f32)
+      scf.yield %decoded_block32, %s, %m : vector<32xi8>, f32, f32
+    }
+    %values = vector.sitofp %q : vector<32xi8> to vector<32xf32>
+    %cv = buffer.view %codes[%zero] : buffer -> view<8x32xf32>
+    %mv = buffer.view %metadata[%zero] : buffer -> view<8x2xf32>
+    vector.store %values, %cv[%group, 0] : vector<32xf32>, view<8x32xf32>
+    view.store %scale, %mv[%group, 0] : f32, view<8x2xf32>
+    view.store %minimum, %mv[%group, 1] : f32, view<8x2xf32>
+  }
+  func.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.format_codes_q5() {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%weight: buffer, %codes: buffer, %metadata: buffer) {
+  %tag = index.constant 13 : index
+  func.call @routed.format_codes_body(%tag, %weight, %codes, %metadata) : (index, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.format_codes_q8() {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%weight: buffer, %codes: buffer, %metadata: buffer) {
+  %tag = index.constant 8 : index
+  func.call @routed.format_codes_body(%tag, %weight, %codes, %metadata) : (index, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.format_codes_q5_0() {
+  %one = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%weight: buffer, %codes: buffer, %metadata: buffer) {
+  %tag = index.constant 6 : index
+  func.call @routed.format_codes_body(%tag, %weight, %codes, %metadata) : (index, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.swiglu_rows(%rows: index, %columns: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%rows: index, %columns: index, %gate: buffer, %up: buffer, %out: buffer) {
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [lt(%row0, %rows)] : index
+  %thread = kernel.workitem.id<x> : index
+  %origin = index.constant 0 : offset
+  %step = index.constant 64 : index
+  %gv = buffer.view %gate[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  %uv = buffer.view %up[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  %yv = buffer.view %out[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  scf.for %i0 = [%thread to %columns step %step] {
+    %i = index.assume %i0 [lt(%i0, %columns)] : index
+    %g = view.load %gv[%row, %i] : view<[%rows]x[%columns]xf32> -> f32
+    %u = view.load %uv[%row, %i] : view<[%rows]x[%columns]xf32> -> f32
+    %y = func.call @llm.experts.swiglu(%g, %u) : (f32, f32) -> (f32)
+    view.store %y, %yv[%row, %i] : f32, view<[%rows]x[%columns]xf32>
+  }
+  kernel.return
+}
+
+kernel.def target(@llm.platform.experts.wave32) @routed.compare_rows(%rows: index, %columns: index) {
+  %one = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%rows, %one, %one) workgroup_size(%threads, %one, %one) : index
+} launch(%rows: index, %columns: index, %exact: i32, %atol: f32, %rtol: f32, %left: buffer, %right: buffer, %flags: buffer) {
+  %row0 = kernel.workgroup.id<x> : index
+  %row = index.assume %row0 [lt(%row0, %rows)] : index
+  %thread = kernel.workitem.id<x> : index
+  %origin = index.constant 0 : offset
+  %step = index.constant 64 : index
+  %zero = scalar.constant 0 : i32
+  %one_i = scalar.constant 1 : i32
+  %is_exact = scalar.cmpi ne, %exact, %zero : i32
+  %lv = buffer.view %left[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  %rv = buffer.view %right[%origin] : buffer -> view<[%rows]x[%columns]xf32>
+  %fv = buffer.view %flags[%origin] : buffer -> view<[%rows]x[%columns]xi32>
+  scf.for %i0 = [%thread to %columns step %step] {
+    %i = index.assume %i0 [lt(%i0, %columns)] : index
+    %l = view.load %lv[%row, %i] : view<[%rows]x[%columns]xf32> -> f32
+    %r = view.load %rv[%row, %i] : view<[%rows]x[%columns]xf32> -> f32
+    %lb = scalar.bitcast %l : f32 to i32
+    %rb = scalar.bitcast %r : f32 to i32
+    %same = scalar.cmpi eq, %lb, %rb : i32
+    %delta = scalar.subf %l, %r : f32
+    %error = scalar.absf %delta : f32
+    %magnitude = scalar.absf %r : f32
+    %left_magnitude = scalar.absf %l : f32
+    %finite_limit = scalar.constant 3.4028234663852886e+38 : f32
+    %left_finite = scalar.cmpf ole, %left_magnitude, %finite_limit : f32
+    %right_finite = scalar.cmpf ole, %magnitude, %finite_limit : f32
+    %finite = scalar.andi %left_finite, %right_finite : i1
+    %limit = scalar.fmaf %rtol, %magnitude, %atol : f32
+    %near = scalar.cmpf ole, %error, %limit : f32
+    %comparison = scf.select %is_exact, %same, %near : i1
+    %ok = scalar.andi %comparison, %finite : i1
+    %flag = scf.select %ok, %zero, %one_i : i32
+    view.store %flag, %fv[%row, %i] : i32, view<[%rows]x[%columns]xi32>
+  }
+  kernel.return
+}

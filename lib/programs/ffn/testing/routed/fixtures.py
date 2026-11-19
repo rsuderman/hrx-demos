@@ -9,6 +9,7 @@ The observed providers expose actual intermediate arithmetic, not oracle code.
 """
 
 import ctypes
+import hashlib
 import math
 import re
 import struct
@@ -21,6 +22,14 @@ libm = ctypes.CDLL("libm.so.6")
 libm.fmaf.argtypes = (ctypes.c_float, ctypes.c_float, ctypes.c_float)
 libm.fmaf.restype = ctypes.c_float
 fmadd = lambda a, b, c: float(libm.fmaf(a, b, c))
+GATE_TAGS = (12, 13, 14, 8)
+DOWN_TAGS = GATE_TAGS + (6,)
+BLOCKS = {12: (256, 144), 13: (256, 176), 14: (256, 210), 8: (32, 34), 6: (32, 22)}
+
+
+def weight_bytes(tag):
+    values, size = BLOCKS[tag]
+    return 128 * 2048 * 768 // values * size
 
 
 def quantize(values):
@@ -39,7 +48,7 @@ def quantize(values):
     return codes, meta
 
 
-def packet(tag, expert, channel, block, up=False, down=False):
+def packet(tag, expert, channel, block, up=False, down=False, amplitude=1):
     if tag == 12:
         data = bytearray(144)
         # Exactly representable positive scales, independent gate and up storage.
@@ -49,19 +58,46 @@ def packet(tag, expert, channel, block, up=False, down=False):
         data[12:16] = bytes([0x11]) * 4
         nibble = 5 + (expert + channel + block + (2 if up else 0)) % 5
         data[16:] = bytes([nibble * 17]) * 128
-    else:
+    elif tag == 14:
         data = bytearray(210)
         data[:128] = bytes([0xA6 + channel % 2]) * 128
         data[128:192] = bytes([0x59]) * 64
         data[192:208] = bytes(
             ((-1 if j % 2 else 1) * (1 + expert % 2)) % 256 for j in range(16)
         )
-        struct.pack_into("<e", data, 208, 1 / 32)
+        struct.pack_into("<e", data, 208, amplitude / 32)
+    elif tag == 13:
+        data = bytearray(176)
+        d = (1 / 64 if down or up else 1 / 32) * (1 + (expert % 2) / 2)
+        struct.pack_into("<ee", data, 0, d, d / 4)
+        data[4:12] = bytes([1]) * 8
+        data[12:16] = bytes([0x11]) * 4
+        data[16:48] = bytes([0x55]) * 32
+        nibble = 5 + (expert + channel + block + (2 if up else 0)) % 5
+        data[48:] = bytes([nibble * 17]) * 128
+    elif tag in (8, 6):
+        data = bytearray(BLOCKS[tag][1])
+        d = (1 / 64 if down or up else 1 / 32) * (1 + (expert % 2) / 2)
+        struct.pack_into("<e", data, 0, d)
+        code = 5 + (expert + channel + block + (2 if up else 0)) % 5
+        codes = [code] * 32
+        codes[1], codes[31] = -code, code - 1
+        if tag == 8:
+            data[2:] = bytes(q % 256 for q in codes)
+        else:
+            values = [q + 16 for q in codes]
+            high = sum((v >> 4) << i for i, v in enumerate(values))
+            struct.pack_into("<I", data, 2, high)
+            data[6:] = bytes(
+                (values[i] & 15) | ((values[i + 16] & 15) << 4) for i in range(16)
+            )
+    else:
+        raise ValueError(tag)
     return bytes(data)
 
 
 def decode(data, tag, k):
-    if tag == 12:
+    if tag in (12, 13):
         d, m = struct.unpack_from("<ee", data)
         sc = data[4:16]
         g = k // 32
@@ -70,8 +106,21 @@ def decode(data, tag, k):
         else:
             scale = (sc[g + 4] & 15) | ((sc[g - 4] >> 6) << 4)
             minimum = (sc[g + 4] >> 4) | ((sc[g] >> 6) << 4)
-        q = (data[16 + g // 2 * 32 + k % 32] >> (g % 2 * 4)) & 15
+        q = (data[(16 if tag == 12 else 48) + g // 2 * 32 + k % 32] >> (g % 2 * 4)) & 15
+        if tag == 13:
+            q |= ((data[16 + k % 32] >> g) & 1) << 4
         return q, F(d * scale), F(m * minimum)
+    if tag in (8, 6):
+        d = struct.unpack_from("<e", data)[0]
+        if tag == 8:
+            code = struct.unpack_from("<b", data, 2 + k)[0]
+        else:
+            high = struct.unpack_from("<I", data, 2)[0]
+            code = (data[6 + k % 16] >> (4 * (k // 16))) & 15
+            code += ((high >> k) & 1) << 4
+            code -= 16
+        return code, F(d), 0.0
+    assert tag == 14
     half, rem = divmod(k, 128)
     quarter, lane = divmod(rem, 32)
     low = (data[half * 64 + quarter % 2 * 32 + lane] >> (quarter // 2 * 4)) & 15
@@ -81,16 +130,25 @@ def decode(data, tag, k):
     return code, F(struct.unpack_from("<e", data, 208)[0] * scale), 0.0
 
 
-def dot(tag, expert, channel, values, up=False):
+def dot(tag, expert, channel, values, up=False, amplitude=1):
     qs, metadata = quantize(values)
     parts = []
     for start in range(0, len(values), 32):
         group = start // 32
-        data = packet(tag, expert, channel, group // 8, up, down=len(values) == 768)
+        block_values = BLOCKS[tag][0]
+        data = packet(
+            tag,
+            expert,
+            channel,
+            start // block_values,
+            up,
+            down=len(values) == 768,
+            amplitude=amplitude,
+        )
         dx, raw_sum = metadata[group]
         products = []
         for i in range(32):
-            code, scale, minimum = decode(data, tag, start % 256 + i)
+            code, scale, minimum = decode(data, tag, start % block_values + i)
             products.append(qs[start + i] * (scale * code - minimum))
         # Independent mathematical sum of exactly decoded quantized values.
         parts.append(float(dx) * math.fsum(products))
@@ -545,10 +603,12 @@ def emit_activation(out):
     )
 
 
-def emit_weight_initializer(out, name, tag, width, columns, up=False):
-    row_bytes = width // 256 * {12: 144, 14: 210}[tag]
+def emit_weight_initializer(
+    out, name, tag, width, columns, up=False, middle=False, amplitude=1
+):
+    block_values, block_bytes = BLOCKS[tag]
+    row_bytes = width // block_values * block_bytes
     expert_bytes = columns * row_bytes
-    block_bytes = {12: 144, 14: 210}[tag]
     out.func(name, ["weight"])
     out.add(
         f"""  %zero = index.constant 0 : index
@@ -558,9 +618,9 @@ def emit_weight_initializer(out, name, tag, width, columns, up=False):
   %four = index.constant 4 : index
   %five = index.constant 5 : index
   %eight = index.constant 8 : index
-  %sixteen = index.constant 16 : index
+  %sixteen = index.constant {18 if middle else 16} : index
   %last_column = index.constant {columns - 1} : index
-  %blocks = index.constant {width // 256} : index
+  %blocks = index.constant {width // block_values} : index
   %last_expert_delta = index.constant 112 : index
   %row_stride = index.constant {row_bytes} : offset
   %expert_stride = index.constant {expert_bytes} : offset
@@ -568,7 +628,15 @@ def emit_weight_initializer(out, name, tag, width, columns, up=False):
   scf.for %e0 = [%zero to %sixteen step %one] {{
     %low = index.cmp ult, %e0, %eight : index
     %high = index.add %e0, %last_expert_delta : index
-    %e = scf.select %low, %e0, %high : index
+    %e_base = scf.select %low, %e0, %high : index
+{'''    %ten = index.constant 10 : index
+    %is_middle = index.cmp ult, %e0, %ten : index
+    %middle_delta = index.constant 55 : index
+    %middle = index.add %e0, %middle_delta : index
+    %upper_delta = index.constant 110 : index
+    %upper = index.add %e0, %upper_delta : index
+    %not_low = scf.select %is_middle, %middle, %upper : index
+    %e = scf.select %low, %e0, %not_low : index''' if middle else '    %e = index.add %e_base, %zero : index'}
     %eo = index.scale %e, %expert_stride : index, offset -> offset
     %parity = index.rem %e, %two : index
     %odd = index.cmp eq, %parity, %one : index
@@ -620,8 +688,9 @@ def emit_weight_initializer(out, name, tag, width, columns, up=False):
           view.store %s17, %bytes[%i] : i8, view<144xi8>
         }}"""
         )
-    else:
-        out.add("""        %lo_end = index.constant 128 : index
+    elif tag == 14:
+        out.add(
+            """        %lo_end = index.constant 128 : index
         %hi_end = index.constant 192 : index
         %scale_end = index.constant 208 : index
         %ch_parity = index.rem %ch, %two : index
@@ -651,8 +720,115 @@ def emit_weight_initializer(out, name, tag, width, columns, up=False):
         %d_add = index.constant 208 : offset
         %d_origin = index.add %block_origin, %d_add : offset
         %d_view = buffer.view %weight[%d_origin] : buffer -> view<1xf16>
-        %d = scalar.constant 0.03125 : f16
-        view.store %d, %d_view[0] : f16, view<1xf16>""")
+        %d = scalar.constant AMPLITUDE : f16
+        view.store %d, %d_view[0] : f16, view<1xf16>""".replace(
+                "AMPLITUDE", str(amplitude / 32)
+            )
+        )
+    elif tag == 13:
+        d = 1 / 64 if width == 768 or up else 1 / 32
+        out.add(
+            f"""        %header = buffer.view %weight[%block_origin] : buffer -> view<2xf16>
+        %d_even = scalar.constant {d} : f16
+        %d_odd = scalar.constant {d * 1.5} : f16
+        %m_even = scalar.constant {d / 4} : f16
+        %m_odd = scalar.constant {d * 1.5 / 4} : f16
+        %d = scf.select %odd, %d_odd, %d_even : f16
+        %m = scf.select %odd, %m_odd, %m_even : f16
+        view.store %d, %header[0] : f16, view<2xf16>
+        view.store %m, %header[1] : f16, view<2xf16>
+        %base = index.add %e, %ch : index
+        %plus_block = index.add %base, %b : index
+        %up_delta = index.constant {2 if up else 0} : index
+        %selector = index.add %plus_block, %up_delta : index
+        %modulo = index.rem %selector, %five : index
+        %nibble = index.add %modulo, %five : index
+        %ni = index.cast %nibble : index to i32
+        %seventeen = scalar.constant 17 : i32
+        %code32 = scalar.muli %ni, %seventeen : i32
+        %code8 = scalar.trunci %code32 : i32 to i8
+        %scale_start = index.constant 4 : index
+        %scale_mid = index.constant 12 : index
+        %high_start = index.constant 16 : index
+        %payload_start = index.constant 48 : index
+        %end = index.constant 176 : index
+        %s1 = scalar.constant 1 : i8
+        %s17 = scalar.constant 17 : i8
+        %s85 = scalar.constant 85 : i8
+        scf.for %i = [%scale_start to %scale_mid step %one] {{
+          view.store %s1, %bytes[%i] : i8, view<176xi8>
+        }}
+        scf.for %i = [%scale_mid to %high_start step %one] {{
+          view.store %s17, %bytes[%i] : i8, view<176xi8>
+        }}
+        scf.for %i = [%high_start to %payload_start step %one] {{
+          view.store %s85, %bytes[%i] : i8, view<176xi8>
+        }}
+        scf.for %i = [%payload_start to %end step %one] {{
+          view.store %code8, %bytes[%i] : i8, view<176xi8>
+        }}"""
+        )
+    elif tag in (8, 6):
+        d = 1 / 64 if width == 768 or up else 1 / 32
+        out.add(
+            f"""        %header = buffer.view %weight[%block_origin] : buffer -> view<1xf16>
+        %d_even = scalar.constant {d} : f16
+        %d_odd = scalar.constant {d * 1.5} : f16
+        %d = scf.select %odd, %d_odd, %d_even : f16
+        view.store %d, %header[0] : f16, view<1xf16>
+        %base = index.add %e, %ch : index
+        %plus_block = index.add %base, %b : index
+        %up_delta = index.constant {2 if up else 0} : index
+        %selector = index.add %plus_block, %up_delta : index
+        %modulo = index.rem %selector, %five : index
+        %code = index.add %modulo, %five : index
+        %code32 = index.cast %code : index to i32
+        %zero32 = scalar.constant 0 : i32
+        %neg32 = scalar.subi %zero32, %code32 : i32
+        %one32 = scalar.constant 1 : i32
+        %last32 = scalar.subi %code32, %one32 : i32"""
+        )
+        if tag == 8:
+            out.add("""        %payload_start = index.constant 2 : index
+        %end = index.constant 32 : index
+        %format_last_lane = index.constant 31 : index
+        scf.for %i = [%zero to %end step %one] {
+          %negative = index.cmp eq, %i, %one : index
+          %tail = index.cmp eq, %i, %format_last_lane : index
+          %base_code = scf.select %negative, %neg32, %code32 : i32
+          %value32 = scf.select %tail, %last32, %base_code : i32
+          %value = scalar.trunci %value32 : i32 to i8
+          %at = index.add %i, %payload_start : index
+          view.store %value, %bytes[%at] : i8, view<34xi8>
+        }""")
+        else:
+            out.add("""        %mask_start = index.constant 2 : index
+        %mask = buffer.view %weight[%block_origin] : buffer -> view<22xi8>
+        %byte_fd = scalar.constant -3 : i8
+        %byte_ff = scalar.constant -1 : i8
+        view.store %byte_fd, %mask[2] : i8, view<22xi8>
+        view.store %byte_ff, %mask[3] : i8, view<22xi8>
+        view.store %byte_ff, %mask[4] : i8, view<22xi8>
+        view.store %byte_ff, %mask[5] : i8, view<22xi8>
+        %six32 = scalar.constant 16 : i32
+        %negative_nibble = scalar.subi %six32, %code32 : i32
+        %shift = scalar.constant 4 : i32
+        %end = index.constant 16 : index
+        %format_last_lane = index.constant 15 : index
+        %payload_start = index.constant 6 : index
+        scf.for %i = [%zero to %end step %one] {
+          %negative = index.cmp eq, %i, %one : index
+          %tail = index.cmp eq, %i, %format_last_lane : index
+          %low = scf.select %negative, %negative_nibble, %code32 : i32
+          %high = scf.select %tail, %last32, %code32 : i32
+          %shifted = scalar.shli %high, %shift : i32
+          %value32 = scalar.ori %low, %shifted : i32
+          %value = scalar.trunci %value32 : i32 to i8
+          %at = index.add %i, %payload_start : index
+          view.store %value, %bytes[%at] : i8, view<22xi8>
+        }""")
+    else:
+        raise ValueError(tag)
     out.add("      }\n    }\n  }")
     out.end()
 
@@ -684,10 +860,16 @@ def put_packed(out, buffer, values, rows, width):
                 )
 
 
-def expert_hidden(row, expert, xs=None):
+def expert_hidden(
+    row, expert, xs=None, gate_tag=12, up_tag=12, gate_amplitude=1, up_amplitude=1
+):
     xs = xrow(row) if xs is None else xs
     dots = [
-        (ch, dot(12, expert, ch, xs), dot(12, expert, ch, xs, True))
+        (
+            ch,
+            dot(gate_tag, expert, ch, xs, amplitude=gate_amplitude),
+            dot(up_tag, expert, ch, xs, True, amplitude=up_amplitude),
+        )
         for ch in (0, 1, 767)
     ]
     values = [0.0] * 768
@@ -800,7 +982,7 @@ def emit_indexed(out):
 
 def emit_composition(out):
     out.add(
-        "template.decl @llm.ffn.direct_routed(%C: index, %tag: index, %GB: index, %UB: index, %DB: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%GB]xi8>, %up: view<[%UB]xi8>, %down: view<[%DB]xi8>, %out: buffer)"
+        "template.decl @llm.ffn.direct_routed(%C: index, %GT: index, %UT: index, %tag: index, %GB: index, %UB: index, %DB: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%GB]xi8>, %up: view<[%UB]xi8>, %down: view<[%DB]xi8>, %out: buffer)"
     )
     for c in CAPACITIES:
         for a in sorted(set((0, 1, c // 2, c, -1, c + 1))):
@@ -830,6 +1012,7 @@ def emit_composition(out):
                 out.end()
                 body = f"""  %C = index.constant {c} : index
   %tag = index.constant {tag} : index
+  %q4 = index.constant 12 : index
   %GB = index.constant 113246208 : index
   %DB = index.constant {db} : index
   %origin = index.constant 0 : offset
@@ -837,7 +1020,7 @@ def emit_composition(out):
   %gv = buffer.view %gate[%origin] : buffer -> view<[%GB]xi8>
   %uv = buffer.view %up[%origin] : buffer -> view<[%GB]xi8>
   %dv = buffer.view %down[%origin] : buffer -> view<[%DB]xi8>
-  template.apply<@llm.ffn.direct_routed>(%C, %tag, %GB, %GB, %DB, %count, %x, %rv, %gv, %uv, %dv, %out) : (index, index, index, index, index, buffer, buffer, view<128x2048xf32>, view<[%GB]xi8>, view<[%GB]xi8>, view<[%DB]xi8>, buffer)"""
+  template.apply<@llm.ffn.direct_routed>(%C, %q4, %q4, %tag, %GB, %GB, %DB, %count, %x, %rv, %gv, %uv, %dv, %out) : (index, index, index, index, index, index, index, buffer, buffer, view<128x2048xf32>, view<[%GB]xi8>, view<[%GB]xi8>, view<[%DB]xi8>, buffer)"""
                 out.command(name + ".actual", args, body)
                 out.func(name + ".expected", args)
                 out.zero("out", c * 2048)
@@ -999,10 +1182,462 @@ def emit_denominator(out):
     )
 
 
+def single_symbol(tag, gate=False):
+    suffix = {12: "q4", 13: "q5", 14: "q6", 8: "q8", 6: "q5_0"}[tag]
+    return "llm.experts.indexed_" + ("gate_" if gate else "down_") + suffix
+
+
+def paired_symbol(gate, up, observed=False):
+    prefix = "routed.observe_gate_up" if observed else "llm.experts.indexed_swiglu"
+    if gate == up == 12:
+        return prefix if observed else prefix + "_q4"
+    return prefix + f"_g{gate}_u{up}"
+
+
+def leaf_declaration(out, symbol, paired=False, observed=False):
+    arguments = (
+        "%N0:index,%R0:index,%count:buffer,%ids:buffer,%packed:buffer,%w:buffer,"
+    )
+    if paired:
+        arguments += "%u:buffer,"
+    arguments += "%out:buffer"
+    if observed:
+        arguments += ",%gate_out:buffer,%up_out:buffer"
+    out.add(f"kernel.decl @{symbol}(%N:index,%R:index) launch({arguments})")
+
+
+def leaf_launch(symbol, weights, output, observed=()):
+    names = ["%N", "%R", "%count", "%ids", "%packed"]
+    names += ["%" + key for key in weights + [output] + list(observed)]
+    return (
+        f"  kernel.launch @{symbol}[%N,%R]("
+        + ",".join(names)
+        + ") : [index,index](index,index,"
+        + ",".join(["buffer"] * (len(names) - 2))
+        + ")"
+    )
+
+
+def compare_rows(out, left, right, flags, exact=False, atol=5e-4, rtol=2e-3):
+    out.add(
+        f"""  %exact_{flags} = scalar.constant {int(exact)} : i32
+  %atol_{flags} = scalar.constant {atol} : f32
+  %rtol_{flags} = scalar.constant {rtol} : f32
+  kernel.launch @routed.compare_rows[%R,%N](%R,%N,%exact_{flags},%atol_{flags},%rtol_{flags},%{left},%{right},%{flags}) : [index,index](index,index,i32,f32,f32,buffer,buffer,buffer)"""
+    )
+
+
+def comparison_declarations(out):
+    out.add(
+        "kernel.decl @routed.compare_rows(%R:index,%N:index) launch(%R0:index,%N0:index,%exact:i32,%atol:f32,%rtol:f32,%left:buffer,%right:buffer,%flags:buffer)"
+    )
+    out.add(
+        "kernel.decl @routed.swiglu_rows(%R:index,%N:index) launch(%R0:index,%N0:index,%gate:buffer,%up:buffer,%out:buffer)"
+    )
+
+
+def selected_ids(c):
+    order = (0, 63, 127, 64, 127, 0, 63, 1)
+    return [[order[(t + k) % 8] for k in range(8)] for t in range(c)]
+
+
+def init_indexed_inputs(
+    out, name, args, c, active, width, gate, initializers, exact=False
+):
+    rows = 8 * c
+    prows = c if gate else rows
+    values = [xrow(t, width) for t in range(prows)]
+    if exact:
+        for xs in values:
+            xs[0], xs[1], xs[2], xs[-1] = 127 / 128, -0.5, 0.25, 127 / 128
+    ids = selected_ids(c)
+    out.func(name + ".init", args)
+    count_init(out, active)
+    out.view("ids", rows, "i32")
+    for t in range(c):
+        for k, expert in enumerate(ids[t]):
+            out.put("ids", 8 * t + k, expert, rows, "i32")
+    put_packed(out, "packed", values, prows, width)
+    for initializer, buffer in initializers:
+        out.add(f"  func.call @{initializer}(%{buffer}) : (buffer)")
+    out.end()
+    tensors = [
+        ("packed", prows * width * 5 // 16, "i32", 0),
+        ("ids", rows, "i32", -999),
+        ("count", 3, "i32", 99),
+    ]
+    return ids, values, tensors
+
+
+def emit_formats_wire(out):
+    for tag, suffix in ((13, "q5"), (8, "q8"), (6, "q5_0")):
+        out.add(
+            f"kernel.decl @routed.format_codes_{suffix}() launch(%weight:buffer,%codes:buffer,%metadata:buffer)"
+        )
+        size = BLOCKS[tag][1]
+        data = bytearray((73 * i + 29) % 256 for i in range(size))
+        if tag == 13:
+            struct.pack_into("<ee", data, 0, -0.125, 0.0625)
+        else:
+            struct.pack_into("<e", data, 0, -0.125)
+        name = f"format_wire_q{tag}"
+        args = ["weight", "codes", "metadata"]
+        out.func(name + ".init", args)
+        out.view("weight", size, "i8")
+        for i, byte in enumerate(data):
+            out.put("weight", i, byte, size, "i8")
+        out.end()
+        out.command(
+            name + ".actual",
+            args,
+            f"  kernel.launch @routed.format_codes_{suffix}[](%weight,%codes,%metadata) : [](buffer,buffer,buffer)",
+        )
+        out.func(name + ".expected", args)
+        out.view("codes", 256)
+        out.view("metadata", 16)
+        for k in range(BLOCKS[tag][0]):
+            code, _, _ = decode(data, tag, k)
+            out.put("codes", k, code, 256)
+        for group in range(BLOCKS[tag][0] // 32):
+            _, scale, minimum = decode(data, tag, group * 32)
+            out.put("metadata", 2 * group, scale, 16)
+            out.put("metadata", 2 * group + 1, minimum, 16)
+        out.end()
+        out.scenario(
+            name,
+            [
+                ("weight", size, "i8", 0),
+                ("codes", 256, "f32", "999.0"),
+                ("metadata", 16, "f32", "99.0"),
+            ],
+            ["codes", "metadata"],
+        )
+
+
+def format_projection_amplitude(tag):
+    # The signed Q6 witness has cancellation between its positive/negative
+    # subgroups. A power-of-two header scale gives its new mixed-pair corpus
+    # comparable preactivation magnitude to the unsigned K-format witnesses,
+    # keeping nonzero hidden pack groups inside the unchanged finite domain.
+    # Existing E1 and old/new parity calls retain their default amplitude one.
+    return 16 if tag == 14 else 1
+
+
+def emit_formats_pair(out, gate_tag, up_tag, c=1):
+    assert gate_tag in GATE_TAGS and up_tag in GATE_TAGS
+    ga, ua = map(format_projection_amplitude, (gate_tag, up_tag))
+    emit_weight_initializer(
+        out, "format_gate", gate_tag, 2048, 768, middle=True, amplitude=ga
+    )
+    emit_weight_initializer(
+        out, "format_up", up_tag, 2048, 768, up=True, middle=True, amplitude=ua
+    )
+    pair = paired_symbol(gate_tag, up_tag)
+    observer = paired_symbol(gate_tag, up_tag, observed=True)
+    single_gate, single_up = single_symbol(gate_tag, True), single_symbol(up_tag, True)
+    leaf_declaration(out, pair, paired=True)
+    leaf_declaration(out, observer, paired=True, observed=True)
+    for symbol in sorted(set((single_gate, single_up))):
+        leaf_declaration(out, symbol)
+    comparison_declarations(out)
+    rows, columns = 8 * c, 768
+    float_outputs = [
+        "hidden",
+        "observed_hidden",
+        "gate_out",
+        "up_out",
+        "gate_single",
+        "up_single",
+        "separate_hidden",
+    ]
+    flag_outputs = ["pair_flags", "gate_flags", "up_flags"]
+    outputs = float_outputs + flag_outputs
+    args = ["packed", "ids", "count", "gate", "up"] + outputs
+    for a in sorted(set((0, 1, c // 2, c, -1, c + 1))):
+        name = f'format_pair_g{gate_tag}_u{up_tag}_c{c}_a{a if a >= 0 else "negative"}'
+        exact = c == a == 1
+        ids, values, tensors = init_indexed_inputs(
+            out,
+            name,
+            args,
+            c,
+            a,
+            2048,
+            True,
+            [("format_gate", "gate"), ("format_up", "up")],
+            exact,
+        )
+        body = f"  %N = index.constant {columns} : index\n  %R = index.constant {rows} : index\n"
+        body += leaf_launch(pair, ["gate", "up"], "hidden") + "\n"
+        body += (
+            leaf_launch(
+                observer, ["gate", "up"], "observed_hidden", ("gate_out", "up_out")
+            )
+            + "\n"
+        )
+        body += leaf_launch(single_gate, ["gate"], "gate_single") + "\n"
+        body += leaf_launch(single_up, ["up"], "up_single") + "\n"
+        body += "  kernel.launch @routed.swiglu_rows[%R,%N](%R,%N,%gate_single,%up_single,%separate_hidden) : [index,index](index,index,buffer,buffer,buffer)\n"
+        # Comparisons execute on the two real operation outputs. Expected flags
+        # remain independently fixed zero; scalar goldens also check each output.
+        compare = Emit()
+        compare.lines = []
+        compare_rows(compare, "hidden", "separate_hidden", "pair_flags")
+        compare_rows(
+            compare, "gate_out", "gate_single", "gate_flags", exact, 1e-4, 5e-4
+        )
+        compare_rows(compare, "up_out", "up_single", "up_flags", exact, 1e-4, 5e-4)
+        out.command(name + ".actual", args, body + "\n".join(compare.lines))
+        out.func(name + ".expected", args)
+        for key in float_outputs:
+            out.zero(key, rows * columns)
+        for key in flag_outputs:
+            out.zero(key, rows * columns, "i32")
+        for row in range(8 * a if 0 <= a <= c else 0):
+            expert = ids[row // 8][row % 8]
+            dots, hidden = expert_hidden(
+                row // 8, expert, values[row // 8], gate_tag, up_tag, ga, ua
+            )
+            for ch, gd, ud in dots:
+                for key, value in (
+                    ("gate_out", gd),
+                    ("gate_single", gd),
+                    ("up_out", ud),
+                    ("up_single", ud),
+                    ("hidden", hidden[ch]),
+                    ("observed_hidden", hidden[ch]),
+                    ("separate_hidden", hidden[ch]),
+                ):
+                    out.put(key, row * columns + ch, value, rows * columns)
+        out.end()
+        tensors += [
+            ("gate", weight_bytes(gate_tag), "i8", 0),
+            ("up", weight_bytes(up_tag), "i8", 0),
+        ]
+        tensors += [(key, rows * columns, "f32", "99.0") for key in float_outputs]
+        tensors += [(key, rows * columns, "i32", 77) for key in flag_outputs]
+        approx = {
+            key: ((5e-4, 2e-3) if "hidden" in key else (1e-4, 5e-4))
+            for key in float_outputs
+            if not exact or "hidden" in key
+        }
+        out.scenario(name, tensors, outputs, approx=approx)
+
+
+def emit_formats_down(out, tag, c=1):
+    assert tag in DOWN_TAGS
+    emit_weight_initializer(out, "format_down", tag, 768, 2048, middle=True)
+    symbol = single_symbol(tag)
+    leaf_declaration(out, symbol)
+    rows = 8 * c
+    args = ["packed", "ids", "count", "down", "out"]
+    for a in sorted(set((0, 1, c // 2, c, -1, c + 1))):
+        name = f'format_down_q{tag}_c{c}_a{a if a >= 0 else "negative"}'
+        exact = c == a == 1
+        ids, values, tensors = init_indexed_inputs(
+            out, name, args, c, a, 768, False, [("format_down", "down")], exact
+        )
+        out.command(
+            name + ".actual",
+            args,
+            f"  %N = index.constant 2048 : index\n  %R = index.constant {rows} : index\n"
+            + leaf_launch(symbol, ["down"], "out"),
+        )
+        out.func(name + ".expected", args)
+        out.zero("out", rows * 2048)
+        for row in range(8 * a if 0 <= a <= c else 0):
+            expert = ids[row // 8][row % 8]
+            for ch in (0, 1, 2047):
+                value = dot(tag, expert, ch, values[row])
+                assert abs(value) <= 16, value
+                out.put("out", row * 2048 + ch, value, rows * 2048)
+        out.end()
+        tensors += [
+            ("down", weight_bytes(tag), "i8", 0),
+            ("out", rows * 2048, "f32", "99.0"),
+        ]
+        out.scenario(
+            name, tensors, ["out"], approx={} if exact else {"out": (1e-4, 5e-4)}
+        )
+
+
+def emit_formats_composition(out, gate_tag, up_tag, down_tag, c=1):
+    assert gate_tag in GATE_TAGS and up_tag in GATE_TAGS and down_tag in DOWN_TAGS
+    ga, ua = map(format_projection_amplitude, (gate_tag, up_tag))
+    emit_weight_initializer(out, "format_gate", gate_tag, 2048, 768, amplitude=ga)
+    emit_weight_initializer(out, "format_up", up_tag, 2048, 768, up=True, amplitude=ua)
+    emit_weight_initializer(out, "format_down", down_tag, 768, 2048)
+    out.add(
+        "template.decl @llm.ffn.direct_routed(%C:index,%GT:index,%UT:index,%DT:index,%GB:index,%UB:index,%DB:index,%count:buffer,%x:buffer,%router:view<128x2048xf32>,%gate:view<[%GB]xi8>,%up:view<[%UB]xi8>,%down:view<[%DB]xi8>,%out:buffer)"
+    )
+    gb, ub, db = [weight_bytes(tag) for tag in (gate_tag, up_tag, down_tag)]
+    args = ["x", "router", "gate", "up", "down", "count", "out"]
+    for a in sorted(set((0, 1, c // 2, c, -1, c + 1))):
+        name = f'format_composition_{gate_tag}_{up_tag}_{down_tag}_c{c}_a{a if a >= 0 else "negative"}'
+        out.func(name + ".init", args)
+        count_init(out, a)
+        out.zero("x", c * 2048)
+        out.view("router", 128 * 2048)
+        for t in range(c):
+            for ch, v in enumerate(xrow(t)):
+                if v:
+                    out.put(
+                        "x", t * 2048 + ch, v if 0 <= t < a <= c else -777.0, c * 2048
+                    )
+        for expert in range(128):
+            value = 1 + 0.25 * (expert - 120) if expert >= 120 else -3 + expert / 128
+            out.put("router", expert * 2048, value, 128 * 2048)
+        out.add(
+            "  func.call @format_gate(%gate) : (buffer)\n"
+            "  func.call @format_up(%up) : (buffer)\n"
+            "  func.call @format_down(%down) : (buffer)"
+        )
+        out.end()
+        out.command(
+            name + ".actual",
+            args,
+            f"""  %C = index.constant {c} : index
+  %GT = index.constant {gate_tag} : index
+  %UT = index.constant {up_tag} : index
+  %DT = index.constant {down_tag} : index
+  %GB = index.constant {gb} : index
+  %UB = index.constant {ub} : index
+  %DB = index.constant {db} : index
+  %origin = index.constant 0 : offset
+  %rv = buffer.view %router[%origin] : buffer -> view<128x2048xf32>
+  %gv = buffer.view %gate[%origin] : buffer -> view<[%GB]xi8>
+  %uv = buffer.view %up[%origin] : buffer -> view<[%UB]xi8>
+  %dv = buffer.view %down[%origin] : buffer -> view<[%DB]xi8>
+  template.apply<@llm.ffn.direct_routed>(%C,%GT,%UT,%DT,%GB,%UB,%DB,%count,%x,%rv,%gv,%uv,%dv,%out) : (index,index,index,index,index,index,index,buffer,buffer,view<128x2048xf32>,view<[%GB]xi8>,view<[%UB]xi8>,view<[%DB]xi8>,buffer)""",
+        )
+        out.func(name + ".expected", args)
+        out.zero("out", c * 2048)
+        for t in range(a if 0 <= a <= c else 0):
+            _, _, ids, weights = route(t, 1)
+            hidden = [
+                expert_hidden(
+                    t,
+                    expert,
+                    gate_tag=gate_tag,
+                    up_tag=up_tag,
+                    gate_amplitude=ga,
+                    up_amplitude=ua,
+                )[1]
+                for expert in ids
+            ]
+            for ch in (0, 1, 2047):
+                result = 0.0
+                for k, expert in enumerate(ids):
+                    value = dot(down_tag, expert, ch, hidden[k])
+                    assert abs(value) <= 16, value
+                    result = fmadd(weights[k], value, result)
+                out.put("out", t * 2048 + ch, result, c * 2048)
+        out.end()
+        out.scenario(
+            name,
+            [
+                ("x", c * 2048, "f32", "0.0"),
+                ("router", 128 * 2048, "f32", "0.0"),
+                ("gate", gb, "i8", 0),
+                ("up", ub, "i8", 0),
+                ("down", db, "i8", 0),
+                ("count", 3, "i32", 99),
+                ("out", c * 2048, "f32", "99.0"),
+            ],
+            ["out"],
+            approx={"out": (1e-3, 3e-3)},
+        )
+
+
+def emit_parity(out, baseline_path, expected_sha256, kind, c):
+    """Temporary external old/new check; never saves observed GPU expectations.
+
+    CENTRAL supplies the immutable accepted indexed.loom blob and its recorded
+    SHA256. This mode embeds that old body only into a disposable test overlay;
+    no copied old production kernels are checked into this repository.
+    """
+    baseline = Path(baseline_path).read_bytes()
+    assert hashlib.sha256(baseline).hexdigest() == expected_sha256
+    reference = baseline.decode().replace(
+        "@llm.experts.indexed_", "@routed.reference.indexed_"
+    )
+    out.add("// Exact accepted reference indexed.loom SHA256 " + expected_sha256)
+    out.add(reference)
+    assert kind in ("gate", "down4", "down6") and c in (1, 17)
+    gate = kind == "gate"
+    tag = 14 if kind == "down6" else 12
+    width, columns = (2048, 768) if gate else (768, 2048)
+    emit_weight_initializer(out, "parity_weight", tag, width, columns, middle=True)
+    if gate:
+        emit_weight_initializer(
+            out, "parity_up", 12, width, columns, up=True, middle=True
+        )
+    symbol = paired_symbol(12, 12) if gate else single_symbol(tag)
+    leaf_declaration(out, symbol, paired=gate)
+    comparison_declarations(out)
+    rows = 8 * c
+    weights = ["weight", "up"] if gate else ["weight"]
+    args = ["packed", "ids", "count"] + weights + ["new", "old", "flags"]
+    initializers = [("parity_weight", "weight")]
+    if gate:
+        initializers.append(("parity_up", "up"))
+    for a in sorted(set((0, 1, c // 2, c, -1, c + 1))):
+        name = f'parity_{kind}_c{c}_a{a if a >= 0 else "negative"}'
+        exact = c == a == 1
+        ids, values, tensors = init_indexed_inputs(
+            out, name, args, c, a, width, gate, initializers, exact
+        )
+        command = Emit()
+        command.lines = []
+        command.add(
+            f"  %N = index.constant {columns} : index\n  %R = index.constant {rows} : index"
+        )
+        command.add(leaf_launch(symbol, weights, "new"))
+        old_symbol = symbol.replace("llm.experts.indexed_", "routed.reference.indexed_")
+        command.add(leaf_launch(old_symbol, weights, "old"))
+        compare_rows(command, "new", "old", "flags", exact=True, atol=0.0, rtol=0.0)
+        out.command(name + ".actual", args, "".join(command.lines))
+        out.func(name + ".expected", args)
+        out.zero("new", rows * columns)
+        out.zero("old", rows * columns)
+        out.zero("flags", rows * columns, "i32")
+        for row in range(8 * a if 0 <= a <= c else 0):
+            expert = ids[row // 8][row % 8]
+            if gate:
+                dots, hidden = expert_hidden(row // 8, expert, values[row // 8])
+                expected = [(ch, hidden[ch]) for ch, _, _ in dots]
+            else:
+                expected = [
+                    (ch, dot(tag, expert, ch, values[row]))
+                    for ch in (0, 1, columns - 1)
+                ]
+            for ch, value in expected:
+                for key in ("new", "old"):
+                    out.put(key, row * columns + ch, value, rows * columns)
+        out.end()
+        tensors += [
+            (key, weight_bytes(tag if key == "weight" else 12), "i8", 0)
+            for key in weights
+        ]
+        tensors += [
+            ("new", rows * columns, "f32", "99.0"),
+            ("old", rows * columns, "f32", "99.0"),
+            ("flags", rows * columns, "i32", 77),
+        ]
+        budget = (5e-4, 2e-3) if gate else (1e-4, 5e-4)
+        approx = {"new": budget, "old": budget} if gate or not exact else {}
+        out.scenario(name, tensors, ["new", "old", "flags"], approx=approx)
+
+
 def main():
     global CAPACITIES
     stage = sys.argv[2] if len(sys.argv) > 2 else "all"
-    CAPACITIES = (int(sys.argv[3]),) if len(sys.argv) > 3 else (1, 8, 16, 17)
+    formats = stage.startswith("formats_") or stage == "parity"
+    CAPACITIES = (
+        (1,)
+        if formats
+        else (int(sys.argv[3]),) if len(sys.argv) > 3 else (1, 8, 16, 17)
+    )
     out = Emit()
     if stage in ("router", "all"):
         emit_router(out)
@@ -1024,6 +1659,27 @@ def main():
             emit_weight_initializer(out, "weight_down4", 12, 768, 2048)
             emit_weight_initializer(out, "weight_down6", 14, 768, 2048)
         emit_composition(out)
+    if stage == "formats_wire":
+        emit_formats_wire(out)
+    if stage == "formats_pair":
+        emit_formats_pair(
+            out,
+            int(sys.argv[3]),
+            int(sys.argv[4]),
+            int(sys.argv[5]) if len(sys.argv) > 5 else 1,
+        )
+    if stage == "formats_down":
+        emit_formats_down(
+            out, int(sys.argv[3]), int(sys.argv[4]) if len(sys.argv) > 4 else 1
+        )
+    if stage == "formats_composition":
+        emit_formats_composition(
+            out,
+            *(int(x) for x in sys.argv[3:6]),
+            int(sys.argv[6]) if len(sys.argv) > 6 else 1,
+        )
+    if stage == "parity":
+        emit_parity(out, sys.argv[3], sys.argv[4], sys.argv[5], int(sys.argv[6]))
     assert stage in (
         "all",
         "router",
@@ -1032,6 +1688,11 @@ def main():
         "activation",
         "indexed",
         "composition",
+        "formats_wire",
+        "formats_pair",
+        "formats_down",
+        "formats_composition",
+        "parity",
     ), stage
     Path(sys.argv[1]).write_text("".join(out.lines))
 

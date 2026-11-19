@@ -15,10 +15,11 @@ template.def<@ggml.block32.word> device @ggml_block32_q8_word(%tag: index, %weig
   %word_add = index.scale %word, %word_bytes : index, offset -> offset
   %word_origin = index.add %payload, %word_add : offset
   %scale_view = buffer.view %weight[%base] : buffer -> view<1xf16>
-  %word_view = buffer.view %weight[%word_origin] : buffer -> view<1xi32>
+  // The payload begins two bytes after the F16 scale. Keep byte alignment:
+  // a typed i32 load can round a wave-uniform address to its containing dword.
+  %word_view = buffer.view %weight[%word_origin] : buffer -> view<4xi8>
   %d16 = view.load %scale_view[0] : view<1xf16> -> f16
-  %packed = vector.load %word_view[0] : view<1xi32> -> vector<1xi32>
-  %codes = vector.bitcast %packed : vector<1xi32> to vector<4xi8>
+  %codes = vector.load %word_view[0] : view<4xi8> -> vector<4xi8>
   %d = scalar.extf %d16 : f16 to f32
   %minimum = scalar.constant 0.0 : f32
   template.return %codes, %d, %minimum : vector<4xi8>, f32, f32

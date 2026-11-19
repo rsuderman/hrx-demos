@@ -47,6 +47,68 @@ genrule(
     cmd = "python3 $(location fixtures.py) $@ activation",
 )
 
+genrule(
+    name = "format_wire_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = ["format_wire_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ formats_wire",
+)
+
+_GATE_FORMATS = [
+    12,
+    13,
+    14,
+    8,
+]
+
+_DOWN_FORMATS = _GATE_FORMATS + [6]
+
+[genrule(
+    name = "format_pair_g" + str(gate) + "_u" + str(up) + "_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = ["format_pair_g" + str(gate) + "_u" + str(up) + "_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ formats_pair " + str(gate) + " " + str(up),
+) for gate in _GATE_FORMATS for up in _GATE_FORMATS]
+
+[genrule(
+    name = "format_down_q" + str(tag) + "_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = ["format_down_q" + str(tag) + "_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ formats_down " + str(tag),
+) for tag in _DOWN_FORMATS]
+
+_COMPOSITIONS = [
+    (13, 8, 14),
+    (14, 13, 8),
+    (8, 14, 6),
+    (12, 8, 13),
+]
+
+[genrule(
+    name = "format_composition_" + str(gate) + "_" + str(up) + "_" + str(down) + "_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = ["format_composition_" + str(gate) + "_" + str(up) + "_" + str(down) + "_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ formats_composition " + str(gate) + " " + str(up) + " " + str(down),
+) for gate, up, down in _COMPOSITIONS]
+
+_TAIL_CASES = [
+    ("pair_g13_u8_c17", "formats_pair 13 8 17"),
+    ("down_q6_c17", "formats_down 6 17"),
+    ("composition_13_8_14_c17", "formats_composition 13 8 14 17"),
+]
+
+[genrule(
+    name = "format_" + name + "_fixtures",
+    testonly = True,
+    srcs = ["fixtures.py"],
+    outs = ["format_" + name + "_checks.loom"],
+    cmd = "python3 $(location fixtures.py) $@ " + arguments,
+) for name, arguments in _TAIL_CASES]
+
 [loom_checks(
     name = "routed_" + stage + "_c" + str(capacity),
     checks = [":" + stage + "_c" + str(capacity) + "_fixtures"],
@@ -73,10 +135,27 @@ loom_provider_checks(
     provider_srcs = [
         ":observed_stages",
         "activation.loom",
+        "formats.loom",
         "//lib/platforms/amdgpu/gfx11:targets.loom",
         "//lib/programs/ffn:direct_routed_sources",
     ],
 )
+
+_FORMAT_CHECKS = ["wire"] + [
+    "pair_g" + str(gate) + "_u" + str(up)
+    for gate in _GATE_FORMATS
+    for up in _GATE_FORMATS
+] + ["down_q" + str(tag) for tag in _DOWN_FORMATS] + [
+    "composition_" + str(gate) + "_" + str(up) + "_" + str(down)
+    for gate, up, down in _COMPOSITIONS
+] + [name for name, _ in _TAIL_CASES]
+
+[loom_checks(
+    name = "routed_format_" + name,
+    checks = [":format_" + name + "_fixtures"],
+    execution_profiles = [AMD_GPU_HARDWARE_PROFILE],
+    provider_name = "provider",
+) for name in _FORMAT_CHECKS]
 
 cc_test(
     name = "materialization_test",

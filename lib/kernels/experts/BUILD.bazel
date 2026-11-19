@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "common.loom",
+    "formats.loom",
     "indexed.loom",
     "pack_split_q8.loom",
     "swiglu.loom",
@@ -13,8 +14,11 @@ filegroup(
     name = "all_sources",
     srcs = [
         "common.loom",
+        "formats.loom",
         "indexed.loom",
         "pack_split_q8.loom",
         "swiglu.loom",
+        "//lib/kernels/projection:block32.loom",
+        "//lib/kernels/projection:q5k_codec.loom",
     ],
 )

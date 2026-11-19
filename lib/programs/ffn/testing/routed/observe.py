@@ -53,11 +53,19 @@ router = replace_once(
     %tid_inactive =""",
 )
 indexed = Path(sys.argv[2]).read_text()
-# Keep exactly the gate/up definition and its declarations; append observers to
-# the existing paired output buffer so inactive clearing follows the same body.
-indexed = indexed[: indexed.index("kernel.def", indexed.index("kernel.def") + 1)]
+# Instrument the actual shared production body, not the now-thin fixed-tag
+# kernel wrapper. Keep the body text verbatim except observer arguments/stores.
+marker = "func.def public inline @llm.experts.indexed_swiglu_body("
+start = indexed.index(marker)
+opening = indexed.index("{", start)
+depth = 1
+end = opening + 1
+while depth:
+    depth += (indexed[end] == "{") - (indexed[end] == "}")
+    end += 1
+indexed = indexed[:start] + indexed[start:end] + "\n"
 indexed = replace_once(
-    indexed, "@llm.experts.indexed_swiglu_q4(", "@routed.observe_gate_up("
+    indexed, "@llm.experts.indexed_swiglu_body(", "@routed.observe_gate_up_body("
 )
 indexed = replace_once(
     indexed,
@@ -90,4 +98,32 @@ for declaration in (
     assert router.count(declaration) == 1
     assert indexed.count(declaration) == 1
     indexed = indexed.replace(declaration, "", 1)
+blocks = {12: (256, 144), 13: (256, 176), 14: (256, 210), 8: (32, 34)}
+for gate in blocks:
+    for up in blocks:
+        symbol = (
+            "routed.observe_gate_up"
+            if gate == up == 12
+            else f"routed.observe_gate_up_g{gate}_u{up}"
+        )
+        gate_row = 2048 // blocks[gate][0] * blocks[gate][1]
+        up_row = 2048 // blocks[up][0] * blocks[up][1]
+        indexed += f"""
+kernel.def target(@llm.platform.experts.wave32) @{symbol}(%N: index, %R: index) {{
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %threads = index.constant 64 : index
+  %groups = index.div %N, %two : index
+  kernel.launch.config workgroups(%R, %groups, %one) workgroup_size(%threads, %one, %one) : index
+}} launch(%N0: index, %R0: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: buffer, %up: buffer, %hidden: buffer, %gate_out: buffer, %up_out: buffer) {{
+  %GT = index.constant {gate} : index
+  %UT = index.constant {up} : index
+  %GR = index.constant {gate_row} : offset
+  %GE = index.constant {768 * gate_row} : offset
+  %UR = index.constant {up_row} : offset
+  %UE = index.constant {768 * up_row} : offset
+  func.call @routed.observe_gate_up_body(%N0,%R0,%GT,%UT,%GR,%GE,%UR,%UE,%count,%ids,%packed,%gate,%up,%hidden,%gate_out,%up_out) : (index,index,index,index,offset,offset,offset,offset,buffer,buffer,buffer,buffer,buffer,buffer,buffer,buffer)
+  kernel.return
+}}
+"""
 Path(sys.argv[3]).write_text(router + "\n" + indexed)

@@ -1,0 +1,218 @@
+// Copyright 2026 AMD ROCm Software
+// SPDX-License-Identifier: MIT
+// Physical weight adapters and precise group contractions for expert split-Q8.
+// This packet contains raw activation sums, not dense Q8_1_x4 scaled sums.
+func.decl @llm.experts.q4_codes(%w: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+func.decl @llm.experts.q6_codes(%w: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32)
+
+template.decl @ggml.q5k.chunk(%weight: buffer, %row_byte_base: offset, %block: index, %group: index, %half: index) -> (vector<16xi8>, f32, f32)
+
+template.decl @ggml.block32.word(%tag: index, %weight: buffer, %row_origin: offset, %block: index, %word: index) -> (vector<4xi8>, f32, f32)
+
+template.decl @llm.experts.group_dot32(%tag: index, %weight: buffer, %row_origin: offset, %group32: index, %activation_codes: vector<32xi8>, %activation_scale: f32, %raw_activation_sum: f32) -> (f32)
+
+// All callers establish supported encoding and block divisibility first.
+// One physical encoding table serves both stride validation and device wrappers.
+func.def public pure inline @llm.experts.encoding_block(%tag: index) -> (index, index) {
+  %q8 = index.constant 8 : index
+  %q5_0 = index.constant 6 : index
+  %q5_k = index.constant 13 : index
+  %q6_k = index.constant 14 : index
+  %is_q8 = index.cmp eq, %tag, %q8 : index
+  %is_q5_0 = index.cmp eq, %tag, %q5_0 : index
+  %is_q5_k = index.cmp eq, %tag, %q5_k : index
+  %is_q6_k = index.cmp eq, %tag, %q6_k : index
+  %block32 = scalar.ori %is_q8, %is_q5_0 : i1
+  %v32 = index.constant 32 : index
+  %v256 = index.constant 256 : index
+  %values = scf.select %block32, %v32, %v256 : index
+  %b144 = index.constant 144 : index
+  %b176 = index.constant 176 : index
+  %b210 = index.constant 210 : index
+  %b34 = index.constant 34 : index
+  %b22 = index.constant 22 : index
+  %k_other = scf.select %is_q5_k, %b176, %b144 : index
+  %k_bytes = scf.select %is_q6_k, %b210, %k_other : index
+  %small_bytes = scf.select %is_q8, %b34, %b22 : index
+  %bytes = scf.select %block32, %small_bytes, %k_bytes : index
+  func.return %values, %bytes : index, index
+}
+
+func.def public pure inline @llm.experts.row_bytes(%tag: index, %width: index) -> (offset) {
+  %values, %block_bytes = func.call pure @llm.experts.encoding_block(%tag) : (index) -> (index, index)
+  %blocks = index.div %width, %values : index
+  %bytes = index.cast %block_bytes : index to offset
+  %result = index.scale %blocks, %bytes : index, offset -> offset
+  func.return %result : offset
+}
+
+func.def public inline @llm.experts.q5_codes(%weight: buffer, %origin: offset, %group: index) -> (vector<32xi8>, f32, f32) {
+  %zero = index.constant 0 : index
+  %one = index.constant 1 : index
+  %bounded = index.assume %group [range(%group, 0, 7)] : index
+  %lo, %scale, %minimum = template.apply<@ggml.q5k.chunk>(%weight, %origin, %zero, %bounded, %zero) : (buffer, offset, index, index, index) -> (vector<16xi8>, f32, f32)
+  %hi, %scale_hi, %minimum_hi = template.apply<@ggml.q5k.chunk>(%weight, %origin, %zero, %bounded, %one) : (buffer, offset, index, index, index) -> (vector<16xi8>, f32, f32)
+  %codes = vector.concat<0> %lo, %hi : vector<16xi8>, vector<16xi8> -> vector<32xi8>
+  func.return %codes, %scale, %minimum : vector<32xi8>, f32, f32
+}
+
+// Both block32 formats have one F16 scale per group. The owned word decoder
+// handles Q5_0's high bits and signed centering; no new physical decoder here.
+func.def public inline @llm.experts.block32_codes(%tag: index, %weight: buffer, %origin: offset) -> (vector<32xi8>, f32, f32) {
+  %zero = index.constant 0 : index
+  %word0 = index.constant 0 : index
+  %v0, %d0, %m0 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word0) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word1 = index.constant 1 : index
+  %v1, %d1, %m1 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word1) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word2 = index.constant 2 : index
+  %v2, %d2, %m2 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word2) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word3 = index.constant 3 : index
+  %v3, %d3, %m3 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word3) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word4 = index.constant 4 : index
+  %v4, %d4, %m4 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word4) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word5 = index.constant 5 : index
+  %v5, %d5, %m5 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word5) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word6 = index.constant 6 : index
+  %v6, %d6, %m6 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word6) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %word7 = index.constant 7 : index
+  %v7, %d7, %m7 = template.apply<@ggml.block32.word>(%tag, %weight, %origin, %zero, %word7) : (index, buffer, offset, index, index) -> (vector<4xi8>, f32, f32)
+  %v01 = vector.concat<0> %v0, %v1 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %v23 = vector.concat<0> %v2, %v3 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %v45 = vector.concat<0> %v4, %v5 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %v67 = vector.concat<0> %v6, %v7 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %lo = vector.concat<0> %v01, %v23 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %hi = vector.concat<0> %v45, %v67 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %codes = vector.concat<0> %lo, %hi : vector<16xi8>, vector<16xi8> -> vector<32xi8>
+  func.return %codes, %d0, %m0 : vector<32xi8>, f32, f32
+}
+
+func.def inline @llm.experts.dot_i8x32(%weight: vector<32xi8>, %activation: vector<32xi8>) -> (i32) {
+  %zero = vector.splati 0 : vector<1xi32>
+  %w0 = vector.slice %weight[0] : vector<32xi8> -> vector<4xi8>
+  %x0 = vector.slice %activation[0] : vector<32xi8> -> vector<4xi8>
+  %a0 = vector.dot4i<s8s8> %w0, %x0, %zero : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w1 = vector.slice %weight[4] : vector<32xi8> -> vector<4xi8>
+  %x1 = vector.slice %activation[4] : vector<32xi8> -> vector<4xi8>
+  %a1 = vector.dot4i<s8s8> %w1, %x1, %a0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w2 = vector.slice %weight[8] : vector<32xi8> -> vector<4xi8>
+  %x2 = vector.slice %activation[8] : vector<32xi8> -> vector<4xi8>
+  %a2 = vector.dot4i<s8s8> %w2, %x2, %a1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w3 = vector.slice %weight[12] : vector<32xi8> -> vector<4xi8>
+  %x3 = vector.slice %activation[12] : vector<32xi8> -> vector<4xi8>
+  %a3 = vector.dot4i<s8s8> %w3, %x3, %a2 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w4 = vector.slice %weight[16] : vector<32xi8> -> vector<4xi8>
+  %x4 = vector.slice %activation[16] : vector<32xi8> -> vector<4xi8>
+  %a4 = vector.dot4i<s8s8> %w4, %x4, %a3 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w5 = vector.slice %weight[20] : vector<32xi8> -> vector<4xi8>
+  %x5 = vector.slice %activation[20] : vector<32xi8> -> vector<4xi8>
+  %a5 = vector.dot4i<s8s8> %w5, %x5, %a4 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w6 = vector.slice %weight[24] : vector<32xi8> -> vector<4xi8>
+  %x6 = vector.slice %activation[24] : vector<32xi8> -> vector<4xi8>
+  %a6 = vector.dot4i<s8s8> %w6, %x6, %a5 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w7 = vector.slice %weight[28] : vector<32xi8> -> vector<4xi8>
+  %x7 = vector.slice %activation[28] : vector<32xi8> -> vector<4xi8>
+  %a7 = vector.dot4i<s8s8> %w7, %x7, %a6 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %result = vector.extract %a7[0] : vector<1xi32> -> i32
+  func.return %result : i32
+}
+
+func.def inline @llm.experts.dot_i8x16(%weight: vector<16xi8>, %activation: vector<16xi8>) -> (i32) {
+  %zero = vector.splati 0 : vector<1xi32>
+  %w0 = vector.slice %weight[0] : vector<16xi8> -> vector<4xi8>
+  %x0 = vector.slice %activation[0] : vector<16xi8> -> vector<4xi8>
+  %a0 = vector.dot4i<s8s8> %w0, %x0, %zero : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w1 = vector.slice %weight[4] : vector<16xi8> -> vector<4xi8>
+  %x1 = vector.slice %activation[4] : vector<16xi8> -> vector<4xi8>
+  %a1 = vector.dot4i<s8s8> %w1, %x1, %a0 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w2 = vector.slice %weight[8] : vector<16xi8> -> vector<4xi8>
+  %x2 = vector.slice %activation[8] : vector<16xi8> -> vector<4xi8>
+  %a2 = vector.dot4i<s8s8> %w2, %x2, %a1 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %w3 = vector.slice %weight[12] : vector<16xi8> -> vector<4xi8>
+  %x3 = vector.slice %activation[12] : vector<16xi8> -> vector<4xi8>
+  %a3 = vector.dot4i<s8s8> %w3, %x3, %a2 : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %result = vector.extract %a3[0] : vector<1xi32> -> i32
+  func.return %result : i32
+}
+
+// Preserve the original full32 Q4 integer dot and minimum correction order.
+func.def inline @llm.experts.affine_group_dot32(%codes: vector<32xi8>, %scale: f32, %minimum: f32, %x: vector<32xi8>, %activation_scale: f32, %raw_sum: f32) -> (f32) {
+  %integer = func.call @llm.experts.dot_i8x32(%codes, %x) : (vector<32xi8>, vector<32xi8>) -> (i32)
+  %dot = scalar.sitofp %integer : i32 to f32
+  %scaled = scalar.mulf %dot, %scale : f32
+  %correction = scalar.mulf %raw_sum, %minimum : f32
+  %centered = scalar.subf %scaled, %correction : f32
+  %result = scalar.mulf %centered, %activation_scale : f32
+  func.return %result : f32
+}
+
+template.def<@llm.experts.group_dot32> device @llm_experts_q4_group_dot32(%tag: index, %weight: buffer, %row_origin: offset, %group32: index, %activation_codes: vector<32xi8>, %activation_scale: f32, %raw_activation_sum: f32) -> (f32) where [eq(%tag, 12)] {
+  %block_bytes = index.constant 144 : offset
+  %eight = index.constant 8 : index
+  %block = index.div %group32, %eight : index
+  %group = index.rem %group32, %eight : index
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %origin = index.add %row_origin, %block_add : offset
+  %codes, %scale, %other = func.call @llm.experts.q4_codes(%weight, %origin, %group) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+  %result = func.call @llm.experts.affine_group_dot32(%codes, %scale, %other, %activation_codes, %activation_scale, %raw_activation_sum) : (vector<32xi8>, f32, f32, vector<32xi8>, f32, f32) -> (f32)
+  template.return %result : f32
+}
+
+template.def<@llm.experts.group_dot32> device @llm_experts_q5_group_dot32(%tag: index, %weight: buffer, %row_origin: offset, %group32: index, %activation_codes: vector<32xi8>, %activation_scale: f32, %raw_activation_sum: f32) -> (f32) where [eq(%tag, 13)] {
+  %block_bytes = index.constant 176 : offset
+  %eight = index.constant 8 : index
+  %block = index.div %group32, %eight : index
+  %group = index.rem %group32, %eight : index
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %origin = index.add %row_origin, %block_add : offset
+  %codes, %scale, %other = func.call @llm.experts.q5_codes(%weight, %origin, %group) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+  %result = func.call @llm.experts.affine_group_dot32(%codes, %scale, %other, %activation_codes, %activation_scale, %raw_activation_sum) : (vector<32xi8>, f32, f32, vector<32xi8>, f32, f32) -> (f32)
+  template.return %result : f32
+}
+
+template.def<@llm.experts.group_dot32> device @llm_experts_q6_group_dot32(%tag: index, %weight: buffer, %row_origin: offset, %group32: index, %activation_codes: vector<32xi8>, %activation_scale: f32, %raw_activation_sum: f32) -> (f32) where [eq(%tag, 14)] {
+  %block_bytes = index.constant 210 : offset
+  %eight = index.constant 8 : index
+  %block = index.div %group32, %eight : index
+  %group = index.rem %group32, %eight : index
+  %block_add = index.scale %block, %block_bytes : index, offset -> offset
+  %origin = index.add %row_origin, %block_add : offset
+  %codes, %scale, %other = func.call @llm.experts.q6_codes(%weight, %origin, %group) : (buffer, offset, index) -> (vector<32xi8>, f32, f32)
+  // Q6 has two independent16-value scales and the original explicit FMA.
+  %wlo = vector.slice %codes[0] : vector<32xi8> -> vector<16xi8>
+  %whi = vector.slice %codes[16] : vector<32xi8> -> vector<16xi8>
+  %xlo = vector.slice %activation_codes[0] : vector<32xi8> -> vector<16xi8>
+  %xhi = vector.slice %activation_codes[16] : vector<32xi8> -> vector<16xi8>
+  %ilo = func.call @llm.experts.dot_i8x16(%wlo, %xlo) : (vector<16xi8>, vector<16xi8>) -> (i32)
+  %ihi = func.call @llm.experts.dot_i8x16(%whi, %xhi) : (vector<16xi8>, vector<16xi8>) -> (i32)
+  %flo = scalar.sitofp %ilo : i32 to f32
+  %fhi = scalar.sitofp %ihi : i32 to f32
+  %low = scalar.mulf %flo, %scale : f32
+  %combined = scalar.fmaf %fhi, %other, %low : f32
+  %result = scalar.mulf %combined, %activation_scale : f32
+  template.return %result : f32
+}
+
+template.def<@llm.experts.group_dot32> device @llm_experts_q8_group_dot32(%tag: index, %weight: buffer, %row_origin: offset, %group32: index, %activation_codes: vector<32xi8>, %activation_scale: f32, %raw_activation_sum: f32) -> (f32) where [eq(%tag, 8)] {
+  %block_bytes = index.constant 34 : offset
+  %block_add = index.scale %group32, %block_bytes : index, offset -> offset
+  %origin = index.add %row_origin, %block_add : offset
+  %codes, %scale, %other = func.call @llm.experts.block32_codes(%tag, %weight, %origin) : (index, buffer, offset) -> (vector<32xi8>, f32, f32)
+  %integer = func.call @llm.experts.dot_i8x32(%codes, %activation_codes) : (vector<32xi8>, vector<32xi8>) -> (i32)
+  %dot = scalar.sitofp %integer : i32 to f32
+  %weighted = scalar.mulf %dot, %scale : f32
+  %result = scalar.mulf %weighted, %activation_scale : f32
+  template.return %result : f32
+}
+
+template.def<@llm.experts.group_dot32> device @llm_experts_q5_0_group_dot32(%tag: index, %weight: buffer, %row_origin: offset, %group32: index, %activation_codes: vector<32xi8>, %activation_scale: f32, %raw_activation_sum: f32) -> (f32) where [eq(%tag, 6)] {
+  %block_bytes = index.constant 22 : offset
+  %block_add = index.scale %group32, %block_bytes : index, offset -> offset
+  %origin = index.add %row_origin, %block_add : offset
+  %codes, %scale, %other = func.call @llm.experts.block32_codes(%tag, %weight, %origin) : (index, buffer, offset) -> (vector<32xi8>, f32, f32)
+  %integer = func.call @llm.experts.dot_i8x32(%codes, %activation_codes) : (vector<32xi8>, vector<32xi8>) -> (i32)
+  %dot = scalar.sitofp %integer : i32 to f32
+  %weighted = scalar.mulf %dot, %scale : f32
+  %result = scalar.mulf %weighted, %activation_scale : f32
+  template.return %result : f32
+}

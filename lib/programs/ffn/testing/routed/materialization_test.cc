@@ -9,6 +9,7 @@
 #include "loomc/target/amdgpu.h"
 #include "loomc/workspace.h"
 #include "gtest/gtest.h"
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <sstream>
@@ -31,33 +32,148 @@ std::string Runfile(const std::string &relative) {
          (workspace ? workspace : "_main") + "/" + relative;
 }
 struct Case {
-  const char *name;
+  std::string name;
   int capacity = 1;
+  int gate_tag = 12;
+  int up_tag = 12;
   int down_tag = 12;
-  int gate_bytes = 113246208;
-  int up_bytes = 113246208;
-  int down_bytes = 113246208;
+  int64_t gate_bytes = 113246208;
+  int64_t up_bytes = 113246208;
+  int64_t down_bytes = 113246208;
   bool expected = true;
   bool bad_router_shape = false;
   bool bad_gate_rank = false;
+  bool matmul = false;
+  int width = 768;
+  int columns = 2048;
+  int experts = 128;
+  int assignments_per_token = 8;
+  int input_repeat = 1;
 };
-TEST(RoutedMaterialization, TypedFirstProfileAndExactExtents) {
-  const std::vector<Case> cases = {
+int64_t WeightBytes(int tag) {
+  // Independent fixed-profile wire extents: 128 * 2048 * 768 values.
+  switch (tag) {
+  case 12:
+    return 113246208;
+  case 13:
+  case 6:
+    return 138412032;
+  case 14:
+    return 165150720;
+  case 8:
+    return 213909504;
+  }
+  return 0;
+}
+std::vector<Case> Cases() {
+  std::vector<Case> cases = {
       {"q4"},
-      {"q6", 17, 14, 113246208, 113246208, 165150720},
-      {"capacity512", 512},
-      {"capacity0", 0, 12, 113246208, 113246208, 113246208, false},
-      {"capacity513", 513, 12, 113246208, 113246208, 113246208, false},
-      {"wrong_down_tag", 1, 13, 113246208, 113246208, 113246208, false},
-      {"wrong_gate_extent", 1, 12, 113246207, 113246208, 113246208, false},
-      {"wrong_up_extent", 1, 12, 113246208, 113246209, 113246208, false},
-      {"wrong_q4_down_extent", 1, 12, 113246208, 113246208, 165150720, false},
-      {"wrong_q6_down_extent", 1, 14, 113246208, 113246208, 113246208, false},
-      {"wrong_router_shape", 1, 12, 113246208, 113246208, 113246208, false,
-       true},
-      {"wrong_gate_view_rank", 1, 12, 113246208, 113246208, 113246208, false,
-       false, true},
+      {"q6", 17, 12, 12, 14, 113246208, 113246208, 165150720},
+      // The former unsupported-Q5 case still rejects its mismatched Q4 extent.
+      {"wrong_down_tag_extent", 1, 12, 12, 13, 113246208, 113246208, 113246208,
+       false},
+      {"wrong_q4_down_extent", 1, 12, 12, 12, 113246208, 113246208, 165150720,
+       false},
+      {"wrong_q6_down_extent", 1, 12, 12, 14, 113246208, 113246208, 113246208,
+       false},
   };
+  for (int gate : {12, 13, 14, 8})
+    for (int up : {12, 13, 14, 8})
+      cases.push_back(
+          {"pair_" + std::to_string(gate) + "_" + std::to_string(up), 1, gate,
+           up, 12, WeightBytes(gate), WeightBytes(up), WeightBytes(12)});
+  for (int down : {12, 13, 14, 8, 6})
+    cases.push_back({"down_" + std::to_string(down), 17, 12, 12, down,
+                     WeightBytes(12), WeightBytes(12), WeightBytes(down)});
+  cases.push_back({"capacity512", 512});
+  for (int capacity : {0, 513}) {
+    Case c{"capacity_" + std::to_string(capacity), capacity};
+    c.expected = false;
+    cases.push_back(c);
+  }
+  for (int role = 0; role != 3; ++role) {
+    for (int tag : {12, 13, 14, 8, 6}) {
+      // Q5_0 has a valid encoding but is intentionally down-only.
+      Case c{"role_" + std::to_string(role) + "_tag_" + std::to_string(tag)};
+      int *slot = role == 0 ? &c.gate_tag : role == 1 ? &c.up_tag : &c.down_tag;
+      int64_t *bytes = role == 0   ? &c.gate_bytes
+                       : role == 1 ? &c.up_bytes
+                                   : &c.down_bytes;
+      *slot = tag;
+      *bytes = WeightBytes(tag);
+      if (role != 2 && tag == 6) {
+        c.expected = false;
+        cases.push_back(c);
+        continue;
+      }
+      for (int delta : {-1, 1}) {
+        Case bad = c;
+        bad.name += delta < 0 ? "_short" : "_long";
+        (role == 0   ? bad.gate_bytes
+         : role == 1 ? bad.up_bytes
+                     : bad.down_bytes) += delta;
+        bad.expected = false;
+        cases.push_back(bad);
+      }
+    }
+    for (int tag : {1, 11, 20, 21, 23, 99}) {
+      Case c{"unsupported_role_" + std::to_string(role) + "_tag_" +
+             std::to_string(tag)};
+      (role == 0 ? c.gate_tag : role == 1 ? c.up_tag : c.down_tag) = tag;
+      c.expected = false;
+      cases.push_back(c);
+    }
+    Case overflow{"overflow_role_" + std::to_string(role)};
+    (role == 0   ? overflow.gate_bytes
+     : role == 1 ? overflow.up_bytes
+                 : overflow.down_bytes) = INT64_MAX;
+    overflow.expected = false;
+    cases.push_back(overflow);
+  }
+  Case router{"wrong_router_shape"};
+  router.expected = false;
+  router.bad_router_shape = true;
+  cases.push_back(router);
+  Case rank{"wrong_gate_view_rank"};
+  rank.expected = false;
+  rank.bad_gate_rank = true;
+  cases.push_back(rank);
+  for (bool gate : {false, true}) {
+    for (int tag : {12, 13, 14, 8, 6}) {
+      Case c{"single_" + std::string(gate ? "gate_" : "down_") +
+             std::to_string(tag)};
+      c.matmul = true;
+      c.down_tag = tag;
+      c.down_bytes = WeightBytes(tag);
+      c.width = gate ? 2048 : 768;
+      c.columns = gate ? 768 : 2048;
+      c.input_repeat = gate ? 8 : 1;
+      c.expected = !gate || tag != 6;
+      cases.push_back(c);
+    }
+  }
+  for (const auto &name :
+       {"wrong_K", "wrong_N", "wrong_experts", "wrong_assignments_per_token",
+        "wrong_input_repeat"}) {
+    Case c{name};
+    c.matmul = true;
+    c.expected = false;
+    if (c.name == "wrong_K")
+      c.width = 769;
+    if (c.name == "wrong_N")
+      c.columns = 2049;
+    if (c.name == "wrong_experts")
+      c.experts = 64;
+    if (c.name == "wrong_assignments_per_token")
+      c.assignments_per_token = 4;
+    if (c.name == "wrong_input_repeat")
+      c.input_repeat = 8;
+    cases.push_back(c);
+  }
+  return cases;
+}
+TEST(RoutedMaterialization, TypedFirstProfileAndExactExtents) {
+  const auto cases = Cases();
   for (bool bytecode : {false, true}) {
     loomc_target_environment_t *raw_environment = nullptr;
     auto status = loomc_target_environment_create_amdgpu(
@@ -90,11 +206,18 @@ TEST(RoutedMaterialization, TypedFirstProfileAndExactExtents) {
       const std::string gate_shape =
           input.bad_gate_rank ? "128x884736xi8" : "[%GB]xi8";
       std::ostringstream source;
+      if (input.matmul)
+        source
+            << "template.decl @llm.experts.indexed_matmul(%R:index,%K:index,%N:index,%E:index,%A:index,%I:index,%tag:index,%B:index,%count:buffer,%ids:buffer,%packed:buffer,%weight:view<[%B]xi8>,%out:buffer)\n";
+      else
+        source
+            << "template.decl @llm.ffn.direct_routed(%C:index,%GT:index,%UT:index,%DT:index,%GB:index,%UB:index,%DB:index,%count:buffer,%x:buffer,%router:view<128x2048xf32>,%gate:view<[%GB]xi8>,%up:view<[%UB]xi8>,%down:view<[%DB]xi8>,%out:buffer)\n";
       source
-          << "template.decl @llm.ffn.direct_routed(%C:index,%tag:index,%GB:index,%UB:index,%DB:index,%count:buffer,%x:buffer,%router:view<128x2048xf32>,%gate:view<[%GB]xi8>,%up:view<[%UB]xi8>,%down:view<[%DB]xi8>,%out:buffer)\n"
           << "command.def public @probe.root() launch(%count:buffer,%x:buffer,%router:buffer,%gate:buffer,%up:buffer,%down:buffer,%out:buffer) {\n"
           << "  %C = index.constant " << input.capacity << " : index\n"
-          << "  %tag = index.constant " << input.down_tag << " : index\n"
+          << "  %GT = index.constant " << input.gate_tag << " : index\n"
+          << "  %UT = index.constant " << input.up_tag << " : index\n"
+          << "  %DT = index.constant " << input.down_tag << " : index\n"
           << "  %GB = index.constant " << input.gate_bytes << " : index\n"
           << "  %UB = index.constant " << input.up_bytes << " : index\n"
           << "  %DB = index.constant " << input.down_bytes << " : index\n"
@@ -104,11 +227,24 @@ TEST(RoutedMaterialization, TypedFirstProfileAndExactExtents) {
           << "  %gv = buffer.view %gate[%origin] : buffer -> view<"
           << gate_shape << ">\n"
           << "  %uv = buffer.view %up[%origin] : buffer -> view<[%UB]xi8>\n"
-          << "  %dv = buffer.view %down[%origin] : buffer -> view<[%DB]xi8>\n"
-          << "  template.apply<@llm.ffn.direct_routed>(%C,%tag,%GB,%UB,%DB,%count,%x,%rv,%gv,%uv,%dv,%out) : (index,index,index,index,index,buffer,buffer,view<"
-          << router_shape << ">,view<" << gate_shape
-          << ">,view<[%UB]xi8>,view<[%DB]xi8>,buffer)\n"
-          << "  command.return\n}\n";
+          << "  %dv = buffer.view %down[%origin] : buffer -> view<[%DB]xi8>\n";
+      if (input.matmul) {
+        source
+            << "  %R = index.constant " << 8 * input.capacity << " : index\n"
+            << "  %K = index.constant " << input.width << " : index\n"
+            << "  %N = index.constant " << input.columns << " : index\n"
+            << "  %E = index.constant " << input.experts << " : index\n"
+            << "  %A = index.constant " << input.assignments_per_token
+            << " : index\n"
+            << "  %I = index.constant " << input.input_repeat << " : index\n"
+            << "  template.apply<@llm.experts.indexed_matmul>(%R,%K,%N,%E,%A,%I,%DT,%DB,%count,%router,%x,%dv,%out) : (index,index,index,index,index,index,index,index,buffer,buffer,buffer,view<[%DB]xi8>,buffer)\n";
+      } else {
+        source
+            << "  template.apply<@llm.ffn.direct_routed>(%C,%GT,%UT,%DT,%GB,%UB,%DB,%count,%x,%rv,%gv,%uv,%dv,%out) : (index,index,index,index,index,index,index,buffer,buffer,view<"
+            << router_shape << ">,view<" << gate_shape
+            << ">,view<[%UB]xi8>,view<[%DB]xi8>,buffer)\n";
+      }
+      source << "  command.return\n}\n";
       std::string error;
       loomc_module_t *raw_module = nullptr;
       const std::vector<std::string> products = {
@@ -121,6 +257,10 @@ TEST(RoutedMaterialization, TypedFirstProfileAndExactExtents) {
       Owner<loomc_module_t, loomc_module_release> module(raw_module,
                                                          loomc_module_release);
       EXPECT_EQ(succeeded, input.expected) << error;
+      if (!input.expected) {
+        EXPECT_EQ(raw_module, nullptr);
+        EXPECT_FALSE(error.empty());
+      }
     }
   }
 }

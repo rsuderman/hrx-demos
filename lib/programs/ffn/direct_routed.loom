@@ -1,40 +1,305 @@
 // Copyright 2026 AMD ROCm Software
 // SPDX-License-Identifier: MIT
-// First direct expert profile: E2048/F768/expert128/top8. No family state.
-// Split Q8 payload and F32 metadata are paired exclusively with indexed kernels.
+// Configured expert formats for the fixed E2048/F768/expert128/top8 profile.
+// Expert split-Q8 payload/F32 metadata never uses the dense Q8_1_x4 ABI.
 
 kernel.decl @llm.experts.pack_split_q8(%rows: index, %width: index, %active_rows$2: index) launch(%rows_arg: index, %width_arg: index, %active_rows$5: index, %count: buffer, %x: buffer, %xq: buffer)
-
-kernel.decl @llm.experts.indexed_swiglu_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %w2: buffer, %y: buffer)
-
-kernel.decl @llm.experts.indexed_down_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %y: buffer)
-
-kernel.decl @llm.experts.indexed_down_q6(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %w: buffer, %y: buffer)
 
 kernel.decl @llm.routing.weighted_top8(%tokens: index) launch(%tokens_arg: index, %count: buffer, %ys: buffer, %wts: buffer, %y: buffer)
 
 kernel.decl @llm.routing.softmax_top8(%tokens: index) launch(%tokens_arg: index, %x: buffer, %w: buffer, %count: buffer, %ids: buffer, %wts: buffer)
 
-template.decl @llm.ffn.direct_routed(%C: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer)
+kernel.decl @llm.experts.indexed_swiglu_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
 
-template.decl @llm.experts.down_admit(%tag: index, %bytes: index)
+kernel.decl @llm.experts.indexed_swiglu_g12_u13(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
 
-template.def<@llm.experts.down_admit> @llm_experts_down_q4_admit(%tag: index, %bytes: index) where [eq(%tag, 12), eq(%bytes, 113246208)] {
+kernel.decl @llm.experts.indexed_swiglu_g12_u14(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g12_u8(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g13_u12(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g13_u13(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g13_u14(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g13_u8(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g14_u12(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g14_u13(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g14_u14(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g14_u8(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g8_u12(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g8_u13(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g8_u14(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_swiglu_g8_u8(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %gate: buffer, %up: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_gate_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_gate_q5(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_gate_q6(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_gate_q8(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q4(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q5(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q6(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q8(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+kernel.decl @llm.experts.indexed_down_q5_0(%n: index, %tokens: index) launch(%n_arg: index, %tokens_arg: index, %count: buffer, %ids: buffer, %x: buffer, %weight: buffer, %y: buffer)
+
+template.decl @llm.experts.gate_up_tag(%tag: index)
+
+template.def<@llm.experts.gate_up_tag> @llm_experts_gate_up_tag_12(%tag: index) where [eq(%tag, 12)] {
   template.return
 }
 
-template.def<@llm.experts.down_admit> @llm_experts_down_q6_admit(%tag: index, %bytes: index) where [eq(%tag, 14), eq(%bytes, 165150720)] {
+template.def<@llm.experts.gate_up_tag> @llm_experts_gate_up_tag_13(%tag: index) where [eq(%tag, 13)] {
   template.return
 }
 
-template.def<@llm.ffn.direct_routed> @llm_ffn_direct_routed(%C: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer) where [range(%C, 1, 512), eq(%gate_bytes, 113246208), eq(%up_bytes, 113246208)] {
-  template.apply<@llm.experts.down_admit>(%down_tag, %down_bytes) : (index, index)
+template.def<@llm.experts.gate_up_tag> @llm_experts_gate_up_tag_14(%tag: index) where [eq(%tag, 14)] {
+  template.return
+}
+
+template.def<@llm.experts.gate_up_tag> @llm_experts_gate_up_tag_8(%tag: index) where [eq(%tag, 8)] {
+  template.return
+}
+
+template.decl @llm.experts.down_tag(%tag: index)
+
+template.def<@llm.experts.down_tag> @llm_experts_down_tag_12(%tag: index) where [eq(%tag, 12)] {
+  template.return
+}
+
+template.def<@llm.experts.down_tag> @llm_experts_down_tag_13(%tag: index) where [eq(%tag, 13)] {
+  template.return
+}
+
+template.def<@llm.experts.down_tag> @llm_experts_down_tag_14(%tag: index) where [eq(%tag, 14)] {
+  template.return
+}
+
+template.def<@llm.experts.down_tag> @llm_experts_down_tag_8(%tag: index) where [eq(%tag, 8)] {
+  template.return
+}
+
+template.def<@llm.experts.down_tag> @llm_experts_down_tag_6(%tag: index) where [eq(%tag, 6)] {
+  template.return
+}
+
+func.decl pure @llm.experts.encoding_block(%tag: index) -> (index, index)
+
+template.decl @llm.experts.exact_extent(%actual: index, %expected: index)
+
+template.def<@llm.experts.exact_extent> @llm_experts_exact_extent(%actual: index, %expected: index) where [eq(%actual, %expected)] {
+  template.return
+}
+
+// Public profiles bound every product before this helper is used.
+template.decl @llm.experts.weight_extent(%K: index, %N: index, %experts: index, %tag: index, %bytes: index)
+
+template.def<@llm.experts.weight_extent> @llm_experts_weight_extent(%K: index, %N: index, %experts: index, %tag: index, %bytes: index) where [range(%K, 1, 2048), range(%N, 1, 2048), eq(%experts, 128)] {
+  template.apply<@llm.experts.down_tag>(%tag) : (index)
+  %block_values, %block_bytes = func.call pure @llm.experts.encoding_block(%tag) : (index) -> (index, index)
+  %blocks = index.div %K, %block_values : index
+  %aligned = index.mul %blocks, %block_values : index
+  template.apply<@llm.experts.exact_extent>(%K, %aligned) : (index, index)
+  %row_bytes = index.mul %blocks, %block_bytes : index
+  %expert_bytes = index.mul %N, %row_bytes : index
+  %expected = index.mul %experts, %expert_bytes : index
+  template.apply<@llm.experts.exact_extent>(%bytes, %expected) : (index, index)
+  template.return
+}
+
+template.decl @llm.experts.single_profile(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %tag: index)
+
+template.def<@llm.experts.single_profile> @llm_experts_single_gate_profile(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %tag: index) where [range(%assignments, 8, 4096), multiple_of(%assignments, 8), eq(%K, 2048), eq(%N, 768), eq(%experts, 128), eq(%per_token, 8), eq(%input_repeat, 8)] {
+  template.apply<@llm.experts.gate_up_tag>(%tag) : (index)
+  template.return
+}
+
+template.def<@llm.experts.single_profile> @llm_experts_single_down_profile(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %tag: index) where [range(%assignments, 8, 4096), multiple_of(%assignments, 8), eq(%K, 768), eq(%N, 2048), eq(%experts, 128), eq(%per_token, 8), eq(%input_repeat, 1)] {
+  template.apply<@llm.experts.down_tag>(%tag) : (index)
+  template.return
+}
+
+template.decl @llm.experts.launch_single(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer)
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_gate_12(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 2048), eq(%tag, 12)] {
+  kernel.launch @llm.experts.indexed_gate_q4[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_gate_13(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 2048), eq(%tag, 13)] {
+  kernel.launch @llm.experts.indexed_gate_q5[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_gate_14(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 2048), eq(%tag, 14)] {
+  kernel.launch @llm.experts.indexed_gate_q6[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_gate_8(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 2048), eq(%tag, 8)] {
+  kernel.launch @llm.experts.indexed_gate_q8[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_down_12(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 768), eq(%tag, 12)] {
+  kernel.launch @llm.experts.indexed_down_q4[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_down_13(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 768), eq(%tag, 13)] {
+  kernel.launch @llm.experts.indexed_down_q5[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_down_14(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 768), eq(%tag, 14)] {
+  kernel.launch @llm.experts.indexed_down_q6[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_down_8(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 768), eq(%tag, 8)] {
+  kernel.launch @llm.experts.indexed_down_q8[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_single> @llm_experts_launch_down_6(%K: index, %tag: index, %N: index, %assignments: index, %bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%bytes]xi8>, %output: buffer) where [eq(%K, 768), eq(%tag, 6)] {
+  kernel.launch @llm.experts.indexed_down_q5_0[%N, %assignments](%N, %assignments, %count, %ids, %packed, %weight, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%bytes]xi8>, buffer)
+  template.return
+}
+
+template.decl @llm.experts.indexed_matmul(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %tag: index, %weight_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer)
+
+template.def<@llm.experts.indexed_matmul> @llm_experts_indexed_matmul(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %tag: index, %weight_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %weight: view<[%weight_bytes]xi8>, %output: buffer) {
+  template.apply<@llm.experts.single_profile>(%assignments, %K, %N, %experts, %per_token, %input_repeat, %tag) : (index, index, index, index, index, index, index)
+  template.apply<@llm.experts.weight_extent>(%K, %N, %experts, %tag, %weight_bytes) : (index, index, index, index, index)
+  template.apply<@llm.experts.launch_single>(%K, %tag, %N, %assignments, %weight_bytes, %count, %ids, %packed, %weight, %output) : (index, index, index, index, index, buffer, buffer, buffer, view<[%weight_bytes]xi8>, buffer)
+  template.return
+}
+
+template.decl @llm.experts.launch_pair(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer)
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_12_12(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 12), eq(%up_tag, 12)] {
+  kernel.launch @llm.experts.indexed_swiglu_q4[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_12_13(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 12), eq(%up_tag, 13)] {
+  kernel.launch @llm.experts.indexed_swiglu_g12_u13[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_12_14(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 12), eq(%up_tag, 14)] {
+  kernel.launch @llm.experts.indexed_swiglu_g12_u14[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_12_8(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 12), eq(%up_tag, 8)] {
+  kernel.launch @llm.experts.indexed_swiglu_g12_u8[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_13_12(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 13), eq(%up_tag, 12)] {
+  kernel.launch @llm.experts.indexed_swiglu_g13_u12[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_13_13(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 13), eq(%up_tag, 13)] {
+  kernel.launch @llm.experts.indexed_swiglu_g13_u13[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_13_14(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 13), eq(%up_tag, 14)] {
+  kernel.launch @llm.experts.indexed_swiglu_g13_u14[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_13_8(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 13), eq(%up_tag, 8)] {
+  kernel.launch @llm.experts.indexed_swiglu_g13_u8[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_14_12(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 14), eq(%up_tag, 12)] {
+  kernel.launch @llm.experts.indexed_swiglu_g14_u12[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_14_13(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 14), eq(%up_tag, 13)] {
+  kernel.launch @llm.experts.indexed_swiglu_g14_u13[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_14_14(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 14), eq(%up_tag, 14)] {
+  kernel.launch @llm.experts.indexed_swiglu_g14_u14[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_14_8(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 14), eq(%up_tag, 8)] {
+  kernel.launch @llm.experts.indexed_swiglu_g14_u8[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_8_12(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 8), eq(%up_tag, 12)] {
+  kernel.launch @llm.experts.indexed_swiglu_g8_u12[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_8_13(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 8), eq(%up_tag, 13)] {
+  kernel.launch @llm.experts.indexed_swiglu_g8_u13[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_8_14(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 8), eq(%up_tag, 14)] {
+  kernel.launch @llm.experts.indexed_swiglu_g8_u14[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.def<@llm.experts.launch_pair> @llm_experts_launch_pair_8_8(%gate_tag: index, %up_tag: index, %N: index, %assignments: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [eq(%gate_tag, 8), eq(%up_tag, 8)] {
+  kernel.launch @llm.experts.indexed_swiglu_g8_u8[%N, %assignments](%N, %assignments, %count, %ids, %packed, %gate, %up, %output) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.decl @llm.experts.indexed_swiglu(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer)
+
+template.def<@llm.experts.indexed_swiglu> @llm_experts_indexed_swiglu(%assignments: index, %K: index, %N: index, %experts: index, %per_token: index, %input_repeat: index, %gate_tag: index, %up_tag: index, %gate_bytes: index, %up_bytes: index, %count: buffer, %ids: buffer, %packed: buffer, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %output: buffer) where [range(%assignments, 8, 4096), multiple_of(%assignments, 8), eq(%K, 2048), eq(%N, 768), eq(%experts, 128), eq(%per_token, 8), eq(%input_repeat, 8)] {
+  template.apply<@llm.experts.gate_up_tag>(%gate_tag) : (index)
+  template.apply<@llm.experts.gate_up_tag>(%up_tag) : (index)
+  template.apply<@llm.experts.weight_extent>(%K, %N, %experts, %gate_tag, %gate_bytes) : (index, index, index, index, index)
+  template.apply<@llm.experts.weight_extent>(%K, %N, %experts, %up_tag, %up_bytes) : (index, index, index, index, index)
+  template.apply<@llm.experts.launch_pair>(%gate_tag, %up_tag, %N, %assignments, %gate_bytes, %up_bytes, %count, %ids, %packed, %gate, %up, %output) : (index, index, index, index, index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.return
+}
+
+template.decl @llm.ffn.direct_routed(%C: index, %gate_tag: index, %up_tag: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer)
+
+template.def<@llm.ffn.direct_routed> @llm_ffn_direct_routed(%C: index, %gate_tag: index, %up_tag: index, %down_tag: index, %gate_bytes: index, %up_bytes: index, %down_bytes: index, %count: buffer, %input: buffer, %router: view<128x2048xf32>, %gate: view<[%gate_bytes]xi8>, %up: view<[%up_bytes]xi8>, %down: view<[%down_bytes]xi8>, %output: buffer) where [range(%C, 1, 512)] {
   %one = index.constant 1 : index
   %eight = index.constant 8 : index
   %hidden_width = index.constant 2048 : index
   %expert_width = index.constant 768 : index
-  %q4 = index.constant 12 : index
+  %experts = index.constant 128 : index
   %assignments = index.mul %C, %eight : index
+  // Validate encodings/extents before scratch allocation or work launch.
+  template.apply<@llm.experts.gate_up_tag>(%gate_tag) : (index)
+  template.apply<@llm.experts.weight_extent>(%hidden_width, %expert_width, %experts, %gate_tag, %gate_bytes) : (index, index, index, index, index)
+  template.apply<@llm.experts.gate_up_tag>(%up_tag) : (index)
+  template.apply<@llm.experts.weight_extent>(%hidden_width, %expert_width, %experts, %up_tag, %up_bytes) : (index, index, index, index, index)
+  template.apply<@llm.experts.down_tag>(%down_tag) : (index)
+  template.apply<@llm.experts.weight_extent>(%expert_width, %hidden_width, %experts, %down_tag, %down_bytes) : (index, index, index, index, index)
   %id_stride = index.constant 32 : offset
   %input_stride = index.constant 2560 : offset
   %hidden_stride = index.constant 24576 : offset
@@ -53,14 +318,9 @@ template.def<@llm.ffn.direct_routed> @llm_ffn_direct_routed(%C: index, %down_tag
   %expert_output = buffer.alloca<global> align(256) %expert_bytes : buffer
   kernel.launch @llm.routing.softmax_top8[%C](%C, %input, %router, %count, %ids, %weights) : [index](index, buffer, view<128x2048xf32>, buffer, buffer, buffer)
   kernel.launch @llm.experts.pack_split_q8[%C, %hidden_width, %one](%C, %hidden_width, %one, %count, %input, %packed_input) : [index, index, index](index, index, index, buffer, buffer, buffer)
-  kernel.launch @llm.experts.indexed_swiglu_q4[%expert_width, %assignments](%expert_width, %assignments, %count, %ids, %packed_input, %gate, %up, %hidden) : [index, index](index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
+  template.apply<@llm.experts.indexed_swiglu>(%assignments, %hidden_width, %expert_width, %experts, %eight, %eight, %gate_tag, %up_tag, %gate_bytes, %up_bytes, %count, %ids, %packed_input, %gate, %up, %hidden) : (index, index, index, index, index, index, index, index, index, index, buffer, buffer, buffer, view<[%gate_bytes]xi8>, view<[%up_bytes]xi8>, buffer)
   kernel.launch @llm.experts.pack_split_q8[%assignments, %expert_width, %eight](%assignments, %expert_width, %eight, %count, %hidden, %packed_hidden) : [index, index, index](index, index, index, buffer, buffer, buffer)
-  %down_q4 = index.cmp eq, %down_tag, %q4 : index
-  scf.if %down_q4 {
-    kernel.launch @llm.experts.indexed_down_q4[%hidden_width, %assignments](%hidden_width, %assignments, %count, %ids, %packed_hidden, %down, %expert_output) : [index, index](index, index, buffer, buffer, buffer, view<[%down_bytes]xi8>, buffer)
-  } else {
-    kernel.launch @llm.experts.indexed_down_q6[%hidden_width, %assignments](%hidden_width, %assignments, %count, %ids, %packed_hidden, %down, %expert_output) : [index, index](index, index, buffer, buffer, buffer, view<[%down_bytes]xi8>, buffer)
-  }
+  template.apply<@llm.experts.indexed_matmul>(%assignments, %expert_width, %hidden_width, %experts, %eight, %one, %down_tag, %down_bytes, %count, %ids, %packed_hidden, %down, %expert_output) : (index, index, index, index, index, index, index, index, buffer, buffer, buffer, view<[%down_bytes]xi8>, buffer)
   kernel.launch @llm.routing.weighted_top8[%C](%C, %count, %expert_output, %weights, %output) : [index](index, buffer, buffer, buffer, buffer)
   template.return
 }
