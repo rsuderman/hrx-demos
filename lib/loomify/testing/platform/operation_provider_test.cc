@@ -242,8 +242,9 @@ TEST_P(OperationProviderTest,
                                      architecture, platform, &raw, &error));
   Owner<loomc_module_t, loomc_module_release> module(raw, loomc_module_release);
   EXPECT_EQ(raw, nullptr);
-  EXPECT_NE(error.find("unresolved exact declaration"), std::string::npos)
+  EXPECT_NE(error.find("no accessible matching definition"), std::string::npos)
       << error;
+  EXPECT_NE(error.find("@selected_operation"), std::string::npos) << error;
   std::cout << "DECLARATION ONLY SELECTED KERNEL: " << error << "\n";
 }
 INSTANTIATE_TEST_SUITE_P(SourceAndBytecode, OperationProviderTest,
